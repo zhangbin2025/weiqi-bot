@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>AI 复盘分析</title>
+  <link rel="stylesheet" href="../shared/assets/css/ui.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 0;
+      touch-action: manipulation;
+    }
+    
+    /* ========== 页面容器 ========== */
+    .container {
+      background: white;
+      width: 100%;
+      max-width: 100%;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+    
+    /* ========== 渐变标题栏 ========== */
+    .page-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      flex-shrink: 0;
+    }
+    
+    .page-header .header-left {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    
+    .page-header .page-title {
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.2;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .page-header .page-subtitle {
+      font-size: 12px;
+      opacity: 0.85;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding-left: 18px;
+    }
+    
+    .page-header .header-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    /* 棋子小图标 */
+    .stone-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    
+    .stone-dot.black {
+      background: radial-gradient(circle at 30% 30%, #555, #000);
+    }
+    
+    .stone-dot.white {
+      background: radial-gradient(circle at 30% 30%, #fff, #ccc);
+      border: 1px solid #ddd;
+    }
+    
+    /* 手数显示（控制栏最右侧） */
+    .move-info {
+      font-size: 14px;
+      color: #333;
+      white-space: nowrap;
+      min-width: 60px;
+      text-align: right;
+    }
+    
+    /* 三点菜单按钮 */
+    .menu-btn {
+      width: 36px;
+      height: 36px;
+      border: none;
+      background: rgba(255,255,255,0.15);
+      color: white;
+      font-size: 20px;
+      cursor: pointer;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+    }
+    
+    .menu-btn:hover {
+      background: rgba(255,255,255,0.25);
+    }
+    
+    /* 下拉菜单 */
+    .dropdown {
+      position: relative;
+    }
+    
+    .dropdown-menu {
+      position: absolute;
+      top: calc(100% + 4px);
+      right: 0;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+      min-width: 180px;
+      display: none;
+      z-index: 1000;
+      overflow: hidden;
+    }
+    
+    .dropdown-menu.visible {
+      display: block;
+    }
+    
+    .dropdown-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
+      color: #333;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background 0.2s;
+      border: none;
+      background: transparent;
+      width: 100%;
+      text-align: left;
+    }
+    
+    .dropdown-item:hover {
+      background: #f5f5f5;
+    }
+    
+    .dropdown-item .icon {
+      font-size: 18px;
+    }
+    
+    .dropdown-divider {
+      height: 1px;
+      background: #e8e8e8;
+      margin: 4px 0;
+    }
+    
+    /* 后端信息项 */
+    .backend-info-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      color: #666;
+      font-size: 13px;
+      background: #f9f9f9;
+    }
+    
+    .backend-info-item .backend-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .backend-info-item .backend-status {
+      font-weight: 500;
+    }
+    
+    /* ========== 棋盘区域 ========== */
+    .board-section {
+      padding: 0;
+      background: white;
+    }
+    
+    #page-root {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      width: 100%;
+      margin: 10px 0;
+      position: relative;
+    }
+    
+    #page-root canvas {
+      max-width: 100%;
+      height: auto;
+    }
+    
+    /* ========== 控制栏 ========== */
+    .controls-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 2px;
+      background: white;
+      gap: 4px;
+      margin: 6px 0;
+      flex-wrap: nowrap;
+    }
+    
+    .controls-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0; /* 防止 flex 子元素溢出 */
+    }
+    
+    .main-controls {
+      flex: 0 0 auto; /* 不缩小 */
+      margin-left: 16px;
+      gap: 12px;
+    }
+    
+    #moveSlider {
+      width: 140px;
+      min-width: 60px;
+      max-width: 200px;
+      height: 6px;
+      -webkit-appearance: none;
+      appearance: none;
+      background: #e0e0e0;
+      border-radius: 3px;
+      outline: none;
+    }
+    
+    /* PC端适配：滑条更宽 */
+    @media (min-width: 768px) {
+      #moveSlider { width: 260px; max-width: 320px; }
+    }
+    
+    #moveSlider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #667eea;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(102,126,234,0.4);
+    }
+    
+    #moveSlider::-moz-range-thumb {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #667eea;
+      cursor: pointer;
+      border: none;
+      box-shadow: 0 2px 6px rgba(102,126,234,0.4);
+    }
+    
+    .move-info {
+      font-size: 14px;
+      color: #333;
+      white-space: nowrap;
+      min-width: 60px;
+      text-align: right;
+    }
+    
+    /* SVG 图标按钮 */
+    .icon-btn {
+      width: 36px;
+      height: 36px;
+      border: none;
+      border-radius: 8px;
+      background: transparent;
+      color: #555;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      position: relative;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    
+    .icon-btn svg {
+      width: 20px;
+      height: 20px;
+      stroke: currentColor;
+      stroke-width: 2;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    
+    .icon-btn:disabled {
+      opacity: 0.25;
+      cursor: not-allowed;
+    }
+    
+    .icon-btn:active:not(:disabled) {
+      transform: scale(0.92);
+      color: #333;
+    }
+    
+    .icon-btn:hover:not(:disabled) {
+      background: #f5f5f5;
+    }
+    
+    .icon-btn.primary {
+      color: #667eea;
+    }
+    
+    .icon-btn.primary:hover:not(:disabled) {
+      background: #f0f4ff;
+    }
+    
+    .icon-btn.danger {
+      color: #ff6b6b;
+    }
+    
+    .icon-btn.danger:hover:not(:disabled) {
+      background: #fff5f5;
+    }
+    
+    /* ========== 特殊模式功能按钮栏 ========== */
+    .special-controls-bar {
+      display: none;
+      flex-direction: column;
+      align-items: stretch; /* 改为 stretch，让子元素占满宽度 */
+      padding: 8px 12px;
+      background: #f0f4ff;
+      border-bottom: 1px solid #e8e8e8;
+      gap: 8px;
+    }
+    
+    .special-controls-bar.visible {
+      display: flex;
+    }
+    
+    /* 标题行 */
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    
+    .panel-header .panel-title {
+      font-size: 14px;
+      font-weight: bold;
+      color: #333;
+    }
+    
+    /* 候选着法紧凑列表 */
+    .candidates-list-compact {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      max-height: 300px;
+      overflow-y: auto;
+      margin: 0;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      overflow: hidden;
+      background: white;
+    }
+    
+    /* 表头 */
+    .candidates-header {
+      display: flex;
+      align-items: center;
+      padding: 8px 12px;
+      background: #f5f5f5;
+      border-bottom: 1px solid #e0e0e0;
+      font-size: 12px;
+      color: #666;
+      font-weight: 600;
+    }
+    
+    .candidates-header .col-hit { min-width: 40px; text-align: center; }
+    .candidates-header .col-rank { min-width: 50px; text-align: center; }
+    .candidates-header .col-coord { min-width: 50px; text-align: center; }
+    .candidates-header .col-winrate { min-width: 60px; text-align: right; }
+    .candidates-header .col-score { flex: 1; text-align: right; }
+    
+    .candidate-compact {
+      display: flex;
+      align-items: center;
+      padding: 8px 12px;
+      background: white;
+      border-bottom: 1px solid #f0f0f0;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    
+    .candidate-compact:last-child {
+      border-bottom: none;
+    }
+    
+    .candidate-compact:hover {
+      background: #f8f9ff;
+    }
+    
+    .candidate-compact.hit {
+      background: #f0fff0;
+    }
+    
+    .candidate-compact.hit:hover {
+      background: #e8ffe8;
+    }
+    
+    .candidate-compact.actual-move {
+      background: #fff8e8;
+    }
+    
+    .candidate-compact.actual-move:hover {
+      background: #fff0d0;
+    }
+    
+    .candidate-compact .col-hit {
+      min-width: 40px;
+      text-align: center;
+      font-weight: bold;
+      color: #28a745;
+      font-size: 16px;
+    }
+    
+    .candidate-compact .col-rank {
+      min-width: 50px;
+      text-align: center;
+      font-weight: 600;
+      color: #667eea;
+    }
+    
+    .candidate-compact .col-coord {
+      min-width: 50px;
+      text-align: center;
+      font-weight: bold;
+    }
+    
+    .candidate-compact .col-winrate {
+      min-width: 60px;
+      text-align: right;
+      color: #28a745;
+      font-weight: 500;
+    }
+    
+    .candidate-compact .col-score {
+      flex: 1;
+      text-align: right;
+      color: #007bff;
+      font-weight: 500;
+    }
+    
+    /* 功能按钮行 */
+    .special-controls-buttons {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+    }
+    
+    /* 探索深度指示器（底部，简洁） */
+    .depth-indicator {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      opacity: 0.6;
+      margin-top: 8px;
+    }
+    
+    .depth-cells {
+      display: flex;
+      gap: 2px;
+    }
+    
+    .depth-cell {
+      width: 8px;
+      height: 8px;
+      border-radius: 1px;
+      background: #e0e0e0;
+      transition: background 0.2s;
+    }
+    
+    .depth-cell.active {
+      background: #667eea;
+    }
+    
+    .depth-count {
+      font-size: 11px;
+      color: #666;
+      min-width: 16px;
+    }
+    
+    /* ========== 胜率趋势图 ========== */
+    .chart-section {
+      background: white;
+      border-top: 1px solid #e8e8e8;
+    }
+    
+    #chart-container {
+      width: 100%;
+      height: 180px;  // 降低高度，从 256px 改为 180px
+      background: #fafafa;
+      padding: 0 8px;
+      box-sizing: border-box;
+      position: relative;
+    }
+    
+    .chart-stats {
+      display: none;
+    }
+    
+    #winrateChart {
+      width: 100%;
+      height: 100%;
+      cursor: pointer;
+    }
+    
+    /* ========== 进度条 ========== */
+    #progressBar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: #e0e0e0;
+      z-index: 1000;
+    }
+    
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+      transition: width 0.3s ease;
+    }
+    
+    /* ========== 加载动画 ========== */
+    #loadingOverlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(255, 255, 255, 0.95);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+    }
+    
+    .loading-spinner {
+      width: 50px;
+      height: 50px;
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #667eea;
+      border-radius: 50%;
+      /* 性能优化：禁用旋转动画，避免持续渲染阻塞 GPU */
+      /* animation: spin 1s linear infinite; */
+      margin-bottom: 20px;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    .loading-text {
+      font-size: 16px;
+      color: #666;
+      font-weight: 500;
+    }
+    
+    .loading-progress {
+      margin-top: 15px;
+      font-size: 14px;
+      color: #999;
+    }
+    
+    /* ========== 对话框通用样式 ========== */
+    .dialog-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+    }
+    
+    .dialog-content {
+      position: relative;
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      max-width: 320px;
+      width: 90%;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+    
+    .dialog-content h3 {
+      margin: 0 0 20px 0;
+      text-align: center;
+      color: #333;
+      font-size: 18px;
+    }
+    
+    .dialog-cancel {
+      width: 100%;
+      padding: 12px;
+      background: #f5f5f5;
+      color: #666;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    
+    .dialog-cancel:hover { background: #e0e0e0; }
+    
+    /* ========== 配置对话框 ========== */
+    .config-dialog {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 2000;
+    }
+    
+    .config-item {
+      margin-bottom: 20px;
+    }
+    
+    .config-item label {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #333;
+    }
+    
+    .config-item select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 14px;
+      background: white;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+    
+    .config-item select:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+    
+    .dialog-buttons {
+      display: flex;
+      gap: 12px;
+      margin-top: 20px;
+    }
+    
+    .dialog-cancel {
+      flex: 1;
+      padding: 12px;
+      background: #f5f5f5;
+      color: #666;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    
+    .dialog-cancel:hover { background: #e0e0e0; }
+    
+    .dialog-confirm {
+      flex: 1;
+      padding: 12px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      cursor: pointer;
+      transition: opacity 0.2s ease;
+    }
+    
+    .dialog-confirm:hover { opacity: 0.9; }
+    
+    /* ========== 文件上传 ========== */
+    .file-input {
+      display: none;
+    }
+    
+    /* ========== 响应式适配 ========== */
+    @media (min-width: 600px) {
+      body {
+        padding: 8px;
+      }
+      
+      .container {
+        max-width: 500px;
+        padding: 20px;
+        margin: 0 auto;
+        border-radius: 12px;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+      }
+      
+      #chart-container {
+        height: 180px;
+      }
+    }
+  </style>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon-180x180.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#667eea">
+</head>
+<body>
+  <div class="container">
+    <!-- 渐变标题栏 -->
+    <header class="page-header">
+      <div class="header-left">
+        <div class="page-title" id="playerTitle">
+          <span class="stone-dot black"></span><span id="blackName">黑棋</span>
+          <span style="opacity:0.6">vs</span>
+          <span class="stone-dot white"></span><span id="whiteName">白棋</span>
+        </div>
+        <div class="page-subtitle" id="resultInfo">
+          <span>AI 复盘分析</span>
+        </div>
+      </div>
+      <div class="header-right">
+        <div class="dropdown">
+          <button class="menu-btn" id="menuBtn" title="菜单">⋮</button>
+          <div class="dropdown-menu" id="dropdownMenu">
+            <!-- 后端信息 -->
+            <div class="backend-info-item" id="backendInfoItem" style="display:none;">
+              <span class="backend-label">引擎</span>
+              <span class="backend-status" id="backendStatus">-</span>
+            </div>
+            <div class="dropdown-divider" id="backendDivider" style="display:none;"></div>
+            <!-- 音效开关 -->
+            <button class="dropdown-item" id="soundMenuItem">🔊 音效开关</button>
+            <div class="dropdown-divider"></div>
+            <!-- 导入棋谱 -->
+            <button class="dropdown-item" id="importBtn">
+              <span class="icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span>
+              <span>导入棋谱</span>
+            </button>
+            <div class="dropdown-divider"></div>
+            <!-- 复盘历史 -->
+            <button class="dropdown-item" id="historyBtn">
+              <span class="icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span>
+              <span>复盘历史</span>
+            </button>
+            <div class="dropdown-divider"></div>
+            <!-- 配置 -->
+            <button class="dropdown-item" id="configBtn">
+              <span class="icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle;"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+              <span>配置</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+    
+    <!-- 棋盘区域 -->
+    <div class="board-section">
+      <div id="page-root"></div>
+    </div>
+    
+    <!-- 特殊模式功能按钮栏（变化图/试下） -->
+    <div class="special-controls-bar" id="specialControlsBar">
+      <!-- 功能按钮行 -->
+      <div class="special-controls-buttons">
+        <button class="icon-btn" id="undoBtn" title="撤销">
+          <svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/></svg>
+        </button>
+        <button class="icon-btn" id="aiRecommendBtn" title="AI推荐" style="font-size: 12px; font-weight: 600;">AI</button>
+        <button class="icon-btn danger" id="exitBtn" title="退出">
+          <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      
+      <!-- 标题行（仅 AI 推荐模式显示） -->
+      <div class="panel-header" id="panelHeader" style="display: none;">
+        <div class="panel-title">AI 推荐</div>
+        <button class="icon-btn danger" id="exitBtn2" title="关闭">
+          <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      
+      <!-- 候选着法列表（仅 AI 推荐模式显示） -->
+      <div class="candidates-list-compact" id="candidatesListCompact" style="display: none;"></div>
+      
+      <!-- 深度指示器（底部，简洁） -->
+      <div class="depth-indicator" id="depthIndicator">
+        <div class="depth-cells" id="depthCells"></div>
+        <div class="depth-count" id="depthCount">0</div>
+      </div>
+    </div>
+    
+    <!-- 控制栏 -->
+    <div class="controls-row" id="mainControlsBar">
+      <div class="controls-group">
+        <input type="range" id="moveSlider" min="0" max="999" value="0">
+      </div>
+      <div class="controls-group main-controls">
+        <button class="icon-btn" id="prevBtn" title="上一手">
+          <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <button class="icon-btn" id="nextBtn" title="下一手">
+          <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+        <button class="icon-btn" id="aiBtn" title="AI推荐" style="font-size: 12px; font-weight: 600;">AI</button>
+        <!-- 第几手信息 -->
+        <div class="move-info" id="moveNumber">第 0 手</div>
+      </div>
+    </div>
+    
+    <!-- 胜率趋势图 -->
+    <div class="chart-section">
+      <div id="chart-container">
+        <div class="chart-stats" id="chartStats">胜率: - | 目差: -</div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- 隐藏的文件输入 -->
+  <input type="file" id="fileInput" class="file-input" accept=".sgf">
+  
+  <!-- 进度条 -->
+  <div id="progressBar" style="display: none;">
+    <div class="progress-fill" id="progressFill" style="width: 0%;"></div>
+  </div>
+  
+  <!-- 加载动画遮罩 -->
+  <div id="loadingOverlay" style="display: none;">
+    <div class="loading-text" id="loadingText">AI 分析中...</div>
+    <div class="loading-progress" id="loadingProgress">0%</div>
+  </div>
+  
+  <script type="module" src="./index.ts"></script>
+</body>
+</html>

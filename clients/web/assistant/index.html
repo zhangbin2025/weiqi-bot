@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>围棋 AI 助理</title>
+    
+    <!-- ONNX Runtime Web (CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.min.js"></script>
+    
+    <style>
+        /* 重置所有样式，参考项目风格 + 微信聊天体验 */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #5a3d7a 100%);
+            background-attachment: fixed;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 0;
+            color: #333;
+        }
+        
+        /* 页面容器 - 白色背景 */
+        .page-container {
+            background: white;
+            width: 100%;
+            max-width: 100%;
+            height: 100vh;
+            height: 100dvh;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            overflow: hidden;
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+        
+        /* PC端：容器居中，圆角阴影 */
+        @media (min-width: 600px) {
+            body {
+                padding: 16px;
+                align-items: center;
+            }
+            
+            .page-container {
+                max-width: 520px;
+                height: calc(100vh - 32px);
+                max-height: 800px;
+                border-radius: 16px;
+                box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+                overflow: hidden;
+                padding-bottom: 0; /* PC端不需要底部安全区域 */
+            }
+        }
+        
+        /* 渐变标题栏 */
+        .wechat-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: calc(2px + env(safe-area-inset-top)) 16px 2px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+            position: relative;
+            z-index: 50;
+        }
+        
+        @media (min-width: 600px) {
+            .wechat-header {
+                padding: calc(8px + env(safe-area-inset-top)) 16px 8px;
+                border-radius: 16px 16px 0 0;
+            }
+        }
+        
+        .wechat-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: white;
+        }
+        
+        /* 聊天区域 */
+        .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            background: #EDEDED;
+            padding: 8px 0;
+            min-height: 0;
+        }
+        
+        /* 消息气泡 */
+        .message {
+            margin-bottom: 12px;
+            padding: 0 12px;
+            animation: fadeIn 0.3s ease;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        /* 高亮消息样式 */
+        .message.highlight-message {
+            animation: highlight-pulse 2s ease;
+        }
+        
+        @keyframes highlight-pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(102, 126, 234, 0); }
+            50% { box-shadow: 0 0 0 10px rgba(102, 126, 234, 0.3); }
+        }
+        
+        .message.user {
+            display: flex;
+            justify-content: flex-end;
+        }
+        
+        .message-content {
+            max-width: 75%;
+            padding: 10px 12px;
+            border-radius: 4px;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            word-break: break-word;
+            line-height: 1.4;
+            font-size: 16px;
+            position: relative;
+        }
+        
+        /* 用户消息 - 灰色（与 AI 一致） */
+        .message.user .message-content {
+            background: #f5f5f5;
+            color: #333;
+            border: 1px solid #e0e0e0;
+        }
+        
+        /* AI 消息 - 灰色 */
+        .message.assistant .message-content {
+            background: #f5f5f5;
+            color: #333;
+            border: 1px solid #e0e0e0;
+        }
+        
+        /* 最后一个消息块 - 预留输入框高度 */
+        .message:last-child {
+            scroll-margin-bottom: 80px;
+        }
+        
+        /* 意图标签 - 紫色风格 */
+        .intent-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 8px;
+            background: #e8e4f0;
+            color: #667eea;
+            border-radius: 16px;
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+        
+        /* 实体列表 - 蓝色风格 */
+        .entity-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin: 8px 0 4px;
+            font-size: 13px;
+        }
+        
+        .entity-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 8px;
+            background: #e3f2fd;
+            color: #1976d2;
+            border-radius: 12px;
+            font-size: 12px;
+            white-space: nowrap;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .entity-item strong {
+            color: #1976d2;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+        
+        .entity-item a {
+            color: #667eea;
+            text-decoration: none;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 200px;
+        }
+        
+        /* 输入框 */
+        .input-container {
+            background: #F7F7F7;
+            border-top: 0.5px solid #D6D6D6;
+            padding: 8px 10px;
+            display: flex;
+            align-items: flex-end;
+            gap: 8px;
+            padding-bottom: 8px;
+            flex-shrink: 0;
+        }
+        
+        @media (min-width: 600px) {
+            .input-container {
+                border-radius: 0 0 16px 16px;
+                padding-bottom: 8px; /* PC端不需要底部安全区域 */
+            }
+        }
+        
+        .input-textarea {
+            flex: 1;
+            padding: 8px 12px;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            outline: none;
+            resize: none;
+            min-height: 36px;
+            max-height: 100px;
+            line-height: 1.4;
+            font-family: inherit;
+            box-sizing: border-box;
+            color: #000;
+            background: #FFF;
+        }
+        
+        .input-textarea::placeholder {
+            color: #B2B2B2;
+        }
+        
+        /* 工具栏按钮 */
+        .toolbar-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            background: transparent;
+            color: #FFF;
+            flex-shrink: 0;
+            padding: 0;
+        }
+        
+        .send-btn {
+            background: #07C160;
+            color: #FFF;
+            font-size: 16px;
+        }
+        
+        .send-btn:disabled {
+            background: #E8E8E8;
+            color: #B2B2B2;
+        }
+        
+        /* 状态提示 - 绿色风格 */
+        .status {
+            padding: 12px;
+            background: rgba(232, 245, 233, 0.9);
+            backdrop-filter: blur(10px);
+            color: #2e7d32;
+            border-radius: 12px;
+            margin: 8px 12px;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid rgba(46, 125, 50, 0.2);
+        }
+        
+        /* Command Menu */
+        .command-menu-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.3);
+            display: none;
+            z-index: 999;
+        }
+        
+        .command-menu {
+            position: absolute;
+            top: calc(50px + env(safe-area-inset-top));
+            right: 10px;
+            width: 200px;
+            background: #FFF;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            display: none;
+            z-index: 1000;
+            overflow: hidden;
+            animation: slideUp 0.2s ease;
+        }
+        
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .command-item {
+            padding: 12px 16px;
+            border-bottom: 0.5px solid #E8E8E8;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .command-item:hover {
+            background: #F7F7F7;
+        }
+        
+        .command-item:last-child {
+            border-bottom: none;
+        }
+        
+        .command-icon {
+            font-size: 20px;
+        }
+        
+        .command-title {
+            font-size: 16px;
+            color: #000;
+        }
+        
+        /* Markdown 内容样式 - 紫色链接 */
+        .markdown-content {
+            line-height: 1.4;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            word-break: break-word;
+        }
+        
+        .markdown-content p {
+            margin: 0.5em 0;
+        }
+        
+        .markdown-content p:first-child {
+            margin-top: 0;
+        }
+        
+        .markdown-content p:last-child {
+            margin-bottom: 0;
+        }
+        
+        .markdown-content h1,
+        .markdown-content h2,
+        .markdown-content h3 {
+            margin: 12px 0 8px 0;
+            font-weight: 600;
+        }
+        
+        .markdown-content h1 { font-size: 1.2em; }
+        .markdown-content h2 { font-size: 1.1em; }
+        .markdown-content h3 { font-size: 1.0em; }
+        
+        .markdown-content ul,
+        .markdown-content ol {
+            margin: 8px 0;
+            padding-left: 20px;
+        }
+        
+        .markdown-content li {
+            margin: 4px 0;
+        }
+        
+        .markdown-content strong {
+            font-weight: 600;
+            color: #667eea;
+        }
+        
+        .markdown-content code {
+            background: #e8e8e8;
+            padding: 2px 4px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.9em;
+            border: 1px solid #d0d0d0;
+        }
+        
+        /* 多行代码块中的代码不需要边框和padding */
+        .markdown-content pre code {
+            background: transparent;
+            padding: 0;
+            border: none;
+            font-size: 0.85em;
+        }
+        
+        .markdown-content pre {
+            background: #e8e8e8;
+            padding: 8px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 8px 0;
+            border: 1px solid #d0d0d0;
+        }
+        
+        .markdown-content blockquote {
+            border-left: 3px solid #667eea;
+            padding-left: 8px;
+            margin: 8px 0;
+            color: #666;
+        }
+        
+        .markdown-content a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        
+        .markdown-content a:hover {
+            text-decoration: underline;
+        }
+        
+        .markdown-content table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 8px 0;
+            font-size: 14px;
+        }
+        
+        .markdown-content table th,
+        .markdown-content table td {
+            border: 1px solid #e0e0e0;
+            padding: 6px 12px;
+            text-align: left;
+        }
+        
+        .markdown-content table th {
+            background: #f5f5f5;
+            font-weight: 600;
+        }
+        
+        .markdown-content table tr:hover {
+            background: #fafafa;
+        }
+        
+        /* 小屏幕优化 */
+        @media (max-width: 360px) {
+            .wechat-title {
+                font-size: 16px;
+            }
+            
+            .message-content {
+                font-size: 15px;
+            }
+        }
+        
+        /* 命令补全菜单 */
+        .command-suggest {
+            position: absolute;
+            bottom: 100%;
+            left: 0;
+            right: 0;
+            background: #FFF;
+            border-radius: 8px 8px 0 0;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+            display: none;
+            z-index: 100;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .command-suggest.show {
+            display: block;
+            animation: slideUp 0.2s ease;
+        }
+        
+        .command-suggest-item {
+            padding: 12px 16px;
+            border-bottom: 0.5px solid #E8E8E8;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .command-suggest-item:hover {
+            background: #F7F7F7;
+        }
+        
+        .command-suggest-item:last-child {
+            border-bottom: none;
+        }
+        
+        .command-suggest-icon {
+            font-size: 18px;
+            width: 24px;
+            text-align: center;
+        }
+        
+        .command-suggest-content {
+            flex: 1;
+        }
+        
+        .command-suggest-title {
+            font-size: 15px;
+            color: #000;
+            font-weight: 500;
+        }
+        
+        .command-suggest-desc {
+            font-size: 12px;
+            color: #999;
+            margin-top: 2px;
+        }
+    </style>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon-180x180.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#667eea">
+</head>
+<body>
+    <!-- 页面容器 -->
+    <div class="page-container">
+        <!-- 渐变标题栏 -->
+        <div class="wechat-header">
+            <h1 class="wechat-title">围棋 AI 助理</h1>
+            <button class="toolbar-btn" onclick="toggleCommandMenu()" title="更多">⋮</button>
+        </div>
+        
+        <!-- 聊天区域 -->
+        <div class="chat-container" id="chatContainer">
+            <div class="status">
+                <span>✅</span>
+                <span id="loadingText">AI助理已就绪</span>
+            </div>
+        </div>
+        
+        <!-- 输入框 -->
+        <div class="input-container" style="position: relative;">
+            <!-- 命令补全菜单 -->
+            <div class="command-suggest" id="commandSuggest"></div>
+            
+            <textarea class="input-textarea" id="userInput" placeholder="输入您想做的事" disabled rows="1"></textarea>
+            <input type="file" id="sgfUpload" accept=".sgf" style="display: none;">
+            <button class="toolbar-btn send-btn" id="sendBtn" onclick="sendMessage()" disabled title="发送">➤</button>
+        </div>
+        
+        <!-- Command Menu -->
+        <div class="command-menu" id="commandMenu">
+            <div class="command-item" onclick="document.getElementById('sgfUpload').click(); toggleCommandMenu();">
+                <div class="command-icon">📄</div>
+                <div class="command-title">导入 SGF 文件</div>
+            </div>
+            <div class="command-item" onclick="clearAllHistory(); toggleCommandMenu();">
+                <div class="command-icon">🗑️</div>
+                <div class="command-title">清空聊天记录</div>
+            </div>
+            <div class="command-item" onclick="exportHistory(); toggleCommandMenu();">
+                <div class="command-icon">📤</div>
+                <div class="command-title">导出聊天记录</div>
+            </div>
+
+        </div>
+    </div>
+    
+    <!-- Command Menu Overlay -->
+    <div class="command-menu-overlay" id="commandMenuOverlay" onclick="toggleCommandMenu()"></div>
+
+    <script src="../shared/error-catch.js"></script>
+    <script type="module" src="./main.js?v=20260529"></script>
+
+    <script src="../shared/status-bar.js"></script>
+    
+    <!-- 键盘适配：覆盖 status-bar.js 的逻辑，适配 flexbox 布局 -->
+    <script>
+    (function() {
+        const pageContainer = document.querySelector('.page-container');
+        const chatContainer = document.querySelector('.chat-container');
+        
+        // 覆盖 status-bar.js 定义的函数
+        window.onKeyboardHeightChange = function(keyboardHeight) {
+            if (keyboardHeight > 0) {
+                // 键盘弹起：缩小页面容器高度
+                pageContainer.style.height = `calc(100dvh - ${keyboardHeight}px)`;
+            } else {
+                // 键盘收起：恢复
+                pageContainer.style.height = '';
+            }
+            
+            // 滚动到底部
+            setTimeout(function() {
+                if (chatContainer) chatContainer.scrollTop = chatContainer.scrollHeight;
+            }, 100);
+        };
+    })();
+    </script>
+</body>
+</html>

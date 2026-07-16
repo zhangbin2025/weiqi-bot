@@ -1,0 +1,55 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "rootDir": ".",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"],
+      "@infrastructure/*": ["./infrastructure/*"],
+      "@services/*": ["./services/*"],
+      "@application/*": ["./application/*"],
+      "@domain/*": ["./domain/*"],
+      "@presentation/*": ["./presentation/*"],
+      "@ui": ["./clients/web/shared/ui"]
+    }
+  },
+  "include": [
+    "infrastructure/storage/types/**/*.d.ts",
+    "infrastructure/**/*.ts",
+    "domain/**/*.ts",
+    "services/**/*.ts",
+    "presentation/core/**/*.ts",
+    "presentation/pages/**/*.ts",
+    "presentation/adapters/web/**/*.ts",
+    "presentation/adapters/terminal/**/*.ts",
+    "presentation/shells/web/**/*.ts",
+    "presentation/shells/cli/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/__tests__/**",
+    "**/*.test.ts",
+    "app/rn/**",
+    "presentation/adapters/rn/**"
+  ]
+}

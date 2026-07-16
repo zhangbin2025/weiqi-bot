@@ -1,0 +1,16 @@
+/* Web 适配器通用样式 */
+
+.weiqi-board {
+  display: inline-block;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.weiqi-board canvas {
+  display: block;
+  cursor: crosshair;
+}
+
+.weiqi-board--coordinates {
+  padding: 20px;
+}

@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>定式列表 - 围棋智能助手</title>
+  <link rel="stylesheet" href="../shared/shell.css">
+  <style>
+    /* list 特有样式：内容区域 */
+    .glass-content {
+      padding: 0 12px 24px;
+    }
+
+    /* ===== 白色大面板（照搬 decision 的 .source-group） ===== */
+    .joseki-group {
+      background: rgba(255,255,255,0.9);
+      border-radius: 8px;
+      margin-bottom: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      overflow: hidden;
+    }
+
+    /* ===== 面板头部（照搬 decision 的 .source-header） ===== */
+    .group-header {
+      background: #f8f9fa;
+      padding: 12px 15px;
+      font-weight: bold;
+      color: #555;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    /* ===== 筛选标签区域 ===== */
+    .filter-tabs {
+      display: flex;
+      gap: 6px;
+    }
+
+    /* ===== 筛选按钮 ===== */
+    .filter-tab {
+      padding: 3px 8px;
+      font-size: 0.8em;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      background: #fff;
+      color: #666;
+      white-space: nowrap;
+    }
+    .filter-tab:hover {
+      background: #e0e0e0;
+    }
+    .filter-tab.active {
+      background: rgba(102,126,234,0.1);
+      color: #667eea;
+      font-weight: 600;
+    }
+    .filter-tab .count {
+      font-size: 0.75em;
+      opacity: 0.7;
+      font-weight: 400;
+      margin-left: 2px;
+    }
+    .filter-tab.active .count {
+      opacity: 0.9;
+      font-weight: 600;
+    }
+
+    /* ===== 眼睛按钮（照搬 decision 的 .icon-btn） ===== */
+    .icon-btn {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      font-size: 1.2em;
+      padding: 4px;
+      transition: transform 0.2s ease;
+    }
+    .icon-btn:hover {
+      transform: scale(1.1);
+    }
+
+    /* ===== 条目列表（照搬 decision 的 .quiz-list） ===== */
+    .joseki-list {
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    /* ===== 定式卡片（照搬 decision 的 .quiz-card） ===== */
+    .joseki-card {
+      padding: 14px;
+      background: #fff;
+      border: 1px solid #eee;
+      border-radius: 10px;
+      transition: all 0.2s ease;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+      overflow: hidden;
+      cursor: pointer;
+      position: relative;
+    }
+    .joseki-card:hover {
+      background: #fafafa;
+      border-color: #ddd;
+      transform: translateY(-1px);
+      box-shadow: 0 3px 8px rgba(0,0,0,0.08);
+    }
+    /* 已读标记：左上角小勾号 */
+    .joseki-card.viewed::before {
+      content: '✓';
+      position: absolute;
+      left: 4px;
+      top: 4px;
+      font-size: 8px;
+      color: #999;
+      background: #f0f0f0;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+      z-index: 10;
+    }
+
+    /* ===== 卡片头部 ===== */
+    .joseki-header {
+      padding: 0 0 6px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+      color: #333;
+      font-size: 0.93em;
+    }
+
+    /* ===== 标签行 ===== */
+    .joseki-tags-row {
+      padding: 0 0 8px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+    .tag {
+      font-size: 0.75em;
+      font-weight: 500;
+      color: #666;
+    }
+    .tag-hot { color: #e65100; }
+    .tag-hit { color: #2e7d32; }
+    .tag-complex { color: #1565c0; }
+
+    /* ===== 卡片 body ===== */
+    .joseki-body {
+      background: #fff;
+      border-top: 1px solid #f0f0f0;
+      padding: 10px 0;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .metrics-row {
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+    }
+    .joseki-thumbnail {
+      width: 160px;
+      height: 160px;
+      flex-shrink: 0;
+      border-radius: 6px;
+      background: #DCB35C;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .metrics-info {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 0;
+    }
+    .metric-col {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+    .metric-value {
+      font-size: 0.92em;
+      font-weight: 600;
+      color: #667eea;
+    }
+    .metric-label {
+      font-size: 0.68em;
+      color: #999;
+    }
+    .winrate-value {
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .winrate-value:hover { opacity: 0.8; }
+    .winrate-value.positive { color: #2e7d32; }
+    .winrate-value.negative { color: #c62828; }
+    .winrate-value.neutral { color: #666; }
+
+    /* ===== 卡片 footer ===== */
+    .joseki-footer {
+      padding: 8px 0 0;
+      background: #fff;
+      border-top: 1px solid #f0f0f0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 10px;
+      padding-top: 10px;
+    }
+    .joseki-tags-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      align-items: center;
+    }
+    .joseki-tags {
+      display: flex;
+      gap: 6px;
+      margin-left: auto;
+    }
+    .joseki-btn {
+      padding: 5px 12px;
+      background: rgba(102,126,234,0.1);
+      color: #667eea;
+      border-radius: 12px;
+      font-size: 0.85em;
+      font-weight: 500;
+      white-space: nowrap;
+      cursor: pointer;
+      border: none;
+      transition: background 0.2s;
+    }
+    .joseki-btn:hover { background: rgba(102,126,234,0.18); }
+
+    /* ===== 操作按钮 ===== */
+    .joseki-action {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 3px 8px;
+      background: rgba(102,126,234,0.08);
+      color: #667eea;
+      border-radius: 10px;
+      font-size: 0.82em;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .joseki-action:hover {
+      background: rgba(102,126,234,0.16);
+    }
+
+    /* ===== 胜率详情弹窗 ===== */
+    .winrate-backdrop {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.5);
+      opacity: 0; visibility: hidden;
+      transition: all 0.3s ease;
+      z-index: 999;
+    }
+    .winrate-backdrop.active { opacity: 1; visibility: visible; }
+    .winrate-sheet {
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      background: rgba(255,255,255,0.9);
+      border-radius: 16px 16px 0 0;
+      padding: 16px 20px 24px;
+      transform: translateY(100%);
+      transition: transform 0.3s ease;
+      z-index: 1000;
+      max-width: 600px;
+      margin: 0 auto;
+      pointer-events: none;
+    }
+    .winrate-sheet.active { transform: translateY(0); pointer-events: auto; }
+    @media (min-width: 768px) {
+      .winrate-sheet {
+        left: 50%;
+        right: auto;
+        top: 50%;
+        bottom: auto;
+        transform: translate(-50%, -40%) scale(0.9);
+        opacity: 0;
+        border-radius: 16px;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        max-height: 90vh;
+        overflow-y: auto;
+      }
+      .winrate-sheet.active {
+        transform: translate(-50%, -50%) scale(1);
+        opacity: 1;
+      }
+    }
+    .winrate-sheet-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+    }
+    .winrate-title {
+      font-size: 1.1em;
+      font-weight: 600;
+      color: #333;
+    }
+    .winrate-close-btn {
+      width: 32px; height: 32px;
+      border: none; background: transparent;
+      border-radius: 50%; cursor: pointer;
+      font-size: 1em; color: #666;
+    }
+    .winrate-close-btn:hover { background: #e0e0e0; }
+    .winrate-detail-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      font-size: 0.95em;
+    }
+    .winrate-detail-label { color: #666; }
+    .winrate-detail-value { font-weight: 500; }
+    .winrate-bar {
+      height: 24px;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #f5f5f5;
+      margin: 12px 0;
+      display: flex;
+    }
+    .winrate-bar-positive { background: #4caf50; }
+    .winrate-bar-neutral { background: #bdbdbd; }
+    .winrate-bar-negative { background: #f44336; }
+    .winrate-bar-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.8em;
+      color: #666;
+      margin-top: 4px;
+    }
+    .winrate-hint {
+      font-size: 0.85em;
+      color: #999;
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px solid #eee;
+    }
+
+    /* ===== 空状态 ===== */
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: #888;
+    }
+    .empty-state-icon {
+      font-size: 3em;
+      margin-bottom: 12px;
+      opacity: 0.5;
+    }
+  </style>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon-180x180.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#667eea">
+</head>
+<body>
+  <div class="glass-container">
+    <header class="glass-header">
+      <h1 class="glass-title">📚 定式列表</h1>
+    </header>
+
+    <div class="glass-content">
+      <div class="joseki-group">
+      <div class="group-header">
+        <div class="filter-tabs" id="filter-tabs"></div>
+        <button class="icon-btn" id="clear-read-btn" title="清除已读标记">👁️</button>
+      </div>
+      <div id="page-root"></div>
+    </div>
+
+    </div>
+
+    <footer><p>围棋智能助手 &copy; 2026</p></footer>
+  </div>
+
+  <!-- 胜率详情弹窗 -->
+  <div class="winrate-backdrop" id="winrate-backdrop"></div>
+  <div class="winrate-sheet" id="winrate-sheet">
+    <div class="winrate-sheet-header">
+      <div class="winrate-title">胜率详情</div>
+      <button class="winrate-close-btn" id="winrate-close-btn">✕</button>
+    </div>
+    <div id="winrate-content"></div>
+  </div>
+
+  <script src="../shared/error-catch.js"></script>
+  <script type="module" src="./list.ts"></script>
+</body>
+</html>

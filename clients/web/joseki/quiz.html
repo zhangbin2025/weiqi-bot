@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>定式挑战 - 围棋智能助手</title>
+  <link rel="stylesheet" href="../shared/shell.css">
+  <style>
+    /* 模式徽章 */
+    .mode-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: bold;
+      margin-left: 8px;
+    }
+    .mode-badge.explore { background: #4CAF50; color: white; }
+    .mode-badge.challenge { background: #f44336; color: white; }
+
+    /* 标签页 */
+    .tabs {
+      display: flex;
+      background: rgba(255,255,255,0.15);
+      border-radius: 12px;
+      padding: 4px;
+      margin-bottom: 16px;
+    }
+    .tab {
+      flex: 1;
+      padding: 12px;
+      text-align: center;
+      color: rgba(255,255,255,0.8);
+      cursor: pointer;
+      border-radius: 10px;
+      transition: all 0.3s ease;
+      font-size: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .tab:hover { color: white; }
+    .tab.active {
+      background: white;
+      color: #667eea;
+      font-weight: 500;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* 难度选择 */
+    select {
+      width: 100%;
+      padding: 12px 16px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 16px;
+      margin-bottom: 6px;
+      background: white;
+    }
+    select:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+
+    /* 进度条 */
+    .joseki-progress {
+      height: 4px;
+      background: rgba(255,255,255,0.3);
+      border-radius: 2px;
+      margin: 6px 0;
+    }
+    .joseki-progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, #4CAF50, #8BC34A);
+      border-radius: 2px;
+      transition: width 0.3s;
+    }
+
+    /* 棋盘容器 */
+    .joseki-board-wrapper {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 16px;
+      position: relative;
+    }
+
+    /* 棋盘容器内部的 board-container 需要明确宽度 */
+    #board-container {
+      width: 100%;
+    }
+
+    /* 统计数据 */
+    .joseki-stats {
+      display: flex;
+      justify-content: space-around;
+      padding: 16px 0;
+      margin-bottom: 16px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      font-size: 13px;
+    }
+    .joseki-stats .stat {
+      text-align: center;
+    }
+    .joseki-stats .stat-value {
+      font-size: 18px;
+      font-weight: bold;
+      color: #667eea;
+      display: block;
+    }
+    .joseki-stats .stat-value.positive { color: #4caf50; }
+    .joseki-stats .stat-value.negative { color: #f44336; }
+    .joseki-stats .stat-value.neutral { color: #666; }
+    .joseki-stats .stat-value.clickable {
+      cursor: pointer;
+      text-decoration: underline;
+      text-decoration-style: dotted;
+      text-underline-offset: 4px;
+    }
+    .joseki-stats .stat-label {
+      font-size: 11px;
+      color: #888;
+    }
+
+    /* 功能按钮 */
+    .joseki-controls {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      align-items: center;
+    }
+    .joseki-btn {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 16px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      white-space: nowrap;
+    }
+    .joseki-btn.secondary {
+      background: #f0f0f0;
+      color: #333;
+    }
+    .joseki-btn:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+    .joseki-btn:hover {
+      opacity: 0.9;
+    }
+    /* 控制面板中的按钮（固定大小） */
+    .joseki-controls .joseki-btn {
+      width: 44px;
+      height: 44px;
+      padding: 10px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      vertical-align: middle;
+    }
+    .challenge-ready:not(:disabled) {
+      background: linear-gradient(135deg, #f44336, #ff9800) !important;
+      animation: pulse-glow 1.5s ease-in-out infinite;
+    }
+    /* 用 box-shadow 呼吸灯替代 transform scale，避免微信浏览器渲染偏移 */
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(244,67,54,0.4); }
+      50% { box-shadow: 0 0 0 8px rgba(244,67,54,0); }
+    }
+
+    /* 脱先提示覆盖层 */
+    .pass-overlay {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(255, 152, 0, 0.9);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: bold;
+      pointer-events: none;
+      z-index: 100;
+    }
+
+    /* 历史网格 */
+    .joseki-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      padding: 8px 0;
+    }
+    .joseki-item {
+      background: white;
+      border-radius: 12px;
+      padding: 8px;
+      text-align: center;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      transition: transform 0.2s;
+    }
+    .joseki-item:active {
+      transform: scale(0.95);
+    }
+    .joseki-item canvas {
+      border-radius: 6px;
+    }
+    .item-info {
+      margin-top: 4px;
+      font-size: 12px;
+      color: #666;
+    }
+
+    /* 分页 */
+    .joseki-pagination {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    /* 工具栏 */
+    .toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .toolbar-count {
+      font-size: 0.9em;
+      color: rgba(255,255,255,0.9);
+    }
+    .toolbar-actions {
+      display: flex;
+      gap: 8px;
+    }
+    /* 图标按钮（对齐 discover.html） */
+    .icon-btn {
+      background: #f0f0f0;
+      border: none;
+      color: #666;
+      cursor: pointer;
+      border-radius: 8px;
+      transition: background 0.2s;
+      padding: 6px 12px;
+      font-size: 0.85em;
+    }
+    .icon-btn:hover {
+      background: #e0e0e0;
+    }
+
+    /* 弹框 */
+    .joseki-modal {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.5);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+    .joseki-modal.show {
+      display: flex;
+    }
+    .joseki-modal-content {
+      background: white;
+      padding: 24px;
+      border-radius: 16px;
+      max-width: 400px;
+      width: 90%;
+      text-align: center;
+    }
+    .joseki-modal h3 {
+      margin: 0 0 12px;
+      font-size: 1.1em;
+      white-space: nowrap;
+    }
+    .joseki-modal p {
+      white-space: normal;
+      word-wrap: break-word;
+    }
+    .joseki-modal-buttons {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .joseki-modal-buttons button {
+      white-space: nowrap;
+    }
+
+    /* 空状态 */
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: #888;
+    }
+    .empty-state-icon {
+      font-size: 3em;
+      margin-bottom: 12px;
+      opacity: 0.5;
+    }
+
+    /* 胜率详情弹窗 */
+    .winrate-backdrop {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.5);
+      opacity: 0; visibility: hidden;
+      transition: all 0.3s ease;
+      z-index: 999;
+    }
+    .winrate-backdrop.active { opacity: 1; visibility: visible; }
+    .winrate-sheet {
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      background: white;
+      border-radius: 16px 16px 0 0;
+      padding: 16px 20px 24px;
+      transform: translateY(100%);
+      transition: transform 0.3s ease;
+      z-index: 1000;
+      max-width: 600px;
+      margin: 0 auto;
+      pointer-events: none;
+    }
+    .winrate-sheet.active { transform: translateY(0); pointer-events: auto; }
+    .winrate-sheet-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #eee;
+    }
+    @media (min-width: 768px) {
+      .winrate-sheet {
+        left: 50%;
+        right: auto;
+        top: 50%;
+        bottom: auto;
+        transform: translate(-50%, -40%) scale(0.9);
+        opacity: 0;
+        border-radius: 16px;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        max-height: 90vh;
+        overflow-y: auto;
+      }
+      .winrate-sheet.active {
+        transform: translate(-50%, -50%) scale(1);
+        opacity: 1;
+      }
+    }
+    .winrate-title {
+      font-size: 1.1em;
+      font-weight: 600;
+      color: #333;
+    }
+    .winrate-close-btn {
+      width: 32px; height: 32px;
+      border: none; background: transparent;
+      border-radius: 50%; cursor: pointer;
+      font-size: 1em; color: #666;
+    }
+    .winrate-close-btn:hover { background: #e0e0e0; }
+    .winrate-detail-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      font-size: 0.95em;
+    }
+    .winrate-detail-label { color: #666; }
+    .winrate-detail-value { font-weight: 500; }
+    .winrate-bar {
+      height: 24px;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #f5f5f5;
+      margin: 12px 0;
+      display: flex;
+    }
+    .winrate-bar-positive { background: #4caf50; }
+    .winrate-bar-neutral { background: #bdbdbd; }
+    .winrate-bar-negative { background: #f44336; }
+    .winrate-bar-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.8em;
+      color: #666;
+      margin-top: 4px;
+    }
+    .winrate-hint {
+      font-size: 0.85em;
+      color: #999;
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px solid #eee;
+    }
+  </style>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon-180x180.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#667eea">
+</head>
+<body>
+  <div class="glass-container">
+    <header class="glass-header">
+      <h1>🏆 定式挑战 <span id="mode-badge" class="mode-badge explore">探索</span></h1>
+      <p class="glass-subtitle">记忆定式路径，完成挑战</p>
+    </header>
+
+    <div class="glass-content">
+      <!-- 标签页 -->
+    <div class="tabs">
+      <div class="tab active" data-tab="challenge">
+        <span>⚔</span>
+        <span>挑战</span>
+      </div>
+      <div class="tab" data-tab="history">
+        <span>📋</span>
+        <span>历史</span>
+      </div>
+    </div>
+
+    <!-- 挑战标签 -->
+    <div id="challenge-tab" class="tab-content active">
+      <div class="card">
+        <!-- 难度选择 -->
+        <div data-ui="select"
+             id="difficulty-select"
+             data-value="easy"
+             data-options='[{"value":"easy","label":"初级"},{"value":"medium","label":"中级"},{"value":"hard","label":"高级"}]'></div>
+
+        <!-- 进度条 -->
+        <div class="joseki-progress">
+          <div class="joseki-progress-bar" id="progress-bar" style="width: 0%"></div>
+        </div>
+
+        <!-- 棋盘 -->
+        <div class="joseki-board-wrapper">
+          <div id="board-container"></div>
+          <!-- 脱先提示覆盖层 -->
+          <div id="pass-overlay" class="pass-overlay" style="display: none;">黑方脱先</div>
+        </div>
+
+        <!-- 指标数据 -->
+        <div class="joseki-stats" id="quiz-stats">
+          <div class="stat">
+            <span class="stat-value" id="stat-moves">0</span>
+            <span class="stat-label">手数</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value" id="stat-freq">-</span>
+            <span class="stat-label">出现次数</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value" id="stat-prob">-</span>
+            <span class="stat-label">出现概率</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value" id="stat-winrate">-</span>
+            <span class="stat-label">胜率变化</span>
+          </div>
+        </div>
+
+        <!-- 功能按钮 -->
+        <div class="joseki-controls" id="quiz-controls">
+          <button class="joseki-btn" id="undo-btn" disabled title="撤销">↩</button>
+          <button class="joseki-btn secondary" id="pass-btn" style="display:none" title="脱先">⊘</button>
+          <button class="joseki-btn challenge-ready" id="challenge-btn" disabled title="开始挑战">⚔</button>
+          <button class="joseki-btn secondary" id="next-btn" title="下一题">⏭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 历史标签 -->
+    <div id="history-tab" class="tab-content">
+      <div class="card">
+        <h2>📋 挑战历史</h2>
+        <div class="toolbar">
+          <span id="history-count" class="toolbar-count">已完成 0 个</span>
+          <div class="toolbar-actions">
+            <button class="icon-btn" id="clear-btn" style="width:auto;margin-left:auto;">🗑️ 清空</button>
+          </div>
+        </div>
+        <div id="history-grid" class="joseki-grid"></div>
+        <div id="history-pagination" class="joseki-pagination" style="display:none;">
+          <button class="joseki-btn secondary" id="prev-page-btn">◀</button>
+          <span id="page-info">1/1</span>
+          <button class="joseki-btn secondary" id="next-page-btn">▶</button>
+        </div>
+        <div id="history-empty" class="empty-state" style="display:none;">
+          <div class="empty-state-icon">📭</div>
+          <div>暂无记录</div>
+          <div style="font-size:0.85em;margin-top:8px;">完成定式挑战后会自动记录</div>
+        </div>
+      </div>
+    </div>
+
+    </div>
+
+    <footer><p>围棋智能助手 &copy; 2026</p></footer>
+  </div>
+
+  <!-- Shell 容器（隐藏） -->
+  <div id="page-root" style="display: none;"></div>
+
+  <!-- 选择执黑执白弹框 -->
+  <div id="color-modal" class="joseki-modal">
+    <div class="joseki-modal-content">
+      <h3>选择执黑或执白</h3>
+      <p style="margin-bottom:16px; color:#666;">挑战模式：你需要记住定式路径，正确完成挑战！</p>
+      <div class="joseki-modal-buttons">
+        <button class="joseki-btn" id="select-black">⚫ 执黑先</button>
+        <button class="joseki-btn" id="select-white">⚪ 执白后</button>
+      </div>
+      <button class="joseki-btn secondary" style="margin-top:12px; width:100%;" id="cancel-challenge">取消</button>
+    </div>
+  </div>
+
+  <!-- 挑战失败弹框 -->
+  <div id="fail-modal" class="joseki-modal">
+    <div class="joseki-modal-content">
+      <h3>❌ 挑战失败</h3>
+      <p style="margin-bottom:16px; color:#666;" id="fail-message">位置错误！</p>
+      <div class="joseki-modal-buttons">
+        <button class="joseki-btn secondary" id="back-explore">返回探索学习</button>
+        <button class="joseki-btn" id="retry-challenge">重新挑战</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 挑战成功弹框 -->
+  <div id="success-modal" class="joseki-modal">
+    <div class="joseki-modal-content">
+      <h3>✅ 挑战成功！</h3>
+      <p style="margin-bottom:16px; color:#666;">恭喜你完成了这个定式！</p>
+      <div class="joseki-modal-buttons">
+        <button class="joseki-btn" id="next-quiz">下一题</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 胜率详情弹窗 -->
+  <div class="winrate-backdrop" id="winrate-backdrop"></div>
+  <div class="winrate-sheet" id="winrate-sheet">
+    <div class="winrate-sheet-header">
+      <div class="winrate-title">胜率详情</div>
+      <button class="winrate-close-btn" id="winrate-close-btn">✕</button>
+    </div>
+    <div id="winrate-content"></div>
+  </div>
+
+  <script src="../shared/error-catch.js"></script>
+  <script type="module" src="./quiz.ts"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+node_modules/
+dist/
+dist-desktop/
+*.log
+.DS_Store
+Thumbs.db
+
+# KataGo binaries & certificates (download via script)
+katago/*.exe
+katago/*.dll
+katago/cacert.pem
+
+# Auto-generated
+package-lock.json

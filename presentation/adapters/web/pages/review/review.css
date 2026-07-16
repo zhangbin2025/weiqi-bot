@@ -1,0 +1,570 @@
+/**
+ * AI 复盘页面样式
+ */
+
+/* ========== 图表容器 ========== */
+#chart-container {
+  width: 100%;
+  height: 150px;
+  padding: 10px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  margin: 10px 0;
+  box-sizing: border-box;
+}
+
+#winrateChart {
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+
+/* ========== AI 分析面板 ========== */
+.analysis-panel {
+  margin: 10px 0;
+  padding: 10px;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.status {
+  text-align: center;
+  margin-bottom: 10px;
+}
+
+.move-info {
+  font-size: 16px;
+  font-weight: bold;
+  color: #333;
+}
+
+.winrate-info {
+  font-size: 14px;
+  color: #666;
+  margin-top: 4px;
+}
+
+.score-info {
+  font-size: 14px;
+  color: #666;
+  margin-top: 4px;
+}
+
+.badmove-warning {
+  margin-top: 8px;
+  padding: 8px;
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 4px;
+  color: #856404;
+  font-size: 14px;
+  display: none;
+}
+
+.badmove-warning.visible {
+  display: block;
+}
+
+/* ========== 候选着法面板 ========== */
+.candidates-panel {
+  margin-top: 10px;
+}
+
+.panel-title {
+  font-size: 14px;
+  font-weight: bold;
+  color: #333;
+  margin-bottom: 8px;
+}
+
+.candidates-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.no-candidates {
+  text-align: center;
+  padding: 20px;
+  color: #999;
+  font-size: 13px;
+}
+
+.candidate {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.candidate:hover {
+  background: #e9ecef;
+  border-color: #667eea;
+}
+
+.candidate:active {
+  transform: scale(0.98);
+}
+
+.candidate.current {
+  background: #667eea;
+  color: white;
+  border-color: #667eea;
+}
+
+.candidate .rank {
+  font-weight: bold;
+  min-width: 20px;
+}
+
+.candidate .coord {
+  font-weight: bold;
+  min-width: 40px;
+}
+
+.candidate .winrate {
+  color: #28a745;
+  min-width: 50px;
+}
+
+.candidate .score {
+  color: #007bff;
+  min-width: 50px;
+}
+
+.candidate .visits {
+  font-size: 12px;
+  color: #999;
+}
+
+.candidate.current .winrate,
+.candidate.current .score,
+.candidate.current .visits {
+  color: white;
+}
+
+/* ========== 候选着法紧凑列表（AI 推荐） ========== */
+.candidates-list-compact {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 250px;
+  overflow-y: auto;
+  margin: 8px 0;
+}
+
+.candidate-compact {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.candidate-compact:hover {
+  background: #f0f4ff;
+  border-color: #667eea;
+}
+
+.candidate-compact.hit {
+  border-left: 3px solid #28a745;
+}
+
+.candidate-compact.actual-move {
+  background: #fff3cd;
+  border-left: 3px solid #ff6b6b;
+}
+
+.candidate-compact .rank {
+  font-weight: bold;
+  min-width: 32px;
+  color: #667eea;
+}
+
+.candidate-compact .hit-mark {
+  color: #28a745;
+  font-weight: bold;
+  font-size: 16px;
+}
+
+.candidate-compact .coord {
+  font-weight: bold;
+  min-width: 40px;
+}
+
+.candidate-compact .winrate {
+  color: #28a745;
+  min-width: 50px;
+}
+
+.candidate-compact .score {
+  color: #007bff;
+  min-width: 50px;
+}
+
+.candidate-compact.actual-move .coord::before {
+  content: '📍 ';
+}
+
+/* ========== 标题行 ========== */
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  width: 100%;
+}
+
+.panel-header .panel-title {
+  font-size: 14px;
+  font-weight: bold;
+  color: #333;
+}
+
+.badmoves-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.no-badmoves {
+  text-align: center;
+  padding: 20px;
+  color: #666;
+  font-size: 14px;
+}
+
+.badmove-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: white;
+  border-radius: 6px;
+  cursor: pointer;
+  border-left: 4px solid #ccc;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.badmove-item:hover {
+  background: #e9ecef;
+}
+
+.badmove-item:active {
+  transform: scale(0.98);
+}
+
+.badmove-item.severity-minor {
+  border-left-color: #28a745;
+}
+
+.badmove-item.severity-moderate {
+  border-left-color: #ffc107;
+}
+
+.badmove-item.severity-severe {
+  border-left-color: #dc3545;
+}
+
+.badmove-item .move-number {
+  font-weight: bold;
+  min-width: 60px;
+}
+
+.badmove-item .coord {
+  font-weight: bold;
+  min-width: 40px;
+}
+
+.badmove-item .severity {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #e9ecef;
+}
+
+.badmove-item .loss {
+  color: #dc3545;
+  font-weight: bold;
+}
+
+.badmove-item .better {
+  font-size: 12px;
+  color: #28a745;
+}
+
+/* ========== 分析按钮 ========== */
+.analyze-btn {
+  width: 100%;
+  padding: 10px;
+  background: #667eea;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.analyze-btn:hover {
+  background: #5568d3;
+}
+
+.analyze-btn:active {
+  transform: scale(0.98);
+}
+
+.analyze-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+/* ========== 进度条 ========== */
+.progress-bar {
+  width: 100%;
+  height: 20px;
+  background: #e9ecef;
+  border-radius: 10px;
+  overflow: hidden;
+  margin: 10px 0;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+  transition: width 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 11px;
+  font-weight: bold;
+}
+
+/* ========== 响应式适配 ========== */
+@media (min-width: 600px) {
+  .analysis-panel {
+    padding: 15px;
+  }
+
+  .candidates-list {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .candidate {
+    flex: 1;
+    min-width: 150px;
+  }
+}
+
+/* ========== 试下面板样式 ========== */
+.trial-panel {
+  display: none;
+  margin: 6px 0;
+  padding: 8px 12px;
+  background: #e8f5e9;
+  border-radius: 8px;
+  border: 1px solid #4caf50;
+  justify-content: center;
+  gap: 24px;
+}
+
+.trial-panel.visible {
+  display: flex;
+}
+
+/* 试下模式下的页面样式调整 */
+.trial-mode .controls-row {
+  display: none;
+}
+
+.trial-mode .candidates-panel {
+  display: none;
+}
+
+.trial-mode .legend {
+  display: none;
+}
+
+.trial-mode .status {
+  display: none;
+}
+
+.trial-mode .analysis-panel {
+  background: #e8f5e9;
+  border-color: #4caf50;
+}
+
+.trial-mode #statusMessage {
+  background: #4caf50;
+  color: white;
+  font-weight: bold;
+}
+
+/* ========== 分析模式对话框 ========== */
+.analysis-mode-dialog {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dialog-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.dialog-content {
+  position: relative;
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.dialog-content h3 {
+  margin: 0 0 20px 0;
+  text-align: center;
+  color: #333;
+  font-size: 18px;
+}
+
+.mode-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.mode-option {
+  padding: 16px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.mode-option:hover {
+  border-color: #667eea;
+  background: #f8f9fa;
+}
+
+.mode-option:active {
+  transform: scale(0.98);
+}
+
+.mode-icon {
+  font-size: 32px;
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.mode-name {
+  font-size: 16px;
+  font-weight: bold;
+  text-align: center;
+  color: #333;
+  margin-bottom: 6px;
+}
+
+.mode-desc {
+  font-size: 13px;
+  text-align: center;
+  color: #666;
+  margin-bottom: 4px;
+}
+
+.mode-time {
+  font-size: 12px;
+  text-align: center;
+  color: #999;
+}
+
+.dialog-cancel {
+  width: 100%;
+  padding: 12px;
+  background: #f0f0f0;
+  color: #666;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.dialog-cancel:hover {
+  background: #e0e0e0;
+}
+
+@media (min-width: 600px) {
+  .mode-options {
+    flex-direction: row;
+  }
+  
+  .mode-option {
+    flex: 1;
+  }
+}
+
+/* ========== 加载动画 ========== */
+#loadingOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.9);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 9998;
+}
+
+.loading-spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #667eea;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 20px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.loading-text {
+  font-size: 16px;
+  color: #666;
+  font-weight: 500;
+}

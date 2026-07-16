@@ -1,0 +1,237 @@
+/**
+ * Electron 主进程入口
+ * 
+ * 对等 Android MainActivity
+ */
+
+import { app, BrowserWindow, ipcMain } from 'electron';
+import * as path from 'path';
+import { AssetServer } from './server/asset-server';
+import { BridgeRouter } from './ipc/bridge-router';
+import { AppConfig } from './config';
+
+let mainWindow: BrowserWindow | null = null;
+let assetServer: AssetServer | null = null;
+let bridgeRouter: BridgeRouter | null = null;
+
+function createWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    autoHideMenuBar: true, // 隐藏菜单栏
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+      nodeIntegration: false,
+      contextIsolation: false, // 关闭隔离，让 prompt 覆盖生效（桥接需要）
+      webSecurity: true,
+    },
+    title: 'WeiqiBot',
+    show: false,
+  });
+
+  // 默认最大化
+  mainWindow.maximize();
+
+  // 拦截所有网络请求，转发到本地 AssetServer（对齐 Android GeckoView 行为）
+  mainWindow.webContents.session.webRequest.onBeforeRequest(
+    { urls: ['*://*/*'] },
+    (details, callback) => {
+      const url = details.url;
+      
+      // 跳过本地 AssetServer 请求（这些请求不需要代理）
+      if (url.startsWith('http://127.0.0.1:8765') || url.startsWith('http://localhost:8765')) {
+        callback({});
+        return;
+      }
+      
+      // 跳过 file:// 和 data: 协议
+      if (url.startsWith('file://') || url.startsWith('data:')) {
+        callback({});
+        return;
+      }
+      
+      // 跳过 devtools 相关请求
+      if (url.includes('devtools') || url.startsWith('chrome-extension://')) {
+        callback({});
+        return;
+      }
+      
+      // 外部 HTTP/HTTPS 请求 → 转发到本地 AssetServer 代理
+      if (url.startsWith('http://') || url.startsWith('https://')) {
+        const proxyUrl = `http://127.0.0.1:8765/proxy/?url=${encodeURIComponent(url)}`;
+        console.log(`[WebRequest] Redirect: ${url.substring(0, 80)}... -> proxy`);
+        callback({ redirectURL: proxyUrl });
+        return;
+      }
+      
+      // 其他请求不处理
+      callback({});
+    }
+  );
+
+  // 设置 UserAgent，与 Android 对齐
+  mainWindow.webContents.setUserAgent('WeiqiApp/1.0');
+
+  // 拦截外部链接，用系统浏览器打开
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    // 本地链接在当前窗口打开
+    if (url.startsWith(`http://${AppConfig.localHost}:${AppConfig.localPort}`)) {
+      mainWindow?.loadURL(url);
+      return { action: 'deny' };
+    }
+    // 外部链接用系统浏览器打开
+    const { shell } = require('electron');
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  // 键盘快捷键：导航
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    // Alt+Left 或 Backspace: 后退
+    if ((input.alt && input.key === 'ArrowLeft') || (input.key === 'Backspace' && !input.alt && !input.control && !input.meta)) {
+      if (mainWindow?.webContents.canGoBack()) {
+        mainWindow.webContents.goBack();
+      }
+    }
+    // Alt+Right 或 Shift+Backspace: 前进
+    if ((input.alt && input.key === 'ArrowRight') || (input.key === 'Backspace' && input.shift)) {
+      if (mainWindow?.webContents.canGoForward()) {
+        mainWindow.webContents.goForward();
+      }
+    }
+    // Alt+Home: 回到首页
+    if (input.alt && input.key === 'Home') {
+      const homeUrl = `http://${AppConfig.localHost}:${AppConfig.localPort}/index.html`;
+      mainWindow?.loadURL(homeUrl);
+    }
+  });
+
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.show();
+  });
+
+  const homeUrl = `http://${AppConfig.localHost}:${AppConfig.localPort}/index.html`;
+  mainWindow.loadURL(homeUrl);
+
+  // 页面加载失败时显示提示页面
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDesc, validatedURL) => {
+    console.error(`[Main] Page load failed: ${errorCode} ${errorDesc} ${validatedURL}`);
+    if (errorCode === -3 || errorCode === -6) {
+      // ERR_ABORTED 或 ERR_FILE_NOT_FOUND，可能是正在下载资源
+      return;
+    }
+    const errorHtml = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>加载失败</title>
+<style>body{display:flex;justify-content:center;align-items:center;height:100vh;margin:0;font-family:system-ui;background:#f5f5f5;color:#333;}
+.c{text-align:center;padding:2rem;max-width:400px;}
+h2{color:#e74c3c;margin-bottom:0.5rem;}
+p{color:#666;font-size:14px;margin-bottom:1.5rem;line-height:1.6;}
+button{padding:0.6rem 2rem;background:#667eea;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:15px;}
+button:hover{background:#5a6fd6;}
+</style></head>
+<body><div class="c">
+<h2>页面加载失败</h2>
+<p>无法加载页面资源，请检查网络连接后重试。</p>
+<button onclick="location.reload()">重新加载</button>
+</div></body></html>`;
+    mainWindow?.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(errorHtml)}`);
+  });
+
+  if (process.env.NODE_ENV === 'development') {
+    mainWindow.webContents.openDevTools();
+  }
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
+}
+
+async function startServer() {
+  assetServer = new AssetServer();
+  await assetServer.start();
+  console.log(`[Main] AssetServer started on port ${AppConfig.localPort}`);
+}
+
+function setupIPC() {
+  bridgeRouter = new BridgeRouter(mainWindow!);
+  
+  ipcMain.on('bridge', (event, message: string) => {
+    try {
+      const response = bridgeRouter!.handle(message);
+      
+      // 处理特殊返回值
+      if (response === 'refresh') {
+        // 刷新当前页面
+        mainWindow?.webContents.reload();
+        event.returnValue = JSON.stringify({ success: true });
+        return;
+      }
+      
+      // 同步返回（handle 必须同步返回结果）
+      event.returnValue = response;
+    } catch (err: any) {
+      event.returnValue = JSON.stringify({ error: err.message });
+    }
+  });
+
+  ipcMain.handle('bridge-async', async (_event, message: string) => {
+    return await bridgeRouter!.handleAsync(message);
+  });
+}
+
+app.whenReady().then(async () => {
+  try {
+    // Windows 通知显示的应用名，默认是 "electron app Weiqi"
+    app.setAppUserModelId('com.weiqi.desktop');
+
+    // 1. 创建 AssetServer
+    const assetServer = new AssetServer();
+    
+    // 2. 检查版本并预下载核心资源（对齐 Android）
+    console.log('[Main] Checking version and preloading core assets...');
+    await assetServer.checkAndUpdateVersion((stage, progress) => {
+      console.log(`[Main] ${stage}: ${progress}%`);
+    });
+    
+    // 3. 启动服务器
+    await assetServer.start();
+    
+    // 保存引用以便关闭
+    (global as any).assetServer = assetServer;
+
+    // 4. 创建窗口
+    createWindow();
+
+    // 5. 设置 IPC 桥接
+    setupIPC();
+
+    console.log('[Main] App ready');
+  } catch (error) {
+    console.error('[Main] Failed to start app:', error);
+    app.quit();
+  }
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    const assetServer = (global as any).assetServer;
+    if (assetServer) {
+      assetServer.stop();
+    }
+    app.quit();
+  }
+});
+
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow();
+  }
+});
+
+app.on('before-quit', () => {
+  const assetServer = (global as any).assetServer;
+  if (assetServer) {
+    assetServer.stop();
+  }
+  bridgeRouter?.cleanup();
+});

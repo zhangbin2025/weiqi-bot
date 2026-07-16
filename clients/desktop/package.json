@@ -1,0 +1,62 @@
+{
+  "name": "weiqi-desktop",
+  "version": "0.1.0",
+  "description": "Weiqi Bot Desktop - PC Desktop Client",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev": "electron .",
+    "build": "tsc -p tsconfig.main.json && tsc -p tsconfig.preload.json && cp src/main/sniffer/sniffer-preload.js dist/main/sniffer/sniffer-preload.js",
+    "start": "npm run build && electron .",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder --win",
+    "download-katago": "bash scripts/download-katago.sh"
+  },
+  "keywords": ["weiqi", "go", "baduk", "desktop", "electron"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/express": "^4.17.21",
+    "@types/node-cron": "^3.0.11",
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.3",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "http-proxy-middleware": "^3.0.0",
+    "node-cron": "^3.0.3",
+    "axios": "^1.7.2"
+  },
+  "build": {
+    "appId": "com.weiqi.desktop",
+    "productName": "WeiqiBot",
+    "directories": {
+      "output": "dist-builder"
+    },
+    "files": [
+      "dist/**/*",
+      "resources/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "katago",
+        "to": "katago",
+        "filter": ["**/*"]
+      }
+    ],
+    "linux": {
+      "icon": "resources/icon.png",
+      "target": ["AppImage"]
+    },
+    "win": {
+      "icon": "resources/icon.ico",
+      "target": ["nsis"]
+    },
+    "mac": {
+      "icon": "resources/icon.png",
+      "target": ["dmg"]
+    }
+  }
+}

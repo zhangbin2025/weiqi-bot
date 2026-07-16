@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>围棋记谱</title>
+  <link rel="stylesheet" href="../shared/assets/css/ui.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 0;
+      touch-action: manipulation;
+    }
+
+    /* ---- 页面容器 ---- */
+    .page-container {
+      background: white;
+      width: 100%;
+      max-width: 100%;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    /* 紧凑布局 */
+    .page-container.compact {
+      justify-content: flex-start;
+    }
+
+    .page-container.compact .board-section {
+      flex: 0 0 auto;
+      padding: 4px;
+    }
+
+    /* ---- 渐变标题栏 ---- */
+    .page-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      flex-shrink: 0;
+    }
+
+    .page-header .header-left {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .page-header .page-title {
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.2;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .page-header .page-subtitle {
+      font-size: 12px;
+      opacity: 0.85;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding-left: 18px;
+    }
+
+    .page-header .header-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* 三点菜单按钮 */
+    .menu-btn {
+      width: 36px;
+      height: 36px;
+      border: none;
+      background: rgba(255,255,255,0.15);
+      color: white;
+      font-size: 20px;
+      cursor: pointer;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+    }
+
+    .menu-btn:hover {
+      background: rgba(255,255,255,0.25);
+    }
+
+    /* 下拉菜单 */
+    .dropdown {
+      position: relative;
+    }
+
+    .dropdown-menu {
+      position: absolute;
+      top: calc(100% + 4px);
+      right: 0;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+      min-width: 180px;
+      display: none;
+      z-index: 1000;
+      overflow: hidden;
+    }
+
+    .dropdown-menu.visible {
+      display: block;
+    }
+
+    .dropdown-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
+      color: #333;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background 0.2s;
+      border: none;
+      background: transparent;
+      width: 100%;
+      text-align: left;
+    }
+
+    .dropdown-item:hover {
+      background: #f5f5f5;
+    }
+
+    .dropdown-divider {
+      height: 1px;
+      background: #e8e8e8;
+      margin: 4px 0;
+    }
+
+    /* ---- 棋盘区域 ---- */
+    .board-section {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 0;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .page-container.compact .board-section {
+      flex: 0 0 auto;
+      padding: 0;
+    }
+
+    #page-root {
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      margin: 10px 0;
+      position: relative;
+    }
+
+    #page-root canvas {
+      max-width: 100%;
+      height: auto;
+    }
+
+    /* ---- 底部功能按钮栏 ---- */
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 4px;
+      margin: 6px 0;
+      padding: 0 2px;
+      background: white;
+      flex-shrink: 0;
+    }
+
+    .btn-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+    }
+
+    /* 手数显示 */
+    .move-count {
+      font-size: 14px;
+      color: #333;
+      white-space: nowrap;
+      min-width: 60px;
+      text-align: right;
+    }
+
+    /* SVG 图标按钮（无背景，纯线条） */
+    .icon-btn {
+      width: 36px;
+      height: 36px;
+      border: none;
+      border-radius: 8px;
+      background: transparent;
+      color: #555;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      position: relative;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    .icon-btn svg {
+      width: 20px;
+      height: 20px;
+      stroke: currentColor;
+      stroke-width: 2;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .icon-btn:disabled {
+      opacity: 0.25;
+      cursor: not-allowed;
+    }
+
+    .icon-btn:active:not(:disabled) {
+      transform: scale(0.92);
+      color: #333;
+    }
+
+    .icon-btn:hover:not(:disabled) {
+      background: #f5f5f5;
+    }
+
+    .icon-btn.primary {
+      color: #667eea;
+    }
+
+    .icon-btn.primary:hover:not(:disabled) {
+      background: #f0f4ff;
+    }
+
+    .icon-btn.danger {
+      color: #ff6b6b;
+    }
+
+    .icon-btn.danger:hover:not(:disabled) {
+      background: #fff5f5;
+    }
+
+    /* ---- 弹框/模态框 ---- */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 2000;
+    }
+
+    .modal-overlay.visible {
+      display: flex;
+    }
+
+    .modal-content {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      max-width: 320px;
+      width: 90%;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+
+    .modal-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      text-align: center;
+      color: #333;
+    }
+
+    .modal-input {
+      width: 100%;
+      padding: 12px 16px;
+      border: 2px solid #e8e8e8;
+      border-radius: 10px;
+      font-size: 15px;
+      margin-bottom: 12px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .modal-input:focus {
+      border-color: #667eea;
+    }
+
+    .modal-buttons {
+      display: flex;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .modal-btn {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+
+    .modal-btn:hover {
+      opacity: 0.9;
+    }
+
+    .modal-btn-cancel {
+      background: #f5f5f5;
+      color: #666;
+    }
+
+    .modal-btn-confirm {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+
+    /* ---- 响应式 ---- */
+    @media (min-width: 600px) {
+      body {
+        padding: 8px;
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+      }
+
+      .page-container {
+        max-width: 500px;
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+      }
+
+      .board-section {
+        padding: 0;
+      }
+    }
+  </style>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon-180x180.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#667eea">
+</head>
+<body>
+  <div class="page-container compact">
+    <!-- 渐变标题栏 -->
+    <header class="page-header">
+      <div class="header-left">
+        <div class="page-title">围棋记谱</div>
+        <div class="page-subtitle">手动录入棋谱</div>
+      </div>
+      <div class="header-right">
+        <div class="dropdown">
+          <button class="menu-btn" id="menuBtn" title="菜单">⋮</button>
+          <div class="dropdown-menu" id="dropdownMenu">
+            <button class="dropdown-item" id="passMenuItem">⭕ 停一手</button>
+            <button class="dropdown-item" id="downloadMenuItem">📥 下载SGF</button>
+            <button class="dropdown-item" id="copyMenuItem">📄 复制SGF</button>
+            <div class="dropdown-divider"></div>
+            <button class="dropdown-item" id="historyMenuItem">📋 历史棋谱</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- 棋盘区域 -->
+    <div class="board-section">
+      <div id="page-root"></div>
+    </div>
+
+    <!-- 底部功能按钮栏 -->
+    <div class="toolbar">
+      <div class="btn-group">
+        <button class="icon-btn" id="undoBtn" title="悔棋">
+          <svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/></svg>
+        </button>
+        <button class="icon-btn" id="saveBtn" title="保存棋谱">
+          <svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17,21 17,13 7,13 7,21"/><polyline points="7,3 7,8 15,8"/></svg>
+        </button>
+        <button class="icon-btn" id="newBtn" title="清空棋盘">
+          <svg viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+        </button>
+      </div>
+      <span class="move-count">第 <strong id="moveNum">0</strong> 手</span>
+    </div>
+  </div>
+
+  <!-- 保存弹框 -->
+  <div class="modal-overlay" id="saveModal">
+    <div class="modal-content">
+      <div class="modal-title">保存棋谱</div>
+      <input type="text" class="modal-input" id="blackNameInput" placeholder="黑方名称（可不填）">
+      <input type="text" class="modal-input" id="whiteNameInput" placeholder="白方名称（可不填）">
+      <div class="modal-buttons">
+        <button class="modal-btn modal-btn-cancel" id="saveCancelBtn">取消</button>
+        <button class="modal-btn modal-btn-confirm" id="saveConfirmBtn">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./index.ts"></script>
+</body>
+</html>

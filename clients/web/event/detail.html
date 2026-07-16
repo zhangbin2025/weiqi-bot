@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no, viewport-fit=cover">
+  <title>赛事详情 - 围棋智能助手</title>
+  <link rel="stylesheet" href="../shared/shell.css">
+  <style>
+    /* detail 特有样式 */
+    
+    /* 防止水平溢出 */
+    html, body {
+      overflow-x: hidden;
+    }
+    
+    /* 覆盖容器宽度 */
+    .glass-content {
+      max-width: 100%;
+      padding: 0 12px 20px;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    @media (min-width: 768px) {
+      .glass-content {
+        max-width: 800px;
+      }
+    }
+
+    /* 白色大面板 */
+    .event-detail-group {
+      background: rgba(255,255,255,0.9);
+      border-radius: 8px;
+      margin-bottom: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      overflow: hidden;
+      display: none; /* 默认隐藏 */
+    }
+    
+    /* 有内容时显示 */
+    .event-detail-group.has-content {
+      display: block;
+    }
+
+    /* 隐藏内容为空 web-card（防止 opponentCard 等空卡片显示） */
+    .web-card:has(.web-card__body:empty) {
+      display: none !important;
+    }
+
+    /* ===== 面板头部，完全照搬 events.html ===== */
+    .detail-header {
+      background: #f8f9fa;
+      padding: 12px 15px;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      justify-content: flex-start;
+      align-items: center;
+      gap: 12px;
+    }
+
+    /* ===== 筛选标签区域，完全照搬 ===== */
+    .detail-tabs {
+      display: flex;
+      gap: 6px;
+      flex-shrink: 0;
+      flex-wrap: nowrap;
+      align-items: flex-end;  /* 底部对齐 */
+    }
+    .detail-tabs::-webkit-scrollbar { display: none; }
+
+    /* 大屏幕下统一样式 */
+    .detail-tabs .ui-select__trigger {
+      box-sizing: border-box;
+      height: 32px;
+      min-height: 32px;
+      padding: 6px 30px 6px 10px;
+      font-size: 13px;
+    }
+    .detail-tabs .ui-select__option {
+      padding: 6px 10px;
+      font-size: 13px;
+    }
+    .detail-tab {
+      box-sizing: border-box;
+      height: 32px;
+      min-height: 32px;
+      padding: 6px 10px;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    /* ===== 手机屏幕下优化 ===== */
+    @media (max-width: 480px) {
+      .detail-header {
+        padding: 8px 6px;  /* 缩小左右 padding */
+      }
+      .detail-tabs {
+        gap: 1px;  /* 缩小间距 */
+      }
+      /* 下拉框样式：字体和按钮一致 */
+      .detail-tabs .ui-select {
+        font-size: 12px;  /* 统一字体大小 */
+      }
+      .detail-tabs .ui-select__trigger {
+        box-sizing: border-box;  /* 确保边框不影响高度 */
+        padding: 4px 24px 4px 8px;  /* 缩小 padding */
+        height: 28px;  /* 固定高度 */
+        min-height: 28px;  /* 缩小高度 */
+        font-size: 12px;  /* 统一字体大小 */
+      }
+      .detail-tabs .ui-select__option {
+        padding: 4px 8px;  /* 缩小 padding */
+        font-size: 12px;  /* 统一字体大小 */
+      }
+      /* 按钮样式：字体和下拉框一致 */
+      .detail-tab {
+        box-sizing: border-box;  /* 确保边框不影响高度 */
+        padding: 4px 8px;  /* 和下拉框 trigger 一致 */
+        height: 28px;  /* 固定高度，和下拉框一致 */
+        min-height: 28px;  /* 和下拉框一致 */
+        font-size: 12px;  /* 统一字体大小 */
+        line-height: 1.4;  /* 统一行高 */
+        margin-left: 0 !important;  /* 移除额外 margin */
+      }
+    }
+
+    /* ===== 筛选按钮样式 ===== */
+    .detail-tab {
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      background: #fff;
+      color: #666;
+      white-space: nowrap;
+    }
+    .detail-tab:hover {
+      background: #e0e0e0;
+    }
+    .detail-tab.active {
+      background: rgba(102,126,234,0.1);
+      color: #667eea;
+    }
+
+    /* ===== 轮次导航 ===== */
+    .round-nav {
+      padding: 10px 15px;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 12px;
+    }
+    .round-btn {
+      padding: 4px 12px;
+      font-size: 0.85em;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      cursor: pointer;
+      background: white;
+      transition: all 0.2s;
+    }
+    .round-btn:hover:not(:disabled) {
+      background: #f0f0f0;
+    }
+    .round-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+  </style>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon-180x180.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#667eea">
+</head>
+<body>
+  <div class="glass-container">
+    <header class="glass-header">
+      <h1 class="glass-title">🏆 赛事详情</h1>
+    </header>
+
+    <div class="glass-content">
+      <div class="event-detail-group">
+        <div class="detail-header">
+          <div class="detail-tabs" id="detail-tabs"></div>
+        </div>
+        <div id="page-root"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="../shared/error-catch.js"></script>
+  <script type="module" src="./detail.ts"></script>
+</body>
+</html>

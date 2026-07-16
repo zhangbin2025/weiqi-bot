@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>定式发现 - 围棋智能助手</title>
+  <link rel="stylesheet" href="../shared/shell.css">
+  <style>
+    /* 标签切换 */
+    .tabs {
+      display: flex;
+      background: rgba(255,255,255,0.15);
+      border-radius: 12px;
+      padding: 4px;
+      margin-bottom: 16px;
+    }
+    .tab {
+      flex: 1;
+      padding: 12px;
+      text-align: center;
+      color: rgba(255,255,255,0.8);
+      cursor: pointer;
+      border-radius: 10px;
+      transition: all 0.3s ease;
+      font-size: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .tab:hover { color: white; }
+    .tab.active {
+      background: white;
+      color: #667eea;
+      font-weight: 500;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* 表单 */
+    select {
+      width: 100%;
+      padding: 12px 16px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 16px;
+      margin-bottom: 12px;
+      background: white;
+    }
+    select:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+
+    /* 进度条 */
+    .progress-card { display: none; }
+    .progress-card.active { display: block; }
+    .progress-bar-bg {
+      height: 8px;
+      background: #e0e0e0;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border-radius: 4px;
+      transition: width 0.3s ease;
+      width: 0%;
+    }
+    .progress-text {
+      font-size: 0.9em;
+      color: #666;
+      text-align: center;
+    }
+
+    /* 统计卡片 */
+    .stats-card {
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+    .stats-card:hover { transform: translateY(-2px); }
+    .stats-card h3 {
+      font-size: 1em;
+      color: #666;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+    .stat-item { text-align: center; }
+    .stat-value {
+      font-size: 1.4em;
+      font-weight: 600;
+      color: #667eea;
+    }
+    .stat-label {
+      font-size: 0.8em;
+      color: #888;
+      margin-top: 4px;
+    }
+
+    /* 文件选择 */
+    .file-input { display: none; }
+    .file-label {
+      display: block;
+      padding: 16px;
+      border: 2px dashed #e0e0e0;
+      border-radius: 8px;
+      text-align: center;
+      cursor: pointer;
+      color: #666;
+      transition: all 0.2s;
+      margin-bottom: 12px;
+    }
+    .file-label:hover { border-color: #667eea; color: #667eea; }
+    .file-name {
+      margin-top: 8px;
+      font-size: 0.9em;
+      color: #333;
+    }
+
+    /* 历史记录 */
+    .history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .history-item {
+      background: white;
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+    .history-item:hover { transform: translateY(-2px); }
+    .history-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .history-id {
+      font-size: 1.1em;
+      font-weight: 600;
+      color: #333;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .history-time { font-size: 0.8em; color: #888; }
+    .history-stats {
+      display: flex;
+      gap: 16px;
+      padding-top: 12px;
+      border-top: 1px solid #eee;
+    }
+    .history-stat {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.9em;
+      color: #666;
+    }
+
+    /* 图标按钮 */
+    .icon-btn {
+      background: #f0f0f0;
+      border: none;
+      color: #666;
+      cursor: pointer;
+      border-radius: 8px;
+      transition: background 0.2s;
+      padding: 6px 12px;
+      font-size: 0.85em;
+    }
+    .icon-btn:hover {
+      background: #e0e0e0;
+    }
+
+    /* 空状态 */
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: #888;
+    }
+    .empty-state-icon {
+      font-size: 3em;
+      margin-bottom: 12px;
+      opacity: 0.5;
+    }
+  </style>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon-180x180.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#667eea">
+</head>
+<body>
+  <div class="glass-container">
+    <header class="glass-header">
+      <h1>🔍 定式发现</h1>
+      <p class="glass-subtitle">从棋谱中自动识别定式规律</p>
+    </header>
+
+    <div class="glass-content">
+      <!-- 标签切换 -->
+    <div class="tabs">
+      <div class="tab active" data-tab="online">
+        <span>🌐</span>
+        <span>线上棋谱</span>
+      </div>
+      <div class="tab" data-tab="upload">
+        <span>📁</span>
+        <span>导入棋谱</span>
+      </div>
+      <div class="tab" data-tab="history">
+        <span>📋</span>
+        <span>历史</span>
+      </div>
+    </div>
+
+    <!-- 线上棋谱 -->
+    <div id="online-tab" class="tab-content active">
+      <div class="card">
+        <h2>🌐 线上棋谱分析</h2>
+        <div data-ui="select"
+             id="source-select"
+             data-value="foxwq"
+             data-options='[{"value":"foxwq","label":"野狐围棋"}]'></div>
+        <div data-ui="select"
+             id="date-select"
+             data-value="1"
+             data-options='[{"value":"0","label":"今天"},{"value":"1","label":"昨天"},{"value":"","label":"全部"}]'></div>
+        <div data-ui="select"
+             id="limit-select"
+             data-value="50"
+             data-options='[{"value":"10","label":"最近 10 盘"},{"value":"20","label":"最近 20 盘"},{"value":"50","label":"最近 50 盘"},{"value":"100","label":"最近 100 盘"}]'></div>
+        <button id="analyze-btn">开始分析</button>
+      </div>
+    </div>
+
+    <!-- 导入棋谱 -->
+    <div id="upload-tab" class="tab-content">
+      <div class="card">
+        <h2>📁 导入棋谱</h2>
+        <input type="file" id="sgf-file-input" class="file-input" accept=".sgf">
+        <label for="sgf-file-input" class="file-label">
+          📄 点击选择 SGF 文件
+          <div id="file-name" class="file-name"></div>
+        </label>
+        <button id="upload-btn" disabled>开始分析</button>
+      </div>
+    </div>
+
+    <!-- 历史记录 -->
+    <div id="history-tab" class="tab-content">
+      <div class="card">
+        <h2>📋 历史记录 <button class="icon-btn" id="clear-btn" style="width:auto;margin-left:auto;">🗑️ 清空</button></h2>
+        <div id="history-list" class="history-list">
+          <div class="empty-state">
+            <div class="empty-state-icon">📋</div>
+            <div>暂无历史记录</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 进度显示 -->
+    <div id="progress-card" class="card progress-card">
+      <div class="progress-bar-bg">
+        <div id="progress-bar" class="progress-bar-fill"></div>
+      </div>
+      <div id="progress-text" class="progress-text">准备中...</div>
+    </div>
+
+    <!-- 统计卡片 -->
+    <div id="stats-section" style="display:none;">
+      <div class="card stats-card" id="stats-card">
+        <h3>📚 定式发现</h3>
+        <div class="stats-grid">
+          <div class="stat-item">
+            <div class="stat-value" id="stat-joseki">0</div>
+            <div class="stat-label">匹配定式数</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="stat-hot">0</div>
+            <div class="stat-label">🔥 热门</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="stat-hit">0</div>
+            <div class="stat-label">🎯 命中</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="stat-complex">0</div>
+            <div class="stat-label">🧩 复杂</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    </div>
+
+    <footer><p>围棋智能助手 &copy; 2026</p></footer>
+  </div>
+
+  <!-- Shell 容器 -->
+  <div id="page-root" style="display: none;"></div>
+
+  <script src="../shared/error-catch.js"></script>
+  <script type="module" src="./discover.ts"></script>
+</body>
+</html>

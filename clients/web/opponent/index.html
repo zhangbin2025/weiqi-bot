@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>对手分析 - 围棋智能助手</title>
+    <link rel="stylesheet" href="../shared/shell.css">
+    <style>
+        /* opponent 特有样式 */
+        .tabs {
+            display: flex;
+            background: rgba(255,255,255,0.15);
+            border-radius: 12px;
+            padding: 4px;
+            margin-bottom: 16px;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 12px;
+            text-align: center;
+            color: rgba(255,255,255,0.8);
+            cursor: pointer;
+            border-radius: 10px;
+            transition: all 0.3s ease;
+            font-size: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .tab:hover {
+            color: white;
+        }
+
+        .tab.active {
+            background: white;
+            color: #667eea;
+            font-weight: 500;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .stats-cards {
+            display: none;
+        }
+
+        .stats-cards.show {
+            display: block;
+        }
+
+        .stats-card {
+            background: rgba(255,255,255,0.9);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .stats-card:hover {
+            transform: translateY(-2px);
+        }
+
+        .stats-card h3 {
+            font-size: 1em;
+            color: #666;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.4em;
+            font-weight: 600;
+            color: #667eea;
+        }
+
+        .stat-label {
+            font-size: 0.8em;
+            color: #888;
+            margin-top: 4px;
+        }
+
+        .stat-item-full {
+            grid-column: span 2;
+            text-align: center;
+            padding-top: 12px;
+            border-top: 1px solid #eee;
+        }
+
+        .stat-item-full .stat-value {
+            font-size: 1.2em;
+        }
+
+        .history-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .history-item {
+            background: rgba(255,255,255,0.9);
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .history-item:hover {
+            transform: translateY(-2px);
+        }
+
+        .history-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .history-id {
+            font-size: 1.1em;
+            font-weight: 600;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .history-time {
+            font-size: 0.8em;
+            color: #888;
+        }
+
+        .history-stats {
+            display: flex;
+            gap: 16px;
+            padding-top: 12px;
+            border-top: 1px solid #eee;
+        }
+
+        .history-stat {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        .icon-btn {
+            background: #f0f0f0;
+            border: none;
+            color: #666;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: background 0.2s;
+            padding: 6px 12px;
+            font-size: 0.85em;
+        }
+
+        .icon-btn:hover {
+            background: #e0e0e0;
+        }
+
+        select {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            margin-bottom: 12px;
+            background: white;
+        }
+
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #888;
+        }
+
+        .empty-state-icon {
+            font-size: 3em;
+            margin-bottom: 12px;
+            opacity: 0.5;
+        }
+    </style>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon-180x180.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#667eea">
+</head>
+<body>
+    <div class="glass-container">
+        <header class="glass-header">
+            <h1 class="glass-title">📊 对手分析</h1>
+            <p class="glass-subtitle">分析野狐棋手棋谱与定式</p>
+        </header>
+
+        <div class="glass-content">
+
+        <!-- 标签切换 -->
+        <div class="tabs">
+            <div class="tab active" data-tab="query">
+                <span>🔍</span>
+                <span>查询</span>
+            </div>
+            <div class="tab" data-tab="favorites">
+                <span>⭐</span>
+                <span>收藏</span>
+            </div>
+        </div>
+
+        <!-- 查询面板 -->
+        <div id="queryPanel" class="tab-content active">
+            <div class="card">
+                <h2>🔍 野狐棋手ID</h2>
+                <input type="text" id="foxwqIdInput" placeholder="请输入野狐昵称..." maxlength="20">
+                <div data-ui="select"
+                     id="limitSelect"
+                     data-value="10"
+                     data-options='[{"value":"10","label":"最近 10 盘"},{"value":"20","label":"最近 20 盘"},{"value":"30","label":"最近 30 盘"},{"value":"50","label":"最近 50 盘"}]'></div>
+                <button id="queryBtn">开始分析</button>
+            </div>
+        </div>
+
+        <!-- 收藏面板 -->
+        <div id="favoritesPanel" class="tab-content">
+            <div class="card">
+                <h2>⭐ 收藏的对手 <button class="icon-btn" id="clearBtn" style="width:auto;margin-left:auto;">🗑️ 清除</button></h2>
+                <div id="favoritesList" class="history-list">
+                    <!-- 收藏列表将在这里渲染 -->
+                </div>
+            </div>
+        </div>
+
+        <!-- 结果显示 -->
+        <div id="statsSection" class="stats-cards">
+            <!-- 统计卡片将通过JS渲染 -->
+        </div>
+
+        <footer>
+            <p>围棋智能助手 &copy; 2026</p>
+        </footer>
+    </div>
+
+    <script src="../shared/error-catch.js"></script>
+    <script type="module" src="./index.ts"></script>
+</body>
+</html>

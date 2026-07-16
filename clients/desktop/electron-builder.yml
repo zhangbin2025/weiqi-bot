@@ -1,0 +1,66 @@
+appId: com.weiqi.desktop
+productName: WeiqiBot
+directories:
+  output: dist-desktop
+  buildResources: build
+
+files:
+  - dist/**/*
+  - package.json
+  - "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme,test,tests,examples,example,example.html,.eslintrc,.eslintignore,.travis.yml,appveyor.yml,.editorconfig,tsconfig.json,tslint.json,LICENSE,license,LICENSE.md,license.md,.npmignore,.gitignore,map}"
+  - "!**/node_modules/.bin/**/*"
+  - "!**/node_modules/.cache/**/*"
+
+# 打包 KataGo（不打包 Web 资源，按需从远程下载）
+extraResources:
+  - from: katago
+    to: katago
+    filter:
+      - "**/*"
+
+# Windows 配置
+win:
+  target:
+    - target: zip
+      arch:
+        - x64
+  sign: null
+  signingHashAlgorithms: []
+
+# NSIS 安装程序配置（暂不使用）
+# nsis:
+#   oneClick: false
+#   perMachine: false
+#   allowToChangeInstallationDirectory: true
+#   allowElevation: true
+#   installerIcon: build/icon.ico
+#   uninstallerIcon: build/icon.ico
+#   installerHeaderIcon: build/icon.ico
+#   createDesktopShortcut: true
+#   createStartMenuShortcut: true
+#   shortcutName: WeiqiBot
+
+# macOS 配置（如果需要）
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  icon: build/icon.icns
+  category: public.app-category.games
+
+# Linux 配置（如果需要）
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  icon: build/icons
+  category: Game
+
+# 发布配置（不需要自更新，注释掉）
+# publish:
+#   provider: github
+#   owner: your-github-username
+#   repo: weiqi-bot

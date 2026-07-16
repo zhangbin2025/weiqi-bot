@@ -1,0 +1,140 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+// 工具方法：优先从 local.properties 读取，fallback 到 gradle.properties
+def getPropertyOrDefault(String key, defaultValue) {
+    def localProps = new Properties()
+    def localFile = file('local.properties')
+    if (localFile.exists()) {
+        localFile.withInputStream { localProps.load(it) }
+        if (localProps.containsKey(key)) {
+            return localProps[key]
+        }
+    }
+    return project.hasProperty(key) ? project[key] : defaultValue
+}
+
+android {
+    buildFeatures {
+        buildConfig = true
+    }
+    namespace 'com.weiqi.app'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId "com.weiqi.app"
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+
+        // 只构建 arm64-v8a 架构
+        ndk {
+            abiFilters "arm64-v8a"
+        }
+        
+        // 从 gradle.properties 读取配置，支持 local.properties 覆盖
+        buildConfigField "String", "LOCAL_HOST", "\"${getPropertyOrDefault('APP_LOCAL_HOST', 'localhost')}\""
+        buildConfigField "int", "LOCAL_PORT", "${getPropertyOrDefault('APP_LOCAL_PORT', 8088)}"
+        buildConfigField "String", "REMOTE_BASE", "\"${getPropertyOrDefault('APP_REMOTE_BASE', 'https://bot.weiqi.lol')}\""
+        buildConfigField "String", "VERSION_ENDPOINT", "\"${getPropertyOrDefault('APP_VERSION_ENDPOINT', '/version.json')}\""
+    }
+
+    // splits 配置可能与 useLegacyPackaging 冲突，暂时移除
+    // splits {
+    //     abi {
+    //         enable true
+    //         reset()
+    //         include "arm64-v8a"
+    //         universalApk false
+    //     }
+    // }
+
+    // 签名配置
+    // debug 签名使用 Android 默认配置（自动生成）
+    // release 签名需要创建正式的 keystore（见 README.md）
+    signingConfigs {
+        release {
+            // TODO: 创建正式的 release keystore
+            // 示例配置：
+            // storeFile file('release.keystore')
+            // storePassword 'your-password'
+            // keyAlias 'release'
+            // keyPassword 'your-password'
+        }
+    }
+
+    // Packaging 配置：压缩 .so 文件以减小 APK 大小
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
+    buildTypes {
+        debug {
+            // 使用 Android 默认 debug 签名（自动生成）
+        }
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // 暂时使用 debug 签名进行测试
+            // 正式发布前需要创建 release keystore
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    // extractNativeLibs=true 在 AndroidManifest.xml 中配置
+    // 它会让 AGP 在 APK 中压缩 .so 文件，安装时解压
+    
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+}
+
+dependencies {
+    // AndroidX Core
+    implementation 'androidx.core:core-ktx:1.12.0'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    
+    // Material Design
+    implementation 'com.google.android.material:material:1.11.0'
+    
+    // NanoHTTPD - 轻量级 HTTP 服务器
+    implementation 'org.nanohttpd:nanohttpd:2.3.1'
+    
+    // GeckoView - Firefox 浏览器引擎（替代 WebView）
+    // 版本号格式：{major}.{minor}.{build_timestamp}
+    // 查询最新版本：https://maven.mozilla.org/maven2/org/mozilla/geckoview/geckoview/maven-metadata.xml
+    // 注意：GeckoView 151 移除了 UserScript API，改用 evaluateJS 注入方案
+    // 当前版本保留 evaluateJS 支持（已验证兼容）
+    implementation 'org.mozilla.geckoview:geckoview:151.0.20260601110758'
+    
+    // OkHttp - HTTP 客户端
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    
+    // Kotlinx Coroutines
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+    
+    // WorkManager - 后台任务调度
+    implementation 'androidx.work:work-runtime-ktx:2.9.0'
+    
+    // JSON 解析（可选，Android 自带 JSONObject）
+    // implementation 'org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0'
+    
+    // Testing
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+}

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">围棋助手</string>
+    <string name="loading">正在加载...</string>
+    <string name="server_starting">正在启动服务器...</string>
+    <string name="checking_update">正在检查更新...</string>
+    <string name="downloading">正在下载资源...</string>
+    <string name="error_network">网络错误，请检查网络连接</string>
+    <string name="error_server">服务器启动失败</string>
+    
+    <!-- 后台任务通知 -->
+    <string name="task_running_title">后台任务运行中</string>
+    <string name="task_running_message">正在执行任务：%s</string>
+    <string name="task_progress_message">进度：%d%%</string>
+</resources>
