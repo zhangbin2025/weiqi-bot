@@ -66,7 +66,7 @@ export class ReviewInteraction {
 
   private mode: PageMode = 'normal';
   private stateStack: VariationState[] = [];
-  readonly MAX_DEPTH = 10;
+  readonly MAX_DEPTH = 30;
 
   /** PV 引导状态 */
   private currentVariationPv: string[] = [];
