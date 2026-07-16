@@ -250,7 +250,10 @@ export class ReviewPage implements IPage {
       let moveReview: MoveReview | null = null;
       const visits = this.ui.getConfigVisits();
 
-      if (this.interaction.isInTrial()) {
+      // 判断当前是否在棋谱状态（非试下/路径状态）
+      const isInGameMode = !this.interaction.isInTrial();
+
+      if (!isInGameMode) {
         const allMoves = this.interaction.getCurrentMoves();
         moveReview = await this.reviewApp.analyzeMoves(allMoves, 7.5, { visits }, this.handicapStones);
       } else {
@@ -259,7 +262,8 @@ export class ReviewPage implements IPage {
 
       if (moveReview?.candidates) {
         // 构建候选着法列表
-        const nextMove = moveIndex < this.moves.length ? this.moves[moveIndex] : null;
+        // 只有在棋谱状态下才获取棋谱下一手，用于判断实战命中
+        const nextMove = isInGameMode && moveIndex < this.moves.length ? this.moves[moveIndex] : null;
         const candidates: Array<{
           x: number;
           y: number;
