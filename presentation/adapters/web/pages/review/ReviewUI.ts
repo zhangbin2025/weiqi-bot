@@ -257,7 +257,7 @@ export class ReviewUI {
 
   updateDepthIndicator(depth: number, maxDepth: number): void {
     if (!this.depthCellsEl || !this.depthCountEl) return;
-    const displayCells = Math.min(10, maxDepth);
+    const displayCells = maxDepth;
     let cellsHtml = '';
     for (let i = 0; i < displayCells; i++) {
       const active = i < depth ? 'active' : '';
