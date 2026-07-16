@@ -135,6 +135,8 @@ export class ReviewInteraction {
 
   /** 处理棋盘点击 */
   handleBoardClick(x: number, y: number): void {
+    // 没有加载棋谱时不允许试下
+    if (this.baseMoves.length === 0) return;
     if (this.stateStack.length >= this.MAX_DEPTH) return;
     // 已有棋子的位置不能点击
     if (this.game.getBoard().getStone(x, y) !== null) return;
