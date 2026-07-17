@@ -117,8 +117,11 @@ export class CommandHandler {
       } else if (upgradeType === 'app') {
         await this.handleVersionUpgrade('app');
         return;
+      } else if (upgradeType === 'win') {
+        await this.handleVersionUpgrade('win');
+        return;
       } else {
-        await this.renderMessage('❌ 未知的升级类型\n\n用法:\n- /version upgrade web - 刷新页面\n- /version upgrade app - 下载 APK');
+        await this.renderMessage('❌ 未知的升级类型\n\n用法:\n- /version upgrade web - 刷新页面\n- /version upgrade app - 下载 Android APK\n- /version upgrade win - 下载 Windows 版本');
         return;
       }
     }
@@ -137,15 +140,18 @@ export class CommandHandler {
   /**
    * 处理版本升级
    * 
-   * @param type 升级类型：web | app
+   * @param type 升级类型：web | app | win
    */
-  private async handleVersionUpgrade(type: 'web' | 'app'): Promise<void> {
+  private async handleVersionUpgrade(type: 'web' | 'app' | 'win'): Promise<void> {
     if (type === 'web') {
       await this.renderMessage('🔄 正在刷新页面...');
       setTimeout(() => window.location.reload(), 1000);
     } else if (type === 'app') {
       await this.renderMessage('📥 正在打开下载页面...\n\n请在浏览器中下载并安装 APK');
       window.open('https://bot.weiqi.lol/apk', '_blank');
+    } else if (type === 'win') {
+      await this.renderMessage('📥 正在打开下载页面...\n\n请在浏览器中下载并安装 Windows 版本');
+      window.open('https://bot.weiqi.lol/win', '_blank');
     }
   }
   /**
