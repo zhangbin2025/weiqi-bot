@@ -44,7 +44,7 @@ fi
 
 # 解压
 echo "解压中..."
-unzip -q "${ZIP_FILE}" -d "${KATAGO_DIR}"
+unzip -q -o "${ZIP_FILE}" -d "${KATAGO_DIR}"
 
 # 清理
 rm -f "${ZIP_FILE}"
