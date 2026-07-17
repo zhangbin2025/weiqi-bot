@@ -1,7 +1,7 @@
 /**
  * @fileoverview 元萝卜提供者实现
  *
- * 纯 REST API 实现，无需 Playwright。
+ * 纯 REST API 实现，通过 NetworkManager.request() 自动使用代理解决 CORS。
  */
 
 import { BaseProvider } from '../base/BaseProvider';
@@ -28,8 +28,13 @@ export class YuanluoboProvider extends BaseProvider implements IYuanluoboProvide
     /jupiter\.yuanluobo\.com.*session_id=([A-Za-z0-9]+)/,
   ];
 
+  /**
+   * 通过 session_id 获取棋谱数据
+   * 使用 NetworkManager.request() 自动通过代理解决 CORS
+   */
   async fetchBySessionId(sessionId: string): Promise<string> {
-    const response = await this.network.fetch(YUANLUOBO_API_URL, {
+    const response = await this.network.request({
+      url: YUANLUOBO_API_URL,
       method: 'POST',
       headers: {
         'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)',
@@ -38,9 +43,9 @@ export class YuanluoboProvider extends BaseProvider implements IYuanluoboProvide
         'Referer': `https://jupiter.yuanluobo.com/robot-public/all-in-app/go/review?session_id=${sessionId}`,
         'Origin': 'https://jupiter.yuanluobo.com',
       },
-      body: JSON.stringify({ sessionId }),
+      data: { sessionId },
     });
-    return response.text();
+    return JSON.stringify(response.data);
   }
 
   async fetch(url: string): Promise<FetchResult> {
@@ -56,9 +61,10 @@ export class YuanluoboProvider extends BaseProvider implements IYuanluoboProvide
     }
 
     try {
-      // 直接下载，不缓存
+      // 通过 NetworkManager.request() 自动使用代理解决 CORS
       const fetchStart = this.now();
-      const response = await this.network.fetch(YUANLUOBO_API_URL, {
+      const response = await this.network.request<YuanluoboApiResponse>({
+        url: YUANLUOBO_API_URL,
         method: 'POST',
         headers: {
           'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)',
@@ -67,11 +73,11 @@ export class YuanluoboProvider extends BaseProvider implements IYuanluoboProvide
           'Referer': `https://jupiter.yuanluobo.com/robot-public/all-in-app/go/review?session_id=${sessionId}`,
           'Origin': 'https://jupiter.yuanluobo.com',
         },
-        body: JSON.stringify({ sessionId }),
+        data: { sessionId },
       });
       timing.apiRequest = this.now() - fetchStart;
 
-      const apiResponse = (await response.json()) as YuanluoboApiResponse;
+      const apiResponse = response.data;
 
       if (apiResponse.code !== 100000) {
         return this.createErrorResult(

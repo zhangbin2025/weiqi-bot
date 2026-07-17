@@ -15,6 +15,7 @@ describe('YuanluoboProvider', () => {
 
   beforeEach(() => {
     mockNetwork = {
+      request: jest.fn(),
       fetch: jest.fn(),
     } as any;
     mockCache = {
@@ -56,8 +57,8 @@ describe('YuanluoboProvider', () => {
   describe('SGF 提取', () => {
     it('应处理 API 错误', async () => {
       const url = 'https://jupiter.yuanluobo.com/robot-public/all-in-app/go/review?session_id=abc123';
-      mockNetwork.fetch.mockResolvedValueOnce({
-        json: () => Promise.resolve({ code: 400001, message: '错误', data: null }),
+      mockNetwork.request.mockResolvedValueOnce({
+        data: { code: 400001, message: '错误', data: null },
       } as any);
 
       const result = await provider.fetch(url);
