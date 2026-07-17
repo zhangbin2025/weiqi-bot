@@ -21,7 +21,7 @@
     "help": "node scripts/help.mjs",
     "generate:joseki": "node scripts/generate-joseki-tree.mjs",
     "dev:desktop": "cd clients/desktop && npm run dev",
-    "build:desktop": "npm run build:web && cd clients/desktop && npm install && npm run build",
+    "build:desktop": "npm run build:web && cd clients/desktop && npm install && npm run download-katago && npm run build",
     "dist:desktop": "npm run build:desktop && cd clients/desktop && npx electron-builder --win zip --x64 --config.win.sign=null --config.win.signingHashAlgorithms=[]"
   },
   "keywords": [
