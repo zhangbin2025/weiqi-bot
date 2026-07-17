@@ -193,8 +193,13 @@ export class AssetServer {
       })
       .catch((err) => {
         console.error(`[AssetServer] Download failed:`, err);
-        res.writeHead(404, { 'Content-Type': 'text/plain' });
-        res.end(`404 Not Found: ${filePath}`);
+        // 检查响应是否已经发送
+        if (!res.headersSent) {
+          res.writeHead(404, { 'Content-Type': 'text/plain' });
+          res.end(`404 Not Found: ${filePath}`);
+        } else {
+          res.end();
+        }
       });
   }
 
@@ -319,8 +324,14 @@ export class AssetServer {
 
     proxyReq.on('error', (err) => {
       console.error(`[AssetServer] Proxy error:`, err);
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'proxy_failed' }));
+      // 检查响应是否已经发送，避免 ERR_HTTP_HEADERS_SENT 错误
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'proxy_failed' }));
+      } else {
+        // 如果响应头已发送，只能直接结束响应
+        res.end();
+      }
     });
 
     // 对于 POST 请求，转发请求体
