@@ -522,7 +522,7 @@ export class AssistantUseCase implements IAssistantUseCase {
    * 处理帮助意图
    */
   private async handleHelp(): Promise<void> {
-    const helpText = `我是围棋 AI 助理,可以帮您:
+    const helpText = `我是围棋 AI 助手,可以帮您:
 
 - 👤 **[查询棋手](../player/index.html)**
   - 查询业余棋手信息
