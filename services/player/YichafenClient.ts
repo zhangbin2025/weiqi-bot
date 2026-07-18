@@ -167,6 +167,12 @@ export class YichafenClient {
       }
     }
 
+    // Web 端：本地资源不可用时，不发起远程请求，直接返回空
+    // App 端：fallback 到远程加载
+    if (!isApp) {
+      return [];
+    }
+
     // App 端 fallback：本地资源不可用时，从远程加载
     // 获取最近 3 个月的榜单候选
     const candidates = getSnapshotCandidates(3);
@@ -187,7 +193,7 @@ export class YichafenClient {
           timeout,
         });
 
-        if (response.data && response.data.length > 0) {
+        if (response?.data && response.data.length > 0) {
           this.cachedPlayers = response.data;
           this.cachedAt = Date.now();
           return response.data;
