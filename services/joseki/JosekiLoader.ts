@@ -153,6 +153,56 @@ export class JosekiLoader implements IJosekiLoader {
     return this.quizLoader.loadQuizData(difficulty, onProgress);
   }
 
+
+  /**
+   * 从索引中提取所有子树前缀
+   */
+  private extractSubtreePrefixes(node: IJosekiTrieNode, prefixes: string[]): void {
+    if (node.subtree) {
+      const prefix = node.subtree.file.replace('trie-', '').replace('.json.gz', '');
+      prefixes.push(prefix);
+    }
+    if (node.children) {
+      for (const child of Object.values(node.children)) {
+        this.extractSubtreePrefixes(child as IJosekiTrieNode, prefixes);
+      }
+    }
+  }
+
+  /**
+   * 预加载所有子树
+   * @description 加载索引后，一次性加载所有子树到内存
+   */
+  async preloadAllSubtrees(onProgress?: LoadProgressCallback): Promise<void> {
+    // 确保索引已加载
+    if (!this.trie) {
+      await this.loadTrie((percent, status) => {
+        onProgress?.(percent * 0.1, status); // 索引加载占 10%
+      });
+    }
+
+    // 提取所有子树前缀
+    const prefixes: string[] = [];
+    this.extractSubtreePrefixes(this.trie!.root, prefixes);
+
+    if (prefixes.length === 0) {
+      onProgress?.(100, '无子树需要加载');
+      return;
+    }
+
+    // 加载所有子树
+    const total = prefixes.length;
+    for (let i = 0; i < prefixes.length; i++) {
+      const prefix = prefixes[i]!;
+      const percent = 10 + (i / total) * 90; // 10-100%
+      await this.loadSubtree(prefix);
+      const msg = "加载子树 " + (i + 1) + "/" + total;
+      onProgress?.(percent, msg);
+    }
+
+    onProgress?.(100, '加载完成');
+  }
+
   /**
    * 清除缓存
    */
