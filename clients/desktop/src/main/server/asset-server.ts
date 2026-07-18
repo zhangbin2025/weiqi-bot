@@ -346,6 +346,17 @@ export class AssetServer {
    * 检查并更新版本，然后预下载核心资源（对齐 Android AssetServer.checkAndUpdateVersion）
    */
   async checkAndUpdateVersion(progressCallback?: (stage: string, progress: number) => void): Promise<boolean> {
+    // 检查升级标记文件
+    const flagFile = path.join(app.getPath('userData'), 'allow-upgrade.txt');
+    if (!fs.existsSync(flagFile)) {
+      console.log('[AssetServer] No upgrade flag, skipping version check');
+      return false;
+    }
+    
+    // 删除标记（一次性）
+    fs.unlinkSync(flagFile);
+    console.log('[AssetServer] Upgrade flag found, checking version...');
+    
     console.log('[AssetServer] Checking version...');
     
     // 阶段1：检查版本
@@ -398,6 +409,8 @@ export class AssetServer {
 
     return versionChanged;
   }
+
+
 
   /**
    * 递归列出目录下所有文件

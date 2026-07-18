@@ -6,6 +6,9 @@
  */
 
 import { AppConfig } from '../config';
+import * as path from 'path';
+import * as fs from 'fs';
+import { app } from 'electron';
 
 export class ConfigHandler {
   readonly prefix = 'config:';
@@ -28,6 +31,24 @@ export class ConfigHandler {
           remoteBase: AppConfig.remoteBase,
           versionUrl: AppConfig.versionUrl,
         });
+
+      case 'set':
+        const payload = parts.slice(2).join(':');
+        const colonIdx = payload.indexOf(':');
+        if (colonIdx < 0) {
+          return JSON.stringify({ error: 'Invalid format. Use: config:set:{filename}:{content}' });
+        }
+        const filename = payload.substring(0, colonIdx);
+        const content = payload.substring(colonIdx + 1);
+        
+        try {
+          const filePath = path.join(app.getPath('userData'), filename);
+          fs.writeFileSync(filePath, content, 'utf-8');
+          console.log(`[ConfigHandler] Set ${filename} = "${content}"`);
+          return JSON.stringify({ success: true, file: filename });
+        } catch (error: any) {
+          return JSON.stringify({ success: false, error: error.message });
+        }
 
       default:
         return JSON.stringify({ error: `Unknown action: ${action}` });

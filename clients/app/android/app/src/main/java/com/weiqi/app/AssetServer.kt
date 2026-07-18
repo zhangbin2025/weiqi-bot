@@ -202,6 +202,18 @@ class AssetServer(
      * @param callback 进度回调（在 IO 线程调用，UI 更新需切换线程）
      */
     fun checkAndUpdateVersion(callback: ProgressCallback? = null): Boolean {
+        // 检查升级标记文件
+        val flagFile = File(context.filesDir, "allow-upgrade.txt")
+        if (!flagFile.exists()) {
+            Logger.d(TAG, "No upgrade flag, skipping version check")
+            return false
+        }
+        
+        // 删除标记（一次性）
+        flagFile.delete()
+        Logger.d(TAG, "Upgrade flag found, checking version...")
+        
+
         // 阶段1：检查版本
         callback?.onProgress("检查版本更新", 5)
 

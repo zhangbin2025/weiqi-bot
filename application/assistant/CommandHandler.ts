@@ -142,10 +142,27 @@ export class CommandHandler {
    * 
    * @param type 升级类型：web | app | win
    */
+  /**
+   * 处理版本升级
+   * 
+   * @param type 升级类型：web | app | win
+   */
   private async handleVersionUpgrade(type: 'web' | 'app' | 'win'): Promise<void> {
     if (type === 'web') {
-      await this.renderMessage('🔄 正在刷新页面...');
-      setTimeout(() => window.location.reload(), 1000);
+      // 设置升级标记
+      try {
+        const response = window.prompt('config:set:allow-upgrade.txt:true');
+        const result = JSON.parse(response || '{}');
+        
+        if (result.success) {
+          await this.renderMessage('✅ 已设置升级标记\n\n请重启应用以完成升级');
+        } else {
+          await this.renderMessage('❌ 设置升级标记失败\n\n' + (result.error || '未知错误'));
+        }
+      } catch (error) {
+        console.error('[CommandHandler] Failed to set upgrade flag:', error);
+        await this.renderMessage('❌ 设置升级标记失败\n\n' + (error instanceof Error ? error.message : '未知错误'));
+      }
     } else if (type === 'app') {
       await this.renderMessage('📥 正在打开下载页面...\n\n请在浏览器中下载并安装 APK');
       window.open('https://bot.weiqi.lol/apk', '_blank');
@@ -154,6 +171,7 @@ export class CommandHandler {
       window.open('https://bot.weiqi.lol/win', '_blank');
     }
   }
+
   /**
    * 显示后台任务列表
    */
