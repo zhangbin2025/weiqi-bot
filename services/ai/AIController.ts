@@ -94,7 +94,7 @@ export class AIController implements IAIController {
     visits?: number,  // AI 搜索深度，不传则使用内部默认值
     maxTimeMs?: number,
     initialStones?: Array<{ player: PlayerColor; x: number; y: number }>  // 让子棋
-  ): Promise<{ x: number; y: number } | null> {
+  ): Promise<{ x: number; y: number; winRate: number; scoreLead: number } | null> {
     this.thinking = true;
     this.canceled = false;
 
@@ -107,9 +107,14 @@ export class AIController implements IAIController {
 
       if (this.canceled || !result.moves.length) return null;
 
-      // 返回最佳着法（order 为 0）
+      // 返回最佳着法（order 为 0）+ 胜率和目差
       const best = result.moves.find((m: { order: number; x: number; y: number }) => m.order === 0) ?? result.moves[0];
-      return { x: best!.x, y: best!.y };
+      return { 
+        x: best!.x, 
+        y: best!.y, 
+        winRate: result.rootWinRate, 
+        scoreLead: result.rootScoreLead 
+      };
     } finally {
       this.thinking = false;
     }

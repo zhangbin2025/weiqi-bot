@@ -38,8 +38,8 @@ export class HMNotifier {
   }
 
   /** 通知 AI 落子 */
-  notifyAiMove(x: number, y: number): void {
-    this.callbacks.onAiMove?.(x, y);
+  notifyAiMove(x: number, y: number, winRate?: number, scoreLead?: number): void {
+    this.callbacks.onAiMove?.(x, y, winRate, scoreLead);
   }
 
   /** 通知提子 */

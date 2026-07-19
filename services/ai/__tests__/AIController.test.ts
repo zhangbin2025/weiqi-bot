@@ -147,7 +147,7 @@ describe('AIController', () => {
       const board = createEmptyBoard();
       const result = await controller.genmove(board, null, 'black', [], 6.5);
 
-      expect(result).toEqual({ x: 3, y: 3 });
+      expect(result).toEqual({ x: 3, y: 3, winRate: 0.55, scoreLead: 3.5 });
     });
 
     it('应调用 client.analyze 并传入正确的参数', async () => {

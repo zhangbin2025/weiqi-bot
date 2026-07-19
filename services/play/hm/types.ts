@@ -114,7 +114,7 @@ export interface IHMPlayCallbacks {
   /** AI 思考状态变化 */
   onAiThinking?: (thinking: boolean) => void;
   /** AI 落子 */
-  onAiMove?: (x: number, y: number) => void;
+  onAiMove?: (x: number, y: number, winRate?: number, scoreLead?: number) => void;
   /** 提子 */
   onCapture?: (count: number, color: PlayerColor) => void;
   /** 目数变化 */

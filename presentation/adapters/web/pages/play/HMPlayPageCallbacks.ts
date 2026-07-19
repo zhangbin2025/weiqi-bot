@@ -19,7 +19,7 @@ export interface HMCallbackContext {
   updateButtons: () => void;
   handleGameEnd: (winner: PlayerColor, reason: string) => void;
   render: () => void;
-}
+  }
 /**
  * 创建人机对弈回调处理器
  */
@@ -46,7 +46,7 @@ export function createHMPlayCallbacks(ctx: HMCallbackContext): IHMPlayCallbacks 
       }
       ctx.updateButtons();
     },
-    onAiMove: (x, y) => {
+    onAiMove: (x, y, winRate, scoreLead) => {
       // AI 落子
       ctx.moveCount++;
       ctx.updateMoveCount(ctx.moveCount);
@@ -55,6 +55,18 @@ export function createHMPlayCallbacks(ctx: HMCallbackContext): IHMPlayCallbacks 
       ctx.audioPlayer.play('stone').catch(() => {
         console.warn('AI 落子音效播放失败');
       });
+      // 更新标题栏胜率信息
+      if (winRate !== undefined && scoreLead !== undefined) {
+        const blackWinRate = winRate; // 黑方胜率
+        const blackPercent = Math.round(blackWinRate * 100);
+        const leader = scoreLead > 0 ? '黑' : '白';
+        const lead = Math.abs(scoreLead).toFixed(1);
+        
+        const subtitle = document.getElementById('modelInfo');
+        if (subtitle) {
+          subtitle.textContent = leader + '领先' + lead + '目 | 黑胜率 ' + blackPercent + '%';
+        }
+      }
       // render 会在 onBoardChange 中被调用
     },
     onCapture: (count, color) => {

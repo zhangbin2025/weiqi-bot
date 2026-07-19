@@ -657,3 +657,72 @@ body {
     margin-top: 8px;
   }
 }
+
+/* ===== 胜率条 ===== */
+.winrate-bar-container {
+  background: white;
+  padding: 8px 16px;
+  border-bottom: 1px solid #e8e8e8;
+}
+
+.winrate-bar {
+  display: flex;
+  height: 28px;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.winrate-bar-black {
+  background: linear-gradient(135deg, #333 0%, #000 100%);
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding-left: 8px;
+  transition: width 0.5s ease;
+  min-width: 50px;
+}
+
+.winrate-bar-white {
+  background: linear-gradient(135deg, #fff 0%, #f0f0f0 100%);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 8px;
+  transition: width 0.5s ease;
+  min-width: 50px;
+}
+
+.winrate-text {
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.winrate-text.black {
+  color: #fff;
+}
+
+.winrate-text.white {
+  color: #333;
+}
+
+.winrate-text strong {
+  font-weight: 700;
+}
+
+.score-lead {
+  text-align: center;
+  font-size: 12px;
+  color: #666;
+  margin-top: 4px;
+}
+
+/* 胜率领先高亮 */
+.winrate-bar-black.leading {
+  box-shadow: inset 0 0 8px rgba(255, 255, 255, 0.3);
+}
+
+.winrate-bar-white.leading {
+  box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.1);
+}

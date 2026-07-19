@@ -92,7 +92,7 @@ export class HMPlayAIMover {
       const result = this.game.placeStone(move.x, move.y);
 
       if (result.success) {
-        this.notifier.notifyAiMove(move.x, move.y);
+        this.notifier.notifyAiMove(move.x, move.y, move.winRate, move.scoreLead);
         this.notifier.notifyBoardChange(getBoardState(this.game.getState().board));
         if (result.captured.length > 0) {
           this.notifier.notifyCapture(result.captured.length, state.currentPlayer);

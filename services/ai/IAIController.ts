@@ -45,7 +45,7 @@ export interface IAIController {
     visits?: number,
     maxTimeMs?: number,
     initialStones?: Array<{ player: PlayerColor; x: number; y: number }>
-  ): Promise<{ x: number; y: number } | null>;
+  ): Promise<{ x: number; y: number; winRate: number; scoreLead: number } | null>;
 
   /**
    * 分析局面
