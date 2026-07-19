@@ -156,7 +156,7 @@ export class HMPlayPage implements IPage {
       board: this.board,
       toast: this.toast,
       audioPlayer: this.audioPlayer,
-      playerColor: this.playerColor,
+      get playerColor() { return self.playerColor; },
       get moveCount() { return self.moveCount; },
       set moveCount(value) { self.moveCount = value; },
       updateStatus: (msg: string) => this.updateStatus(msg),
