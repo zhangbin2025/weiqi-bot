@@ -140,10 +140,14 @@ export class WinrateChart {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.beginPath();
+
+    // 计算横坐标范围（从0开始）
+    const moveRange = Math.max(1, maxMove - 1);  // 避免除以0
+
     let firstPoint = true;
     for (let i = 0; i < data.length; i++) {
       const pt = data[i]!;
-      const x = (pt.moveNumber / maxMove) * config.width;
+      const x = ((pt.moveNumber - 1) / moveRange) * config.width;
       const deviation = pt.winRate - 0.5;
       const y = axisY - deviation * maxBarH * 2;
       if (firstPoint) {
@@ -161,7 +165,8 @@ export class WinrateChart {
     const colors = config.colors;
     const pt = data.find(d => d.moveNumber === currentMove);
     if (!pt) return;
-    const x = (currentMove / maxMove) * config.width;
+    const moveRange = Math.max(1, maxMove - 1);
+    const x = ((currentMove - 1) / moveRange) * config.width;
     // 画竖线，不画圆点
     ctx.strokeStyle = colors.currentPoint;
     ctx.lineWidth = 1.5;
@@ -179,7 +184,8 @@ export class WinrateChart {
     const rect = this.canvas.getBoundingClientRect();
     const ratio = (event.clientX - rect.left) / rect.width;
     const maxMove = this.data[this.data.length - 1]!.moveNumber;
-    const moveNumber = Math.round(ratio * maxMove);
+    const moveRange = Math.max(1, maxMove - 1);
+    const moveNumber = Math.round(ratio * moveRange + 1);
     const clamped = Math.max(1, Math.min(maxMove, moveNumber));
     this.onClick(clamped);
   }
