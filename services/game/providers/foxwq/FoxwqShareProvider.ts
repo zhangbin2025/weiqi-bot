@@ -58,7 +58,6 @@ export class FoxwqShareProvider extends BaseProvider {
 
       // 步骤 1：尝试 API 模式（历史棋谱）
       if (chessId) {
-        console.log(`[FoxwqShareProvider] 尝试 API 模式获取棋谱: ${chessId}`);
         const apiResult = await this.tryFetchViaApi(chessId, url, timing, startTime);
         if (apiResult) {
           return apiResult;
@@ -67,7 +66,6 @@ export class FoxwqShareProvider extends BaseProvider {
 
       // 步骤 2：尝试公开棋谱模式
       if (url.includes('qipu')) {
-        console.log(`[FoxwqShareProvider] 尝试公开棋谱模式`);
         const detail = await this.publicProvider.fetchPublicQipuSgf(url);
         if (detail.sgf) {
           const metadata = this.parseSgfMetadata(detail.sgf);
@@ -85,7 +83,6 @@ export class FoxwqShareProvider extends BaseProvider {
 
       // 步骤 3：尝试 Sniffer 模式（直播棋谱）
       if (this.liveProvider && this.isLiveUrl(url)) {
-        console.log(`[FoxwqShareProvider] 尝试 Sniffer 模式获取直播棋谱`);
         const liveResult = await this.liveProvider.fetch(url);
         if (liveResult.success) {
           // 合并 timing
@@ -122,7 +119,6 @@ export class FoxwqShareProvider extends BaseProvider {
     try {
       const sgf = await this.chessProvider.fetchSGF(chessId);
       if (sgf) {
-        console.log(`[FoxwqShareProvider] API 模式成功`);
         const metadata = this.parseSgfMetadata(sgf);
         timing.total = this.now() - startTime;
         return {
@@ -135,7 +131,6 @@ export class FoxwqShareProvider extends BaseProvider {
         };
       }
     } catch (error) {
-      console.log(`[FoxwqShareProvider] API 模式失败: ${error}`);
     }
     return null;
   }

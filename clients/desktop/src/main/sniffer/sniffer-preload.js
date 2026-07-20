@@ -13,7 +13,6 @@
 // @ts-nocheck
 const { ipcRenderer } = require('electron');
 
-console.log('[WS-Intercept] Preload running...');
 
 // 通知函数：发送事件到主进程
 function notify(event) {
@@ -67,7 +66,6 @@ function binaryToBase64(data) {
 const _origWebSocket = window.WebSocket;
 
 window.WebSocket = function(url, protocols) {
-  console.log('[WS-Intercept] Created:', url);
 
   notify({ t: 'open', u: url, ts: Date.now() });
 
@@ -80,8 +78,6 @@ window.WebSocket = function(url, protocols) {
     if (isBinary) {
       // 二进制数据：转换为 Base64
       dataStr = binaryToBase64(event.data);
-      const size = event.data.byteLength || event.data.size || 'unknown';
-      console.log('[WS-Intercept] Received binary, size:', size, ', base64 length:', dataStr.length);
     } else {
       // 文本数据：直接使用
       dataStr = event.data;
@@ -112,7 +108,6 @@ window.WebSocket = function(url, protocols) {
     if (isBinary) {
       // 二进制数据：转换为 Base64
       dataStr = binaryToBase64(data);
-      console.log('[WS-Intercept] Sent binary, base64 length:', dataStr.length);
     } else {
       // 文本数据：直接使用
       dataStr = data;
@@ -141,4 +136,3 @@ window.WebSocket.CLOSING = _origWebSocket.CLOSING;
 // @ts-ignore
 window.WebSocket.CLOSED = _origWebSocket.CLOSED;
 
-console.log('[WS-Intercept] WebSocket interceptor installed');
