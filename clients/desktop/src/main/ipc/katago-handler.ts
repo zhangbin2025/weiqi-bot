@@ -176,6 +176,40 @@ export class KatagoHandler {
    * 下载模型文件到 web/models 目录
    * 与 Android 对齐：独立于 KataGo 进程，先下载再启动
    */
+  /**
+   * 校验 gzip 文件完整性
+   * 
+   * 通过读取整个文件验证 CRC32，检测下载中断、数据损坏等问题
+   */
+  private verifyGzip(filepath: string): boolean {
+    try {
+      // 1. 检查 gzip 魔数
+      const fd = fs.openSync(filepath, "r");
+      const magicBuf = Buffer.alloc(2);
+      fs.readSync(fd, magicBuf, 0, 2, 0);
+      fs.closeSync(fd);
+      
+      if (magicBuf[0] !== 0x1f || magicBuf[1] !== 0x8b) {
+        console.warn("[KataGo] Not a gzip file (invalid magic)");
+        return false;
+      }
+      
+      // 2. 使用 gzip -t 完整性校验
+      const { spawnSync } = require("child_process");
+      const result = spawnSync("gzip", ["-t", filepath], { timeout: 30000 });
+      
+      if (result.status !== 0) {
+        console.warn("[KataGo] Gzip integrity check failed:", result.stderr?.toString());
+        return false;
+      }
+      
+      return true;
+    } catch (error: any) {
+      console.error("[KataGo] Gzip verification error:", error);
+      return false;
+    }
+  }
+
   private downloadModel(url: string, filename: string): void {
     const modelsDir = path.join(app.getPath('userData'), 'web', 'models');
     if (!fs.existsSync(modelsDir)) {
@@ -184,14 +218,20 @@ export class KatagoHandler {
 
     const targetFile = path.join(modelsDir, filename);
 
-    // 已存在则跳过
+    // 已存在则校验 gzip 完整性
     if (fs.existsSync(targetFile)) {
-      console.log(`[KataGo] Model already exists: ${targetFile}`);
-      // 延迟推送，确保 TypeScript 层已设置回调（与 Android 对齐）
-      setTimeout(() => {
-        this.pushToTS({ type: 'katago:downloadComplete', ok: true, path: `models/${filename}` });
-      }, 100);
-      return;
+      if (this.verifyGzip(targetFile)) {
+        console.log(`[KataGo] Model already exists and valid: ${targetFile}`);
+        // 延迟推送，确保 TypeScript 层已设置回调（与 Android 对齐）
+        setTimeout(() => {
+          this.pushToTS({ type: 'katago:downloadComplete', ok: true, path: `models/${filename}` });
+        }, 100);
+        return;
+      } else {
+        // 文件损坏，删除后重新下载
+        console.warn(`[KataGo] Model exists but corrupted, deleting: ${targetFile}`);
+        fs.unlinkSync(targetFile);
+      }
     }
 
     console.log(`[KataGo] Downloading model: ${url} -> ${filename}`);

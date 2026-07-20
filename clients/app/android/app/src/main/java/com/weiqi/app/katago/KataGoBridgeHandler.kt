@@ -416,6 +416,43 @@ class KataGoBridgeHandler(
         }
     }
 
+
+    /**
+     * 校验 gzip 文件完整性
+     * 
+     * 通过读取整个文件验证 CRC32，检测下载中断、数据损坏等问题
+     */
+    private fun verifyGzip(filepath: String): Pair<Boolean, String> {
+        return try {
+            val file = File(filepath)
+            if (!file.exists()) {
+                return Pair(false, "File not found")
+            }
+            
+            // 检查 gzip 魔数
+            file.inputStream().use { stream ->
+                val b1 = stream.read()
+                val b2 = stream.read()
+                if (b1 != 0x1f || b2 != 0x8b) {
+                    return Pair(false, "Not a gzip file (invalid magic)")
+                }
+            }
+            
+            // 完整性校验：读取整个文件验证 CRC
+            java.util.zip.GZIPInputStream(file.inputStream()).use { stream ->
+                val buffer = ByteArray(8192)
+                while (true) {
+                    val read = stream.read(buffer)
+                    if (read == -1) break
+                }
+            }
+            
+            Pair(true, "Valid gzip file")
+        } catch (e: Exception) {
+            Pair(false, "Gzip verification failed: ${e.message}")
+        }
+    }
+
     /**
      * 解析 web 相对路径为本地绝对路径
      *
@@ -526,17 +563,25 @@ class KataGoBridgeHandler(
                 
                 // 如果文件已存在，推送成功消息
                 if (targetFile.exists()) {
-                    Logger.i(TAG, "Model already exists: ${targetFile.absolutePath}")
-                    // ⚠️ 延迟推送消息，确保 TypeScript 层已设置回调
-                    // 避免 prompt() 还未返回就推送消息导致 TypeScript 层错过
-                    Handler(Looper.getMainLooper()).postDelayed({
-                        val successJson = JSONObject()
-                            .put("type", "katago:downloadComplete")
-                            .put("ok", true)
-                            .put("path", "models/$filename")
-                        pushToTS(successJson.toString())
-                    }, 100)
-                    return@launch
+                    // 校验 gzip 完整性
+                    val (isValid, msg) = verifyGzip(targetFile.absolutePath)
+                    if (isValid) {
+                        Logger.i(TAG, "Model already exists and valid: ${targetFile.absolutePath}")
+                        // ⚠️ 延迟推送消息，确保 TypeScript 层已设置回调
+                        // 避免 prompt() 还未返回就推送消息导致 TypeScript 层错过
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            val successJson = JSONObject()
+                                .put("type", "katago:downloadComplete")
+                                .put("ok", true)
+                                .put("path", "models/$filename")
+                            pushToTS(successJson.toString())
+                        }, 100)
+                        return@launch
+                    } else {
+                        // 文件损坏，删除后重新下载
+                        Logger.w(TAG, "Model exists but corrupted: $msg, deleting: ${targetFile.absolutePath}")
+                        targetFile.delete()
+                    }
                 }
                 
                 // 使用 OkHttp 下载
