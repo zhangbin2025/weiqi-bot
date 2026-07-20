@@ -2,11 +2,12 @@
  * @fileoverview 野狐围棋公开棋谱功能
  */
 
-import type { NetworkManager } from '../../../../infrastructure/network/core/NetworkManager';
-import type { PublicQipu, PublicQipuDetail } from './types';
+import type { NetworkManager } from "../../../../infrastructure/network/core/NetworkManager";
+import type { PublicQipu, PublicQipuDetail } from "./types";
+import { FoxwqChessProvider } from "./FoxwqChessProvider";
 
 /** 野狐公开棋谱基础 URL */
-const FOXWQ_PUBLIC_BASE = 'https://www.foxwq.com';
+const FOXWQ_PUBLIC_BASE = "https://www.foxwq.com";
 
 /** 最大翻页数量（防止死循环） */
 const MAX_PAGES = 50;
@@ -15,9 +16,11 @@ const MAX_PAGES = 50;
  * 野狐围棋公开棋谱提供者
  */
 export class FoxwqPublicProvider {
-  constructor(
-    private readonly network: NetworkManager
-  ) {}
+  private readonly chessProvider: FoxwqChessProvider;
+
+  constructor(private readonly network: NetworkManager) {
+    this.chessProvider = new FoxwqChessProvider(network);
+  }
 
   /**
    * 获取公开棋谱列表（支持翻页）
@@ -30,14 +33,15 @@ export class FoxwqPublicProvider {
     let dateDisappeared = false;
 
     while (page <= MAX_PAGES) {
-      const url = page === 1
-        ? `${FOXWQ_PUBLIC_BASE}/qipu.html`
-        : `${FOXWQ_PUBLIC_BASE}/qipu/index/p/${page}.html`;
+      const url =
+        page === 1
+          ? `${FOXWQ_PUBLIC_BASE}/qipu.html`
+          : `${FOXWQ_PUBLIC_BASE}/qipu/index/p/${page}.html`;
 
       const response = await this.network.request<string>({
         url,
-        method: 'GET',
-        responseType: 'text',
+        method: "GET",
+        responseType: "text",
       });
       const html = response.data;
 
@@ -59,8 +63,8 @@ export class FoxwqPublicProvider {
       }
 
       // 检查是否有下一页
-      const hasNextPage = html.includes('下页')
-        || html.includes(`/qipu/index/p/${page + 1}.html`);
+      const hasNextPage =
+        html.includes("下页") || html.includes(`/qipu/index/p/${page + 1}.html`);
       if (!hasNextPage) break;
 
       page++;
@@ -76,32 +80,41 @@ export class FoxwqPublicProvider {
    */
   private extractQipuFromHtml(html: string, date?: string): PublicQipu[] {
     const links: PublicQipu[] = [];
-    const linkRegex = /<a[^>]*href="(\/qipu\/newlist\/id\/\d+\.html)"[^>]*>/gi;
-    let match: RegExpExecArray | null;
 
-    while ((match = linkRegex.exec(html)) !== null) {
-      const linkUrl = match[1];
-      const matchIndex = match.index;
-      const beforeLink = html.lastIndexOf('<tr', matchIndex);
-      const afterLink = html.indexOf('</tr>', matchIndex);
+    // 新版H5分享链接格式：
+    // <h4 class="qipu-title">
+    //   <a href="https://h5.foxwq.com/yehunewshare/?chessid=xxx&title=xxx">标题</a>
+    // </h4>
+    // <td class="qipu-time text-right">2026-07-20 12:55</td>
 
-      if (beforeLink === -1 || afterLink === -1) continue;
+    // 匹配每个棋谱行的标题和链接
+    const rowRegex = /<tr[^>]*>[\s\S]*?<\/tr>/gi;
+    let rowMatch: RegExpExecArray | null;
 
-      const rowHtml = html.substring(beforeLink, afterLink + 5);
-      const titleMatch = rowHtml.match(/<h4[^>]*>(.*?)<\/h4>/i);
-      const title = titleMatch
-        ? titleMatch[1]!.replace(/<[^>]+>/g, '').trim()
-        : '未知';
+    while ((rowMatch = rowRegex.exec(html)) !== null) {
+      const rowHtml = rowMatch[0];
 
-      const dateMatch = rowHtml.match(/(\d{4}-\d{2}-\d{2})/);
-      const qipuDate = dateMatch ? dateMatch[1] : '';
+      // 提取标题和链接
+      const titleLinkMatch = rowHtml.match(
+        /<h4[^>]*class="[^"]*qipu-title[^"]*"[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>([^<]+)<\/a>\s*<\/h4>/i
+      );
 
+      if (!titleLinkMatch) continue;
+
+      const linkUrl = titleLinkMatch[1]!;
+      const title = titleLinkMatch[2]!.trim();
+
+      // 提取日期（支持多个class，如 class="qipu-time text-right"）
+      const dateMatch = rowHtml.match(/<td[^>]*class="[^"]*qipu-time[^"]*"[^>]*>([^<]+)<\/td>/i);
+      const qipuDate = dateMatch ? dateMatch[1]!.trim().substring(0, 10) : "";
+
+      // 日期过滤
       if (date && qipuDate !== date) continue;
 
       links.push({
         title,
-        url: `${FOXWQ_PUBLIC_BASE}${linkUrl}`,
-        date: qipuDate ?? '',
+        url: linkUrl,
+        date: qipuDate,
       });
     }
 
@@ -110,44 +123,43 @@ export class FoxwqPublicProvider {
 
   /**
    * 下载公开棋谱 SGF
+   * 新版H5分享链接通过API获取：
+   * https://h5.foxwq.com/yehunewshare/?chessid=xxx
+   * -> 调用 FoxwqChessProvider.fetchSGF(chessid)
    */
   async fetchPublicQipuSgf(url: string): Promise<PublicQipuDetail> {
-    const response = await this.network.request<string>({
-      url,
-      method: 'GET',
-      responseType: 'text',
-    });
-
-    const html = response.data;
-    const sgfStart = html.indexOf('(;GM[1]FF[4]');
-    if (sgfStart === -1) {
-      throw new Error('无法提取 SGF 内容');
+    // 从URL提取chessid
+    const chessid = this.extractChessId(url);
+    if (!chessid) {
+      throw new Error("无法从URL中提取棋谱ID");
     }
 
-    const sgfRemainder = html.substring(sgfStart);
-    const htmlTagMatch = sgfRemainder.match(/<\/?[a-zA-Z][^>]*>/);
+    // 调用API获取SGF
+    const sgf = await this.chessProvider.fetchSGF(chessid);
 
-    let sgf: string;
-    if (htmlTagMatch) {
-      sgf = sgfRemainder.substring(0, htmlTagMatch.index);
-    } else {
-      const sgfMatch = html.match(/\(;GM\[1\]FF\[4\][\s\S]*?\)\s*\)\s*\)/);
-      sgf = sgfMatch ? sgfMatch[0] : '';
+    // 从SGF中提取元数据
+    const titleMatch = sgf.match(/GN\[([^\]]+)\]/);
+    const dateMatch = sgf.match(/DT\[([^\]]+)\]/);
+
+    return {
+      sgf,
+      title: titleMatch ? titleMatch[1]! : "未知",
+      date: dateMatch ? dateMatch[1]! : "",
+    };
+  }
+
+  /**
+   * 从URL中提取chessid
+   */
+  private extractChessId(url: string): string | null {
+    try {
+      const urlObj = new URL(url);
+      const chessid = urlObj.searchParams.get("chessid");
+      return chessid;
+    } catch {
+      // URL解析失败，尝试正则匹配
+      const match = url.match(/chessid=([a-zA-Z0-9]+)/);
+      return match && match[1] ? match[1] : null;
     }
-
-    sgf = sgf.trim();
-    if (!sgf) {
-      throw new Error('SGF 内容为空');
-    }
-
-    const titleMatch = html.match(/<h1[^>]*>(.*?)<\/h1>/i);
-    const title = titleMatch
-      ? titleMatch[1]!.replace(/<[^>]+>/g, '').trim()
-      : '未知';
-
-    const dateMatch = html.match(/(\d{4}-\d{2}-\d{2})/);
-    const date = dateMatch ? dateMatch[1] : '';
-
-    return { sgf, title, date: date ?? '' };
   }
 }
