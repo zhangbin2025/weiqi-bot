@@ -257,6 +257,14 @@ export class KataGoNativeClient {
         return;
       }
 
+      // 心跳消息（Kotlin 层在长时间无输出时发送），重置超时计时器
+      if (obj.type === "katago:heartbeat") {
+        this.resetStartTimeout();
+        console.log("[KataGoNativeClient] Heartbeat received, elapsed:", obj.elapsed, "ms");
+        // 不调用 onInitProgress，因为心跳不包含进度信息
+        return;
+      }
+
       // 下载进度消息
       if (obj.type === 'katago:downloadProgress') {
         console.log('[KataGoNativeClient] Download progress:', obj.filename, obj.loaded, '/', obj.total);
