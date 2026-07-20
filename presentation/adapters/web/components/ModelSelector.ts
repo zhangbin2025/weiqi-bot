@@ -102,7 +102,7 @@ export class ModelSelector {
       <label id="customModelLabel" style="display: flex; align-items: center; gap: 8px; padding: 8px 0; cursor: pointer;">
         <input type="radio" name="aiModel" value="custom" ${this.selectedModelId === 'custom' ? 'checked' : ''} style="width: auto;">
         <div style="flex: 1;">
-          <span style="font-size: 13px;">自定义模型</span>
+          <span style="font-size: 13px;">自定义模型</span> <a href="https://katagotraining.org/networks/" target="_blank" style="font-size: 11px; color: #4a90e2; margin-left: 8px;">模型列表 ↗</a>
         </div>
       </label>
       <div id="customModelUrlContainer" style="display: ${this.selectedModelId === 'custom' ? 'block' : 'none'}; padding: 8px 0;">
