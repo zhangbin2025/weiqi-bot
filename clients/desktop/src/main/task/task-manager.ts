@@ -274,12 +274,14 @@ export class TaskManager {
 
     this.workers.set(taskId, taskWindow);
 
-    // 超时保护：5 分钟后自动标记失败
+    // 超时保护：可配置的超时时间（默认 10 分钟）
+    // 复盘分析 200+ 手棋可能需要 10-20 分钟
+    const taskTimeoutMs = 10 * 60 * 1000; // 10 分钟
     const timeout = setTimeout(() => {
-      console.warn(`[TaskManager] Task ${taskId} timed out`);
+      console.warn(`[TaskManager] Task ${taskId} timed out after ${taskTimeoutMs / 1000}s`);
       this.markFailed(taskId, '任务超时');
       this.cleanupWindow(taskId);
-    }, 5 * 60 * 1000);
+    }, taskTimeoutMs);
 
     // 页面加载完成时检查
     taskWindow.webContents.on('did-finish-load', () => {
