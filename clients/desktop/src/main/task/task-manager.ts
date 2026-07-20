@@ -14,6 +14,7 @@ const log = createLogger('TaskManager');
 
 export class TaskManager {
   private store: TaskStore;
+  private timeoutTimers: Map<string, NodeJS.Timeout> = new Map();
   private scheduleManager: ScheduleManager;
   private workers: Map<string, BrowserWindow> = new Map();
   private periodicTimers: Map<string, NodeJS.Timeout> = new Map();
@@ -113,6 +114,20 @@ export class TaskManager {
    */
   updateProgressSync(taskId: string, progress: number, message?: string): void {
     this.store.updateProgress(taskId, progress, message);
+    
+    // 重置超时计时器（任务有进度更新，说明还在运行）
+    const timer = this.timeoutTimers.get(taskId);
+    if (timer) {
+      clearTimeout(timer);
+      const taskTimeoutMs = 10 * 60 * 1000; // 10 分钟
+      const newTimer = setTimeout(() => {
+        console.warn(`[TaskManager] Task ${taskId} timed out after ${taskTimeoutMs / 1000}s`);
+        this.markFailed(taskId, '任务超时');
+        this.cleanupWindow(taskId);
+      }, taskTimeoutMs);
+      this.timeoutTimers.set(taskId, newTimer);
+      console.log(`[TaskManager] Task ${taskId} timeout reset due to progress update`);
+    }
   }
 
   // ========== 调度同步接口 ==========
@@ -282,6 +297,9 @@ export class TaskManager {
       this.markFailed(taskId, '任务超时');
       this.cleanupWindow(taskId);
     }, taskTimeoutMs);
+    
+    // 保存计时器，以便在进度更新时重置
+    this.timeoutTimers.set(taskId, timeout);
 
     // 页面加载完成时检查
     taskWindow.webContents.on('did-finish-load', () => {
@@ -315,6 +333,13 @@ export class TaskManager {
    * 清理隐藏窗口
    */
   private cleanupWindow(taskId: string) {
+    // 清理超时计时器
+    const timer = this.timeoutTimers.get(taskId);
+    if (timer) {
+      clearTimeout(timer);
+      this.timeoutTimers.delete(taskId);
+    }
+    
     const win = this.workers.get(taskId);
     if (win && !win.isDestroyed()) {
       win.destroy();
