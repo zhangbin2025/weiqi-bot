@@ -42,8 +42,8 @@ export class GameProviderRegistry {
     // Foxwq（组合 Provider，用于用户查询等）
     this.foxwqProvider = new FoxwqProvider(network);
 
-    // Foxwq 分享链接 Provider（实现 IGameProvider）
-    this.providers.set('foxwq', new FoxwqShareProvider(network));
+    // Foxwq 分享链接 Provider（支持 Sniffer fallback）
+    this.providers.set('foxwq', new FoxwqShareProvider(network, snifferProvider));
 
     // Archive Provider
     this.providers.set('archive', new ArchiveProvider());

@@ -110,13 +110,47 @@
         var TAG = 'ws-sniffer@weiqi.app';
         
         // ========== 事件上报 ==========
-        function post(type, url, data) {
+        function post(type, url, data, isBinary) {
             try {
                 window.postMessage({
                     __wsSnifferTag: TAG,
-                    payload: { t: type, u: url, d: data, ts: Date.now() }
+                    payload: { t: type, u: url, d: data, ts: Date.now(), isBinary: isBinary || false }
                 }, '*');
             } catch (e) { /* ignore */ }
+        }
+
+        // ========== 二进制数据转 Base64 ==========
+        function binaryToBase64(data) {
+            try {
+                var bytes;
+                
+                // ArrayBuffer
+                if (data instanceof ArrayBuffer) {
+                    bytes = new Uint8Array(data);
+                }
+                // Blob
+                else if (data instanceof Blob) {
+                    // Blob 需要异步读取，返回标记
+                    return '[blob]';
+                }
+                // Uint8Array 或其他 TypedArray
+                else if (ArrayBuffer.isView(data)) {
+                    bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+                }
+                // 其他情况
+                else {
+                    return '[unknown-binary]';
+                }
+                
+                // 转换为 Base64
+                var binary = '';
+                for (var i = 0; i < bytes.length; i++) {
+                    binary += String.fromCharCode(bytes[i]);
+                }
+                return btoa(binary);
+            } catch (e) {
+                return '[conversion-failed]';
+            }
         }
 
         // ========== WebSocket Hook ==========
@@ -130,38 +164,42 @@
             function WSSniffer(url, protocols) {
                 var ws = protocols ? new OWS(url, protocols) : new OWS(url);
 
-                post('ws_open', url, null);
+                post('ws_open', url, null, false);
 
                 try {
                     var origSend = ws.send.bind(ws);
                     ws.send = function (data) {
                         var payload;
-                        if (typeof data === 'string') {
-                            payload = data;
+                        var isBinary = typeof data !== 'string';
+                        
+                        if (isBinary) {
+                            payload = binaryToBase64(data);
                         } else {
-                            payload = '[bin]';
+                            payload = data;
                         }
-                        post('ws_send', url, payload);
+                        post('ws_send', url, payload, isBinary);
                         return origSend(data);
                     };
                 } catch (e) { /* ignore */ }
 
                 ws.addEventListener('message', function (ev) {
                     var payload;
-                    if (typeof ev.data === 'string') {
-                        payload = ev.data;
+                    var isBinary = typeof ev.data !== 'string';
+                    
+                    if (isBinary) {
+                        payload = binaryToBase64(ev.data);
                     } else {
-                        payload = '[bin]';
+                        payload = ev.data;
                     }
-                    post('ws_receive', url, payload);
+                    post('ws_receive', url, payload, isBinary);
                 });
 
                 ws.addEventListener('close', function (ev) {
-                    post('ws_close', url, { code: ev.code, reason: ev.reason || '' });
+                    post('ws_close', url, { code: ev.code, reason: ev.reason || '' }, false);
                 });
 
                 ws.addEventListener('error', function () {
-                    post('ws_error', url, null);
+                    post('ws_error', url, null, false);
                 });
 
                 return ws;
@@ -199,7 +237,7 @@
                     var url = typeof input === 'string' ? input : input.url;
                     var method = init?.method || 'GET';
 
-                    post('http_request', url, { method: method });
+                    post('http_request', url, { method: method }, false);
 
                     try {
                         var response = await OFetch.apply(this, arguments);
@@ -210,25 +248,25 @@
                             post('http_response', url, {
                                 status: response.status,
                                 body: '[too large]'
-                            });
+                            }, false);
                         } else {
                             try {
                                 var body = await cloned.text();
                                 post('http_response', url, {
                                     status: response.status,
                                     body: body
-                                });
+                                }, false);
                             } catch (e) {
                                 post('http_response', url, {
                                     status: response.status,
                                     body: '[unreadable]'
-                                });
+                                }, false);
                             }
                         }
 
                         return response;
                     } catch (e) {
-                        post('http_error', url, { error: e.message });
+                        post('http_error', url, { error: e.message }, false);
                         throw e;
                     }
                 };
@@ -255,7 +293,7 @@
                             post('http_request', requestUrl, {
                                 method: requestMethod,
                                 body: data
-                            });
+                            }, false);
                         }
                         return originalSend.apply(this, arguments);
                     };
@@ -266,13 +304,13 @@
                             post('http_response', requestUrl, {
                                 status: xhr.status,
                                 body: body.length > MAX_BODY_SIZE ? '[too large]' : body
-                            });
+                            }, false);
                         }
                     });
 
                     xhr.addEventListener('error', function () {
                         if (requestUrl) {
-                            post('http_error', requestUrl, { error: 'XHR error' });
+                            post('http_error', requestUrl, { error: 'XHR error' }, false);
                         }
                     });
 

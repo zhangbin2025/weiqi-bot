@@ -10,7 +10,8 @@ data class WSEvent(
     val type: String,      // open, send, receive, close, error
     val url: String,       // WebSocket URL
     val data: String?,     // 数据或null
-    val timestamp: Long    // 时间戳
+    val timestamp: Long,   // 时间戳
+    val isBinary: Boolean = false  // 是否为二进制数据
 ) {
     companion object {
         fun fromJson(obj: JSONObject): WSEvent {
@@ -18,7 +19,8 @@ data class WSEvent(
                 type = obj.getString("t"),
                 url = obj.getString("u"),
                 data = obj.optString("d").takeIf { it.isNotEmpty() },
-                timestamp = obj.getLong("ts")
+                timestamp = obj.getLong("ts"),
+                isBinary = obj.optBoolean("isBinary", false)
             )
         }
     }
@@ -29,6 +31,7 @@ data class WSEvent(
             put("u", url)
             put("d", data ?: JSONObject.NULL)
             put("ts", timestamp)
+            put("isBinary", isBinary)
         }
         return obj.toString()
     }

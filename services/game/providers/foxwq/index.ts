@@ -7,6 +7,8 @@ export { FoxwqProvider } from './FoxwqProvider';
 export { FoxwqUserProvider } from './FoxwqUserProvider';
 export { FoxwqChessProvider } from './FoxwqChessProvider';
 export { FoxwqPublicProvider } from './FoxwqPublicProvider';
+export { FoxwqShareProvider } from './FoxwqShareProvider';
+export { FoxwqLiveProvider } from './FoxwqLiveProvider';
 
 export type {
   FoxwqUser,
