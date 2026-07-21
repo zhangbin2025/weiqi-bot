@@ -746,6 +746,12 @@ export class ReviewPage implements IPage {
   private async refreshLiveGame(): Promise<void> {
     if (!this.liveUrl || !this.gameService) return;
     
+    // 如果正在分析，跳过本次刷新
+    if (this.analyzing) {
+      console.info('[ReviewPage] 正在分析中，跳过直播刷新');
+      return;
+    }
+    
     try {
       // 1. 重新抓取棋谱
       console.info('[ReviewPage] 开始刷新直播棋谱');
