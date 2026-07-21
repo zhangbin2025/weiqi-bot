@@ -800,9 +800,9 @@ export class ReviewPage implements IPage {
         }
       }
       
-      // 2. 重新抓取棋谱
+      // 2. 重新抓取棋谱（forceRefresh 跳过缓存）
       console.info('[ReviewPage] 开始刷新直播棋谱');
-      const result = await this.gameService.fetch(this.liveUrl);
+      const result = await this.gameService.fetch(this.liveUrl, true);
       
       if (!result.success || !result.archiveId) {
         console.warn('[ReviewPage] 刷新失败:', result.error);
