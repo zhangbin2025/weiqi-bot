@@ -138,12 +138,8 @@ export class FetcherPage implements IPage {
       this.renderer.showLoading(false);
       if (result.success) {
         this.currentResult = result;
-        this.renderer.showResult(result, this.isLiveMode);
-        this.renderer.setCurrentResult(result);
-        await this.loadBookmarks();
-        console.info('棋谱下载成功', { url, archiveId: result.archiveId });
-
-        // 检测是否为直播链接 + App 环境
+  
+        // 检测是否为直播链接 + App 环境  // ← 先设置 isLiveMode
         const isLive = this.detectLiveUrl(url);
         const isApp = this.isAppEnvironment();
         this.isLiveMode = isLive && isApp;
@@ -151,7 +147,11 @@ export class FetcherPage implements IPage {
           this.liveUrl = url;
           console.info('进入直播模式', { url, archiveId: result.archiveId });
         }
-        
+  
+        this.renderer.showResult(result, this.isLiveMode);  // ← 现在 isLiveMode 已设置
+        this.renderer.setCurrentResult(result);
+        await this.loadBookmarks();
+        console.info('棋谱下载成功', { url, archiveId: result.archiveId }); 
         
         // 后台任务完成
         if (taskId) {
