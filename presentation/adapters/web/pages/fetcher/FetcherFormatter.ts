@@ -55,7 +55,7 @@ export class FetcherFormatter {
   /**
    * 格式化结果信息（紧凑风格）
    */
-  formatResultInfo(result: FetcherResult): string {
+  formatResultInfo(result: FetcherResult, isLive: boolean = false): string {
     const black = result.metadata.black || '未知';
     const white = result.metadata.white || '未知';
     const date = result.metadata.date || '未知';

@@ -72,9 +72,17 @@ export class FetcherRenderer {
   bindActions(): void {
     this.bookmarkCard.onAction((action, data) => { if (action === 'viewBookmark' && data?.['id']) this.cb.onViewBookmark(data['id']); });
     this.resultCard.onAction((action) => {
-      if (action === 'download') this.cb.onDownload();
-      else if (action === 'view') this.cb.onViewSGF();
-      else if (action === 'share') this.cb.onGenerateShareUrl();
+      if (action === "live") {
+        if (this._currentResult) {
+          this.cb.onViewSGF();
+        }
+      } else if (action === "download") {
+        this.cb.onDownload();
+      } else if (action === "view") {
+        this.cb.onViewSGF();
+      } else if (action === "share") {
+        this.cb.onGenerateShareUrl();
+      }
     });
   }
   switchToQueryTab(): void {
@@ -117,11 +125,11 @@ export class FetcherRenderer {
     this.resultCard.render();
     return this.formatter.formatError(title, message);
   }
-  showResult(result: FetcherResult): void {
+  showResult(result: FetcherResult, isLive: boolean = false): void {
     this.hasResult = true;
     this._currentResult = result;
     this.resultCard.setTitle('📄 棋谱信息');
-    this.resultCard.setContent(this.formatter.formatResultInfo(result));
+    this.resultCard.setContent(this.formatter.formatResultInfo(result, isLive));
     this.resultCard.setVisible(true);
     this.resultCard.render();
   }

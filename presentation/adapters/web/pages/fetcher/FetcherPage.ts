@@ -127,7 +127,7 @@ export class FetcherPage implements IPage {
     };
     if (entry.result !== undefined) result.metadata.result = entry.result;
     this.currentResult = result;
-    this.renderer.showResult(result);
+    this.renderer.showResult(result, this.isLiveMode);
     this.renderer.setCurrentResult(result);
   }
   private async fetchByUrl(url: string, taskId?: string): Promise<void> {
@@ -138,7 +138,7 @@ export class FetcherPage implements IPage {
       this.renderer.showLoading(false);
       if (result.success) {
         this.currentResult = result;
-        this.renderer.showResult(result);
+        this.renderer.showResult(result, this.isLiveMode);
         this.renderer.setCurrentResult(result);
         await this.loadBookmarks();
         console.info('棋谱下载成功', { url, archiveId: result.archiveId });
