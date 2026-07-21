@@ -103,11 +103,14 @@ async function main() {
 
   // 13. 处理 URL 参数（模型已就绪，无需 waitForReady）
   const urlParams = new URLSearchParams(window.location.search);
-  const sgfParam = urlParams.get('sgf');
-  const archiveIdParam = urlParams.get('archiveId');
-  const taskId = urlParams.get('taskId');
-  const viewParam = urlParams.get('view');
-  const keyParam = urlParams.get('key');
+  const params: Record<string, string> = {};
+  urlParams.forEach((value, key) => {
+    params[key] = value;
+  });
+  
+  // 使用 ReviewPage.handleParams 处理参数（包括直播模式检测）
+  page.handleParams(params);
+  
 
   if (viewParam === 'favorite' && keyParam) {
     try {
