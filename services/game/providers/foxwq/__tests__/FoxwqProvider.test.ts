@@ -99,18 +99,20 @@ describe('FoxwqProvider', () => {
       } as IResponse<{ result: number; resultstr: string }>);
 
       await expect(provider.fetchSGF('invalid')).rejects.toThrow(
-        '下载棋谱失败: 无法获取棋谱内容'
+        '下载棋谱失败: 棋谱不存在'
       );
     });
   });
 
   describe('fetchPublicQipuList', () => {
     it('should parse HTML and extract qipu links', async () => {
+      // 新版H5分享链接格式
       const html = `
         <tr>
-          <h4>第1局</h4>
-          <a href="/qipu/newlist/id/123.html">下载</a>
-          2024-01-01
+          <h4 class="qipu-title">
+            <a href="https://h5.foxwq.com/yehunewshare/?chessid=abc123&title=测试">第1局</a>
+          </h4>
+          <td class="qipu-time text-right">2024-01-01 12:00</td>
         </tr>
       `;
       vi.mocked(mockNetwork.request).mockResolvedValue({
@@ -122,14 +124,20 @@ describe('FoxwqProvider', () => {
 
       expect(result).toHaveLength(1);
       expect(result[0].title).toBe('第1局');
-      expect(result[0].url).toBe('https://www.foxwq.com/qipu/newlist/id/123.html');
+      expect(result[0].url).toBe('https://h5.foxwq.com/yehunewshare/?chessid=abc123&title=测试');
       expect(result[0].date).toBe('2024-01-01');
     });
 
     it('should filter by date', async () => {
       const html = `
-        <tr><h4>第1局</h4><a href="/qipu/newlist/id/123.html"></a>2024-01-01</tr>
-        <tr><h4>第2局</h4><a href="/qipu/newlist/id/124.html"></a>2024-01-02</tr>
+        <tr>
+          <h4 class="qipu-title"><a href="https://h5.foxwq.com/yehunewshare/?chessid=123">第1局</a></h4>
+          <td class="qipu-time">2024-01-01 12:00</td>
+        </tr>
+        <tr>
+          <h4 class="qipu-title"><a href="https://h5.foxwq.com/yehunewshare/?chessid=124">第2局</a></h4>
+          <td class="qipu-time">2024-01-02 12:00</td>
+        </tr>
       `;
       vi.mocked(mockNetwork.request).mockResolvedValue({
         data: html,
@@ -144,36 +152,25 @@ describe('FoxwqProvider', () => {
   });
 
   describe('fetchPublicQipuSgf', () => {
-    it('should extract SGF from HTML', async () => {
-      const html = `
-        <html>
-          <h1>第1局</h1>
-          (;GM[1]FF[4]SZ[19])</div>
-          2024-01-01
-        </html>
-      `;
+    it('should extract SGF from URL with chessid', async () => {
       vi.mocked(mockNetwork.request).mockResolvedValue({
-        data: html,
+        data: { result: 0, chess: '(;GM[1]FF[4]SZ[19]GN[第1局]DT[2024-01-01])' },
         status: 200,
-      } as IResponse<string>);
+      } as IResponse<{ result: number; chess: string }>);
 
-      const result = await provider.fetchPublicQipuSgf('http://test.com');
+      const result = await provider.fetchPublicQipuSgf(
+        'https://h5.foxwq.com/yehunewshare/?chessid=test123'
+      );
 
-      expect(result.sgf).toBe('(;GM[1]FF[4]SZ[19])');
+      expect(result.sgf).toBe('(;GM[1]FF[4]SZ[19]GN[第1局]DT[2024-01-01])');
       expect(result.title).toBe('第1局');
       expect(result.date).toBe('2024-01-01');
     });
 
-    it('should throw error if SGF not found', async () => {
-      const html = '<html><h1>测试</h1></html>';
-      vi.mocked(mockNetwork.request).mockResolvedValue({
-        data: html,
-        status: 200,
-      } as IResponse<string>);
-
+    it('should throw error if chessid not in URL', async () => {
       await expect(
         provider.fetchPublicQipuSgf('http://test.com')
-      ).rejects.toThrow('无法提取 SGF 内容');
+      ).rejects.toThrow('无法从URL中提取棋谱ID');
     });
   });
 });
