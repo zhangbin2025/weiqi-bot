@@ -505,6 +505,7 @@ export class ReviewPage implements IPage {
     
     // 直播模式：只在首次记录初始手数并启动刷新
     if (this.isLiveMode) {
+      this.analyzing = false; // 重置分析状态
       if (this.lastMovesCount === 0) {
         this.lastMovesCount = this.totalMoves;
         console.info('[ReviewPage] 记录初始手数:', this.lastMovesCount);
@@ -512,6 +513,7 @@ export class ReviewPage implements IPage {
       if (!this.liveInterval) {
         this.startLiveMode();
       }
+      console.info('[ReviewPage] 增量分析完成，胜率已更新');
     }
     // 启用所有功能按钮（有棋谱时）
     this.ui.enableAllButtons();
@@ -833,28 +835,47 @@ export class ReviewPage implements IPage {
       
       console.info('[ReviewPage] 检测到新手数:', this.lastMovesCount, '->', newMovesCount);
       
-      // 5. 保存旧胜率数据（缓存）
-      const oldWinrateTrend = [...this.winrateTrend];
+      // 5. 保存旧数据
       const oldMoves = [...this.moves];
       const oldTotalMoves = this.totalMoves;
+      const oldWinrateTrend = [...this.winrateTrend];
       
-      console.info('[ReviewPage] 使用缓存胜率数据，不重新分析');
-      
-      // 6. 解析新增着法，直接更新数据（不重新分析）
+      // 6. 解析新增着法
       const newMoves = this.parseNewMoves(newSgf, this.lastMovesCount);
-      this.moves = [...oldMoves, ...newMoves];
-      this.totalMoves = newMovesCount;
-      this.lastMovesCount = newMovesCount;
+      console.info('[ReviewPage] 新增着法:', newMoves.length, '手');
       
-      // 7. 更新胜率趋势（新手数使用最后一手的胜率）
-      const lastWinrate = oldWinrateTrend[oldWinrateTrend.length - 1];
-      if (lastWinrate) {
-        for (let i = oldWinrateTrend.length; i < newMovesCount; i++) {
-          this.winrateTrend.push({
-            moveNumber: i + 1,
-            winRate: lastWinrate.winRate,
-            scoreLead: lastWinrate.scoreLead,
-          });
+      // 7. 用新SGF重新加载并分析（获取真实胜率）
+      // 删除旧归档避免缓存
+      if (this.previousArchiveId && this.gameService) {
+        try {
+          await (this.gameService as any).deleteArchive?.(this.previousArchiveId);
+        } catch (e) { /* 忽略 */ }
+      }
+      
+      console.info('[ReviewPage] 增量分析新增着法...');
+      this.analyzing = true;
+      try {
+        await this.analysis.loadAndAnalyze(newSgf, this.moves);
+        // loadAndAnalyze 完成后会触发 handleAnalysisComplete
+        // 在那里更新 lastMovesCount 和视图
+        this.lastMovesCount = newMovesCount;
+        return; // handleAnalysisComplete 会处理后续
+      } catch (error) {
+        console.error('[ReviewPage] 增量分析失败，fallback到缓存', error);
+        this.analyzing = false;
+        // fallback: 用缓存胜率
+        this.moves = [...oldMoves, ...newMoves];
+        this.totalMoves = newMovesCount;
+        this.lastMovesCount = newMovesCount;
+        const lastWinrate = oldWinrateTrend[oldWinrateTrend.length - 1];
+        if (lastWinrate) {
+          for (let i = oldWinrateTrend.length; i < newMovesCount; i++) {
+            this.winrateTrend.push({
+              moveNumber: i + 1,
+              winRate: lastWinrate.winRate,
+              scoreLead: lastWinrate.scoreLead,
+            });
+          }
         }
       }
       
@@ -868,7 +889,7 @@ export class ReviewPage implements IPage {
       if (currentMode === 'normal') {
         // 如果用户在最新一手或接近最新，自动跳到新手数
         if (this.currentMove === oldTotalMoves - 1 || this.currentMove >= oldTotalMoves - 5) {
-          this.goToMove(newMovesCount - 1);
+          this.goToMove(newMovesCount);
         }
         
         // 更新胜率图
