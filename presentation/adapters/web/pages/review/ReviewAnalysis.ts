@@ -307,6 +307,39 @@ export class ReviewAnalysis {
     }
   }
 
+  /** 获取胜率图分析用的 visits（根据模型大小） */
+  /** 获取胜率图分析用的 visits（根据模型大小） */
+  async getAnalysisVisits(): Promise<number> {
+    let visits = 1;
+    if (this.modelManager) {
+      try {
+        const modelId = await this.modelManager.loadPreference();
+        const models = await this.modelManager.getModels();
+        const model = models.find((m: any) => m.id === modelId);
+        const blocks = (model as any)?.blocks ?? 0;
+        if (blocks > 0) {
+          if (blocks <= 6) visits = 50;
+          else if (blocks <= 10) visits = 25;
+          else visits = 1;
+        } else if ((model as any)?.url) {
+          const url = (model as any).url;
+          if (typeof url === 'string') {
+            const match = url.match(/b(\d+)c/i);
+            if (match && match[1]) {
+              const b = parseInt(match[1], 10);
+              if (b <= 6) visits = 50;
+              else if (b <= 10) visits = 25;
+              else visits = 1;
+            }
+          }
+        }
+      } catch (e) {
+        visits = 1;
+      }
+    }
+    return visits;
+  }
+
   /** 开始分析（胜率图描绘） */
   async startAnalysis(mode: 'quick' | 'deep' = 'quick', taskId?: string, baseMoves?: Array<{ x: number; y: number; color: PlayerColor }>): Promise<void> {
     if (!this.reviewId || this.analyzing) return;

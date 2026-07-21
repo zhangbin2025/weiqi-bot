@@ -860,7 +860,7 @@ export class ReviewPage implements IPage {
         for (let i = 0; i < newMoves.length; i++) {
           const moveIndex = startMove + i;
           try {
-            const moveResult = await this.reviewApp.analyzePosition(reviewId, moveIndex, { visits: 50, includePv: false });
+            const moveResult = await this.reviewApp.analyzePosition(reviewId, moveIndex, { visits: await this.analysis.getAnalysisVisits(), includePv: false });
             if (moveResult && moveResult.winRate !== undefined) {
               this.winrateTrend.push({
                 moveNumber: moveIndex + 1,
