@@ -23,7 +23,8 @@ export class FoxwqLiveProvider extends BaseProvider {
     super(network);
   }
 
-  async fetch(url: string): Promise<FetchResult> {
+  async fetch(url: string, options?: { timeout?: number }): Promise<FetchResult> {
+    const timeout = options?.timeout ?? 15000;
     const timing: PerformanceTiming = {};
     const startTime = this.now();
 
@@ -38,7 +39,7 @@ export class FoxwqLiveProvider extends BaseProvider {
     try {
       const fetchStart = this.now();
       const session = await this.sniffer.start(url, {
-        timeout: 15000,
+        timeout,
         userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)',
       });
 
@@ -63,7 +64,7 @@ export class FoxwqLiveProvider extends BaseProvider {
         }
       });
 
-      const result = await session.wait(15000);
+      const result = await session.wait(timeout);
       timing.apiRequest = this.now() - fetchStart;
 
       if (!result.success) {

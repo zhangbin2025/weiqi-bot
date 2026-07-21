@@ -32,8 +32,9 @@ export class GameFetchHelper {
     this.requestDelay = options.requestDelay ?? 200;
   }
 
-  async fetch(url: string, forceRefresh?: boolean): Promise<GameServiceResult> {
+  async fetch(url: string, forceRefresh?: boolean, timeout?: number): Promise<GameServiceResult> {
     const { registry, strategy, archiveCache, historyStorage, userContext } = this.options;
+    console.info('[GameFetchHelper] fetch called, forceRefresh:', forceRefresh, 'url:', url.substring(0, 80));
 
     // 1. 查缓存（forceRefresh 时跳过）
     if (!forceRefresh) {
@@ -66,7 +67,7 @@ export class GameFetchHelper {
 
     let result: FetchResult;
     try {
-      result = await provider.fetch(url);
+      result = await (provider as any).fetch(url, timeout ? { timeout } : undefined);
     } catch (error) {
       const errorResult = createErrorResult(url, error);
       return this.createFailedResult(url, errorResult);
