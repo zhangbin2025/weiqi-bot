@@ -765,7 +765,17 @@ export class ReviewPage implements IPage {
     }
     
     try {
-      // 1. 重新抓取棋谱
+      // 1. 先删除旧归档，强制重新抓取（避免缓存）
+      if (this.previousArchiveId && this.gameService) {
+        try {
+          await (this.gameService as any).deleteArchive?.(this.previousArchiveId);
+          console.info('[ReviewPage] 已删除旧归档（刷新前）:', this.previousArchiveId);
+        } catch (e) {
+          // 忽略删除失败
+        }
+      }
+      
+      // 2. 重新抓取棋谱
       console.info('[ReviewPage] 开始刷新直播棋谱');
       const result = await this.gameService.fetch(this.liveUrl);
       
@@ -790,6 +800,7 @@ export class ReviewPage implements IPage {
       
       // 4. 解析新手数
       const newMovesCount = this.parseMovesCount(newSgf);
+      console.info('[ReviewPage] 调试:', { newMovesCount, lastMovesCount: this.lastMovesCount, archiveId: result.archiveId, previousArchiveId: this.previousArchiveId, sgfLength: newSgf.length });
       if (newMovesCount <= this.lastMovesCount) {
         console.info('[ReviewPage] 无新手数，跳过更新');
         return;
@@ -822,15 +833,7 @@ export class ReviewPage implements IPage {
         }
       }
       
-      // 8. 删除旧归档
-      if (this.previousArchiveId && this.gameService) {
-        try {
-          await (this.gameService as any).deleteArchive?.(this.previousArchiveId);
-          console.info('[ReviewPage] 已删除旧归档:', this.previousArchiveId);
-        } catch (e) {
-          console.warn('[ReviewPage] 删除旧归档失败:', e);
-        }
-      }
+      // 8. 旧归档已在步骤1删除
       
       // 9. 更新归档ID
       this.previousArchiveId = result.archiveId;
