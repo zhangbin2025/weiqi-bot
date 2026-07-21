@@ -73,6 +73,13 @@ export class ReviewPage implements IPage {
   private savedRecommendationCircles: RecommendationCircle[] = [];
   private currentModelName = 'AI 复盘分析';
 
+  // 直播模式
+  private isLiveMode = false;
+  private liveUrl?: string;
+  private liveInterval?: number;
+  private previousArchiveId?: string;
+  private lastMovesCount = 0;
+
   constructor(config: ReviewPageConfig) {
     this.reviewApp = config.reviewApp;
     this.modelManager = config.modelManager;
