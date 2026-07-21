@@ -140,6 +140,15 @@ export class FetcherPage implements IPage {
         this.renderer.setCurrentResult(result);
         await this.loadBookmarks();
         console.info('棋谱下载成功', { url, archiveId: result.archiveId });
+
+        // 检测是否为直播链接 + App 环境
+        const isLive = this.detectLiveUrl(url);
+        const isApp = this.isAppEnvironment();
+        
+        // 通知 renderer 设置直播模式
+        if (isLive && isApp && result.archiveId) {
+        } else {
+        }
         
         // 后台任务完成
         if (taskId) {
@@ -208,5 +217,26 @@ export class FetcherPage implements IPage {
     if (!error) return '下载失败';
     for (const [code, title] of Object.entries(titles)) if (error.includes(code)) return title;
     return '下载失败';
+  }
+
+  /**
+   * 检测是否为直播链接
+   */
+  private detectLiveUrl(url: string): boolean {
+    const livePatterns = [
+      /h5\.foxwq\.com\/yehunewshare/i,
+      /h5\.foxwq\.com.*svrtype=20010/i,
+      /yikeweiqi\.com.*room\/(\d+)/i,
+      /home\.yikeweiqi\.com.*room\/(\d+)/i,
+    ];
+    return livePatterns.some(pattern => pattern.test(url));
+  }
+
+  /**
+   * 检测是否在 App 环境
+   */
+  private isAppEnvironment(): boolean {
+    return typeof navigator !== 'undefined' && 
+           navigator.userAgent.includes('WeiqiApp');
   }
 }

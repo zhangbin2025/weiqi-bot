@@ -60,6 +60,9 @@ export interface IGameHistoryStorage {
   /** 获取统计信息 */
   stats(): Promise<{ count: number; totalSize: number; earliest: Date | null; latest: Date | null }>;
 
+  /** 删除归档（包括索引和文件） */
+  delete(id: string): Promise<void>;
+
   /** 初始化存储 */
   initialize(): Promise<void>;
 }

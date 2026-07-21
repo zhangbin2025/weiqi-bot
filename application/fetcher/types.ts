@@ -2,6 +2,13 @@
  * 棋谱抓取类型定义
  * @module application/fetcher/types
  */
+
+/** 抓取选项 */
+export interface FetcherFetchOptions {
+  /** 直播模式（不添加收藏） */
+  live?: boolean;
+}
+
 /** 下载结果 */
 export interface FetcherResult {
   /** 是否成功 */

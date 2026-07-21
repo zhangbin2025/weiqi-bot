@@ -120,4 +120,29 @@ export class GameHistoryStorage implements IGameHistoryStorage {
 
     return { count, totalSize, earliest, latest };
   }
+
+  async delete(id: string): Promise<void> {
+    // 1. 查找索引记录
+    const index = await this.findById(id);
+    if (!index) {
+      console.warn('[GameHistoryStorage] 归档不存在:', id);
+      return;
+    }
+
+    // 2. 删除文件
+    try {
+      await this.fileStorage.delete(index.path);
+      console.log('[GameHistoryStorage] 已删除文件:', index.path);
+    } catch (error) {
+      console.warn('[GameHistoryStorage] 删除文件失败:', index.path, error);
+    }
+
+    // 3. 删除索引
+    try {
+      await this.indexStorage.delete(id);
+      console.log('[GameHistoryStorage] 已删除索引:', id);
+    } catch (error) {
+      console.warn('[GameHistoryStorage] 删除索引失败:', id, error);
+    }
+  }
 }

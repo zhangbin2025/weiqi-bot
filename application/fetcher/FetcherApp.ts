@@ -6,7 +6,7 @@ import type { IGameService, GameServiceResult } from '../../services/game';
 import type { IFavoriteService, IFavoriteItem } from '../../services/favorite';
 import type { IExportService, ExportResult } from '../../services/export';
 import type { IShareService } from '../../services/share';
-import type { FetcherResult, FetcherBookmark, ShareResult } from './types';
+import type { FetcherResult, FetcherBookmark, ShareResult, FetcherFetchOptions } from './types';
 import { parseSGF, coordToPos } from '../../domain/sgf';
 /**
  * 棋谱下载应用编排器
@@ -20,10 +20,10 @@ export class FetcherApp {
     private readonly favoriteService?: IFavoriteService,
     private readonly shareService?: IShareService,
   ) {}
-  async fetch(url: string): Promise<FetcherResult> {
+  async fetch(url: string, options?: FetcherFetchOptions): Promise<FetcherResult> {
     const gameResult = await this.gameService.fetch(url);
     const result = this.transformResult(gameResult);
-    if (result.success && this.favoriteService) {
+    if (result.success && this.favoriteService && !options?.live) {
       const urlHash = this.hashUrl(url);  // 使用 URL 哈希作为 key
       result.bookmarkId = await this.favoriteService.addFavorite(
         this.CATEGORY, urlHash,
