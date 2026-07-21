@@ -477,11 +477,16 @@ export class ReviewPage implements IPage {
     this.goToMove(this.totalMoves);
     
     
-    // 直播模式：记录初始手数并启动刷新
+    
+    // 直播模式：只在首次记录初始手数并启动刷新
     if (this.isLiveMode) {
-      this.lastMovesCount = this.totalMoves;
-      console.info('[ReviewPage] 记录初始手数:', this.lastMovesCount);
-      this.startLiveMode();
+      if (this.lastMovesCount === 0) {
+        this.lastMovesCount = this.totalMoves;
+        console.info('[ReviewPage] 记录初始手数:', this.lastMovesCount);
+      }
+      if (!this.liveInterval) {
+        this.startLiveMode();
+      }
     }
     // 启用所有功能按钮（有棋谱时）
     this.ui.enableAllButtons();
