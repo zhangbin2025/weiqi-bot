@@ -853,28 +853,32 @@ export class ReviewPage implements IPage {
       this.totalMoves = newMovesCount;
       this.lastMovesCount = newMovesCount;
       
-      // 9. 分析最后一手胜率（快速，1-2秒）
+      // 9. 分析所有新增着法的胜率
       if (reviewId && newMoves.length > 0) {
-        try {
-          console.info('[ReviewPage] 分析最后一手胜率...');
-          const lastMoveResult = await this.reviewApp.analyzePosition(reviewId, newMovesCount - 1, { visits: 50 });
-          if (lastMoveResult && lastMoveResult.winRate !== undefined) {
-            // 新增着法用最后一手的胜率
-            this.winrateTrend.push({
-              moveNumber: newMovesCount,
-              winRate: lastMoveResult.winRate,
-              scoreLead: lastMoveResult.scoreLead ?? 0,
-            });
-            console.info('[ReviewPage] 最后一手胜率:', lastMoveResult.winRate);
-          }
-        } catch (e) {
-          console.warn('[ReviewPage] 分析最后一手胜率失败', e);
-          // fallback: 用上一手的胜率
-          const lastWinrate = this.winrateTrend[this.winrateTrend.length - 1];
-          if (lastWinrate) {
-            this.winrateTrend.push({ ...lastWinrate, moveNumber: newMovesCount });
+        console.info('[ReviewPage] 分析新增着法胜率:', newMoves.length, '手');
+        const startMove = oldTotalMoves;
+        for (let i = 0; i < newMoves.length; i++) {
+          const moveIndex = startMove + i;
+          try {
+            const moveResult = await this.reviewApp.analyzePosition(reviewId, moveIndex, { visits: 50 });
+            if (moveResult && moveResult.winRate !== undefined) {
+              this.winrateTrend.push({
+                moveNumber: moveIndex + 1,
+                winRate: moveResult.winRate,
+                scoreLead: moveResult.scoreLead ?? 0,
+              });
+            } else {
+              // 分析无结果，用上一手胜率
+              const prev = this.winrateTrend[this.winrateTrend.length - 1];
+              this.winrateTrend.push(prev ? { ...prev, moveNumber: moveIndex + 1 } : { moveNumber: moveIndex + 1, winRate: 0.5, scoreLead: 0 });
+            }
+          } catch (e) {
+            console.warn('[ReviewPage] 分析第', moveIndex + 1, '手失败', e);
+            const prev = this.winrateTrend[this.winrateTrend.length - 1];
+            this.winrateTrend.push(prev ? { ...prev, moveNumber: moveIndex + 1 } : { moveNumber: moveIndex + 1, winRate: 0.5, scoreLead: 0 });
           }
         }
+        console.info('[ReviewPage] 新增着法胜率分析完成');
       }
       
       // 8. 旧归档已在步骤1删除
