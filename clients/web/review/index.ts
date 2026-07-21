@@ -112,26 +112,6 @@ async function main() {
   page.handleParams(params);
   
 
-  if (viewParam === 'favorite' && keyParam) {
-    try {
-      await page.viewFavorite(keyParam);
-    } catch (e) {
-      console.error('[Review] 加载收藏数据失败', e instanceof Error ? e : new Error(String(e)));
-    }
-  } else if (archiveIdParam) {
-    try {
-      await page.loadFromArchiveId(archiveIdParam, taskId);
-    } catch (e) {
-      console.error('[Review] 从归档ID加载棋谱失败', e instanceof Error ? e : new Error(String(e)));
-    }
-  } else if (sgfParam) {
-    try {
-      const sgf = decodeURIComponent(escape(atob(sgfParam)));
-      await page.loadAndAnalyze(sgf);
-    } catch (e) {
-      console.error('SGF 参数解析失败', e instanceof Error ? e : new Error(String(e)));
-    }
-  }
 
   console.info('Review page initialized');
 }
