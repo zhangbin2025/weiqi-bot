@@ -176,12 +176,13 @@ export class ReviewPage implements IPage {
   }
 
   handleParams(params: PageParams): void {
-    // 直播模式检测
+    // 直播模式：直接从URL抓取棋谱
     if (params['live'] === 'true' && params['url']) {
       this.isLiveMode = true;
       this.liveUrl = decodeURIComponent(params['url'] as string);
-      this.previousArchiveId = params['archiveId'] as string;
       console.info('[ReviewPage] 进入直播模式', { url: this.liveUrl });
+      this.loadFromLiveUrl();
+      return; // 直播模式不走其他参数处理
     }
     
     if (params['sgf']) {
@@ -192,7 +193,31 @@ export class ReviewPage implements IPage {
       const archiveId = params['archiveId'] as string;
       const taskId = params['taskId'] as string | undefined;
       this.loadFromArchiveId(archiveId, taskId);
+    }
+  }
+
+  /**
+   * 从直播URL抓取棋谱并加载
+   */
+  private async loadFromLiveUrl(): Promise<void> {
+    if (!this.liveUrl || !this.gameService) return;
+    
+    try {
+      console.info('[ReviewPage] 从直播URL抓取棋谱...');
+      const result = await this.gameService.fetch(this.liveUrl);
       
+      if (!result.success || !result.archiveId) {
+        console.error('[ReviewPage] 直播棋谱抓取失败:', result.error);
+        return;
+      }
+      
+      this.previousArchiveId = result.archiveId;
+      console.info('[ReviewPage] 直播棋谱抓取成功:', result.archiveId);
+      
+      // 加载并分析棋谱
+      await this.loadFromArchiveId(result.archiveId);
+    } catch (error) {
+      console.error('[ReviewPage] 直播棋谱加载异常', error);
     }
   }
 

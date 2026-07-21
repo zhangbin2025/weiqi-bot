@@ -202,7 +202,7 @@ export class FetcherPage implements IPage {
     
     // 直播模式：跳转到 review 页面，带上 live 参数
     if (this.isLiveMode && this.liveUrl) {
-      const reviewUrl = "../review/index.html?archiveId=" + this.currentResult.archiveId + "&live=true&url=" + encodeURIComponent(this.liveUrl);
+      const reviewUrl = "../review/index.html?live=true&url=" + encodeURIComponent(this.liveUrl);
       window.location.href = reviewUrl;
       return;
     }
