@@ -194,6 +194,10 @@ export class ReviewPage implements IPage {
       this.loadFromArchiveId(archiveId, taskId);
       
       // 如果是直播模式，启动定时刷新
+      // 直播模式：记录初始手数
+      if (this.isLiveMode) {
+        this.lastMovesCount = this.totalMoves;
+      }
       if (this.isLiveMode) {
         this.startLiveMode();
       }
