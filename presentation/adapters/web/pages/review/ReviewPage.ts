@@ -797,7 +797,32 @@ export class ReviewPage implements IPage {
       
       console.info('[ReviewPage] 检测到新手数:', this.lastMovesCount, '->', newMovesCount);
       
-      // 5. 删除旧归档
+      // 5. 保存旧胜率数据（缓存）
+      const oldWinrateTrend = [...this.winrateTrend];
+      const oldMoves = [...this.moves];
+      const oldTotalMoves = this.totalMoves;
+      
+      console.info('[ReviewPage] 使用缓存胜率数据，不重新分析');
+      
+      // 6. 解析新增着法，直接更新数据（不重新分析）
+      const newMoves = this.parseNewMoves(newSgf, this.lastMovesCount);
+      this.moves = [...oldMoves, ...newMoves];
+      this.totalMoves = newMovesCount;
+      this.lastMovesCount = newMovesCount;
+      
+      // 7. 更新胜率趋势（新手数使用最后一手的胜率）
+      const lastWinrate = oldWinrateTrend[oldWinrateTrend.length - 1];
+      if (lastWinrate) {
+        for (let i = oldWinrateTrend.length; i < newMovesCount; i++) {
+          this.winrateTrend.push({
+            moveNumber: i + 1,
+            winRate: lastWinrate.winRate,
+            scoreLead: lastWinrate.scoreLead,
+          });
+        }
+      }
+      
+      // 8. 删除旧归档
       if (this.previousArchiveId && this.gameService) {
         try {
           await (this.gameService as any).deleteArchive?.(this.previousArchiveId);
@@ -807,21 +832,14 @@ export class ReviewPage implements IPage {
         }
       }
       
-      // 6. 更新数据
+      // 9. 更新归档ID
       this.previousArchiveId = result.archiveId;
-      this.lastMovesCount = newMovesCount;
       
-      // 7. 重新加载棋谱（更新 moves 和 winrateTrend）
-      await this.analysis.loadFromArchiveId(result.archiveId, undefined, this.moves);
-      
-      // 8. 更新总手数
-      this.totalMoves = newMovesCount;
-      
-      // 9. 只在 normal 模式下更新视图
+      // 10. 更新视图
       const currentMode = this.interaction.getMode();
       if (currentMode === 'normal') {
-        // 如果用户在最新一手，自动跳到新手数
-        if (this.currentMove === this.lastMovesCount - 1) {
+        // 如果用户在最新一手或接近最新，自动跳到新手数
+        if (this.currentMove === oldTotalMoves - 1 || this.currentMove >= oldTotalMoves - 5) {
           this.goToMove(newMovesCount - 1);
         }
         
@@ -832,8 +850,10 @@ export class ReviewPage implements IPage {
         
         // 更新 UI 显示
         this.ui.updateDisplay(this.currentMove, this.totalMoves);
+        this.ui.setSliderMax(this.totalMoves);
+        this.moveNavigator.setMaxMoves(this.totalMoves);
         
-        console.info('[ReviewPage] 视图已更新');
+        console.info('[ReviewPage] 视图已更新（使用缓存数据）');
       } else {
         console.info('[ReviewPage] 当前模式', currentMode, '跳过视图更新（数据已更新）');
       }
@@ -848,4 +868,40 @@ export class ReviewPage implements IPage {
     const moves = sgf.match(/[BW]\[[a-z]{0,2}\]/g);
     return moves ? moves.length : 0;
   }
+  /**
+   * 解析新增着法
+   */
+  private parseNewMoves(sgf: string, fromMove: number): Array<{ x: number; y: number; color: PlayerColor }> {
+    const moves: Array<{ x: number; y: number; color: PlayerColor }> = [];
+    const movePattern = /([BW])\[([a-z]{0,2})\]/g;
+    let match;
+    let moveIndex = 0;
+
+    while ((match = movePattern.exec(sgf)) !== null) {
+      const color = match[1] === 'B' ? 'black' : 'white';
+      const pos = match[2];
+
+      if (moveIndex < fromMove) {
+        moveIndex++;
+        continue;
+      }
+
+      if (pos && pos.length === 2) {
+        const x = pos.charCodeAt(0) - 97;
+        const y = pos.charCodeAt(1) - 97;
+        if (x >= 0 && x < 19 && y >= 0 && y < 19) {
+          moves.push({ x, y, color });
+        }
+      } else if (pos === '' || pos === 'tt') {
+        moves.push({ x: -1, y: -1, color });
+      }
+
+      moveIndex++;
+    }
+
+    console.info('[ReviewPage] 解析新增着法:', moves.length, '手');
+    return moves;
+  }
+
+
 }
