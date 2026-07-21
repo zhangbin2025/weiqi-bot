@@ -78,12 +78,14 @@ export class ReviewPage implements IPage {
   private liveUrl?: string;
   private liveInterval: number | undefined;
   private previousArchiveId?: string;
+  private gameService: IGameService | undefined;
   private lastMovesCount = 0;
 
   constructor(config: ReviewPageConfig) {
     this.reviewApp = config.reviewApp;
     this.modelManager = config.modelManager;
     this.aiController = config.aiController;
+    this.gameService = config.gameService;
     this.onNavigate = config.onNavigate;
 
     this.board = new WebBoard();
@@ -746,13 +748,90 @@ export class ReviewPage implements IPage {
   }
 
   private async refreshLiveGame(): Promise<void> {
-    if (!this.liveUrl) return;
+    if (!this.liveUrl || !this.gameService) return;
     
     try {
-      // TODO: 实现重新抓取逻辑
-      console.warn('[ReviewPage] refreshLiveGame 需要完整实现');
+      // 1. 重新抓取棋谱
+      console.info('[ReviewPage] 开始刷新直播棋谱');
+      const result = await this.gameService.fetch(this.liveUrl);
+      
+      if (!result.success || !result.archiveId) {
+        console.warn('[ReviewPage] 刷新失败:', result.error);
+        return;
+      }
+      
+      // 2. 检测棋局结束
+      if (result.metadata?.result && result.metadata.result !== '') {
+        console.info('[ReviewPage] 棋局已结束，停止直播');
+        this.stopLiveMode();
+        return;
+      }
+      
+      // 3. 获取新 SGF
+      const newSgf = await this.gameService.getByArchiveId(result.archiveId);
+      if (!newSgf) {
+        console.warn('[ReviewPage] 获取新SGF失败');
+        return;
+      }
+      
+      // 4. 解析新手数
+      const newMovesCount = this.parseMovesCount(newSgf);
+      if (newMovesCount <= this.lastMovesCount) {
+        console.info('[ReviewPage] 无新手数，跳过更新');
+        return;
+      }
+      
+      console.info('[ReviewPage] 检测到新手数:', this.lastMovesCount, '->', newMovesCount);
+      
+      // 5. 删除旧归档
+      if (this.previousArchiveId && this.gameService) {
+        try {
+          await (this.gameService as any).deleteArchive?.(this.previousArchiveId);
+          console.info('[ReviewPage] 已删除旧归档:', this.previousArchiveId);
+        } catch (e) {
+          console.warn('[ReviewPage] 删除旧归档失败:', e);
+        }
+      }
+      
+      // 6. 更新数据
+      this.previousArchiveId = result.archiveId;
+      this.lastMovesCount = newMovesCount;
+      
+      // 7. 重新加载棋谱（更新 moves 和 winrateTrend）
+      await this.analysis.loadFromArchiveId(result.archiveId, undefined, this.moves);
+      
+      // 8. 更新总手数
+      this.totalMoves = newMovesCount;
+      
+      // 9. 只在 normal 模式下更新视图
+      const currentMode = this.interaction.getMode();
+      if (currentMode === 'normal') {
+        // 如果用户在最新一手，自动跳到新手数
+        if (this.currentMove === this.lastMovesCount - 1) {
+          this.goToMove(newMovesCount - 1);
+        }
+        
+        // 更新胜率图
+        if (this.winrateChart) {
+          this.winrateChart.update(this.winrateTrend, this.currentMove);
+        }
+        
+        // 更新 UI 显示
+        this.ui.updateDisplay(this.currentMove, this.totalMoves);
+        
+        console.info('[ReviewPage] 视图已更新');
+      } else {
+        console.info('[ReviewPage] 当前模式', currentMode, '跳过视图更新（数据已更新）');
+      }
+      
     } catch (error) {
       console.error('[ReviewPage] 直播刷新异常', error);
     }
+  }
+  
+  private parseMovesCount(sgf: string): number {
+    // 简单统计 SGF 中的手数
+    const moves = sgf.match(/[BW]\[[a-z]{0,2}\]/g);
+    return moves ? moves.length : 0;
   }
 }
