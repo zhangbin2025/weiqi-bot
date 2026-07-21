@@ -105,6 +105,7 @@ export class ReviewApp {
     this.requireReview().getWinRateTrend(reviewId);
   getState = (reviewId: string): ReviewState | null => this.requireReview().getState(reviewId);
   getMoves = (reviewId: string): Array<{ x: number; y: number; color: PlayerColor }> | null => this.requireReview().getMoves(reviewId);
+  appendMoves = (reviewId: string, moves: Array<{ x: number; y: number; color: PlayerColor }>): void => this.requireReview().appendMoves(reviewId, moves);
   destroy = (reviewId: string): void => this.requireReview().destroy(reviewId);
   // ========== 历史管理（使用 ActivityLogService）==========
   async saveToHistory(reviewId: string): Promise<string> {

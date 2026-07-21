@@ -836,45 +836,43 @@ export class ReviewPage implements IPage {
       console.info('[ReviewPage] 检测到新手数:', this.lastMovesCount, '->', newMovesCount);
       
       // 5. 保存旧数据
-      const oldMoves = [...this.moves];
       const oldTotalMoves = this.totalMoves;
-      const oldWinrateTrend = [...this.winrateTrend];
       
       // 6. 解析新增着法
       const newMoves = this.parseNewMoves(newSgf, this.lastMovesCount);
       console.info('[ReviewPage] 新增着法:', newMoves.length, '手');
       
-      // 7. 用新SGF重新加载并分析（获取真实胜率）
-      // 删除旧归档避免缓存
-      if (this.previousArchiveId && this.gameService) {
-        try {
-          await (this.gameService as any).deleteArchive?.(this.previousArchiveId);
-        } catch (e) { /* 忽略 */ }
+      // 7. 追加着法到分析引擎
+      const reviewId = this.analysis.getReviewId();
+      if (reviewId) {
+        this.reviewApp.appendMoves(reviewId, newMoves);
       }
       
-      console.info('[ReviewPage] 增量分析新增着法...');
-      this.analyzing = true;
-      try {
-        await this.analysis.loadAndAnalyze(newSgf, this.moves);
-        // loadAndAnalyze 完成后会触发 handleAnalysisComplete
-        // 在那里更新 lastMovesCount 和视图
-        this.lastMovesCount = newMovesCount;
-        return; // handleAnalysisComplete 会处理后续
-      } catch (error) {
-        console.error('[ReviewPage] 增量分析失败，fallback到缓存', error);
-        this.analyzing = false;
-        // fallback: 用缓存胜率
-        this.moves = [...oldMoves, ...newMoves];
-        this.totalMoves = newMovesCount;
-        this.lastMovesCount = newMovesCount;
-        const lastWinrate = oldWinrateTrend[oldWinrateTrend.length - 1];
-        if (lastWinrate) {
-          for (let i = oldWinrateTrend.length; i < newMovesCount; i++) {
+      // 8. 更新本地数据
+      this.moves = [...this.moves, ...newMoves];
+      this.totalMoves = newMovesCount;
+      this.lastMovesCount = newMovesCount;
+      
+      // 9. 分析最后一手胜率（快速，1-2秒）
+      if (reviewId && newMoves.length > 0) {
+        try {
+          console.info('[ReviewPage] 分析最后一手胜率...');
+          const lastMoveResult = await this.reviewApp.analyzePosition(reviewId, newMovesCount - 1, { visits: 50 });
+          if (lastMoveResult && lastMoveResult.winRate !== undefined) {
+            // 新增着法用最后一手的胜率
             this.winrateTrend.push({
-              moveNumber: i + 1,
-              winRate: lastWinrate.winRate,
-              scoreLead: lastWinrate.scoreLead,
+              moveNumber: newMovesCount,
+              winRate: lastMoveResult.winRate,
+              scoreLead: lastMoveResult.scoreLead ?? 0,
             });
+            console.info('[ReviewPage] 最后一手胜率:', lastMoveResult.winRate);
+          }
+        } catch (e) {
+          console.warn('[ReviewPage] 分析最后一手胜率失败', e);
+          // fallback: 用上一手的胜率
+          const lastWinrate = this.winrateTrend[this.winrateTrend.length - 1];
+          if (lastWinrate) {
+            this.winrateTrend.push({ ...lastWinrate, moveNumber: newMovesCount });
           }
         }
       }

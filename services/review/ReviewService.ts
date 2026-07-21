@@ -491,6 +491,14 @@ export class ReviewService implements IReviewService {
     return data ? data.moves : null;
   }
 
+  appendMoves(reviewId: string, newMoves: Array<{ x: number; y: number; color: PlayerColor }>): void {
+    const data = this.getReview(reviewId);
+    data.moves = [...data.moves, ...newMoves];
+    // 重置分析结果（胜率需要重新分析）
+    data.result = null;
+    console.info('[ReviewService] 追加着法:', newMoves.length, '手，总手数:', data.moves.length);
+  }
+
   destroy(reviewId: string): void { this.reviews.delete(reviewId); }
 
   /**

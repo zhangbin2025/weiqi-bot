@@ -118,5 +118,6 @@ export interface IReviewService {
    * 销毁复盘
    * @param reviewId - 复盘 ID
    */
+  appendMoves(reviewId: string, moves: Array<{ x: number; y: number; color: PlayerColor }>): void;
   destroy(reviewId: string): void;
 }
