@@ -62,6 +62,17 @@ export class FetcherFormatter {
     const movesCount = result.metadata.movesCount || 0;
     const gameResult = formatGameResult(result.metadata.result);
     const source = this.formatSource(result.source);
+    const buttons = isLive
+      ? `<div style="display:flex; gap:8px; margin-top:16px;">
+        <div data-action="live" style="flex:1; background:linear-gradient(135deg,#e53e3e 0%,#c53030 100%); color:white; padding:12px; border-radius:8px; text-align:center; cursor:pointer; font-size:15px; font-weight:600;">🔴 直播</div>
+        <div data-action="download" style="flex:1; background:linear-gradient(135deg,#48bb78 0%,#38a169 100%); color:white; padding:12px; border-radius:8px; text-align:center; cursor:pointer; font-size:15px;">📥 下载</div>
+        <div data-action="share" style="flex:1; background:#f0f0f0; color:#333; padding:12px; border-radius:8px; text-align:center; cursor:pointer; font-size:15px;">📱 分享</div>
+      </div>`
+      : `<div style="display:flex; gap:8px; margin-top:16px;">
+        <div data-action="download" style="flex:1; background:linear-gradient(135deg,#48bb78 0%,#38a169 100%); color:white; padding:12px; border-radius:8px; text-align:center; cursor:pointer; font-size:15px;">📥 下载</div>
+        <div data-action="view" style="flex:1; background:#f0f0f0; color:#333; padding:12px; border-radius:8px; text-align:center; cursor:pointer; font-size:15px;">👁️ 查看</div>
+        <div data-action="share" style="flex:1; background:#f0f0f0; color:#333; padding:12px; border-radius:8px; text-align:center; cursor:pointer; font-size:15px;">📱 分享</div>
+      </div>`;
     return `
       <span style="display:inline-block; background:linear-gradient(135deg,#667eea 0%,#764ba2 100%); color:white; padding:2px 10px; border-radius:12px; font-size:12px; font-weight:500; margin-bottom:12px;">${source}</span>
       <div style="background:#f8f9fa; border-radius:8px; padding:12px;">
@@ -75,13 +86,9 @@ export class FetcherFormatter {
           <span>${movesCount}手</span>
         </div>
       </div>
-      <div style="display:flex; gap:8px; margin-top:16px;">
-        <div data-action="download" style="flex:1; background:linear-gradient(135deg,#48bb78 0%,#38a169 100%); color:white; padding:12px; border-radius:8px; text-align:center; cursor:pointer; font-size:15px;">📥 下载</div>
-        <div data-action="view" style="flex:1; background:#f0f0f0; color:#333; padding:12px; border-radius:8px; text-align:center; cursor:pointer; font-size:15px;">👁️ 查看</div>
-        <div data-action="share" style="flex:1; background:#f0f0f0; color:#333; padding:12px; border-radius:8px; text-align:center; cursor:pointer; font-size:15px;">📱 分享</div>
-      </div>
+      ${buttons}
     `;
-  }
+  } 
   // ==================== 收藏列表 ====================
   /**
    * 格式化空状态
