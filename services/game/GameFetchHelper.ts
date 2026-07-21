@@ -32,26 +32,28 @@ export class GameFetchHelper {
     this.requestDelay = options.requestDelay ?? 200;
   }
 
-  async fetch(url: string): Promise<GameServiceResult> {
+  async fetch(url: string, forceRefresh?: boolean): Promise<GameServiceResult> {
     const { registry, strategy, archiveCache, historyStorage, userContext } = this.options;
 
-    // 1. 查缓存
-    const cacheKey = this.computeCacheKey(url);
-    const cachedArchiveId = await archiveCache?.get(cacheKey);
+    // 1. 查缓存（forceRefresh 时跳过）
+    if (!forceRefresh) {
+      const cacheKey = this.computeCacheKey(url);
+      const cachedArchiveId = await archiveCache?.get(cacheKey);
 
-    if (cachedArchiveId && historyStorage) {
-      const record = await historyStorage.findById(cachedArchiveId);
-      if (record) {
-        const content = await historyStorage.readContent(record.path);
-        return {
-          success: true,
-          archiveId: cachedArchiveId,
-          sgfContent: typeof content === "string" ? content : null,
-          source: record.source,
-          url,
-          metadata: record.metadata as unknown as FetchResult["metadata"],
-          fromCache: true,
-        };
+      if (cachedArchiveId && historyStorage) {
+        const record = await historyStorage.findById(cachedArchiveId);
+        if (record) {
+          const content = await historyStorage.readContent(record.path);
+          return {
+            success: true,
+            archiveId: cachedArchiveId,
+            sgfContent: typeof content === "string" ? content : null,
+            source: record.source,
+            url,
+            metadata: record.metadata as unknown as FetchResult["metadata"],
+            fromCache: true,
+          };
+        }
       }
     }
 
@@ -79,6 +81,7 @@ export class GameFetchHelper {
 
     // 4. 更新缓存
     if (archiveId) {
+      const cacheKey = this.computeCacheKey(url);
       await archiveCache?.set(cacheKey, archiveId);
     }
 

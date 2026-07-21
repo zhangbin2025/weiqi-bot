@@ -204,7 +204,7 @@ export class ReviewPage implements IPage {
     
     try {
       console.info('[ReviewPage] 从直播URL抓取棋谱...');
-      const result = await this.gameService.fetch(this.liveUrl);
+      const result = await this.gameService.fetch(this.liveUrl, true); // forceRefresh=true 强制重新抓取
       
       if (!result.success || !result.archiveId) {
         console.error('[ReviewPage] 直播棋谱抓取失败:', result.error);

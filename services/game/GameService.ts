@@ -64,8 +64,8 @@ export class GameService implements IGameService {
     });
   }
 
-  async fetch(url: string): Promise<GameServiceResult> {
-    return this.fetchHelper.fetch(url);
+  async fetch(url: string, forceRefresh?: boolean): Promise<GameServiceResult> {
+    return this.fetchHelper.fetch(url, forceRefresh);
   }
 
   async fetchMany(urls: string[]): Promise<GameServiceResult[]> {

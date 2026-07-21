@@ -50,7 +50,7 @@ export interface IGameService {
    * @ai-example
    * const result = await service.fetch('https://online-go.com/game/12345');
    */
-  fetch(url: string): Promise<GameServiceResult>;
+  fetch(url: string, forceRefresh?: boolean): Promise<GameServiceResult>;
 
   /**
    * 批量下载棋谱
