@@ -27,6 +27,8 @@ export class FetcherPage implements IPage {
   private initialized = false;
   private bookmarks: FetcherBookmark[] = [];
   private currentResult: FetcherResult | undefined;
+  private isLiveMode = false;
+  private liveUrl?: string;
   constructor(config: FetcherPageConfig) {
     this.fetcherApp = config.fetcherApp;
     if (config.onNavigate !== undefined) this._onNavigate = config.onNavigate;
@@ -195,7 +197,17 @@ export class FetcherPage implements IPage {
     }
   }
   private async viewSGF(): Promise<void> {
-    if (!this.currentResult?.archiveId || !this._onNavigate) return;
+    if (!this.currentResult?.archiveId) return;
+    
+    // 直播模式：跳转到 review 页面，带上 live 参数
+    if (this.isLiveMode && this.liveUrl) {
+      const reviewUrl = "../review/index.html?archiveId=" + this.currentResult.archiveId + "&live=true&url=" + encodeURIComponent(this.liveUrl);
+      window.location.href = reviewUrl;
+      return;
+    }
+    
+    // 正常模式：原有逻辑
+    if (!this._onNavigate) return;
     this._onNavigate('replay', { archiveId: this.currentResult.archiveId });
   }
   private async generateShareUrl(): Promise<void> {
