@@ -76,7 +76,7 @@ export class ReviewPage implements IPage {
   // 直播模式
   private isLiveMode = false;
   private liveUrl?: string;
-  private liveInterval?: number;
+  private liveInterval: number | undefined;
   private previousArchiveId?: string;
   private lastMovesCount = 0;
 
@@ -174,6 +174,14 @@ export class ReviewPage implements IPage {
   }
 
   handleParams(params: PageParams): void {
+    // 直播模式检测
+    if (params['live'] === 'true' && params['url']) {
+      this.isLiveMode = true;
+      this.liveUrl = decodeURIComponent(params['url'] as string);
+      this.previousArchiveId = params['archiveId'] as string;
+      console.info('[ReviewPage] 进入直播模式', { url: this.liveUrl });
+    }
+    
     if (params['sgf']) {
       const sgf = decodeURIComponent(atob(params['sgf'] as string));
       this.loadAndAnalyze(sgf);
@@ -182,6 +190,11 @@ export class ReviewPage implements IPage {
       const archiveId = params['archiveId'] as string;
       const taskId = params['taskId'] as string | undefined;
       this.loadFromArchiveId(archiveId, taskId);
+      
+      // 如果是直播模式，启动定时刷新
+      if (this.isLiveMode) {
+        this.startLiveMode();
+      }
     }
   }
 
@@ -371,6 +384,9 @@ export class ReviewPage implements IPage {
   getDepth(): number { return this.interaction.getDepth(); }
 
   destroy(): void {
+    // 停止直播模式
+    this.stopLiveMode();
+    
     this.board.destroy();
     this.winrateChart?.destroy();
     this.interaction.destroy();
@@ -701,6 +717,42 @@ export class ReviewPage implements IPage {
           }
         }
         break;
+    }
+  }
+
+  // ========== 直播模式 ==========
+
+  private startLiveMode(): void {
+    if (!this.isLiveMode || !this.liveUrl) return;
+    
+    console.info('[ReviewPage] 启动直播刷新（30秒间隔）');
+    
+    // 立即刷新一次
+    this.refreshLiveGame();
+    
+    // 启动定时器
+    this.liveInterval = window.setInterval(() => {
+      this.refreshLiveGame();
+    }, 30000);
+  }
+
+  private stopLiveMode(): void {
+    if (this.liveInterval) {
+      clearInterval(this.liveInterval);
+      this.liveInterval = undefined as number | undefined;
+    }
+    this.isLiveMode = false;
+    console.info('[ReviewPage] 停止直播模式');
+  }
+
+  private async refreshLiveGame(): Promise<void> {
+    if (!this.liveUrl) return;
+    
+    try {
+      // TODO: 实现重新抓取逻辑
+      console.warn('[ReviewPage] refreshLiveGame 需要完整实现');
+    } catch (error) {
+      console.error('[ReviewPage] 直播刷新异常', error);
     }
   }
 }
