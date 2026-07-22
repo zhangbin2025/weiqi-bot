@@ -82,6 +82,14 @@ export class ReviewPage implements IPage {
   private gameService: IGameService | undefined;
   private lastMovesCount = 0;
   private sgfParser: SGFParser;
+  /** 直播：连续无新着法的刷新次数 */
+  private liveNoNewMovesCount = 0;
+  /** 直播：连续刷新失败次数 */
+  private liveFetchFailCount = 0;
+  /** 直播：连续无新着法阈值（超过此数认为棋局结束） */
+  private static readonly LIVE_NO_NEW_MOVES_THRESHOLD = 6; // 6次×30秒=3分钟
+  /** 直播：连续失败阈值 */
+  private static readonly LIVE_FETCH_FAIL_THRESHOLD = 5;
 
   constructor(config: ReviewPageConfig) {
     this.reviewApp = config.reviewApp;
@@ -789,6 +797,8 @@ export class ReviewPage implements IPage {
       this.liveInterval = undefined as number | undefined;
     }
     this.isLiveMode = false;
+    this.liveNoNewMovesCount = 0;
+    this.liveFetchFailCount = 0;
     console.info('[ReviewPage] 停止直播模式');
   }
 
@@ -818,30 +828,63 @@ export class ReviewPage implements IPage {
       
       if (!result.success || !result.archiveId) {
         console.warn('[ReviewPage] 刷新失败:', result.error);
+        this.liveFetchFailCount++;
+        if (this.liveFetchFailCount >= ReviewPage.LIVE_FETCH_FAIL_THRESHOLD) {
+          console.info('[ReviewPage] 连续刷新失败', this.liveFetchFailCount, '次，停止直播');
+          this.stopLiveMode();
+          this.ui.updateStatus('直播连接失败，已停止刷新');
+        }
         return;
       }
       
-      // 2. 检测棋局结束
+      // fetch 成功，重置失败计数
+      this.liveFetchFailCount = 0;
+      
+      // 3. 检测棋局结束（方式1：从 metadata.result 检测）
       if (result.metadata?.result && result.metadata.result !== '') {
-        console.info('[ReviewPage] 棋局已结束，停止直播');
+        console.info('[ReviewPage] 棋局已结束（检测到结果:', result.metadata.result, '），停止直播');
         this.stopLiveMode();
+        this.ui.updateStatus('棋局已结束: ' + result.metadata.result);
         return;
       }
       
-      // 3. 获取新 SGF
+      // 4. 获取新 SGF
       const newSgf = await this.gameService.getByArchiveId(result.archiveId);
       if (!newSgf) {
         console.warn('[ReviewPage] 获取新SGF失败');
         return;
       }
       
-      // 4. 解析新手数
-      const newMovesCount = this.parseMovesCount(newSgf);
-      console.info('[ReviewPage] 调试:', { newMovesCount, lastMovesCount: this.lastMovesCount, archiveId: result.archiveId, previousArchiveId: this.previousArchiveId, sgfLength: newSgf.length });
-      if (newMovesCount <= this.lastMovesCount) {
-        console.info('[ReviewPage] 无新手数，跳过更新');
+      // 5. 检测棋局结束（方式2：从 SGF 的 RE[] 属性检测）
+      const sgfResultMatch = newSgf.match(/RE\[([^\]]*)\]/);
+      if (sgfResultMatch && sgfResultMatch[1] && sgfResultMatch[1] !== '') {
+        console.info('[ReviewPage] 棋局已结束（SGF结果:', sgfResultMatch[1], '），停止直播');
+        this.stopLiveMode();
+        this.ui.updateStatus('棋局已结束: ' + sgfResultMatch[1]);
         return;
       }
+      
+      // 6. 解析新手数
+      const newMovesCount = this.parseMovesCount(newSgf);
+      console.info('[ReviewPage] 调试:', { newMovesCount, lastMovesCount: this.lastMovesCount, archiveId: result.archiveId, previousArchiveId: this.previousArchiveId, sgfLength: newSgf.length, noNewMovesCount: this.liveNoNewMovesCount });
+      
+      if (newMovesCount <= this.lastMovesCount) {
+        // 无新着法，增加计数
+        this.liveNoNewMovesCount++;
+        console.info('[ReviewPage] 无新手数（连续', this.liveNoNewMovesCount, '次）');
+        
+        // 检测棋局结束（方式3：连续无新着法）
+        // 条件：已有足够手数（>20）且连续多次无新着法
+        if (this.liveNoNewMovesCount >= ReviewPage.LIVE_NO_NEW_MOVES_THRESHOLD && this.lastMovesCount > 20) {
+          console.info('[ReviewPage] 连续', this.liveNoNewMovesCount, '次无新着法（共', this.lastMovesCount, '手），判定棋局已结束');
+          this.stopLiveMode();
+          this.ui.updateStatus('直播已结束（' + this.lastMovesCount + '手）');
+        }
+        return;
+      }
+      
+      // 有新着法，重置计数
+      this.liveNoNewMovesCount = 0;
       
       console.info('[ReviewPage] 检测到新手数:', this.lastMovesCount, '->', newMovesCount);
       
