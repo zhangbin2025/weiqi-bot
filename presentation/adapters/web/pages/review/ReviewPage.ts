@@ -528,7 +528,7 @@ export class ReviewPage implements IPage {
       if (!this.liveInterval) {
         this.startLiveMode();
       }
-      this.ui.updateStatus('直播中 · ' + this.totalMoves + '手');
+      this.ui.updateStatus('直播中');
       console.info('[ReviewPage] 增量分析完成，胜率已更新');
     } else {
       this.ui.updateStatus('点击推荐选点查看变化图');
