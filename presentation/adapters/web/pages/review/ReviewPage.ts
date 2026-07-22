@@ -478,8 +478,8 @@ export class ReviewPage implements IPage {
         break;
       case 'normal':
         this.currentCandidates = [];
-        this.goToMove(this.currentMove);
-        this.ui.updateStatus(this.currentModelName);
+        this.goToMove(this.totalMoves);
+        this.ui.updateStatus(this.isLiveMode ? '直播中' : this.currentModelName);
         break;
     }
   }
