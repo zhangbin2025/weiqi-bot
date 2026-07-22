@@ -14,7 +14,7 @@
  * 注意：Electron 的 CDP debugger 不触发 WebSocket 事件，因此使用 JS 注入方案
  */
 
-import { BrowserWindow, WebContents } from 'electron';
+import { BrowserWindow, WebContents, session } from 'electron';
 import { createLogger } from '../utils/logger';
 
 const log = createLogger('SnifferManager');
@@ -230,10 +230,33 @@ class SnifferSession {
           webSecurity: false,
           preload: require('path').join(__dirname, 'sniffer-preload.js'),
           partition: 'sniffer',  // 独立 session，不走代理
+          offscreen: true,           // 离屏渲染，不实际显示、不播放媒体
+          plugins: false,            // 禁用插件（Flash 等）
         },
       });
 
       const webContents = this.hiddenWindow.webContents;
+      // ===== 禁用隐藏窗口所有不必要的功能 =====
+      webContents.setAudioMuted(true);          // 静音：禁止音频输出
+
+      // 拦截并丢弃媒体请求（视频/音频文件不下载，节省带宽）
+      const snifferSess = session.fromPartition('sniffer');
+      snifferSess.webRequest.onBeforeRequest((details, callback) => {
+        const url = details.url.toLowerCase();
+        // 阻止媒体文件下载（音视频文件后缀 + media 资源类型）
+        if (
+          url.match(/\.(mp3|mp4|wav|ogg|flac|aac|m4a|webm|avi|mov|wmv)([?#].*)?$/) ||
+          details.resourceType === 'media'
+        ) {
+          callback({ cancel: true });
+          return;
+        }
+        callback({});
+      });
+
+      webContents.setWindowOpenHandler(() => ({ action: 'deny' }));  // 禁止弹窗
+      webContents.on('will-navigate', (event: Electron.Event) => { event.preventDefault(); });  // 禁止导航跳转
+
       console.log(`[SnifferSession] [${this.id}] Created hidden window, webContents.id=${webContents.id}`);
 
       // 注册全局 IPC 监听器（只注册一次）
