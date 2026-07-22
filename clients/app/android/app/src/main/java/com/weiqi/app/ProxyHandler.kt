@@ -67,6 +67,7 @@ class ProxyHandler(
 
         val startTime = System.currentTimeMillis()
         val method = session.method.name
+        var postBody: String? = null
         Logger.i(TAG, "Proxy >> $method $targetUrl")
 
         return try {
@@ -75,6 +76,8 @@ class ProxyHandler(
             if (session.method == NanoHTTPD.Method.POST) {
                 val files = mutableMapOf<String, String>()
                 session.parseBody(files)
+                // 对于 application/json，NanoHTTPD 把原始 body 放在 files["postData"]
+                postBody = files["postData"]
                 Logger.d(TAG, "Proxy: POST params = ${session.parms.filterKeys { it != "url" }}")
             }
             
@@ -125,10 +128,13 @@ class ProxyHandler(
 
             // 透传 POST 请求体
             if (session.method == NanoHTTPD.Method.POST) {
-                // NanoHTTPD 对于 application/x-www-form-urlencoded 会自动解析到 session.parms
-                // 需要从 parms 中排除 "url" 参数（这是代理路由的参数），然后重新构造请求体
+                // 优先使用原始 body（application/json），否则使用表单数据
                 val mediaType = (contentType ?: "application/x-www-form-urlencoded").toMediaType()
-                val postData = buildPostData(session.parms, contentType)
+                val postData = if (!postBody.isNullOrEmpty()) {
+                    postBody
+                } else {
+                    buildPostData(session.parms, contentType)
+                }
                 Logger.d(TAG, "Proxy: POST data = ${postData.take(100)}")
                 requestBuilder.post(postData.toRequestBody(mediaType))
             }
@@ -204,6 +210,11 @@ class ProxyHandler(
     private fun buildPostData(parms: Map<String, String>?, contentType: String?): String {
         if (parms == null) return ""
         
+        // 对于 application/json，应该在外部使用 postBody，这里返回空字符串
+        if (contentType?.contains("application/json") == true) {
+            return ""
+        }
+        
         // 对于 application/x-www-form-urlencoded，从 parms 中排除 "url" 参数，重新构造请求体
         if (contentType?.contains("application/x-www-form-urlencoded") == true) {
             return parms
@@ -214,7 +225,6 @@ class ProxyHandler(
                 }
         }
         
-        // 对于其他类型（如 application/json），尝试从 parms 获取 postData 字段
-        return parms["postData"] ?: ""
+        return ""
     }
 }
