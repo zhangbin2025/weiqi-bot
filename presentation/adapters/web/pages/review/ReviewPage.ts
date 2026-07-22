@@ -217,11 +217,13 @@ export class ReviewPage implements IPage {
     if (!this.liveUrl || !this.gameService) return;
     
     try {
+      this.ui.updateStatus('正在下载直播棋谱...');
       console.info('[ReviewPage] 从直播URL抓取棋谱...');
       const result = await this.gameService.fetch(this.liveUrl, true, 5000); // 5秒超时
       
       if (!result.success || !result.archiveId) {
         console.error('[ReviewPage] 直播棋谱抓取失败:', result.error);
+        this.ui.updateStatus('直播棋谱下载失败');
         return;
       }
       
@@ -232,6 +234,7 @@ export class ReviewPage implements IPage {
       await this.loadFromArchiveId(result.archiveId);
     } catch (error) {
       console.error('[ReviewPage] 直播棋谱加载异常', error);
+      this.ui.updateStatus('直播棋谱加载异常');
     }
   }
 
