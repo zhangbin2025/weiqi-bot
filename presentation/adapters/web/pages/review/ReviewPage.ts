@@ -185,6 +185,12 @@ export class ReviewPage implements IPage {
       return; // 直播模式不走其他参数处理
     }
     
+    // 收藏模式：从归档ID查看复盘结果
+    if (params['view'] === 'favorite' && params['key']) {
+      this.viewFavorite(params['key'] as string);
+      return;
+    }
+    
     if (params['sgf']) {
       const sgf = decodeURIComponent(atob(params['sgf'] as string));
       this.loadAndAnalyze(sgf);
