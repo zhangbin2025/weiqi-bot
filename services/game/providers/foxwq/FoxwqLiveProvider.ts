@@ -218,16 +218,21 @@ export class FoxwqLiveProvider extends BaseProvider {
     return this.createSgf(moves, playerNames, handicap);
   }
 
-  private extractMovesFromBinary(data: Uint8Array): Array<{ x: number; y: number }> {
-    const moves: Array<{ x: number; y: number }> = [];
+  private extractMovesFromBinary(data: Uint8Array): Array<{ x: number; y: number; color: 1 | 2 }> {
+    const moves: Array<{ x: number; y: number; color: 1 | 2 }> = [];
     let i = 0;
-    while (i < data.length - 4) {
-      if (data[i] === 0x08 && data[i + 2] === 0x10) {
+    while (i < data.length - 5) {
+      // 着法模式: 0x08 <x> 0x10 <y> 0x18 <color>
+      // 0x08=field1(varint), 0x10=field2(varint), 0x18=field3(varint)
+      // color: 1=黑, 2=白
+      if (data[i] === 0x08 && data[i + 2] === 0x10 && data[i + 4] === 0x18) {
         const x = data[i + 1];
         const y = data[i + 3];
-        if (x !== undefined && y !== undefined && x < 19 && y < 19) {
-          moves.push({ x, y });
-          i += 4;
+        const color = data[i + 5];
+        if (x !== undefined && y !== undefined && color !== undefined &&
+            x < 19 && y < 19 && (color === 1 || color === 2)) {
+          moves.push({ x, y, color: color as 1 | 2 });
+          i += 6; // 跳过完整记录，避免重复匹配
           continue;
         }
       }
@@ -236,38 +241,40 @@ export class FoxwqLiveProvider extends BaseProvider {
     return moves;
   }
 
-  private extractJueyiLiveMoves(data: Uint8Array): Array<{ x: number; y: number }> {
-    const moves: Array<{ x: number; y: number }> = [];
+  private extractJueyiLiveMoves(data: Uint8Array): Array<{ x: number; y: number; color: 1 | 2 }> {
+    const moves: Array<{ x: number; y: number; color: 1 | 2 }> = [];
     const mainBranchMarker = [0x10, 0xcb, 0x01];
     let pos = 0;
     while (pos <= data.length - mainBranchMarker.length) {
-      let found = false;
+      // 搜索下一个 mainBranchMarker
+      let found = -1;
       for (let i = pos; i <= data.length - mainBranchMarker.length; i++) {
         if (
           data[i] === mainBranchMarker[0] &&
           data[i + 1] === mainBranchMarker[1] &&
           data[i + 2] === mainBranchMarker[2]
         ) {
-          pos = i;
-          found = true;
+          found = i;
           break;
         }
       }
-      if (!found) break;
-      const start = pos + mainBranchMarker.length;
+      if (found < 0) break;
+
+      const start = found + mainBranchMarker.length;
       const segment = data.slice(start, start + 20);
       if (segment.length < 8) {
-        pos += 1;
+        pos = found + mainBranchMarker.length; // 跳过 marker
         continue;
       }
       const move = this.parseMovePattern(segment);
       if (move) moves.push(move);
-      pos += 1;
+      // 跳过整个 segment，避免重复匹配
+      pos = start + segment.length;
     }
     return moves;
   }
 
-  private parseMovePattern(segment: Uint8Array): { x: number; y: number } | null {
+  private parseMovePattern(segment: Uint8Array): { x: number; y: number; color: 1 | 2 } | null {
     for (let i = 0; i < segment.length - 7; i++) {
       if (segment[i] === 0x08 && segment[i + 2] === 0x10 && segment[i + 4] === 0x18) {
         const x = segment[i + 1];
@@ -281,7 +288,7 @@ export class FoxwqLiveProvider extends BaseProvider {
           y < 19 &&
           (color === 1 || color === 2)
         ) {
-          return { x, y };
+          return { x, y, color: color as 1 | 2 };
         }
       }
     }
@@ -353,7 +360,7 @@ export class FoxwqLiveProvider extends BaseProvider {
   }
 
   private createSgf(
-    moves: Array<{ x: number; y: number }>,
+    moves: Array<{ x: number; y: number; color?: 1 | 2 }>,
     playerNames: [string, string],
     handicap: number
   ): string {
@@ -364,15 +371,29 @@ export class FoxwqLiveProvider extends BaseProvider {
     if (handicap >= 2) {
       sgf += `HA[${handicap}]\n`;
       const handicapCoords = this.getHandicapCoords(handicap);
-      handicapCoords.forEach(({ x, y }) => {
-        sgf += `;AB[${coordMap[x]}${coordMap[y]}]\n`;
-      });
+      // 所有让子棋子放在同一个 AB 节点中
+      if (handicapCoords.length > 0) {
+        sgf += ';AB';
+        handicapCoords.forEach(({ x, y }) => {
+          sgf += `[${coordMap[x]}${coordMap[y]}]`;
+        });
+        sgf += '\n';
+      }
     }
     for (let i = 0; i < moves.length; i++) {
       const move = moves[i];
       if (!move) continue;
       const { x, y } = move;
-      const color = handicap >= 2 ? (i % 2 === 0 ? 'W' : 'B') : i % 2 === 0 ? 'B' : 'W';
+      // 优先使用实际颜色（color: 1=黑, 2=白），否则按 i%2 推断
+      let color: string;
+      if (move.color === 1) {
+        color = 'B';
+      } else if (move.color === 2) {
+        color = 'W';
+      } else {
+        // fallback: 无颜色信息时按顺序推断
+        color = handicap >= 2 ? (i % 2 === 0 ? 'W' : 'B') : i % 2 === 0 ? 'B' : 'W';
+      }
       if (0 <= x && x < 19 && 0 <= y && y < 19) {
         sgf += `;${color}[${coordMap[x]}${coordMap[y]}]\n`;
       }
