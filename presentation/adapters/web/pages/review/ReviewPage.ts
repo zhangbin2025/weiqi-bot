@@ -117,6 +117,7 @@ export class ReviewPage implements IPage {
         this.interaction.exit();
         this.goToMove(this.currentMove + 1);
       },
+      isReadOnlyMode: () => this.isLiveMode, // 直播模式只读
     });
 
     this.ui = new ReviewUI({
@@ -297,6 +298,13 @@ export class ReviewPage implements IPage {
 
   async analyzeCurrentPosition(): Promise<void> {
     if (!this.analysis.getReviewId() || this.analyzing) return;
+    
+    // 直播模式不支持 AI 推荐（只读模式）
+    if (this.isLiveMode) {
+      this.ui.updateStatus('直播模式仅支持浏览，不支持 AI 分析');
+      return;
+    }
+    
     if (this.interaction.isMaxDepth()) {
       this.ui.updateStatus('已达最大探索深度');
       return;

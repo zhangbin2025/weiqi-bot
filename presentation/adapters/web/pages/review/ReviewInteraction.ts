@@ -56,6 +56,7 @@ export interface InteractionCallbacks {
   onStonePlaced: () => void;
   getCurrentMove: () => number;
   onActualMoveClick?: () => void; // 点击实战落点的回调
+  isReadOnlyMode?: () => boolean; // 是否只读模式（直播模式）
 }
 
 export class ReviewInteraction {
@@ -135,6 +136,8 @@ export class ReviewInteraction {
 
   /** 处理棋盘点击 */
   handleBoardClick(x: number, y: number): void {
+    // 只读模式（直播模式）不允许试下
+    if (this.callbacks.isReadOnlyMode?.()) return;
     // 没有加载棋谱时不允许试下
     if (this.baseMoves.length === 0) return;
     if (this.stateStack.length >= this.MAX_DEPTH) return;
