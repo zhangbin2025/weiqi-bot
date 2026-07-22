@@ -26,6 +26,7 @@ import { showLoading as showModelLoading, updateProgress as updateModelProgress,
 import { ReviewInteraction, type PageMode } from './ReviewInteraction';
 import { ReviewAnalysis, type AnalysisCompleteResult } from './ReviewAnalysis';
 import { ReviewUI } from './ReviewUI';
+import { saveLiveArchiveId, loadLiveArchiveId } from './LiveCache';
 
 /** 复盘页面配置 */
 export interface ReviewPageConfig {
@@ -80,6 +81,7 @@ export class ReviewPage implements IPage {
   private liveInterval: number | undefined;
   private previousArchiveId?: string;
   private gameService: IGameService | undefined;
+  private favoriteService: IFavoriteService | undefined; // 添加保存
   private lastMovesCount = 0;
   private sgfParser: SGFParser;
   /** 直播：连续刷新失败次数 */
@@ -92,6 +94,7 @@ export class ReviewPage implements IPage {
     this.modelManager = config.modelManager;
     this.aiController = config.aiController;
     this.gameService = config.gameService;
+    this.favoriteService = config.favoriteService; // 保存引用
     this.onNavigate = config.onNavigate;
 
     this.sgfParser = new SGFParser();
@@ -217,10 +220,22 @@ export class ReviewPage implements IPage {
   private async loadFromLiveUrl(): Promise<void> {
     if (!this.liveUrl || !this.gameService) return;
     
+    // 尝试从缓存恢复
+    const cachedArchiveId = loadLiveArchiveId(this.liveUrl);
+    if (cachedArchiveId) {
+      // 有缓存：直接用 viewFavorite 恢复（复用现有逻辑）
+      console.info('[ReviewPage] 从缓存恢复:', cachedArchiveId);
+      this.previousArchiveId = cachedArchiveId;
+      await this.viewFavorite(cachedArchiveId);
+      // viewFavorite 会启动 startLiveMode，无需手动调用
+      return;
+    }
+    
+    // 无缓存：正常加载
     try {
       this.ui.updateStatus('正在下载直播棋谱...');
       console.info('[ReviewPage] 从直播URL抓取棋谱...');
-      const result = await this.gameService.fetch(this.liveUrl, true, 5000); // 5秒超时
+      const result = await this.gameService.fetch(this.liveUrl, true, 5000);
       
       if (!result.success || !result.archiveId) {
         console.error('[ReviewPage] 直播棋谱抓取失败:', result.error);
@@ -233,6 +248,9 @@ export class ReviewPage implements IPage {
       
       // 加载并分析棋谱
       await this.loadFromArchiveId(result.archiveId);
+      
+      // 保存缓存
+      saveLiveArchiveId(this.liveUrl, result.archiveId);
     } catch (error) {
       console.error('[ReviewPage] 直播棋谱加载异常', error);
       this.ui.updateStatus('直播棋谱加载异常');
@@ -819,11 +837,17 @@ export class ReviewPage implements IPage {
     }
     
     try {
-      // 1. 先删除旧归档，强制重新抓取（避免缓存）
+      // 1. 先删除旧归档和旧复盘条目，强制重新抓取（避免缓存）
       if (this.previousArchiveId && this.gameService) {
         try {
+          // 删除旧复盘条目
+          if (this.favoriteService) {
+            await this.favoriteService.removeFavorite(this.previousArchiveId);
+            console.info('[ReviewPage] 已删除旧复盘条目:', this.previousArchiveId);
+          }
+          // 删除旧归档
           await (this.gameService as any).deleteArchive?.(this.previousArchiveId);
-          console.info('[ReviewPage] 已删除旧归档（刷新前）:', this.previousArchiveId);
+          console.info('[ReviewPage] 已删除旧归档:', this.previousArchiveId);
         } catch (e) {
           // 忽略删除失败
         }
@@ -945,7 +969,12 @@ export class ReviewPage implements IPage {
       // 9. 更新归档ID
       this.previousArchiveId = result.archiveId;
       
-      // 10. 更新视图
+      // 10. 更新缓存
+      if (this.liveUrl) {
+        saveLiveArchiveId(this.liveUrl, result.archiveId);
+      }
+      
+      // 11. 更新视图
       const currentMode = this.interaction.getMode();
       if (currentMode === 'normal') {
         // 如果用户在最新一手或接近最新，自动跳到新手数
