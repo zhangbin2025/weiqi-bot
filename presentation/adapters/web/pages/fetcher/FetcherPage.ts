@@ -160,12 +160,23 @@ export class FetcherPage implements IPage {
           // 检测是否在 App 环境
           const isApp = typeof navigator !== 'undefined' && navigator.userAgent.includes('WeiqiApp');
           
-          // 构造“AI 复盘”链接
-          const reviewLink = isApp 
-            ? `/assistant?text=${encodeURIComponent('复盘棋谱 ' + result.archiveId)}`  // App 环境：跳转到 assistant 并发送消息
-            : `/review/index.html?archiveId=${result.archiveId}`;  // 非 App 环境：直接跳转
+          // 构造复盘/直播链接
+          let reviewLabel = '复盘';
+          let reviewLink: string;
           
-          const message = `已抓取棋谱: ${result.metadata.black || '黑方'} vs ${result.metadata.white || '白方'}\n\n[打谱](/replay/index.html?archiveId=${result.archiveId}) [复盘](${reviewLink})`;
+          if (this.isLiveMode && isApp) {
+            // 直播模式 + App 环境：显示"直播"，链接带 live 参数
+            reviewLabel = '直播';
+            reviewLink = `/review/index.html?live=true&url=${encodeURIComponent(url)}`;
+          } else if (isApp) {
+            // App 环境：跳转到 assistant 并发送消息
+            reviewLink = `/assistant?text=${encodeURIComponent('复盘棋谱 ' + result.archiveId)}`;
+          } else {
+            // 非 App 环境：直接跳转 review 页面
+            reviewLink = `/review/index.html?archiveId=${result.archiveId}`;
+          }
+          
+          const message = `已抓取棋谱: ${result.metadata.black || '黑方'} vs ${result.metadata.white || '白方'}\n\n[打谱](/replay/index.html?archiveId=${result.archiveId}) [${reviewLabel}](${reviewLink})`;
           TaskHelper.notifyComplete(taskId, '抓取完成', message, detailUrl);
         }
       } else {
