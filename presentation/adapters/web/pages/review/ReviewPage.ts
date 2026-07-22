@@ -972,9 +972,9 @@ export class ReviewPage implements IPage {
       // 10. 更新 ReviewAnalysis 的 currentArchiveId
       this.analysis.setCurrentArchiveId(result.archiveId);
       
-      // 11. 保存新的复盘数据
-      await this.analysis.saveReviewData();
-      console.info('[ReviewPage] 已保存新复盘数据:', result.archiveId);
+      // 11. 保存新的复盘数据（传入本地分析的胜率数据）
+      await this.analysis.saveReviewData(this.winrateTrend);
+      console.info('[ReviewPage] 已保存新复盘数据:', result.archiveId, '胜率:', this.winrateTrend.length, '手');
       
       // 12. 更新缓存
       if (this.liveUrl) {

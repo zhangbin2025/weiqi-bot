@@ -436,13 +436,14 @@ export class ReviewAnalysis {
   }
 
   /** 保存复盘数据到收藏服务 */
-  async saveReviewData(): Promise<void> {
+  async saveReviewData(winrateTrendOverride?: Array<{ moveNumber: number; winRate: number; scoreLead: number }>): Promise<void> {
     if (!this.currentArchiveId || !this.favoriteService || !this.reviewId) return;
     try {
       const state = this.reviewApp.getState(this.reviewId);
       if (!state) return;
       const badMoves = this.reviewApp.getBadMoves(this.reviewId);
-      const winrateTrend = this.reviewApp.getWinRateTrend(this.reviewId);
+      // 如果提供了 winrateTrend，使用提供的；否则从 reviewApp 获取
+      const winrateTrend = winrateTrendOverride ?? this.reviewApp.getWinRateTrend(this.reviewId);
       const data = {
         blackName: state.gameInfo.black,
         whiteName: state.gameInfo.white,
@@ -452,7 +453,7 @@ export class ReviewAnalysis {
         analyzedAt: Date.now(),
       };
       await this.favoriteService.addFavorite('review_data', this.currentArchiveId, data);
-      console.info('[ReviewAnalysis] 复盘数据已保存');
+      console.info('[ReviewAnalysis] 复盘数据已保存，胜率数据:', winrateTrend.length, '手');
     } catch (error) {
       console.warn('[ReviewAnalysis] 保存复盘数据失败', error as Error);
     }
