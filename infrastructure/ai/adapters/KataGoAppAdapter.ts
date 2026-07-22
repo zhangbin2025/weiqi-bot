@@ -58,6 +58,13 @@ export class KataGoAppAdapter implements IAIEngine {
     // 提取新模型的文件名
     const newModelName = options.modelUrl.split('/').pop();
     console.info('[KataGoAppAdapter] New model name:', newModelName);
+
+    // ★ 快速路径：查询底层实例状态，如果进程在运行且模型相同则跳过下载
+    // 但仍需调用 start() 让底层更新 session 绑定（跨页面时 session 不同）
+    const instanceStatus = await this.getInstanceStatus();
+    console.info('[KataGoAppAdapter] Instance status:', instanceStatus);
+    const canSkipDownload = instanceStatus.running && instanceStatus.modelPath &&
+      instanceStatus.modelPath.split('/').pop() === newModelName;
     
     // 检查进程状态（不依赖 TypeScript 层的状态变量）
     let isRunning = false;
@@ -69,7 +76,8 @@ export class KataGoAppAdapter implements IAIEngine {
     }
     
     // 如果进程在运行，总是关闭它（避免模型冲突）
-    if (isRunning) {
+    // 注意：canSkipDownload 时进程在运行但模型相同，不关闭（让 handleStart 复用）
+    if (isRunning && !canSkipDownload) {
       // 检查是否有运行中的任务
       if (this.client.hasRunningTasks()) {
         console.error('[KataGoAppAdapter] Cannot switch model: has running tasks');
@@ -109,75 +117,67 @@ export class KataGoAppAdapter implements IAIEngine {
     }
     
     // 通过桥接接口下载模型（统一处理外部和内置模型）
+    // 如果 canSkipDownload=true，跳过下载（模型文件已存在且进程在运行）
     const filename = modelPath.split('/').pop()!;
     
-    // 设置下载进度回调
-    if (options.onProgress) {
-      this.client.onDownloadProgress = (info) => {
-        console.log(`[KataGoAppAdapter] Download progress: ${info.loaded}/${info.total} (${(info.progress * 100).toFixed(1)}%)`);
-        // 注意：info.progress 是 0-1 之间的值，需要乘以 100 转换为百分比
-        options.onProgress!(info.loaded, info.total, info.progress * 100);
-      };
-    }
-    
-    // ⚠️ 关键：先创建 Promise 和回调，再调用 prompt()
-    // 避免 Kotlin 层推送消息时 TypeScript 层还没设置回调
-    let downloadResolve: (() => void) | null = null;
-    let downloadReject: ((error: Error) => void) | null = null;
-    const downloadPromise = new Promise<void>((resolve, reject) => {
-      downloadResolve = resolve;
-      downloadReject = reject;
-    });
-    
-    // 设置下载完成回调（在 prompt 之前）
-    const originalOnDownloadComplete = this.client.onDownloadComplete;
-    const timeoutId = setTimeout(() => {
-      downloadReject?.(new Error('Download timeout (5 minutes)'));
-    }, 5 * 60 * 1000);
-    
-    this.client.onDownloadComplete = (info) => {
-      console.info('[KataGoAppAdapter] Download complete callback:', info);
-      clearTimeout(timeoutId);
-      this.client.onDownloadComplete = originalOnDownloadComplete;
-      
-      if (info.ok) {
-        downloadResolve?.();
-      } else {
-        downloadReject?.(new Error(info.error || 'Download failed'));
+    if (!canSkipDownload) {
+      // 设置下载进度回调
+      if (options.onProgress) {
+        this.client.onDownloadProgress = (info) => {
+          console.log(`[KataGoAppAdapter] Download progress: ${info.loaded}/${info.total} (${(info.progress * 100).toFixed(1)}%)`);
+          options.onProgress!(info.loaded, info.total, info.progress * 100);
+        };
       }
-    };
-    
-    // 调用 katago:downloadModel 下载模型
-    const downloadCmd = JSON.stringify({
-      url: downloadUrl,
-      filename: filename
-    });
-    console.info('[KataGoAppAdapter] Calling katago:downloadModel:', downloadCmd);
-    
-    try {
-      const result = prompt(`katago:downloadModel:${downloadCmd}`);
-      console.info('[KataGoAppAdapter] Download result:', result);
       
-      const response = JSON.parse(result || '{}');
-      if (!response.ok) {
+      // ⚠️ 关键：先创建 Promise 和回调，再调用 prompt()
+      let downloadResolve: (() => void) | null = null;
+      let downloadReject: ((error: Error) => void) | null = null;
+      const downloadPromise = new Promise<void>((resolve, reject) => {
+        downloadResolve = resolve;
+        downloadReject = reject;
+      });
+      
+      const originalOnDownloadComplete = this.client.onDownloadComplete;
+      const timeoutId = setTimeout(() => {
+        downloadReject?.(new Error('Download timeout (5 minutes)'));
+      }, 5 * 60 * 1000);
+      
+      this.client.onDownloadComplete = (info) => {
+        console.info('[KataGoAppAdapter] Download complete callback:', info);
         clearTimeout(timeoutId);
         this.client.onDownloadComplete = originalOnDownloadComplete;
-        throw new Error(response.error || 'Download failed');
-      }
+        if (info.ok) { downloadResolve?.(); } else { downloadReject?.(new Error(info.error || 'Download failed')); }
+      };
       
-      // 如果是异步下载，等待下载完成的消息
-      if (response.async) {
-        console.info('[KataGoAppAdapter] Download is async, waiting for completion...');
-        await downloadPromise;
-      }
+      const downloadCmd = JSON.stringify({ url: downloadUrl, filename });
+      console.info('[KataGoAppAdapter] Calling katago:downloadModel:', downloadCmd);
       
-      console.info('[KataGoAppAdapter] Model ready:', modelPath);
-    } catch (e) {
-      console.error('[KataGoAppAdapter] Model download failed:', e);
-      throw e;
-    } finally {
-      // 清除下载进度回调
-      this.client.onDownloadProgress = undefined;
+      try {
+        const result = prompt(`katago:downloadModel:${downloadCmd}`);
+        console.info('[KataGoAppAdapter] Download result:', result);
+        const response = JSON.parse(result || '{}');
+        if (!response.ok) {
+          clearTimeout(timeoutId);
+          this.client.onDownloadComplete = originalOnDownloadComplete;
+          throw new Error(response.error || 'Download failed');
+        }
+        if (response.async) {
+          console.info('[KataGoAppAdapter] Download is async, waiting for completion...');
+          await downloadPromise;
+        } else {
+          console.info('[KataGoAppAdapter] Model already exists (sync), skipping download');
+          clearTimeout(timeoutId);
+          this.client.onDownloadComplete = originalOnDownloadComplete;
+        }
+        console.info('[KataGoAppAdapter] Model ready:', modelPath);
+      } catch (e) {
+        console.error('[KataGoAppAdapter] Model download failed:', e);
+        throw e;
+      } finally {
+        this.client.onDownloadProgress = undefined;
+      }
+    } else {
+      console.info('[KataGoAppAdapter] Skipping download (process running with same model)');
     }
 
     // 触发 analysis.cfg 下载（同模型一样走 AssetServer）
@@ -268,14 +268,30 @@ export class KataGoAppAdapter implements IAIEngine {
   }
 
   /**
-   * 检查进程状态
+   * 检查进程状态（仅返回是否运行）
    */
   private async checkProcessStatus(): Promise<boolean> {
     try {
-      return await this.client.status();
+      const status = await this.client.status();
+      return status.running;
     } catch (error) {
       console.error('[KataGoAppAdapter] Failed to check process status:', error);
       return false;
+    }
+  }
+
+  /**
+   * 获取底层 KataGo 实例状态（不依赖 TS 层内存变量）
+   * 
+   * 通过桥接接口查询，页面刷新后仍可靠
+   */
+  private async getInstanceStatus(): Promise<{ running: boolean; modelPath: string | null }> {
+    try {
+      const status = await this.client.status();
+      return { running: status.running, modelPath: status.modelPath };
+    } catch (error) {
+      console.error('[KataGoAppAdapter] Failed to get instance status:', error);
+      return { running: false, modelPath: null };
     }
   }
 

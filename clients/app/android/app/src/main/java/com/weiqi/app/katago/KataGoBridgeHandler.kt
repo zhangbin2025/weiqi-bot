@@ -506,7 +506,8 @@ class KataGoBridgeHandler(
         result: GeckoResult<GeckoSession.PromptDelegate.PromptResponse>
     ) {
         val running = globalKataGoProcess?.isRunning == true
-        val resp = JSONObject().put("running", running)
+        val modelPath = currentModelPath
+        val resp = JSONObject().put("running", running).put("modelPath", modelPath ?: JSONObject.NULL)
         result.complete(prompt.confirm(resp.toString()))
     }
 
@@ -543,7 +544,31 @@ class KataGoBridgeHandler(
         payload: String,
         result: GeckoResult<GeckoSession.PromptDelegate.PromptResponse>
     ) {
-        // 立即返回响应，避免阻塞 TypeScript 层的事件循环
+        try {
+            val json = JSONObject(payload)
+            val url = json.getString("url")
+            val filename = json.getString("filename")
+
+            // ★ 先检查文件是否已存在且完整 → 同步返回，跳过异步下载流程
+            // 只检查 gzip 魔数（2字节），不做完整 CRC 校验（模型文件几十MB，主线程会卡死）
+            val modelsDir = File(activity.filesDir, "web/models")
+            val targetFile = File(modelsDir, filename)
+            if (targetFile.exists() && targetFile.length() > 0) {
+                val isValidGzip = try {
+                    targetFile.inputStream().use { s -> s.read() == 0x1f && s.read() == 0x8b }
+                } catch (_: Exception) { false }
+                if (isValidGzip) {
+                    Logger.i(TAG, "Model already exists and valid (gzip magic OK), skipping download: ${targetFile.absolutePath}")
+                    val resp = JSONObject().put("ok", true).put("async", false).put("path", "models/$filename")
+                    result.complete(prompt.confirm(resp.toString()))
+                    return
+                }
+            }
+        } catch (e: Exception) {
+            Logger.e(TAG, "Failed to check existing model", e)
+        }
+
+        // 文件不存在或损坏 → 异步下载
         val resp = JSONObject().put("ok", true).put("async", true)
         result.complete(prompt.confirm(resp.toString()))
         
@@ -561,21 +586,17 @@ class KataGoBridgeHandler(
                 modelsDir.mkdirs()
                 val targetFile = File(modelsDir, filename)
                 
-                // 如果文件已存在，推送成功消息
+                // 如果文件已存在，推送成功消息（防御性，正常情况同步阶段已返回）
                 if (targetFile.exists()) {
                     // 校验 gzip 完整性
                     val (isValid, msg) = verifyGzip(targetFile.absolutePath)
                     if (isValid) {
                         Logger.i(TAG, "Model already exists and valid: ${targetFile.absolutePath}")
-                        // ⚠️ 延迟推送消息，确保 TypeScript 层已设置回调
-                        // 避免 prompt() 还未返回就推送消息导致 TypeScript 层错过
-                        Handler(Looper.getMainLooper()).postDelayed({
-                            val successJson = JSONObject()
-                                .put("type", "katago:downloadComplete")
-                                .put("ok", true)
-                                .put("path", "models/$filename")
-                            pushToTS(successJson.toString())
-                        }, 100)
+                        val successJson = JSONObject()
+                            .put("type", "katago:downloadComplete")
+                            .put("ok", true)
+                            .put("path", "models/$filename")
+                        pushToTS(successJson.toString())
                         return@launch
                     } else {
                         // 文件损坏，删除后重新下载

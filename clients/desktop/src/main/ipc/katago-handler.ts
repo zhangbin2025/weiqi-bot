@@ -128,7 +128,8 @@ export class KatagoHandler {
 
   private handleStatus(): string {
     const running = KatagoHandler.globalProcess?.isRunning === true;
-    return JSON.stringify({ running });
+    const modelPath = KatagoHandler.currentModelPath;
+    return JSON.stringify({ running, modelPath });
   }
 
   // ========== katago:shutdown ==========
@@ -157,7 +158,26 @@ export class KatagoHandler {
       const url = json.url;
       const filename = json.filename;
 
-      // 异步下载，不等待结果
+      // ★ 先检查文件是否已存在且完整 → 同步返回，跳过异步下载流程
+      // 只检查 gzip 魔数（2字节），不做完整 CRC 校验（模型文件几十MB，主线程会卡死）
+      const modelsDir = path.join(app.getPath('userData'), 'web', 'models');
+      const targetFile = path.join(modelsDir, filename);
+      if (fs.existsSync(targetFile)) {
+        try {
+          const fd = fs.openSync(targetFile, 'r');
+          const buf = Buffer.alloc(2);
+          fs.readSync(fd, buf, 0, 2, 0);
+          fs.closeSync(fd);
+          if (buf[0] === 0x1f && buf[1] === 0x8b) {
+            console.log(`[KataGo] Model already exists and valid (gzip magic OK), skipping download: ${targetFile}`);
+            return JSON.stringify({ ok: true, async: false, path: `models/${filename}` });
+          }
+        } catch {
+          // 读取失败，继续走下载流程
+        }
+      }
+
+      // 文件不存在或损坏 → 异步下载
       setImmediate(() => {
         try {
           this.downloadModel(url, filename);
@@ -222,10 +242,9 @@ export class KatagoHandler {
     if (fs.existsSync(targetFile)) {
       if (this.verifyGzip(targetFile)) {
         console.log(`[KataGo] Model already exists and valid: ${targetFile}`);
-        // 延迟推送，确保 TypeScript 层已设置回调（与 Android 对齐）
-        setTimeout(() => {
-          this.pushToTS({ type: 'katago:downloadComplete', ok: true, path: `models/${filename}` });
-        }, 100);
+        // 同步路径已在 handleDownloadModel 中处理，这里不应走到
+        // 但作为防御，仍推送完成消息
+        this.pushToTS({ type: 'katago:downloadComplete', ok: true, path: `models/${filename}` });
         return;
       } else {
         // 文件损坏，删除后重新下载

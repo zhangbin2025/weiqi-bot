@@ -14,6 +14,8 @@ export interface KataGoStartOptions {
 /** 进程状态 */
 export interface KataGoStatus {
   running: boolean;
+  /** 当前加载的模型路径（web 相对路径，如 "models/katago-small.bin.gz"），未运行时为 null */
+  modelPath: string | null;
 }
 
 /** 发送结果 */
@@ -146,13 +148,15 @@ export class KataGoNativeClient {
   }
 
   /**
-   * 查询进程状态
+   * 查询进程状态（包括模型信息）
+   * 
+   * 返回底层真实状态，不依赖 TS 层内存变量（页面刷新后仍可靠）
    */
-  async status(): Promise<boolean> {
+  async status(): Promise<KataGoStatus> {
     const result = prompt('katago:status');
-    if (!result) return false;
+    if (!result) return { running: false, modelPath: null };
     const resp: KataGoStatus = JSON.parse(result);
-    return resp.running;
+    return resp;
   }
 
   /**
@@ -180,6 +184,17 @@ export class KataGoNativeClient {
    */
   isRunning(): boolean {
     return this.running;
+  }
+
+  /**
+   * 标记进程为运行中
+   * 
+   * 用于快速路径：底层进程已在运行，跳过 start() 但需要同步 running 状态
+   * 否则后续 sendQuery() 会因 running=false 而报错
+   */
+  markRunning(): void {
+    this.running = true;
+    console.log('[KataGoNativeClient] Marked as running (fast path)');
   }
 
   /**
