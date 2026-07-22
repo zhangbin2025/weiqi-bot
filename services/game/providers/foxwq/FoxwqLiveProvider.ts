@@ -242,7 +242,7 @@ export class FoxwqLiveProvider extends BaseProvider {
   }
 
   private extractJueyiLiveMoves(data: Uint8Array): Array<{ x: number; y: number; color: 1 | 2 }> {
-    const moves: Array<{ x: number; y: number; color: 1 | 2 }> = [];
+    const rawMoves: Array<{ x: number; y: number; color: 1 | 2 }> = [];
     const mainBranchMarker = [0x10, 0xcb, 0x01];
     let pos = 0;
     while (pos <= data.length - mainBranchMarker.length) {
@@ -263,15 +263,31 @@ export class FoxwqLiveProvider extends BaseProvider {
       const start = found + mainBranchMarker.length;
       const segment = data.slice(start, start + 20);
       if (segment.length < 8) {
-        pos = found + mainBranchMarker.length; // 跳过 marker
+        pos = found + mainBranchMarker.length;
         continue;
       }
       const move = this.parseMovePattern(segment);
-      if (move) moves.push(move);
-      // 跳过整个 segment，避免重复匹配
+      if (move) rawMoves.push(move);
       pos = start + segment.length;
     }
-    return moves;
+
+    // 绝艺直播数据中，mainBranchMarker 既匹配主线着法也匹配 AI 变化图着法。
+    // 主线特征：颜色严格交替（黑-白-黑-白...），变化图则不交替。
+    // 按颜色交替过滤出主线。
+    const mainLine: Array<{ x: number; y: number; color: 1 | 2 }> = [];
+    let expectedColor: 1 | 2 = 1; // 黑先
+    for (const m of rawMoves) {
+      if (m.color === expectedColor) {
+        mainLine.push(m);
+        expectedColor = expectedColor === 1 ? 2 : 1;
+      }
+    }
+
+    if (mainLine.length < rawMoves.length) {
+      console.info(`[FoxwqLiveProvider] 绝艺着法过滤: ${rawMoves.length} -> ${mainLine.length}（去除AI变化图）`);
+    }
+
+    return mainLine;
   }
 
   private parseMovePattern(segment: Uint8Array): { x: number; y: number; color: 1 | 2 } | null {
