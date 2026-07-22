@@ -76,15 +76,13 @@ export class FoxwqLiveProvider extends BaseProvider {
         return this.createErrorResult(url, '未捕获到 WebSocket 数据', timing);
       }
 
-      // 直播 WebSocket 每条消息包含完整棋局状态，拼接会导致着法重复
-      // 只取最后一条消息（最新完整状态）来提取着法
-      const lastMessage = wsMessages[wsMessages.length - 1]!;
-      console.log(`[FoxwqLiveProvider] 捕获到 ${wsMessages.length} 条消息，使用最后一条（${lastMessage.length} 字节）`);
+      const combinedData = this.concatUint8Arrays(wsMessages);
+      console.log(`[FoxwqLiveProvider] 捕获到 ${wsMessages.length} 条消息，总长度 ${combinedData.length} 字节`);
 
       const sgfStart = this.now();
       const sgfContent = isJueyi
-        ? this.parseJueyiLiveSgf(lastMessage)
-        : this.parseNormalLiveSgf(lastMessage);
+        ? this.parseJueyiLiveSgf(combinedData)
+        : this.parseNormalLiveSgf(combinedData);
       timing.sgfGeneration = this.now() - sgfStart;
 
       if (!sgfContent) {
