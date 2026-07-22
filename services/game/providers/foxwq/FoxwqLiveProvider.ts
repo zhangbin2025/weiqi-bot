@@ -24,7 +24,7 @@ export class FoxwqLiveProvider extends BaseProvider {
   }
 
   async fetch(url: string, options?: { timeout?: number }): Promise<FetchResult> {
-    const timeout = options?.timeout ?? 15000;
+    const timeout = options?.timeout ?? 5000;
     const timing: PerformanceTiming = {};
     const startTime = this.now();
 
