@@ -518,8 +518,6 @@ export class ReviewPage implements IPage {
     this.winrateChart?.update(this.winrateTrend, this.totalMoves);
     this.goToMove(this.totalMoves);
     
-    
-    
     // 直播模式：只在首次记录初始手数并启动刷新
     if (this.isLiveMode) {
       this.analyzing = false; // 重置分析状态
@@ -530,7 +528,10 @@ export class ReviewPage implements IPage {
       if (!this.liveInterval) {
         this.startLiveMode();
       }
+      this.ui.updateStatus('直播中 · ' + this.totalMoves + '手');
       console.info('[ReviewPage] 增量分析完成，胜率已更新');
+    } else {
+      this.ui.updateStatus('点击推荐选点查看变化图');
     }
     // 启用所有功能按钮（有棋谱时）
     this.ui.enableAllButtons();
