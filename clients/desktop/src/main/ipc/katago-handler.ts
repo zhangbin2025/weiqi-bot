@@ -255,8 +255,11 @@ export class KatagoHandler {
 
     console.log(`[KataGo] Downloading model: ${url} -> ${filename}`);
 
+    // ★ 原子写入：先下载到临时文件，完成后重命名
+    const tempFile = path.join(modelsDir, `${filename}.tmp`);
+    const file = fs.createWriteStream(tempFile);
+
     const client = url.startsWith('https') ? https : http;
-    const file = fs.createWriteStream(targetFile);
 
     client.get(url, (response) => {
       // 处理重定向（包括 301, 302, 307, 308）
@@ -264,7 +267,7 @@ export class KatagoHandler {
         const redirectUrl = response.headers.location;
         if (redirectUrl) {
           file.close();
-          try { fs.unlinkSync(targetFile); } catch {}
+          try { fs.unlinkSync(tempFile); } catch {}
           const fullUrl = redirectUrl.startsWith('http') ? redirectUrl : new URL(redirectUrl, url).toString();
           console.log(`[KataGo] Redirect ${response.statusCode}: ${url} -> ${fullUrl}`);
           this.downloadModel(fullUrl, filename);
@@ -275,7 +278,7 @@ export class KatagoHandler {
       // 检查状态码
       if (response.statusCode !== 200) {
         file.close();
-        try { fs.unlinkSync(targetFile); } catch {}
+        try { fs.unlinkSync(tempFile); } catch {}
         console.error(`[KataGo] Download failed: HTTP ${response.statusCode}`);
         this.pushToTS({ type: 'katago:downloadComplete', ok: false, error: `HTTP ${response.statusCode}` });
         return;
@@ -307,11 +310,23 @@ export class KatagoHandler {
 
       file.on('finish', () => {
         file.close();
-        console.log(`[KataGo] Model downloaded: ${targetFile}`);
-        this.pushToTS({ type: 'katago:downloadComplete', ok: true, path: `models/${filename}` });
+        
+        // ★ 原子重命名
+        try {
+          if (fs.existsSync(targetFile)) {
+            fs.unlinkSync(targetFile);
+          }
+          fs.renameSync(tempFile, targetFile);
+          console.log(`[KataGo] Model downloaded: ${targetFile}`);
+          this.pushToTS({ type: 'katago:downloadComplete', ok: true, path: `models/${filename}` });
+        } catch (error: any) {
+          console.error('[KataGo] Failed to rename temp file:', error);
+          try { fs.unlinkSync(tempFile); } catch {}
+          this.pushToTS({ type: 'katago:downloadComplete', ok: false, error: `Rename failed: ${error.message}` });
+        }
       });
     }).on('error', (error) => {
-      try { fs.unlinkSync(targetFile); } catch {}
+      try { fs.unlinkSync(tempFile); } catch {}
       console.error('[KataGo] Download failed:', error);
       this.pushToTS({ type: 'katago:downloadComplete', ok: false, error: error.message });
     });

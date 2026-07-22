@@ -626,9 +626,12 @@ class KataGoBridgeHandler(
                 
                 val contentLength = response.body?.contentLength() ?: -1L
                 
+                // ★ 原子写入：先下载到临时文件，完成后重命名
+                val tempFile = File(modelsDir, "$filename.tmp")
+                
                 // 保存文件，同时推送进度
                 response.body?.byteStream()?.use { input ->
-                    targetFile.outputStream().use { output ->
+                    tempFile.outputStream().use { output ->
                         val buffer = ByteArray(8192)
                         var totalRead = 0L
                         var lastNotifyTime = System.currentTimeMillis()
@@ -652,6 +655,23 @@ class KataGoBridgeHandler(
                                 lastNotifyTime = now
                             }
                         }
+                    }
+                }
+                
+                // 下载完成，原子重命名
+                if (tempFile.exists()) {
+                    if (targetFile.exists()) {
+                        targetFile.delete()
+                    }
+                    if (!tempFile.renameTo(targetFile)) {
+                        Logger.e(TAG, "Failed to rename temp file: ${tempFile.absolutePath} -> ${targetFile.absolutePath}")
+                        tempFile.delete()
+                        val errorJson = JSONObject()
+                            .put("type", "katago:downloadComplete")
+                            .put("ok", false)
+                            .put("error", "Failed to rename temp file")
+                        pushToTS(errorJson.toString())
+                        return@launch
                     }
                 }
                 
