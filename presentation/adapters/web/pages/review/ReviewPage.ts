@@ -14,7 +14,8 @@ import type { IPage, PageParams } from '../../../../core/interfaces';
 import type { ReviewApp } from '../../../../../application/review';
 import type { MoveReview } from '../../../../../services/review/types';
 import type { PlayerColor } from '../../../../../domain/primitives';
-import { playerColorToSGFColor } from '../../../../../domain/primitives';
+import { playerColorToSGFColor, sgfColorToPlayerColor } from '../../../../../domain/primitives';
+import { SGFParser } from '../../../../../domain/sgf/SGFParser';
 import { WinrateChart } from './WinrateChart';
 import type { VariationLayer } from './VariationManager';
 import type { RecommendationCircle } from '../../components/BoardRenderer';
@@ -80,6 +81,7 @@ export class ReviewPage implements IPage {
   private previousArchiveId?: string;
   private gameService: IGameService | undefined;
   private lastMovesCount = 0;
+  private sgfParser: SGFParser;
 
   constructor(config: ReviewPageConfig) {
     this.reviewApp = config.reviewApp;
@@ -87,6 +89,8 @@ export class ReviewPage implements IPage {
     this.aiController = config.aiController;
     this.gameService = config.gameService;
     this.onNavigate = config.onNavigate;
+
+    this.sgfParser = new SGFParser();
 
     this.board = new WebBoard();
     this.game = new Game();
@@ -920,44 +924,75 @@ export class ReviewPage implements IPage {
     }
   }
   
-  private parseMovesCount(sgf: string): number {
-    // 简单统计 SGF 中的手数
-    const moves = sgf.match(/[BW]\[[a-z]{0,2}\]/g);
-    return moves ? moves.length : 0;
-  }
   /**
-   * 解析新增着法
+   * 使用 SGFParser 正确解析 SGF，获取着法总数
+   * （避免简单正则误匹配让子棋 AB[xx] 等属性）
+   */
+  private parseMovesCount(sgf: string): number {
+    try {
+      const parsed = this.sgfParser.parse(sgf);
+      return parsed.moves.length;
+    } catch (e) {
+      console.warn('[ReviewPage] SGF解析失败，fallback到正则:', e);
+      const moves = sgf.match(/[BW]\[[a-z]{0,2}\]/g);
+      return moves ? moves.length : 0;
+    }
+  }
+
+  /**
+   * 使用 SGFParser 正确解析 SGF，提取新增着法
+   * （避免简单正则误匹配让子棋 AB[xx] 等属性）
    */
   private parseNewMoves(sgf: string, fromMove: number): Array<{ x: number; y: number; color: PlayerColor }> {
-    const moves: Array<{ x: number; y: number; color: PlayerColor }> = [];
-    const movePattern = /([BW])\[([a-z]{0,2})\]/g;
-    let match;
-    let moveIndex = 0;
-
-    while ((match = movePattern.exec(sgf)) !== null) {
-      const color = match[1] === 'B' ? 'black' : 'white';
-      const pos = match[2];
-
-      if (moveIndex < fromMove) {
-        moveIndex++;
-        continue;
-      }
-
-      if (pos && pos.length === 2) {
-        const x = pos.charCodeAt(0) - 97;
-        const y = pos.charCodeAt(1) - 97;
-        if (x >= 0 && x < 19 && y >= 0 && y < 19) {
-          moves.push({ x, y, color });
+    try {
+      const parsed = this.sgfParser.parse(sgf);
+      const allMoves: Array<{ x: number; y: number; color: PlayerColor }> = parsed.moves.map((m) => {
+        if (!m.coord || m.coord.length < 2) {
+          return { x: -1, y: -1, color: sgfColorToPlayerColor(m.color as 'B' | 'W') };
         }
-      } else if (pos === '' || pos === 'tt') {
-        moves.push({ x: -1, y: -1, color });
+        return {
+          x: m.coord.charCodeAt(0) - 97,
+          y: m.coord.charCodeAt(1) - 97,
+          color: sgfColorToPlayerColor(m.color as 'B' | 'W'),
+        };
+      });
+
+      const newMoves = allMoves.slice(fromMove);
+      console.info('[ReviewPage] 解析新增着法:', newMoves.length, '手（总共', allMoves.length, '手，从第', fromMove + 1, '手开始）');
+      return newMoves;
+    } catch (e) {
+      console.warn('[ReviewPage] SGF解析失败，fallback到正则:', e);
+      // fallback: 使用简单正则（兼容异常 SGF）
+      const moves: Array<{ x: number; y: number; color: PlayerColor }> = [];
+      const movePattern = /([BW])\[([a-z]{0,2})\]/g;
+      let match;
+      let moveIndex = 0;
+
+      while ((match = movePattern.exec(sgf)) !== null) {
+        const color = match[1] === 'B' ? 'black' : 'white';
+        const pos = match[2];
+
+        if (moveIndex < fromMove) {
+          moveIndex++;
+          continue;
+        }
+
+        if (pos && pos.length === 2) {
+          const x = pos.charCodeAt(0) - 97;
+          const y = pos.charCodeAt(1) - 97;
+          if (x >= 0 && x < 19 && y >= 0 && y < 19) {
+            moves.push({ x, y, color });
+          }
+        } else if (pos === '' || pos === 'tt') {
+          moves.push({ x: -1, y: -1, color });
+        }
+
+        moveIndex++;
       }
 
-      moveIndex++;
+      console.info('[ReviewPage] 解析新增着法(fallback):', moves.length, '手');
+      return moves;
     }
-
-    console.info('[ReviewPage] 解析新增着法:', moves.length, '手');
-    return moves;
   }
 
 
