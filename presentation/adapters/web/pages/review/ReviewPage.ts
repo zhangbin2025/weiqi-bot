@@ -193,6 +193,8 @@ export class ReviewPage implements IPage {
       this.isLiveMode = true;
       this.liveUrl = decodeURIComponent(params['url'] as string);
       console.info('[ReviewPage] 进入直播模式', { url: this.liveUrl });
+      // 直播模式：隐藏菜单按钮
+      this.ui.setLiveMode(true);
       this.loadFromLiveUrl();
       return; // 直播模式不走其他参数处理
     }

@@ -311,6 +311,21 @@ export class ReviewUI {
     window.location.href = '../replay/list.html?category=review&key=all';
   }
 
+
+  /**
+   * 设置直播模式
+   * @param isLive 是否为直播模式
+   */
+  setLiveMode(isLive: boolean): void {
+    // 隐藏右上角菜单按钮（三个点）
+    if (this.menuBtnEl) {
+      this.menuBtnEl.style.display = isLive ? 'none' : 'flex';
+    }
+    // 关闭下拉菜单（如果打开的话）
+    if (isLive) {
+      this.closeMenu();
+    }
+  }
   // ========== 配置 ==========
 
   async loadConfig(): Promise<void> {
