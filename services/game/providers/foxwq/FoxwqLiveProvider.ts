@@ -207,7 +207,8 @@ export class FoxwqLiveProvider extends BaseProvider {
     if (moves.length === 0) return null;
     const playerNames = this.extractPlayerNames(data);
     const handicap = this.extractHandicap(data);
-    return this.createSgf(moves, playerNames, handicap);
+    const result = this.extractGameResult(data);
+    return this.createSgf(moves, playerNames, handicap, result);
   }
 
   private parseJueyiLiveSgf(data: Uint8Array): string | null {
@@ -215,7 +216,8 @@ export class FoxwqLiveProvider extends BaseProvider {
     if (moves.length === 0) return null;
     const playerNames = this.extractPlayerNames(data);
     const handicap = this.extractHandicap(data);
-    return this.createSgf(moves, playerNames, handicap);
+    const result = this.extractGameResult(data);
+    return this.createSgf(moves, playerNames, handicap, result);
   }
 
   private extractMovesFromBinary(data: Uint8Array): Array<{ x: number; y: number; color: 1 | 2 }> {
@@ -370,6 +372,52 @@ export class FoxwqLiveProvider extends BaseProvider {
     }
   }
 
+  /**
+   * 从protobuf数据中提取对局结果（opType=403）
+   * 野狐协议：opType=403 表示对局结束，包含 winner/points/reason
+   * protobuf编码：93 03 (varint 403) 1a <len> <result_message>
+   * result_message内部：10 <winner> 18 <points> 20 <reason>
+   */
+  private extractGameResult(data: Uint8Array): string | null {
+    try {
+      // 搜索 opType=403 的 varint 编码 (0x93 0x03)
+      // 后面紧跟 0x1a (field3, length-delimited) 是结果子消息
+      for (let i = 0; i < data.length - 6; i++) {
+        if (data[i] === 0x93 && data[i + 1] === 0x03 && data[i + 2] === 0x1a) {
+          const msgLen = data[i + 3];
+          if (msgLen === undefined || msgLen < 4 || i + 4 + msgLen > data.length) continue;
+          
+          // 解析结果子消息
+          let winner = 0;
+          let points = 0;
+          let reason = 0;
+          const msgStart = i + 4;
+          const msgEnd = msgStart + msgLen;
+          for (let j = msgStart; j < msgEnd - 1; j++) {
+            // field2(varint) = winner: tag=0x10
+            if (data[j] === 0x10) { winner = data[j + 1] || 0; }
+            // field3(varint) = points: tag=0x18
+            if (data[j] === 0x18) { points = data[j + 1] || 0; }
+            // field4(varint) = reason: tag=0x20
+            if (data[j] === 0x20) { reason = data[j + 1] || 0; }
+          }
+          
+          if (winner > 0) {
+            // reason: 1=认输, 2=超时, 3=数子, 等
+            const winnerStr = winner === 1 ? 'B' : 'W';
+            if (reason === 1) return `${winnerStr}+R`; // 认输
+            if (reason === 2) return `${winnerStr}+T`; // 超时
+            if (points > 0) return `${winnerStr}+${points}`; // 有目数差
+            return `${winnerStr}+`; // 其他（未确定目数）
+          }
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   private uint8ArrayToString(bytes: Uint8Array): string {
     const decoder = new TextDecoder('utf-8');
     return decoder.decode(bytes);
@@ -378,12 +426,16 @@ export class FoxwqLiveProvider extends BaseProvider {
   private createSgf(
     moves: Array<{ x: number; y: number; color?: 1 | 2 }>,
     playerNames: [string, string],
-    handicap: number
+    handicap: number,
+    result: string | null = null
   ): string {
     if (moves.length === 0) return '';
     const coordMap = 'abcdefghijklmnopqrs';
     let sgf = '(;GM[1]FF[4]CA[UTF-8]SZ[19]\n';
     sgf += `PB[${playerNames[0]}]PW[${playerNames[1]}]\n`;
+    if (result) {
+      sgf += `RE[${result}]\n`;
+    }
     if (handicap >= 2) {
       sgf += `HA[${handicap}]\n`;
       const handicapCoords = this.getHandicapCoords(handicap);
