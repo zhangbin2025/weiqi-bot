@@ -103,17 +103,6 @@ export class ReviewInteraction {
     this.variationManager?.initializeBaseLayer(moves);
   }
 
-  /** 更新基础棋谱（直播刷新时调用） */
-  updateBaseMoves(newMoves: Array<{ x: number; y: number; color: PlayerColor }>): void {
-    this.baseMoves = newMoves;
-    // 如果在试下模式，先退出
-    if (this.mode !== 'normal' && this.mode !== 'recommendation') {
-      this.returnToNormal();
-    }
-    // 更新 VariationManager 的 base layer
-    this.variationManager?.initializeBaseLayer(newMoves);
-  }
-
   // ========== 状态查询 ==========
 
   getMode(): PageMode { return this.mode; }

@@ -904,9 +904,6 @@ export class ReviewPage implements IPage {
       this.totalMoves = newMovesCount;
       this.lastMovesCount = newMovesCount;
       
-      // 8.1 更新试下模式的基础棋谱（避免试下模式从旧局面开始）
-      this.interaction.updateBaseMoves(this.moves);
-      
       // 9. 分析所有新增着法的胜率
       if (reviewId && newMoves.length > 0) {
         console.info('[ReviewPage] 分析新增着法胜率:', newMoves.length, '手');
