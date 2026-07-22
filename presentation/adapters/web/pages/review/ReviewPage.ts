@@ -82,12 +82,8 @@ export class ReviewPage implements IPage {
   private gameService: IGameService | undefined;
   private lastMovesCount = 0;
   private sgfParser: SGFParser;
-  /** 直播：连续无新着法的刷新次数 */
-  private liveNoNewMovesCount = 0;
   /** 直播：连续刷新失败次数 */
   private liveFetchFailCount = 0;
-  /** 直播：连续无新着法阈值（超过此数认为棋局结束） */
-  private static readonly LIVE_NO_NEW_MOVES_THRESHOLD = 6; // 6次×30秒=3分钟
   /** 直播：连续失败阈值 */
   private static readonly LIVE_FETCH_FAIL_THRESHOLD = 5;
 
@@ -797,7 +793,6 @@ export class ReviewPage implements IPage {
       this.liveInterval = undefined as number | undefined;
     }
     this.isLiveMode = false;
-    this.liveNoNewMovesCount = 0;
     this.liveFetchFailCount = 0;
     console.info('[ReviewPage] 停止直播模式');
   }
@@ -864,35 +859,34 @@ export class ReviewPage implements IPage {
         return;
       }
       
-      // 6. 解析新手数
-      const newMovesCount = this.parseMovesCount(newSgf);
-      console.info('[ReviewPage] 调试:', { newMovesCount, lastMovesCount: this.lastMovesCount, archiveId: result.archiveId, previousArchiveId: this.previousArchiveId, sgfLength: newSgf.length, noNewMovesCount: this.liveNoNewMovesCount });
+      // 6. 解析完整着法列表（用 SGFParser）
+      const allMoves = this.parseAllMoves(newSgf);
+      const newMovesCount = allMoves.length;
+      console.info('[ReviewPage] 调试:', { newMovesCount, lastMovesCount: this.lastMovesCount, archiveId: result.archiveId, previousArchiveId: this.previousArchiveId, sgfLength: newSgf.length });
       
-      if (newMovesCount <= this.lastMovesCount) {
-        // 无新着法，增加计数
-        this.liveNoNewMovesCount++;
-        console.info('[ReviewPage] 无新手数（连续', this.liveNoNewMovesCount, '次）');
-        
-        // 检测棋局结束（方式3：连续无新着法）
-        // 条件：已有足够手数（>20）且连续多次无新着法
-        if (this.liveNoNewMovesCount >= ReviewPage.LIVE_NO_NEW_MOVES_THRESHOLD && this.lastMovesCount > 20) {
-          console.info('[ReviewPage] 连续', this.liveNoNewMovesCount, '次无新着法（共', this.lastMovesCount, '手），判定棋局已结束');
-          this.stopLiveMode();
-          this.ui.updateStatus('直播已结束（' + this.lastMovesCount + '手）');
-        }
-        return;
+      // 7. 检测棋局结束（方式3：末尾双 Pass）
+      // 围棋对局结束的规则标志：双方连续 Pass
+      // 长考不会产生双 Pass，只有对局结束才会
+      if (newMovesCount >= 2 && this.isDoublePassAtEnd(allMoves)) {
+        const resultStr = this.formatGameResult(allMoves);
+        console.info('[ReviewPage] 棋局已结束（末尾双Pass），停止直播');
+        this.stopLiveMode();
+        this.ui.updateStatus('棋局已结束' + (resultStr ? ': ' + resultStr : ''));
+        // 仍需处理新增着法（最后的 Pass 也需要追加）
       }
       
-      // 有新着法，重置计数
-      this.liveNoNewMovesCount = 0;
+      if (newMovesCount <= this.lastMovesCount) {
+        console.info('[ReviewPage] 无新手数，跳过更新');
+        return;
+      }
       
       console.info('[ReviewPage] 检测到新手数:', this.lastMovesCount, '->', newMovesCount);
       
       // 5. 保存旧数据
       const oldTotalMoves = this.totalMoves;
       
-      // 6. 解析新增着法
-      const newMoves = this.parseNewMoves(newSgf, this.lastMovesCount);
+      // 6. 解析新增着法（直接从已解析的 allMoves 中截取）
+      const newMoves = allMoves.slice(this.lastMovesCount);
       console.info('[ReviewPage] 新增着法:', newMoves.length, '手');
       
       // 7. 追加着法到分析引擎
@@ -967,6 +961,58 @@ export class ReviewPage implements IPage {
     }
   }
   
+  /**
+   * 使用 SGFParser 解析 SGF，返回完整着法列表
+   * （与 ReviewService.loadFromSGF 的解析逻辑一致）
+   */
+  private parseAllMoves(sgf: string): Array<{ x: number; y: number; color: PlayerColor }> {
+    try {
+      const parsed = this.sgfParser.parse(sgf);
+      return parsed.moves.map((m) => {
+        if (!m.coord || m.coord.length < 2) {
+          return { x: -1, y: -1, color: sgfColorToPlayerColor(m.color as 'B' | 'W') };
+        }
+        return {
+          x: m.coord.charCodeAt(0) - 97,
+          y: m.coord.charCodeAt(1) - 97,
+          color: sgfColorToPlayerColor(m.color as 'B' | 'W'),
+        };
+      });
+    } catch (e) {
+      console.warn('[ReviewPage] SGF解析失败:', e);
+      return [];
+    }
+  }
+
+  /**
+   * 检测着法列表末尾是否有双 Pass（对局结束标志）
+   * 围棋规则：双方连续 Pass 表示对局结束，进入数子阶段
+   */
+  private isDoublePassAtEnd(moves: Array<{ x: number; y: number; color: PlayerColor }>): boolean {
+    const len = moves.length;
+    if (len < 2) return false;
+    const last = moves[len - 1]!;
+    const secondLast = moves[len - 2]!;
+    // Pass 着法: x < 0 || y < 0
+    const lastIsPass = last.x < 0 || last.y < 0;
+    const secondLastIsPass = secondLast.x < 0 || secondLast.y < 0;
+    // 双 Pass 且颜色不同（一黑一白）
+    return lastIsPass && secondLastIsPass && last.color !== secondLast.color;
+  }
+
+  /**
+   * 从着法列表格式化对局结果描述
+   */
+  private formatGameResult(moves: Array<{ x: number; y: number; color: PlayerColor }>): string {
+    // 去掉末尾的 Pass，统计有效手数
+    let effectiveMoves = moves.length;
+    // 末尾双 Pass 不算有效手数
+    if (moves.length >= 2 && this.isDoublePassAtEnd(moves)) {
+      effectiveMoves -= 2;
+    }
+    return effectiveMoves + '手';
+  }
+
   /**
    * 使用 SGFParser 正确解析 SGF，获取着法总数
    * （避免简单正则误匹配让子棋 AB[xx] 等属性）
