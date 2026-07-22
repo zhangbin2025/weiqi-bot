@@ -969,16 +969,19 @@ export class ReviewPage implements IPage {
       // 9. 更新归档ID
       this.previousArchiveId = result.archiveId;
       
-      // 10. 保存新的复盘数据
+      // 10. 更新 ReviewAnalysis 的 currentArchiveId
+      this.analysis.setCurrentArchiveId(result.archiveId);
+      
+      // 11. 保存新的复盘数据
       await this.analysis.saveReviewData();
       console.info('[ReviewPage] 已保存新复盘数据:', result.archiveId);
       
-      // 11. 更新缓存
+      // 12. 更新缓存
       if (this.liveUrl) {
         saveLiveArchiveId(this.liveUrl, result.archiveId);
       }
       
-      // 12. 更新视图
+      // 13. 更新视图
       const currentMode = this.interaction.getMode();
       if (currentMode === 'normal') {
         // 如果用户在最新一手或接近最新，自动跳到新手数

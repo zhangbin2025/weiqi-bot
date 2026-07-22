@@ -85,6 +85,11 @@ export class ReviewAnalysis {
   /** 获取 currentArchiveId */
   getCurrentArchiveId(): string | null { return this.currentArchiveId; }
 
+  /** 更新当前归档 ID（用于直播刷新） */
+  setCurrentArchiveId(archiveId: string): void {
+    this.currentArchiveId = archiveId;
+  }
+
   /** 是否正在分析 */
   isAnalyzing(): boolean { return this.analyzing; }
 
