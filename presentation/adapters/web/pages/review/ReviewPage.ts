@@ -1010,13 +1010,13 @@ export class ReviewPage implements IPage {
       
     } catch (error) {
       console.error('[ReviewPage] 直播刷新异常', error);
-    }
-
-    // 设置下一次刷新（30秒后）
-    if (this.isLiveMode) {
-      this.liveInterval = window.setTimeout(() => {
-        this.refreshLiveGame();
-      }, 30000);
+    } finally {
+      // 确保每次都设置下一次刷新（即使中途 return）
+      if (this.isLiveMode) {
+        this.liveInterval = window.setTimeout(() => {
+          this.refreshLiveGame();
+        }, 30000);
+      }
     }
   }
   
