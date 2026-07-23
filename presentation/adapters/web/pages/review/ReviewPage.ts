@@ -993,8 +993,8 @@ export class ReviewPage implements IPage {
       // 13. 更新视图
       const currentMode = this.interaction.getMode();
       if (currentMode === 'normal') {
-        // 如果用户在最新一手或接近最新，自动跳到新手数
-        if (this.currentMove === oldTotalMoves - 1 || this.currentMove >= oldTotalMoves - 5) {
+        // 如果用户在最后一手，自动跳到新手数
+        if (this.currentMove === oldTotalMoves - 1) {
           this.goToMove(newMovesCount);
         }
         
