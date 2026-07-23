@@ -97,7 +97,7 @@ export class ReviewAnalysis {
   setConfigVisits(visits: number): void { this.configVisits = visits; }
 
   /** 从归档 ID 加载棋谱并分析 */
-  async loadFromArchiveId(archiveId: string, taskId?: string, baseMoves?: Array<{ x: number; y: number; color: PlayerColor }>): Promise<void> {
+  async loadFromArchiveId(archiveId: string, taskId?: string, baseMoves?: Array<{ x: number; y: number; color: PlayerColor }>): Promise<boolean> {
     console.log('[ReviewAnalysis.loadFromArchiveId] 开始加载:', { archiveId, taskId });
     
     // 确保模型已加载（与 loadAndAnalyze 保持一致）
@@ -105,7 +105,7 @@ export class ReviewAnalysis {
     
     if (!this.gameService) {
       console.error('[ReviewAnalysis.loadFromArchiveId] GameService 未提供');
-      return;
+      return false;
     }
     try {
       const sgf = await this.gameService.getByArchiveId(archiveId);
@@ -122,15 +122,17 @@ export class ReviewAnalysis {
           const message = `已恢复保存的复盘数据\n\n[查看复盘结果](${reviewLink})`;
           TaskHelper.notifyComplete(taskId, '复盘完成', message, detailUrl);
         }
-        return;
+        return true;
       }
       await this.startAnalysis('deep', taskId, baseMoves);
+      return true;
     } catch (error) {
       console.error('从归档加载棋谱失败', error as Error | undefined);
       this.callbacks.onStatusUpdate('加载失败');
       if (taskId) {
         TaskHelper.notifyFail(taskId, error instanceof Error ? error.message : '加载失败');
       }
+      return false;
     }
   }
 
@@ -428,6 +430,7 @@ export class ReviewAnalysis {
       if (taskId) {
         TaskHelper.notifyFail(taskId, error instanceof Error ? error.message : '分析失败');
       }
+      throw error; // 重新抛出异常，让调用方知道分析失败
     } finally {
       this.analyzing = false;
       this.callbacks.onProgress(false);

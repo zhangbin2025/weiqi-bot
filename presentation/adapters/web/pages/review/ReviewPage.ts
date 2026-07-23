@@ -249,10 +249,12 @@ export class ReviewPage implements IPage {
       console.info('[ReviewPage] 直播棋谱抓取成功:', result.archiveId);
       
       // 加载并分析棋谱
-      await this.loadFromArchiveId(result.archiveId);
+      const success = await this.loadFromArchiveId(result.archiveId);
       
-      // 保存缓存
-      saveLiveArchiveId(this.liveUrl, result.archiveId);
+      // 分析成功才保存缓存
+      if (success) {
+        saveLiveArchiveId(this.liveUrl, result.archiveId);
+      }
     } catch (error) {
       console.error('[ReviewPage] 直播棋谱加载异常', error);
       this.ui.updateStatus('直播棋谱加载异常');
@@ -261,8 +263,8 @@ export class ReviewPage implements IPage {
 
   // ========== 公开接口 ==========
 
-  async loadFromArchiveId(archiveId: string, taskId?: string): Promise<void> {
-    await this.analysis.loadFromArchiveId(archiveId, taskId, this.moves);
+  async loadFromArchiveId(archiveId: string, taskId?: string): Promise<boolean> {
+    return await this.analysis.loadFromArchiveId(archiveId, taskId, this.moves);
   }
 
   async viewFavorite(archiveId: string): Promise<void> {
