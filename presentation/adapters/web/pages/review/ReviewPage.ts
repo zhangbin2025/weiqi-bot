@@ -817,15 +817,11 @@ export class ReviewPage implements IPage {
     // 立即刷新一次
     this.refreshLiveGame();
     
-    // 启动定时器
-    this.liveInterval = window.setInterval(() => {
-      this.refreshLiveGame();
-    }, 30000);
   }
 
   private stopLiveMode(): void {
     if (this.liveInterval) {
-      clearInterval(this.liveInterval);
+      clearTimeout(this.liveInterval);
       this.liveInterval = undefined as number | undefined;
     }
     this.isLiveMode = false;
@@ -1014,6 +1010,13 @@ export class ReviewPage implements IPage {
       
     } catch (error) {
       console.error('[ReviewPage] 直播刷新异常', error);
+    }
+
+    // 设置下一次刷新（30秒后）
+    if (this.isLiveMode) {
+      this.liveInterval = window.setTimeout(() => {
+        this.refreshLiveGame();
+      }, 30000);
     }
   }
   
