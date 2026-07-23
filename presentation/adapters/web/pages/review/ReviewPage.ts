@@ -508,7 +508,14 @@ export class ReviewPage implements IPage {
         break;
       case 'normal':
         this.currentCandidates = [];
-        this.goToMove(this.totalMoves);
+        // 恢复到当前显示的步数（退出推荐模式时）
+        const displayedMoveCount = this.interaction.getCurrentMoves().length;
+        if (displayedMoveCount !== this.currentMove) {
+          this.currentMove = displayedMoveCount;
+          this.ui.updateDisplay(this.currentMove, this.totalMoves);
+          this.ui.setSliderValue(this.currentMove);
+          this.winrateChart?.update(this.winrateTrend, this.currentMove);
+        }
         this.ui.updateStatus(this.isLiveMode ? '直播中' : this.currentModelName);
         break;
     }
