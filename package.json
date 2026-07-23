@@ -2,7 +2,7 @@
   "name": "weiqi-bot",
   "version": "0.2.0",
   "type": "module",
-  "description": "围棋AI助手 - AI-powered Go game assistant",
+  "description": "\u56f4\u68cbAI\u52a9\u624b - AI-powered Go game assistant",
   "scripts": {
     "build": "tsc",
     "build:watch": "tsc --watch",
@@ -17,7 +17,7 @@
     "dev": "vite",
     "dev:build": "vite build && node scripts/build-assets.mjs && find dist-web -name '*.map' -type f -delete",
     "build:web": "vite build && node scripts/build-assets.mjs",
-    "build:app": "bash scripts/build-android.sh",
+    "build:app": "cd clients/app/android && ANDROID_HOME=~/android-sdk ./gradlew assembleDebug",
     "help": "node scripts/help.mjs",
     "generate:joseki": "node scripts/generate-joseki-tree.mjs",
     "dev:desktop": "cd clients/desktop && npm run dev",
