@@ -246,51 +246,71 @@ export class FoxwqLiveProvider extends BaseProvider {
   }
 
   private extractJueyiLiveMoves(data: Uint8Array): Array<{ x: number; y: number; color: 1 | 2 }> {
+    const MAIN_BRANCH_START = [0x10, 0xd5, 0x01];  // field2=213，实战主分支开始标记
+    const MOVE_MARKER = [0x10, 0xcb, 0x01];        // field2=203，着法消息标记
+    
+    // 步骤1：查找 field2=213 标记（实战主分支开始）
+    let branchStartPos = -1;
+    for (let i = 0; i <= data.length - 3; i++) {
+      if (data[i] === MAIN_BRANCH_START[0] &&
+          data[i+1] === MAIN_BRANCH_START[1] &&
+          data[i+2] === MAIN_BRANCH_START[2]) {
+        branchStartPos = i;
+        console.info('[FoxwqLiveProvider] 找到实战主分支开始标记 field2=213，位置: 0x' + i.toString(16));
+        break;
+      }
+    }
+    
+    // 步骤2：确定搜索起始位置
+    const searchStart = branchStartPos >= 0 ? branchStartPos + 3 : 0;
+    
+    if (branchStartPos >= 0) {
+      console.info('[FoxwqLiveProvider] 从 field2=213 后开始提取着法（有AI推荐）');
+    } else {
+      console.info('[FoxwqLiveProvider] 从头开始提取着法（无AI推荐）');
+    }
+    
+    // 步骤3：从起始位置提取所有着法
     const rawMoves: Array<{ x: number; y: number; color: 1 | 2 }> = [];
-    const mainBranchMarker = [0x10, 0xcb, 0x01];
-    let pos = 0;
-    while (pos <= data.length - mainBranchMarker.length) {
-      // 搜索下一个 mainBranchMarker
+    let pos = searchStart;
+    
+    while (pos <= data.length - 3) {
+      // 查找下一个着法标记 (field2=203)
       let found = -1;
-      for (let i = pos; i <= data.length - mainBranchMarker.length; i++) {
-        if (
-          data[i] === mainBranchMarker[0] &&
-          data[i + 1] === mainBranchMarker[1] &&
-          data[i + 2] === mainBranchMarker[2]
-        ) {
+      for (let i = pos; i <= data.length - 3; i++) {
+        if (data[i] === MOVE_MARKER[0] &&
+            data[i+1] === MOVE_MARKER[1] &&
+            data[i+2] === MOVE_MARKER[2]) {
           found = i;
           break;
         }
       }
+      
       if (found < 0) break;
-
-      const start = found + mainBranchMarker.length;
-      const segment = data.slice(start, start + 20);
-      if (segment.length < 8) {
-        pos = found + mainBranchMarker.length;
-        continue;
-      }
+      
+      // 解析着法数据
+      const segment = data.slice(found + 3, found + 23);
       const move = this.parseMovePattern(segment);
       if (move) rawMoves.push(move);
-      pos = start + segment.length;
+      
+      pos = found + 3;
     }
-
-    // 绝艺直播数据中，mainBranchMarker 既匹配主线着法也匹配 AI 变化图着法。
-    // 主线特征：颜色严格交替（黑-白-黑-白...），变化图则不交替。
-    // 按颜色交替过滤出主线。
+    
+    // 步骤4：颜色交替过滤得到主分支
     const mainLine: Array<{ x: number; y: number; color: 1 | 2 }> = [];
     let expectedColor: 1 | 2 = 1; // 黑先
+    
     for (const m of rawMoves) {
       if (m.color === expectedColor) {
         mainLine.push(m);
         expectedColor = expectedColor === 1 ? 2 : 1;
       }
     }
-
-    if (mainLine.length < rawMoves.length) {
+    
+    if (rawMoves.length > 0 && mainLine.length < rawMoves.length) {
       console.info(`[FoxwqLiveProvider] 绝艺着法过滤: ${rawMoves.length} -> ${mainLine.length}（去除AI变化图）`);
     }
-
+    
     return mainLine;
   }
 
