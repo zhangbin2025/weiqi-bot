@@ -10,6 +10,24 @@ import { AssetServer } from './server/asset-server';
 import { BridgeRouter } from './ipc/bridge-router';
 import { AppConfig } from './config';
 
+// 单实例锁：防止多个实例同时运行
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  // 已有实例在运行，退出当前实例
+  console.log('[Main] Another instance is already running, quitting...');
+  app.quit();
+  process.exit(0); // 立即退出，避免后续代码执行
+}
+
+// 当第二个实例启动时，聚焦第一个实例的窗口
+app.on('second-instance', () => {
+  console.log('[Main] Second instance detected, focusing main window');
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+});
+
 let mainWindow: BrowserWindow | null = null;
 let assetServer: AssetServer | null = null;
 let bridgeRouter: BridgeRouter | null = null;
@@ -106,6 +124,48 @@ function createWindow() {
     }
   });
 
+  // 页面加载状态指示器（在窗口内容区域上方显示）
+  let isLoading = false;
+  let loadingTimeout: NodeJS.Timeout | null = null;
+
+  // 显示加载指示器（延迟 500ms，避免快速加载时闪烁）
+  const showLoadingIndicator = () => {
+    if (loadingTimeout) clearTimeout(loadingTimeout);
+    loadingTimeout = setTimeout(() => {
+      if (isLoading) {
+        pushTitle(50, '加载中...');
+      }
+    }, 500);
+  };
+
+  // 隐藏加载指示器
+  const hideLoadingIndicator = () => {
+    if (loadingTimeout) {
+      clearTimeout(loadingTimeout);
+      loadingTimeout = null;
+    }
+    popTitle(); // 移除加载中的消息
+  };
+
+  // 监听页面加载事件
+  mainWindow.webContents.on('did-start-loading', () => {
+    isLoading = true;
+    showLoadingIndicator();
+    console.log('[Main] Page started loading');
+  });
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    isLoading = false;
+    hideLoadingIndicator();
+    console.log('[Main] Page finished loading');
+  });
+
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDesc) => {
+    isLoading = false;
+    hideLoadingIndicator();
+    console.error('[Main] Page load failed:', errorCode, errorDesc);
+  });
+
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
   });
@@ -179,6 +239,79 @@ function setupIPC() {
   });
 }
 
+
+// 标题管理器（优先级：启动 > 页面加载 > 按需下载）
+let currentTitle = '围棋助手';
+let titleStack: { priority: number; message: string }[] = [];
+
+function updateTitle() {
+  if (titleStack.length === 0) {
+    mainWindow?.setTitle('围棋助手');
+  } else {
+    // 取最高优先级的消息
+    const top = titleStack.sort((a, b) => b.priority - a.priority)[0];
+    mainWindow?.setTitle(`围棋助手 - ${top.message}`);
+  }
+}
+
+function pushTitle(priority: number, message: string) {
+  titleStack.push({ priority, message });
+  updateTitle();
+}
+
+function popTitle() {
+  titleStack.pop();
+  updateTitle();
+}
+
+// 格式化文件大小（对齐 Android UIHelper.formatSize）
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024.0;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  const mb = kb / 1024.0;
+  if (mb < 1024) return `${mb.toFixed(1)} MB`;
+  const gb = mb / 1024.0;
+  return `${gb.toFixed(1)} GB`;
+}
+
+// 下载提示状态
+let downloadStartTime = 0;
+let isDownloadHintShown = false;
+
+// 显示下载提示（防抖，下载超过 1 秒才显示）
+let downloadTitleId: string | null = null;
+
+function showDownloadHint(message: string) {
+  // 记录开始时间
+  if (!isDownloadHintShown) {
+    downloadStartTime = Date.now();
+    isDownloadHintShown = true;
+  }
+  
+  // 延迟显示（避免快速下载时闪烁）
+  const elapsed = Date.now() - downloadStartTime;
+  if (elapsed >= 1000 && !downloadTitleId) {
+    downloadTitleId = 'download';
+    pushTitle(30, message);
+  } else if (downloadTitleId) {
+    // 更新消息（保持优先级）
+    titleStack = titleStack.filter(t => t.priority !== 30);
+    pushTitle(30, message);
+  }
+}
+
+// 隐藏下载提示
+function hideDownloadHint() {
+  if (downloadTitleId) {
+    titleStack = titleStack.filter(t => t.priority !== 30);
+    updateTitle();
+    downloadTitleId = null;
+  }
+  isDownloadHintShown = false;
+  downloadStartTime = 0;
+}
+
 app.whenReady().then(async () => {
   try {
     // Windows 通知显示的应用名，默认是 "electron app Weiqi"
@@ -187,23 +320,45 @@ app.whenReady().then(async () => {
     // 1. 创建 AssetServer
     const assetServer = new AssetServer();
     
-    // 2. 检查版本并预下载核心资源（对齐 Android）
+    // 2. 创建窗口（提前创建，用于显示进度）
+    createWindow();
+    
+    // 3. 检查版本并预下载核心资源（显示进度）
     console.log('[Main] Checking version and preloading core assets...');
     await assetServer.checkAndUpdateVersion((stage, progress) => {
       console.log(`[Main] ${stage}: ${progress}%`);
+      pushTitle(100, `${stage} (${progress}%)`);
     });
     
-    // 3. 启动服务器
+    // 4. 启动服务器
     await assetServer.start();
     
     // 保存引用以便关闭
     (global as any).assetServer = assetServer;
 
-    // 4. 创建窗口
-    createWindow();
-
     // 5. 设置 IPC 桥接
     setupIPC();
+
+    // 6. 设置按需下载回调（对齐 Android）
+    assetServer.onDemandCallback = {
+      onDownloadStart: (filename: string, sizeBytes: number) => {
+        const sizeHint = sizeBytes > 0 ? ` (${formatSize(sizeBytes)})` : '';
+        showDownloadHint(`下载中: ${filename}${sizeHint}`);
+      },
+      onDownloadProgress: (filename: string, loaded: number, total: number) => {
+        const progress = total > 0 ? Math.round((loaded / total) * 100) : -1;
+        const loadedText = formatSize(loaded);
+        const totalText = total > 0 ? formatSize(total) : '';
+        
+        const message = progress >= 0
+          ? `下载 ${filename}: ${loadedText} / ${totalText} (${progress}%)`
+          : `下载 ${filename}: ${loadedText}`;
+        showDownloadHint(message);
+      },
+      onDownloadComplete: (filename: string) => {
+        hideDownloadHint();
+      }
+    };
 
     console.log('[Main] App ready');
   } catch (error) {

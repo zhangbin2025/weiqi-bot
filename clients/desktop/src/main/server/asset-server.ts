@@ -46,6 +46,13 @@ export class AssetServer {
   private remoteBase: string;
   private versionManager: VersionManager;
 
+  // 按需下载回调
+  onDemandCallback: {
+    onDownloadStart: (filename: string, sizeBytes: number) => void;
+    onDownloadProgress: (filename: string, loaded: number, total: number) => void;
+    onDownloadComplete: (filename: string) => void;
+  } | null = null;
+
   constructor() {
     this.cacheDir = path.join(app.getPath('userData'), 'web');
     this.remoteBase = AppConfig.remoteBase;
@@ -186,13 +193,20 @@ export class AssetServer {
   private downloadAndServe(filePath: string, res: http.ServerResponse): void {
     const remoteUrl = `${this.remoteBase}/${filePath}`;
     const cachedFile = path.join(this.cacheDir, filePath);
+    
+    const filename = path.basename(filePath);
+    this.onDemandCallback?.onDownloadStart(filename, -1);
 
-    this.downloadFile(remoteUrl, cachedFile)
+    this.downloadFileWithProgress(remoteUrl, cachedFile, (loaded, total) => {
+      this.onDemandCallback?.onDownloadProgress(filename, loaded, total);
+    })
       .then(() => {
+        this.onDemandCallback?.onDownloadComplete(filename);
         this.serveFile(cachedFile, res);
       })
       .catch((err) => {
         console.error(`[AssetServer] Download failed:`, err);
+        this.onDemandCallback?.onDownloadComplete(filename);
         // 检查响应是否已经发送
         if (!res.headersSent) {
           res.writeHead(404, { 'Content-Type': 'text/plain' });
@@ -206,6 +220,72 @@ export class AssetServer {
   /**
    * 下载文件（对齐 Android FileServer.downloadFile）
    */
+  /**
+   * 带进度的下载文件（对齐 Android FileServer.downloadFile）
+   */
+  private async downloadFileWithProgress(
+    url: string, 
+    destFile: string, 
+    progressCallback?: (loaded: number, total: number) => void
+  ): Promise<void> {
+    const parentDir = path.dirname(destFile);
+    if (!fs.existsSync(parentDir)) {
+      fs.mkdirSync(parentDir, { recursive: true });
+    }
+
+    return new Promise((resolve, reject) => {
+      const client = url.startsWith('https') ? https : http;
+      const tempFile = destFile + '.tmp';
+      const file = fs.createWriteStream(tempFile);
+      let loadedBytes = 0;
+      let totalBytes = 0;
+
+      client.get(url, { headers: { 'Accept-Encoding': 'identity' } }, (response) => {
+        // 处理重定向
+        if (response.statusCode === 301 || response.statusCode === 302 || response.statusCode === 307 || response.statusCode === 308) {
+          const location = response.headers.location;
+          if (location) {
+            file.close();
+            fs.unlinkSync(tempFile);
+            const fullUrl = location.startsWith('http') ? location : new URL(location, url).toString();
+            this.downloadFileWithProgress(fullUrl, destFile, progressCallback).then(resolve).catch(reject);
+            return;
+          }
+        }
+
+        if (response.statusCode !== 200) {
+          file.close();
+          fs.unlinkSync(tempFile);
+          reject(new Error());
+          return;
+        }
+
+        // 获取文件总大小
+        totalBytes = parseInt(response.headers['content-length'] || '0', 10);
+
+        response.on('data', (chunk: Buffer) => {
+          loadedBytes += chunk.length;
+          if (progressCallback && totalBytes > 0) {
+            progressCallback(loadedBytes, totalBytes);
+          }
+        });
+
+        response.pipe(file);
+
+        file.on('finish', () => {
+          file.close();
+          fs.renameSync(tempFile, destFile);
+          console.log();
+          resolve();
+        });
+      }).on('error', (err) => {
+        file.close();
+        try { fs.unlinkSync(tempFile); } catch {}
+        reject(err);
+      });
+    });
+  }
+
   private async downloadFile(url: string, destFile: string): Promise<void> {
     const parentDir = path.dirname(destFile);
     if (!fs.existsSync(parentDir)) {
