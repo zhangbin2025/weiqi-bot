@@ -212,6 +212,10 @@ export class YikeProvider extends BaseProvider implements IYikeProvider {
       // 使用第一个 SGF
       const sgfData = sgfCandidates[0]!;
 
+      // 判断对局是否结束（有结果字段）
+      const gameResult = String(gameInfo['result'] || '');
+      const isEnded = gameResult.length > 0;
+
       timing.total = this.now() - startTime;
 
       return {
@@ -234,6 +238,8 @@ export class YikeProvider extends BaseProvider implements IYikeProvider {
           date: String(gameInfo['date'] || ''),
           result: String(gameInfo['result'] || ''),
           movesCount: Number(gameInfo['movesCount']) || 0,
+          isLive: true, // 标记为直播棋谱
+          isEnded, // 标记对局是否结束
         },
         timing,
       };
