@@ -325,6 +325,19 @@ export class ReviewUI {
     if (isLive) {
       this.closeMenu();
     }
+    
+    // 动态修改 AI 推荐按钮文字
+    const aiRecommendBtn = document.getElementById('aiRecommendBtn');
+    if (aiRecommendBtn) {
+      aiRecommendBtn.textContent = isLive ? '研究' : 'AI';
+      aiRecommendBtn.title = isLive ? '研究' : 'AI推荐';
+    }
+    
+    const aiBtn = document.getElementById('aiBtn');
+    if (aiBtn) {
+      aiBtn.textContent = isLive ? '研究' : 'AI';
+      aiBtn.title = isLive ? '研究' : 'AI推荐';
+    }
   }
   // ========== 配置 ==========
 

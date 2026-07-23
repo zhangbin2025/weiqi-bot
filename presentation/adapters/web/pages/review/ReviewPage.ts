@@ -319,9 +319,11 @@ export class ReviewPage implements IPage {
   async analyzeCurrentPosition(): Promise<void> {
     if (!this.analysis.getReviewId() || this.analyzing) return;
     
-    // 直播模式不支持 AI 推荐（只读模式）
+    // 直播模式：跳转到上一次归档复盘页面
     if (this.isLiveMode) {
-      this.ui.updateStatus('直播模式仅支持浏览，不支持 AI 分析');
+      if (this.previousArchiveId) {
+        window.location.href = `/review/index.html?view=favorite&key=${this.previousArchiveId}`;
+      }
       return;
     }
     
