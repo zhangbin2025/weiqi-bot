@@ -841,6 +841,8 @@ export class ReviewPage implements IPage {
     }
     
     try {
+      // 更新标题栏为直播中
+      this.ui.updateStatus('直播中');
       // 1. 先删除旧归档和旧复盘条目，强制重新抓取（避免缓存）
       if (this.previousArchiveId && this.gameService) {
         try {
