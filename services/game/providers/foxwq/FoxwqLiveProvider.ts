@@ -91,6 +91,8 @@ export class FoxwqLiveProvider extends BaseProvider {
 
       const metadata = this.parseSgfMetadata(sgfContent);
       metadata.source = this.name;
+      metadata.isLive = true; // 标记为直播棋谱
+      metadata.isEnded = !!metadata.result; // 有结果表示对局已结束
       timing.total = this.now() - startTime;
 
       return { success: true, source: this.name, url, sgfContent, metadata, timing };
