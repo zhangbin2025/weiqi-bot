@@ -321,11 +321,9 @@ export class ReviewPage implements IPage {
   async analyzeCurrentPosition(): Promise<void> {
     if (!this.analysis.getReviewId() || this.analyzing) return;
     
-    // 直播模式：跳转到上一次归档复盘页面
-    if (this.isLiveMode) {
-      if (this.previousArchiveId) {
-        window.location.href = `/review/index.html?view=favorite&key=${this.previousArchiveId}`;
-      }
+    // 直播模式（包括结束后）：跳转到复盘条目
+    if (this.previousArchiveId) {
+      window.location.href = `/review/index.html?view=favorite&key=${this.previousArchiveId}`;
       return;
     }
     
