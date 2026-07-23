@@ -35,14 +35,24 @@ describe('YikeProvider', () => {
     });
 
     it('应检测支持的 URL', () => {
+      // room 类型
       expect(provider.canHandle('https://home.yikeweiqi.com/mobile.html#/golive/room/12345')).toBe(true);
       expect(provider.canHandle('https://yikeweiqi.com/room/67890')).toBe(true);
+      
+      // online-game 类型（新增）
+      expect(provider.canHandle('https://home.yikeweiqi.com/mobile.html#/online-game/72910281')).toBe(true);
+      
+      // 不支持的 URL
       expect(provider.canHandle('https://online-go.com/game/12345')).toBe(false);
     });
 
-    it('应从 URL 提取房间 ID', () => {
+    it('应从 URL 提取 ID', () => {
+      // room 类型
       expect(provider.extractId('https://home.yikeweiqi.com/mobile.html#/golive/room/12345')).toBe('12345');
       expect(provider.extractId('https://yikeweiqi.com/room/67890')).toBe('67890');
+      
+      // online-game 类型（新增）
+      expect(provider.extractId('https://home.yikeweiqi.com/mobile.html#/online-game/72910281')).toBe('72910281');
     });
   });
 

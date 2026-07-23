@@ -28,6 +28,10 @@ export interface FetcherResult {
     result?: string;
     date: string;
     movesCount: number;
+    /** 是否为直播棋谱 */
+    isLive?: boolean;
+    /** 对局是否已结束 */
+    isEnded?: boolean;
   };
   /** 是否来自缓存 */
   fromCache: boolean;
@@ -45,6 +49,10 @@ export interface FetcherBookmark {
   result?: string;
   date: string;
   movesCount: number;
+    /** 是否为直播棋谱 */
+    isLive?: boolean;
+    /** 对局是否已结束 */
+    isEnded?: boolean;
   updatedAt: number;
 }
 /** 分享结果 */

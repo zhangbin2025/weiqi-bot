@@ -14,6 +14,7 @@ import { OgsProvider } from './providers/ogs';
 import { Weiqi101Provider } from './providers/weiqi101';
 import { TxwqProvider } from './providers/txwq';
 import { YikeProvider } from './providers/yike';
+import { YikeOnlineGameProvider } from './providers/yike';
 import { Weiqi1919Provider } from './providers/weiqi1919';
 import { IzisProvider, IzisArchiveProvider } from './providers/izis';
 import { XinboduiyiProvider } from './providers/xinboduiyi';
@@ -48,7 +49,7 @@ export class GameProviderRegistry {
     // Archive Provider
     this.providers.set('archive', new ArchiveProvider());
 
-    // REST API Providers
+    // REST API Providers（无需 Sniffer，所有环境支持）
     const restProviders = [
       new OgsProvider(network),
       new Weiqi101Provider(network),
@@ -62,7 +63,7 @@ export class GameProviderRegistry {
     // 必须在 izis (直播) 之前注册，确保 /game_xxx.html 优先匹配到非直播提供者
     this.providers.set('izis-archive', new IzisArchiveProvider(network));
 
-    // Sniffer Providers (如果可用)
+    // Sniffer Providers (如果可用，仅用于直播类 URL)
     if (snifferProvider) {
       this.registerSnifferProviders(network, snifferProvider);
     }
@@ -71,7 +72,8 @@ export class GameProviderRegistry {
   private registerSnifferProviders(network: NetworkManager, snifferProvider: ISnifferProvider): void {
     const snifferProviders = [
       new TxwqProvider(network, snifferProvider),
-      new YikeProvider(network, snifferProvider),
+      new YikeProvider(network, snifferProvider), // 弈客直播 room
+      new YikeOnlineGameProvider(network, snifferProvider), // 弈客 online-game（新增）
       new Weiqi1919Provider(network, snifferProvider),
       new IzisProvider(network, snifferProvider),
       new XinboduiyiProvider(network, snifferProvider),

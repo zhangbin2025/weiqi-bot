@@ -1,11 +1,12 @@
 /**
  * Sniffer Preload 脚本
  *
- * 在隐藏窗口中注入 WebSocket 拦截器
- * 对齐 Android WebExtension 的 ws-sniffer
+ * 在隐藏窗口中注入 WebSocket 和 HTTP 拦截器
+ * 对齐 Android WebExtension 的 ws-sniffer 实现
  *
- * 原理：替换 window.WebSocket 构造函数，捕获所有 WS 事件
- * 通过 IPC 发送到主进程，由 SnifferSession 处理
+ * 功能：
+ * 1. WebSocket 拦截（原有功能）
+ * 2. HTTP 拦截（新增：fetch 和 XMLHttpRequest）
  *
  * 注意：contextIsolation 必须为 false 才能修改页面上下文
  */
@@ -13,13 +14,12 @@
 // @ts-nocheck
 const { ipcRenderer } = require('electron');
 
-
 // 通知函数：发送事件到主进程
 function notify(event) {
   try {
     ipcRenderer.send('sniffer-ws-event', JSON.stringify(event));
   } catch (e) {
-    console.error('[WS-Intercept] IPC send failed:', e);
+    console.error('[Sniffer] IPC send failed:', e);
   }
 }
 
@@ -37,7 +37,7 @@ function binaryToBase64(data) {
     }
     // Blob
     else if (data instanceof Blob) {
-      console.warn('[WS-Intercept] Blob data detected, need async conversion');
+      console.warn('[Sniffer] Blob data detected, need async conversion');
       return '[blob]';
     }
     // Uint8Array 或其他 TypedArray
@@ -46,7 +46,7 @@ function binaryToBase64(data) {
     }
     // 其他情况
     else {
-      console.warn('[WS-Intercept] Unknown binary format:', typeof data);
+      console.warn('[Sniffer] Unknown binary format:', typeof data);
       return '[unknown-binary]';
     }
 
@@ -57,17 +57,16 @@ function binaryToBase64(data) {
     }
     return btoa(binary);
   } catch (e) {
-    console.error('[WS-Intercept] Binary to Base64 conversion failed:', e);
+    console.error('[Sniffer] Binary to Base64 conversion failed:', e);
     return '[conversion-failed]';
   }
 }
 
-// 注入 WebSocket 拦截器
+// ========== WebSocket Hook（原有功能）==========
 const _origWebSocket = window.WebSocket;
 
 window.WebSocket = function(url, protocols) {
-
-  notify({ t: 'open', u: url, ts: Date.now() });
+  notify({ t: 'ws_open', u: url, ts: Date.now() });
 
   const ws = protocols ? new _origWebSocket(url, protocols) : new _origWebSocket(url);
 
@@ -84,7 +83,7 @@ window.WebSocket = function(url, protocols) {
     }
 
     notify({
-      t: 'receive',
+      t: 'ws_receive',
       u: url,
       ts: Date.now(),
       d: dataStr,
@@ -93,11 +92,11 @@ window.WebSocket = function(url, protocols) {
   });
 
   ws.addEventListener('close', function() {
-    notify({ t: 'close', u: url, ts: Date.now() });
+    notify({ t: 'ws_close', u: url, ts: Date.now() });
   });
 
   ws.addEventListener('error', function() {
-    notify({ t: 'error', u: url, ts: Date.now() });
+    notify({ t: 'ws_error', u: url, ts: Date.now() });
   });
 
   const _origSend = ws.send.bind(ws);
@@ -114,7 +113,7 @@ window.WebSocket = function(url, protocols) {
     }
 
     notify({
-      t: 'send',
+      t: 'ws_send',
       u: url,
       ts: Date.now(),
       d: dataStr,
@@ -136,3 +135,130 @@ window.WebSocket.CLOSING = _origWebSocket.CLOSING;
 // @ts-ignore
 window.WebSocket.CLOSED = _origWebSocket.CLOSED;
 
+// ========== HTTP Hook（新增功能，对齐Android实现）==========
+(function () {
+  if (window.__http_hook_loaded__) return;
+  window.__http_hook_loaded__ = true;
+
+  var MAX_BODY_SIZE = 1024 * 1024; // 1MB
+
+  // Fetch Hook
+  var OFetch = window.fetch;
+  if (OFetch) {
+    window.fetch = async function (input, init) {
+      var url = typeof input === 'string' ? input : input.url;
+      var method = init?.method || 'GET';
+
+      notify({ t: 'http_request', u: url, ts: Date.now(), d: { method: method } });
+
+      try {
+        var response = await OFetch.apply(this, arguments);
+        var cloned = response.clone();
+        var contentLength = response.headers.get('content-length');
+
+        if (contentLength && parseInt(contentLength) > MAX_BODY_SIZE) {
+          notify({
+            t: 'http_response',
+            u: url,
+            ts: Date.now(),
+            d: {
+              status: response.status,
+              body: '[too large]'
+            }
+          });
+        } else {
+          try {
+            var body = await cloned.text();
+            notify({
+              t: 'http_response',
+              u: url,
+              ts: Date.now(),
+              d: {
+                status: response.status,
+                body: body
+              }
+            });
+          } catch (e) {
+            notify({
+              t: 'http_response',
+              u: url,
+              ts: Date.now(),
+              d: {
+                status: response.status,
+                body: '[unreadable]'
+              }
+            });
+          }
+        }
+
+        return response;
+      } catch (e) {
+        notify({ t: 'http_error', u: url, ts: Date.now(), d: { error: e.message } });
+        throw e;
+      }
+    };
+  }
+
+  // XHR Hook
+  var OXHR = window.XMLHttpRequest;
+  if (OXHR) {
+    function HookedXHR() {
+      var xhr = new OXHR();
+      var requestUrl = '';
+      var requestMethod = '';
+
+      var originalOpen = xhr.open;
+      xhr.open = function (method, url) {
+        requestMethod = method;
+        requestUrl = url;
+        return originalOpen.apply(this, arguments);
+      };
+
+      var originalSend = xhr.send;
+      xhr.send = function (data) {
+        if (requestUrl) {
+          notify({
+            t: 'http_request',
+            u: requestUrl,
+            ts: Date.now(),
+            d: {
+              method: requestMethod,
+              body: data
+            }
+          });
+        }
+        return originalSend.apply(this, arguments);
+      };
+
+      xhr.addEventListener('load', function () {
+        if (requestUrl) {
+          var body = xhr.responseText || '[unreadable]';
+          notify({
+            t: 'http_response',
+            u: requestUrl,
+            ts: Date.now(),
+            d: {
+              status: xhr.status,
+              body: body.length > MAX_BODY_SIZE ? '[too large]' : body
+            }
+          });
+        }
+      });
+
+      xhr.addEventListener('error', function () {
+        if (requestUrl) {
+          notify({ t: 'http_error', u: requestUrl, ts: Date.now(), d: { error: 'XHR error' } });
+        }
+      });
+
+      return xhr;
+    }
+
+    HookedXHR.prototype = OXHR.prototype;
+    try {
+      window.XMLHttpRequest = HookedXHR;
+    } catch (e) {
+      console.error('[Sniffer] Failed to hook XMLHttpRequest:', e);
+    }
+  }
+})();

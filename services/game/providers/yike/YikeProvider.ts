@@ -1,7 +1,12 @@
 /**
- * @fileoverview 弈客围棋提供者实现
+ * @fileoverview 弈客围棋直播提供者
  *
  * 使用 Sniffer 拦截 API 响应提取棋谱数据。
+ *
+ * URL 格式：
+ * - https://home.yikeweiqi.com/mobile.html#/golive/room/{ROOM_ID}
+ * 
+ * 注意：online-game 类型的 URL 由 YikeOnlineGameProvider 处理
  */
 
 import { BaseProvider } from '../base/BaseProvider';

@@ -83,6 +83,8 @@ export class FetcherApp {
     };
     if (r.archiveId !== undefined) result.archiveId = r.archiveId;
     if (r.error !== undefined) result.error = r.error;
+    if (r.metadata?.isLive !== undefined) result.metadata.isLive = r.metadata.isLive;
+    if (r.metadata?.isEnded !== undefined) result.metadata.isEnded = r.metadata.isEnded;
     if (r.metadata?.result !== undefined) result.metadata.result = r.metadata.result;
     return result;
   }

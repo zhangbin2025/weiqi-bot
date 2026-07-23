@@ -10,6 +10,12 @@ export interface PerformanceTiming {
   extractId?: number;
   /** API 请求耗时（毫秒） */
   apiRequest?: number;
+  /** 认证请求耗时（毫秒） */
+  authRequest?: number;
+  /** Token请求耗时（毫秒） */
+  tokenRequest?: number;
+  /** 浏览器请求耗时（毫秒） */
+  browserRequest?: number;
   /** SGF 生成耗时（毫秒） */
   sgfGeneration?: number;
   /** 总耗时（毫秒） */
@@ -48,6 +54,10 @@ export interface GameMetadata {
   result?: string;
   /** 手数 */
   movesCount: number;
+  /** 是否为直播棋谱 */
+  isLive?: boolean;
+  /** 对局是否已结束（直播棋谱专用） */
+  isEnded?: boolean;
 }
 
 /**

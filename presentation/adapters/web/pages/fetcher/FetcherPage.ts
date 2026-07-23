@@ -139,10 +139,9 @@ export class FetcherPage implements IPage {
       if (result.success) {
         this.currentResult = result;
   
-        // 检测是否为直播链接 + App 环境  // ← 先设置 isLiveMode
-        const isLive = this.detectLiveUrl(url);
+        // 使用底层返回的 isLive 标识（而不是通过URL判断）
         const isApp = this.isAppEnvironment();
-        this.isLiveMode = isLive && isApp;
+        this.isLiveMode = !!result.metadata?.isLive && isApp;
         if (this.isLiveMode) {
           this.liveUrl = url;
           console.info('进入直播模式', { url, archiveId: result.archiveId });
