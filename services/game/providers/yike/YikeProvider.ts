@@ -68,7 +68,7 @@ export class YikeProvider extends BaseProvider implements IYikeProvider {
       // 启动 Sniffer
       const fetchStart = this.now();
       const session = await this.sniffer.start(url, {
-        timeout: 10000,
+        timeout: 5000, // 5秒超时
         userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)',
         viewport: { width: 375, height: 812 },
       });
@@ -133,7 +133,7 @@ export class YikeProvider extends BaseProvider implements IYikeProvider {
       });
 
       // 等待数据
-      const result = await session.wait(10000);
+      const result = await session.wait(5000) // 5秒超时;
       timing.apiRequest = this.now() - fetchStart;
 
       if (!result.success) {
