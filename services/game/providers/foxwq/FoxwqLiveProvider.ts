@@ -375,15 +375,35 @@ export class FoxwqLiveProvider extends BaseProvider {
               // 放宽过滤条件：允许中文或英文名字
               if (name && 
                   name.length >= 2 &&
+                  name.length <= 20 &&
                   !name.startsWith('http') && 
                   !name.match(/^[\d.]+$/) && 
                   name !== 'avatar' &&
                   name !== 'foxwq' &&
                   name !== 'com' &&
                   name !== 'avata' &&
-                  name !== 'jpg' &&
-                  (name.match(/[\u4e00-\u9fff]/) || name.match(/[a-zA-Z]{2,}/))) {
-                names.push(name);
+                  name !== 'jpg') {
+                
+                // 中文名：必须包含中文，且主要是中文和常见字符
+                if (name.match(/[\u4e00-\u9fff]/)) {
+                  // 检查是否包含过多控制字符
+                  const cleanChars = name.split('').filter(c => {
+                    const code = c.charCodeAt(0);
+                    // 保留中文、英文、数字、常见符号
+                    return (code >= 0x4e00 && code <= 0x9fff) ||
+                           (code >= 0x30 && code <= 0x39) ||
+                           (code >= 0x41 && code <= 0x5a) ||
+                           (code >= 0x61 && code <= 0x7a) ||
+                           code === 0x20 || code === 0x5f;
+                  });
+                  if (cleanChars.length >= name.length * 0.7) {
+                    names.push(name);
+                  }
+                }
+                // 英文名：必须是纯字母数字，不能有控制字符
+                else if (name.match(/^[a-zA-Z][a-zA-Z0-9]*$/)) {
+                  names.push(name);
+                }
               }
             } catch {}
           }
