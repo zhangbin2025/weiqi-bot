@@ -361,21 +361,29 @@ export class FoxwqLiveProvider extends BaseProvider {
   private extractPlayerNames(data: Uint8Array): [string, string] {
     const names: string[] = [];
     try {
-      let idx = 0;
-      while (idx < data.length - 3) {
-        if (data[idx] === 0x9a && data[idx + 1] === 0x01) {
-          const strLen = data[idx + 2];
-          if (strLen !== undefined && 3 <= strLen && strLen <= 20 && idx + 3 + strLen <= data.length) {
+      // 查找玩家名字：protobuf field 3 (0x1a) length-delimited
+      // 玩家名字格式：0x1a <len> <name_bytes>
+      for (let i = 0; i < data.length - 3; i++) {
+        if (data[i] === 0x1a) {
+          const strLen = data[i + 1];
+          if (strLen !== undefined && 3 <= strLen && strLen <= 20 && i + 2 + strLen <= data.length) {
             try {
-              const nameBytes = data.slice(idx + 3, idx + 3 + strLen);
+              const nameBytes = data.slice(i + 2, i + 2 + strLen);
               const name = this.uint8ArrayToString(nameBytes);
-              if (name && !name.startsWith('http') && name.length > 1 && !name.match(/^[\d.]+$/) && name !== 'avatar') {
+              
+              // 过滤条件：必须包含中文字符（玩家名字通常包含中文）
+              if (name && 
+                  name.match(/[\u4e00-\u9fff]/) &&
+                  !name.startsWith('http') && 
+                  !name.match(/^[\d.]+$/) && 
+                  name !== 'avatar' &&
+                  name !== 'foxwq' &&
+                  name !== 'com') {
                 names.push(name);
               }
             } catch {}
           }
         }
-        idx++;
       }
       if (names.length < 2) {
         const text = this.uint8ArrayToString(data);
