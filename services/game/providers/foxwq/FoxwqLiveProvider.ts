@@ -359,120 +359,58 @@ export class FoxwqLiveProvider extends BaseProvider {
   }
 
   private extractPlayerNames(data: Uint8Array): [string, string] {
-    const names: string[] = [];
     try {
-      // 查找玩家名字：protobuf field 2 (0x12) 或 field 3 (0x1a) length-delimited
-      // field 2: 可能是英文用户名
-      // field 3: 可能是中文用户名
-      for (let i = 0; i < data.length - 3; i++) {
-        if (data[i] === 0x12 || data[i] === 0x1a) {
-          const strLen = data[i + 1];
-          if (strLen !== undefined && 2 <= strLen && strLen <= 20 && i + 2 + strLen <= data.length) {
-            try {
-              const nameBytes = data.slice(i + 2, i + 2 + strLen);
-              const name = this.uint8ArrayToString(nameBytes);
-              
-              // 放宽过滤条件：允许中文或英文名字
-              if (name && 
-                  name.length >= 2 &&
-                  name.length <= 20 &&
-                  !name.startsWith('http') && 
-                  !name.match(/^[\d.]+$/) && 
-                  name !== 'avatar' &&
-                  name !== 'foxwq' &&
-                  name !== 'com' &&
-                  name !== 'avata' &&
-                  name !== 'jpg') {
-                
-                // 中文名：必须包含中文，且主要是中文和常见字符
-                if (name.match(/[\u4e00-\u9fff]/)) {
-                  // 检查是否包含过多控制字符
-                  const cleanChars = name.split('').filter(c => {
-                    const code = c.charCodeAt(0);
-                    // 保留中文、英文、数字、常见符号
-                    return (code >= 0x4e00 && code <= 0x9fff) ||
-                           (code >= 0x30 && code <= 0x39) ||
-                           (code >= 0x41 && code <= 0x5a) ||
-                           (code >= 0x61 && code <= 0x7a) ||
-                           code === 0x20 || code === 0x5f;
-                  });
-                  if (cleanChars.length >= name.length * 0.7) {
-                    names.push(name);
-                  }
-                }
-                // 英文名：必须是纯字母数字，不能有控制字符
-                else if (name.match(/^[a-zA-Z][a-zA-Z0-9]*$/)) {
-                  names.push(name);
-                }
-              }
-            } catch {}
-          }
+      const text = this.uint8ArrayToString(data);
+      
+      // 新规则：找到jpg位置，第一个jpg后第一个名字是黑方，第二个jpg后第一个名字是白方
+      
+      // 查找所有jpg位置
+      const jpgPositions: number[] = [];
+      for (let i = 0; i < text.length - 3; i++) {
+        if (text[i] === 'j' && text[i + 1] === 'p' && text[i + 2] === 'g') {
+          jpgPositions.push(i);
         }
       }
-      if (names.length < 2) {
-        // Fallback 1: 尝试从文本中查找 "名字[段位]" 格式
-        const text = this.uint8ArrayToString(data);
-        const matches = text.match(/([\w\u4e00-\u9fff]+)\[\d+段\]/g);
-        if (matches) {
-          matches.forEach((m) => {
-            const nameMatch = m.match(/([\w\u4e00-\u9fff]+)\[/);
-            if (nameMatch && nameMatch[1]) names.push(nameMatch[1]);
-          });
-        }
+      
+      // 需要至少2个jpg
+      if (jpgPositions.length < 2) {
+        return ['黑棋', '白棋'];
+      }
+      
+      const names: string[] = [];
+      
+      // 从前两个jpg中提取名字
+      for (let idx = 0; idx < 2; idx++) {
+        const jpgPos = jpgPositions[idx]!;
+        const searchStart = jpgPos + 3;
+        const searchEnd = Math.min(text.length, jpgPos + 103);
+        const searchArea = text.substring(searchStart, searchEnd);
         
-        // Fallback 2: 如果还是不足2个，从文本中直接搜索可能是玩家名字的字符串
-        if (names.length < 2) {
-          // 匹配中文（2-15字符）或英文数字组合（2-15字符，必须包含字母）
-          const namePattern = /[a-zA-Z][a-zA-Z0-9]{1,14}|[\u4e00-\u9fff]{2,15}/g;
-          const allNames = text.match(namePattern) || [];
+        // 查找第一个有效名字（至少4字符）
+        const pattern = /[\u4e00-\u9fff]{4,15}|[a-zA-Z][a-zA-Z0-9]{3,14}/g;
+        const matches = searchArea.match(pattern);
+        
+        if (matches && matches.length > 0) {
+          // 过滤掉URL相关词汇
+          const validName = matches.find(m => 
+            m !== 'headimg' && 
+            m !== 'avatar' && 
+            m !== 'foxwq' &&
+            m !== 'https' &&
+            m.length >= 4
+          );
           
-          // 对候选名字进行评分，优先选择最像玩家名字的
-          const scoredNames = allNames.map(name => {
-            let score = 0;
-            
-            // 中文名优先（如 "鍥而不捨"）
-            if (name.match(/[\u4e00-\u9fff]/)) score += 100;
-            
-            // 英文+数字混合（如 "lucas55", "jack12132"）
-            if (name.match(/[a-zA-Z]+[0-9]+/)) score += 50;
-            
-            // 较长的名字更可能是玩家名
-            if (name.length >= 4) score += 20;
-            if (name.length >= 6) score += 10;
-            
-            // 排除URL和常见词汇
-            const excluded = ['http', 'https', 'www', 'com', 'avata', 'avatar', 
-                            'foxwq', 'jpg', 'gif', 'png', 'headimg', 'fX', 'Rj'];
-            if (excluded.includes(name)) score = -1;
-            
-            // 排除纯数字
-            if (name.match(/^[0-9]+$/)) score = -1;
-            
-            return { name, score };
-          }).filter(item => item.score > 0)
-            .sort((a, b) => b.score - a.score);
-          
-          for (const item of scoredNames) {
-            if (names.length >= 2) break;
-            if (!names.includes(item.name)) {
-              names.push(item.name);
-            }
+          if (validName) {
+            names.push(validName);
           }
         }
       }
-      const uniqueNames = [...new Set(names)];
-      return [uniqueNames[0] || '黑棋', uniqueNames[1] || '白棋'];
+      
+      return [names[0] || '黑棋', names[1] || '白棋'];
     } catch {
       return ['黑棋', '白棋'];
     }
   }
-
-  /**
-   * 从protobuf数据中提取对局结果（opType=403）
-   * 野狐协议：opType=403 表示对局结束，包含 winner/points/reason
-   * protobuf编码：93 03 (varint 403) 1a <len> <result_message>
-   * result_message内部：10 <winner> 18 <points> 20 <reason>
-   */
   private extractGameResult(data: Uint8Array): string | null {
     try {
       // 搜索 opType=403 的 varint 编码 (0x93 0x03)
