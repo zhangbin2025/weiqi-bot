@@ -994,7 +994,7 @@ export class ReviewPage implements IPage {
       const currentMode = this.interaction.getMode();
       if (currentMode === 'normal') {
         // 如果用户在最后一手，自动跳到新手数
-        if (this.currentMove === oldTotalMoves - 1) {
+        if (this.currentMove === oldTotalMoves - 1 || this.currentMove === oldTotalMoves) {
           this.goToMove(newMovesCount);
         }
         
