@@ -508,10 +508,10 @@ export class ReviewPage implements IPage {
         break;
       case 'normal':
         this.currentCandidates = [];
-        // 恢复到当前显示的步数（退出推荐模式时）
-        const displayedMoveCount = this.interaction.getCurrentMoves().length;
-        if (displayedMoveCount !== this.currentMove) {
-          this.currentMove = displayedMoveCount;
+        // 恢复到退出推荐模式前的步数
+        const restoredMoveCount = this.interaction.restoredMoveCount;
+        if (restoredMoveCount > 0 && restoredMoveCount !== this.currentMove) {
+          this.currentMove = restoredMoveCount;
           this.ui.updateDisplay(this.currentMove, this.totalMoves);
           this.ui.setSliderValue(this.currentMove);
           this.winrateChart?.update(this.winrateTrend, this.currentMove);

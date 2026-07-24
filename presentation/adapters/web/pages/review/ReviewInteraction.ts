@@ -81,6 +81,8 @@ export class ReviewInteraction {
   
   /** 让子棋 */
   private handicapStones: Array<{ x: number; y: number; color: PlayerColor }> = [];
+  /** 恢复后的步数（供外部读取） */
+  restoredMoveCount = 0;
 
   constructor(board: WebBoard, game: Game, callbacks: InteractionCallbacks) {
     this.board = board;
@@ -211,6 +213,8 @@ export class ReviewInteraction {
     this.restoreCircles(prev);
     // 5. 恢复模式
     this.mode = prev.mode;
+    // 6. 保存恢复的步数（供外部读取）
+    this.restoredMoveCount = prev.moves.length;
     this.fireModeChanged();
   }
 
