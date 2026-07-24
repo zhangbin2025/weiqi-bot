@@ -368,6 +368,26 @@
       margin-bottom: 12px;
       opacity: 0.5;
     }
+
+    /* ===== 高亮动画（返回定位时使用） ===== */
+    .joseki-card.highlight {
+      animation: highlight-pulse 3s ease-out;
+      box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.4), 0 4px 12px rgba(102, 126, 234, 0.2);
+    }
+
+    @keyframes highlight-pulse {
+      0% {
+        box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.6), 0 4px 12px rgba(102, 126, 234, 0.3);
+        transform: scale(1.02);
+      }
+      50% {
+        box-shadow: 0 0 0 6px rgba(102, 126, 234, 0.3), 0 4px 16px rgba(102, 126, 234, 0.2);
+      }
+      100% {
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        transform: scale(1);
+      }
+    }
   </style>
 
     <!-- Favicon -->

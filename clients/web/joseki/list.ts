@@ -10,6 +10,44 @@ import { JosekiDiscoverProvider } from '../../../presentation/adapters/web/pages
 import { OpponentJosekiListProvider } from '../../../presentation/adapters/web/pages/common/OpponentJosekiListProvider';
 import { SessionService } from '../../../services/session';
 
+const SCROLL_KEY = 'joseki_list_scroll_to';
+const LAST_VIEWED_KEY = 'joseki_last_viewed_id';
+
+/**
+ * 滚动并高亮指定定式卡片
+ */
+function scrollToPattern(patternId: string): void {
+  const card = document.querySelector(`.joseki-card[data-id="${patternId}"]`);
+  if (card) {
+    // 滚动到卡片（居中显示）
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // 添加高亮动画
+    card.classList.add('highlight');
+    // 3秒后移除高亮
+    setTimeout(() => card.classList.remove('highlight'), 3000);
+    // 清除标记
+    sessionStorage.removeItem(SCROLL_KEY);
+  }
+}
+
+/**
+ * 检查并执行滚动定位
+ */
+function checkAndScroll(): void {
+  const patternId = sessionStorage.getItem(SCROLL_KEY);
+  if (patternId) {
+    // 等待渲染完成
+    setTimeout(() => scrollToPattern(patternId), 100);
+  }
+}
+
+/**
+ * 存储最后查看的卡片ID
+ */
+function storeLastViewedId(patternId: string): void {
+  sessionStorage.setItem(LAST_VIEWED_KEY, patternId);
+}
+
 async function main() {
   // 1. 初始化 Shell 上下文
   const ctx = await WebBootstrap.init({
@@ -38,6 +76,14 @@ async function main() {
     providers,
     gameService,
     onNavigate: async (pageId, params) => {
+      // 在跳转前，检查是否有最后查看的卡片ID
+      const lastViewedId = sessionStorage.getItem(LAST_VIEWED_KEY);
+      if (lastViewedId) {
+        // 转移到滚动标记
+        sessionStorage.setItem(SCROLL_KEY, lastViewedId);
+        sessionStorage.removeItem(LAST_VIEWED_KEY);
+      }
+      
       if (pageId === 'joseki/explore') {
         window.location.href = `explore.html?${new URLSearchParams(params).toString()}`;
       } else if (pageId === 'replay') {
@@ -72,12 +118,29 @@ async function main() {
   // 9. 渲染
   page.render();
 
+  // 10. 检查是否需要滚动定位
+  checkAndScroll();
+
+  // 11. 监听卡片点击事件（事件委托）
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    const card = target.closest('.joseki-card');
+    if (card) {
+      const patternId = card.getAttribute('data-id');
+      if (patternId) {
+        storeLastViewedId(patternId);
+      }
+    }
+  }, true); // 使用捕获阶段，确保在 renderer 的事件之前触发
+
   console.info('JosekiListPage 已启动');
 
-  // 10. 监听 pageshow 事件，当页面从 bfcache 恢复时重新渲染
+  // 12. 监听 pageshow 事件，当页面从 bfcache 恢复时重新渲染
   window.addEventListener('pageshow', async (event) => {
     if (event.persisted) {
       await page.refreshReadMarks();
+      // 重新检查滚动定位
+      checkAndScroll();
     }
   });
 
