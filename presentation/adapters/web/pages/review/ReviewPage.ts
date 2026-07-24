@@ -26,7 +26,7 @@ import { showLoading as showModelLoading, updateProgress as updateModelProgress,
 import { ReviewInteraction, type PageMode } from './ReviewInteraction';
 import { ReviewAnalysis, type AnalysisCompleteResult } from './ReviewAnalysis';
 import { ReviewUI } from './ReviewUI';
-import { saveLiveArchiveId, loadLiveArchiveId } from './LiveCache';
+import { LiveModeManager } from './LiveModeManager';
 
 /** 复盘页面配置 */
 export interface ReviewPageConfig {
@@ -75,19 +75,15 @@ export class ReviewPage implements IPage {
   private savedRecommendationCircles: RecommendationCircle[] = [];
   private currentModelName = 'AI 复盘分析';
 
-  // 直播模式
-  private isLiveMode = false;
-  private liveUrl?: string;
-  private liveInterval: number | undefined;
-  private previousArchiveId?: string;
+  // 服务
   private gameService: IGameService | undefined;
-  private favoriteService: IFavoriteService | undefined; // 添加保存
-  private lastMovesCount = 0;
+  private favoriteService: IFavoriteService | undefined;
+
+  // 直播模式管理器
+  private liveModeManager?: LiveModeManager;
+
+  // SGF 解析器（用于非直播场景）
   private sgfParser: SGFParser;
-  /** 直播：连续刷新失败次数 */
-  private liveFetchFailCount = 0;
-  /** 直播：连续失败阈值 */
-  private static readonly LIVE_FETCH_FAIL_THRESHOLD = 5;
 
   constructor(config: ReviewPageConfig) {
     this.reviewApp = config.reviewApp;
@@ -120,7 +116,7 @@ export class ReviewPage implements IPage {
         this.interaction.exit();
         this.goToMove(this.currentMove + 1);
       },
-      isReadOnlyMode: () => this.isLiveMode, // 直播模式只读
+      isReadOnlyMode: () => this.liveModeManager?.isActive() ?? false, // 直播模式只读
     });
 
     this.ui = new ReviewUI({
@@ -175,7 +171,31 @@ export class ReviewPage implements IPage {
     this.interaction.initVariationManager();
     this.ui.setupComponents();
     this.ui.bindEvents();
-    
+
+    // 初始化直播模式管理器
+    if (this.gameService && this.favoriteService) {
+      this.liveModeManager = new LiveModeManager(
+        this.gameService,
+        this.favoriteService,
+        this.reviewApp,
+        this.analysis,
+        {
+          updateStatus: (msg) => this.ui.updateStatus(msg),
+          updateDisplay: (current, total) => this.ui.updateDisplay(current, total),
+          goToMove: (moveNumber) => this.goToMove(moveNumber),
+          updateWinrateChart: (trend, current) => this.winrateChart?.update(trend, current),
+          getCurrentMove: () => this.currentMove,
+          getTotalMoves: () => this.totalMoves,
+          getWinrateTrend: () => this.winrateTrend,
+          setWinrateTrend: (trend) => { this.winrateTrend = trend; },
+          getMoves: () => this.moves,
+          setMoves: (moves) => { this.moves = moves; },
+          setTotalMoves: (total) => { this.totalMoves = total; },
+          onAnalysisComplete: (result) => this.handleAnalysisComplete(result),
+        },
+      );
+    }
+
     // 禁用所有功能按钮（没有棋谱时）
     this.ui.disableAllButtons();
     
@@ -188,14 +208,16 @@ export class ReviewPage implements IPage {
   }
 
   handleParams(params: PageParams): void {
-    // 直播模式：直接从URL抓取棋谱
+    // 直播模式：交给 LiveModeManager 处理
     if (params['live'] === 'true' && params['url']) {
-      this.isLiveMode = true;
-      this.liveUrl = decodeURIComponent(params['url'] as string);
-      console.info('[ReviewPage] 进入直播模式', { url: this.liveUrl });
+      const liveUrl = decodeURIComponent(params['url'] as string);
+      console.info('[ReviewPage] 进入直播模式', { url: liveUrl });
       // 直播模式：隐藏菜单按钮
       this.ui.setLiveMode(true);
-      this.loadFromLiveUrl();
+      // 交给 LiveModeManager 处理
+      if (this.liveModeManager) {
+        this.liveModeManager.loadFromUrl(liveUrl);
+      }
       return; // 直播模式不走其他参数处理
     }
     
@@ -213,51 +235,6 @@ export class ReviewPage implements IPage {
       const archiveId = params['archiveId'] as string;
       const taskId = params['taskId'] as string | undefined;
       this.loadFromArchiveId(archiveId, taskId);
-    }
-  }
-
-  /**
-   * 从直播URL抓取棋谱并加载
-   */
-  private async loadFromLiveUrl(): Promise<void> {
-    if (!this.liveUrl || !this.gameService) return;
-    
-    // 尝试从缓存恢复
-    const cachedArchiveId = loadLiveArchiveId(this.liveUrl);
-    if (cachedArchiveId) {
-      // 有缓存：直接用 viewFavorite 恢复（复用现有逻辑）
-      console.info('[ReviewPage] 从缓存恢复:', cachedArchiveId);
-      this.previousArchiveId = cachedArchiveId;
-      await this.viewFavorite(cachedArchiveId);
-      // viewFavorite 会启动 startLiveMode，无需手动调用
-      return;
-    }
-    
-    // 无缓存：正常加载
-    try {
-      this.ui.updateStatus('正在下载直播棋谱...');
-      console.info('[ReviewPage] 从直播URL抓取棋谱...');
-      const result = await this.gameService.fetch(this.liveUrl, true, 5000);
-      
-      if (!result.success || !result.archiveId) {
-        console.error('[ReviewPage] 直播棋谱抓取失败:', result.error);
-        this.ui.updateStatus('直播棋谱下载失败');
-        return;
-      }
-      
-      this.previousArchiveId = result.archiveId;
-      console.info('[ReviewPage] 直播棋谱抓取成功:', result.archiveId);
-      
-      // 加载并分析棋谱
-      const success = await this.loadFromArchiveId(result.archiveId);
-      
-      // 分析成功才保存缓存
-      if (success) {
-        saveLiveArchiveId(this.liveUrl, result.archiveId);
-      }
-    } catch (error) {
-      console.error('[ReviewPage] 直播棋谱加载异常', error);
-      this.ui.updateStatus('直播棋谱加载异常');
     }
   }
 
@@ -322,11 +299,7 @@ export class ReviewPage implements IPage {
     if (!this.analysis.getReviewId() || this.analyzing) return;
     
     // 直播模式（包括结束后）：跳转到复盘条目
-    if (this.previousArchiveId) {
-      window.location.href = `/review/index.html?view=favorite&key=${this.previousArchiveId}`;
-      return;
-    }
-    
+    // (已移至 LiveModeManager)
     if (this.interaction.isMaxDepth()) {
       this.ui.updateStatus('已达最大探索深度');
       return;
@@ -455,7 +428,7 @@ export class ReviewPage implements IPage {
 
   destroy(): void {
     // 停止直播模式
-    this.stopLiveMode();
+    this.liveModeManager?.stop();
     
     this.board.destroy();
     this.winrateChart?.destroy();
@@ -516,7 +489,7 @@ export class ReviewPage implements IPage {
           this.ui.setSliderValue(this.currentMove);
           this.winrateChart?.update(this.winrateTrend, this.currentMove);
         }
-        this.ui.updateStatus(this.isLiveMode ? '直播中' : this.currentModelName);
+        this.ui.updateStatus(this.liveModeManager?.isActive() ? '直播中' : this.currentModelName);
         break;
     }
   }
@@ -555,16 +528,10 @@ export class ReviewPage implements IPage {
     this.winrateChart?.update(this.winrateTrend, this.totalMoves);
     this.goToMove(this.totalMoves);
     
-    // 直播模式：只在首次记录初始手数并启动刷新
-    if (this.isLiveMode) {
+    // 直播模式：启动刷新
+    if (this.liveModeManager?.isActive()) {
       this.analyzing = false; // 重置分析状态
-      if (this.lastMovesCount === 0) {
-        this.lastMovesCount = this.totalMoves;
-        console.info('[ReviewPage] 记录初始手数:', this.lastMovesCount);
-      }
-      if (!this.liveInterval) {
-        this.startLiveMode();
-      }
+      this.liveModeManager.start();
       this.ui.updateStatus('直播中');
       console.info('[ReviewPage] 增量分析完成，胜率已更新');
     } else {
@@ -812,218 +779,6 @@ export class ReviewPage implements IPage {
     }
   }
 
-  // ========== 直播模式 ==========
-
-  private startLiveMode(): void {
-    if (!this.isLiveMode || !this.liveUrl) return;
-    
-    console.info('[ReviewPage] 启动直播刷新（30秒间隔）');
-    
-    // 立即刷新一次
-    this.refreshLiveGame();
-    
-  }
-
-  private stopLiveMode(): void {
-    if (this.liveInterval) {
-      clearTimeout(this.liveInterval);
-      this.liveInterval = undefined as number | undefined;
-    }
-    this.isLiveMode = false;
-    this.liveFetchFailCount = 0;
-    console.info('[ReviewPage] 停止直播模式');
-  }
-
-  private async refreshLiveGame(): Promise<void> {
-    if (!this.liveUrl || !this.gameService) return;
-    
-    // 如果正在分析，跳过本次刷新
-    if (this.analyzing) {
-      console.info('[ReviewPage] 正在分析中，跳过直播刷新');
-      return;
-    }
-    
-    try {
-      // 更新标题栏为直播中
-      this.ui.updateStatus('直播中');
-      // 1. 先删除旧归档和旧复盘条目，强制重新抓取（避免缓存）
-      if (this.previousArchiveId && this.gameService) {
-        try {
-          // 删除旧复盘条目
-          if (this.favoriteService) {
-            await this.favoriteService.removeFavorite(this.previousArchiveId);
-            console.info('[ReviewPage] 已删除旧复盘条目:', this.previousArchiveId);
-          }
-          // 删除旧归档
-          await (this.gameService as any).deleteArchive?.(this.previousArchiveId);
-          console.info('[ReviewPage] 已删除旧归档:', this.previousArchiveId);
-        } catch (e) {
-          // 忽略删除失败
-        }
-      }
-      
-      // 2. 重新抓取棋谱（forceRefresh + 5秒超时）
-      console.info('[ReviewPage] 开始刷新直播棋谱');
-      const result = await this.gameService.fetch(this.liveUrl, true, 5000);
-      
-      if (!result.success || !result.archiveId) {
-        console.warn('[ReviewPage] 刷新失败:', result.error);
-        this.liveFetchFailCount++;
-        if (this.liveFetchFailCount >= ReviewPage.LIVE_FETCH_FAIL_THRESHOLD) {
-          console.info('[ReviewPage] 连续刷新失败', this.liveFetchFailCount, '次，停止直播');
-          this.stopLiveMode();
-          this.ui.updateStatus('直播连接失败，已停止刷新');
-        }
-        return;
-      }
-      
-      // fetch 成功，重置失败计数
-      this.liveFetchFailCount = 0;
-      
-      // 3. 检测棋局结束（方式1：从 metadata.result 检测）
-      if (result.metadata?.result && result.metadata.result !== '') {
-        console.info('[ReviewPage] 棋局已结束（检测到结果:', result.metadata.result, '），停止直播');
-        this.stopLiveMode();
-        this.ui.updateStatus('棋局已结束: ' + result.metadata.result);
-        return;
-      }
-      
-      // 4. 获取新 SGF
-      const newSgf = await this.gameService.getByArchiveId(result.archiveId);
-      if (!newSgf) {
-        console.warn('[ReviewPage] 获取新SGF失败');
-        return;
-      }
-      
-      // 5. 检测棋局结束（方式2：从 SGF 的 RE[] 属性检测）
-      const sgfResultMatch = newSgf.match(/RE\[([^\]]*)\]/);
-      if (sgfResultMatch && sgfResultMatch[1] && sgfResultMatch[1] !== '') {
-        console.info('[ReviewPage] 棋局已结束（SGF结果:', sgfResultMatch[1], '），停止直播');
-        this.stopLiveMode();
-        this.ui.updateStatus('棋局已结束: ' + sgfResultMatch[1]);
-        return;
-      }
-      
-      // 6. 解析完整着法列表（用 SGFParser）
-      const allMoves = this.parseAllMoves(newSgf);
-      const newMovesCount = allMoves.length;
-      console.info('[ReviewPage] 调试:', { newMovesCount, lastMovesCount: this.lastMovesCount, archiveId: result.archiveId, previousArchiveId: this.previousArchiveId, sgfLength: newSgf.length });
-      
-      // 7. 检测棋局结束（方式3：末尾双 Pass）
-      // 围棋对局结束的规则标志：双方连续 Pass
-      // 长考不会产生双 Pass，只有对局结束才会
-      if (newMovesCount >= 2 && this.isDoublePassAtEnd(allMoves)) {
-        const resultStr = this.formatGameResult(allMoves);
-        console.info('[ReviewPage] 棋局已结束（末尾双Pass），停止直播');
-        this.stopLiveMode();
-        this.ui.updateStatus('棋局已结束' + (resultStr ? ': ' + resultStr : ''));
-        // 仍需处理新增着法（最后的 Pass 也需要追加）
-      }
-      
-      if (newMovesCount <= this.lastMovesCount) {
-        console.info('[ReviewPage] 无新手数，跳过更新');
-        return;
-      }
-      
-      console.info('[ReviewPage] 检测到新手数:', this.lastMovesCount, '->', newMovesCount);
-      
-      // 5. 保存旧数据
-      const oldTotalMoves = this.totalMoves;
-      
-      // 6. 解析新增着法（直接从已解析的 allMoves 中截取）
-      const newMoves = allMoves.slice(this.lastMovesCount);
-      console.info('[ReviewPage] 新增着法:', newMoves.length, '手');
-      
-      // 7. 追加着法到分析引擎
-      const reviewId = this.analysis.getReviewId();
-      if (reviewId) {
-        this.reviewApp.appendMoves(reviewId, newMoves);
-      }
-      
-      // 8. 更新本地数据
-      this.moves = [...this.moves, ...newMoves];
-      this.totalMoves = newMovesCount;
-      this.lastMovesCount = newMovesCount;
-      
-      // 9. 分析所有新增着法的胜率
-      if (reviewId && newMoves.length > 0) {
-        console.info('[ReviewPage] 分析新增着法胜率:', newMoves.length, '手');
-        const startMove = oldTotalMoves;
-        for (let i = 0; i < newMoves.length; i++) {
-          const moveIndex = startMove + i;
-          try {
-            const moveResult = await this.reviewApp.analyzePosition(reviewId, moveIndex, { visits: await this.analysis.getAnalysisVisits(), includePv: false });
-            if (moveResult && moveResult.winRate !== undefined) {
-              this.winrateTrend.push({
-                moveNumber: moveIndex + 1,
-                winRate: moveResult.winRate,
-                scoreLead: moveResult.scoreLead ?? 0,
-              });
-            } else {
-              // 分析无结果，用上一手胜率
-              const prev = this.winrateTrend[this.winrateTrend.length - 1];
-              this.winrateTrend.push(prev ? { ...prev, moveNumber: moveIndex + 1 } : { moveNumber: moveIndex + 1, winRate: 0.5, scoreLead: 0 });
-            }
-          } catch (e) {
-            console.warn('[ReviewPage] 分析第', moveIndex + 1, '手失败', e);
-            const prev = this.winrateTrend[this.winrateTrend.length - 1];
-            this.winrateTrend.push(prev ? { ...prev, moveNumber: moveIndex + 1 } : { moveNumber: moveIndex + 1, winRate: 0.5, scoreLead: 0 });
-          }
-        }
-        console.info('[ReviewPage] 新增着法胜率分析完成');
-      }
-      
-      // 8. 旧归档已在步骤1删除
-      
-      // 9. 更新归档ID
-      this.previousArchiveId = result.archiveId;
-      
-      // 10. 更新 ReviewAnalysis 的 currentArchiveId
-      this.analysis.setCurrentArchiveId(result.archiveId);
-      
-      // 11. 保存新的复盘数据（传入本地分析的胜率数据）
-      await this.analysis.saveReviewData(this.winrateTrend);
-      console.info('[ReviewPage] 已保存新复盘数据:', result.archiveId, '胜率:', this.winrateTrend.length, '手');
-      
-      // 12. 更新缓存
-      if (this.liveUrl) {
-        saveLiveArchiveId(this.liveUrl, result.archiveId);
-      }
-      
-      // 13. 更新视图
-      const currentMode = this.interaction.getMode();
-      if (currentMode === 'normal') {
-        // 如果用户在最后一手，自动跳到新手数
-        if (this.currentMove === oldTotalMoves - 1 || this.currentMove === oldTotalMoves) {
-          this.goToMove(newMovesCount);
-        }
-        
-        // 更新胜率图
-        if (this.winrateChart) {
-          this.winrateChart.update(this.winrateTrend, this.currentMove);
-        }
-        
-        // 更新 UI 显示
-        this.ui.updateDisplay(this.currentMove, this.totalMoves);
-        this.ui.setSliderMax(this.totalMoves);
-        this.moveNavigator.setMaxMoves(this.totalMoves);
-        
-        console.info('[ReviewPage] 视图已更新（使用缓存数据）');
-      } else {
-        console.info('[ReviewPage] 当前模式', currentMode, '跳过视图更新（数据已更新）');
-      }
-      
-    } catch (error) {
-      console.error('[ReviewPage] 直播刷新异常', error);
-    } finally {
-      // 确保每次都设置下一次刷新（即使中途 return）
-      if (this.isLiveMode) {
-        this.liveInterval = window.setTimeout(() => {
-          this.refreshLiveGame();
-        }, 30000);
-      }
-    }
-  }
   
   /**
    * 使用 SGFParser 解析 SGF，返回完整着法列表
