@@ -95,8 +95,12 @@ export class LiveModeManager {
     if (cachedArchiveId) {
       console.info('[LiveModeManager] 从缓存恢复:', cachedArchiveId);
       this.previousArchiveId = cachedArchiveId;
-      await this.viewFavorite(cachedArchiveId);
-      return;
+      const restored = await this.viewFavorite(cachedArchiveId);
+      if (restored) {
+        return; // 缓存恢复成功
+      }
+      // 缓存恢复失败，继续执行正常抓取
+      console.info('[LiveModeManager] 缓存恢复失败，重新抓取棋谱');
     }
 
     // 无缓存：正常加载
@@ -144,8 +148,8 @@ export class LiveModeManager {
   /**
    * 从归档 ID 查看复盘（用于缓存恢复）
    */
-  private async viewFavorite(archiveId: string): Promise<void> {
-    await this.analysis.viewFavorite(archiveId);
+  private async viewFavorite(archiveId: string): Promise<boolean> {
+    return await this.analysis.viewFavorite(archiveId);
   }
 
   /**

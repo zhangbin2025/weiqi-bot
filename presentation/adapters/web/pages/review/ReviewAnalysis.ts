@@ -254,26 +254,33 @@ export class ReviewAnalysis {
   }
 
   /** 查看收藏的复盘结果 */
-  async viewFavorite(archiveId: string): Promise<void> {
+  async viewFavorite(archiveId: string): Promise<boolean> {
     try {
       // 确保模型已加载
       await this.ensureModelLoaded();
       
       // 加载棋谱
       const sgf = await this.gameService!.getByArchiveId(archiveId);
-      if (!sgf) throw new Error('棋谱不存在');
+      if (!sgf) {
+        console.warn('[ReviewAnalysis.viewFavorite] 棋谱不存在:', archiveId);
+        return false;
+      }
       
       this.reviewId = await this.reviewApp.loadFromSGF(sgf);
       const hasSavedData = await this.loadSavedReviewData(archiveId);
       
       if (hasSavedData) {
         this.callbacks.onStatusUpdate('已恢复复盘数据');
+        return true;
       } else {
+        console.warn('[ReviewAnalysis.viewFavorite] 复盘数据不存在:', archiveId);
         this.callbacks.onStatusUpdate('复盘数据不存在');
+        return false;
       }
     } catch (error) {
       console.error('[ReviewAnalysis.viewFavorite] 加载收藏失败', error as Error | undefined);
       this.callbacks.onStatusUpdate('加载失败');
+      return false;
     }
   }
 
