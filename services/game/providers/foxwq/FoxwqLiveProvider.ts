@@ -390,6 +390,7 @@ export class FoxwqLiveProvider extends BaseProvider {
         }
       }
       if (names.length < 2) {
+        // Fallback 1: 尝试从文本中查找 "名字[段位]" 格式
         const text = this.uint8ArrayToString(data);
         const matches = text.match(/([\w\u4e00-\u9fff]+)\[\d+段\]/g);
         if (matches) {
@@ -397,6 +398,46 @@ export class FoxwqLiveProvider extends BaseProvider {
             const nameMatch = m.match(/([\w\u4e00-\u9fff]+)\[/);
             if (nameMatch && nameMatch[1]) names.push(nameMatch[1]);
           });
+        }
+        
+        // Fallback 2: 如果还是不足2个，从文本中直接搜索可能是玩家名字的字符串
+        if (names.length < 2) {
+          // 匹配中文（2-15字符）或英文数字组合（2-15字符，必须包含字母）
+          const namePattern = /[a-zA-Z][a-zA-Z0-9]{1,14}|[\u4e00-\u9fff]{2,15}/g;
+          const allNames = text.match(namePattern) || [];
+          
+          // 对候选名字进行评分，优先选择最像玩家名字的
+          const scoredNames = allNames.map(name => {
+            let score = 0;
+            
+            // 中文名优先（如 "鍥而不捨"）
+            if (name.match(/[\u4e00-\u9fff]/)) score += 100;
+            
+            // 英文+数字混合（如 "lucas55", "jack12132"）
+            if (name.match(/[a-zA-Z]+[0-9]+/)) score += 50;
+            
+            // 较长的名字更可能是玩家名
+            if (name.length >= 4) score += 20;
+            if (name.length >= 6) score += 10;
+            
+            // 排除URL和常见词汇
+            const excluded = ['http', 'https', 'www', 'com', 'avata', 'avatar', 
+                            'foxwq', 'jpg', 'gif', 'png', 'headimg', 'fX', 'Rj'];
+            if (excluded.includes(name)) score = -1;
+            
+            // 排除纯数字
+            if (name.match(/^[0-9]+$/)) score = -1;
+            
+            return { name, score };
+          }).filter(item => item.score > 0)
+            .sort((a, b) => b.score - a.score);
+          
+          for (const item of scoredNames) {
+            if (names.length >= 2) break;
+            if (!names.includes(item.name)) {
+              names.push(item.name);
+            }
+          }
         }
       }
       const uniqueNames = [...new Set(names)];
