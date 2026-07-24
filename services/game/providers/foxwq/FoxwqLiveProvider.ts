@@ -361,24 +361,28 @@ export class FoxwqLiveProvider extends BaseProvider {
   private extractPlayerNames(data: Uint8Array): [string, string] {
     const names: string[] = [];
     try {
-      // 查找玩家名字：protobuf field 3 (0x1a) length-delimited
-      // 玩家名字格式：0x1a <len> <name_bytes>
+      // 查找玩家名字：protobuf field 2 (0x12) 或 field 3 (0x1a) length-delimited
+      // field 2: 可能是英文用户名
+      // field 3: 可能是中文用户名
       for (let i = 0; i < data.length - 3; i++) {
-        if (data[i] === 0x1a) {
+        if (data[i] === 0x12 || data[i] === 0x1a) {
           const strLen = data[i + 1];
-          if (strLen !== undefined && 3 <= strLen && strLen <= 20 && i + 2 + strLen <= data.length) {
+          if (strLen !== undefined && 2 <= strLen && strLen <= 20 && i + 2 + strLen <= data.length) {
             try {
               const nameBytes = data.slice(i + 2, i + 2 + strLen);
               const name = this.uint8ArrayToString(nameBytes);
               
-              // 过滤条件：必须包含中文字符（玩家名字通常包含中文）
+              // 放宽过滤条件：允许中文或英文名字
               if (name && 
-                  name.match(/[\u4e00-\u9fff]/) &&
+                  name.length >= 2 &&
                   !name.startsWith('http') && 
                   !name.match(/^[\d.]+$/) && 
                   name !== 'avatar' &&
                   name !== 'foxwq' &&
-                  name !== 'com') {
+                  name !== 'com' &&
+                  name !== 'avata' &&
+                  name !== 'jpg' &&
+                  (name.match(/[\u4e00-\u9fff]/) || name.match(/[a-zA-Z]{2,}/))) {
                 names.push(name);
               }
             } catch {}
