@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Source maps
+*.map
+
+# Environment
+.env
+.env.local
+
+# Test coverage
+coverage/
+
+
+# Lock files (keep module locks for project memory)
+# infrastructure-*.lock files in .project-memory/locks/ are kept
+
+dist-web/
+
+# Project memory (moved to weiqi-ops)
+.project-memory/
+clients/desktop/dist-builder/

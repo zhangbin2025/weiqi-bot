@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>棋谱抓取 - 围棋智能助手</title>
+  <link rel="stylesheet" href="../shared/shell.css">
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon-180x180.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#667eea">
+</head>
+<body>
+  <div class="glass-container">
+    <header class="glass-header">
+      <h1 class="glass-title">🎯 棋谱抓取</h1>
+      <p class="glass-subtitle">粘贴分享链接，自动下载 SGF 棋谱</p>
+    </header>
+    <div class="glass-content">
+      <div id="page-root"></div>
+    </div>
+  </div>
+  <script src="../shared/error-catch.js"></script>
+  <script type="module" src="./index.ts"></script>
+</body>
+</html>

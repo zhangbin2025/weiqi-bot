@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>实战选点 - 围棋智能助手</title>
+  <link rel="stylesheet" href="../shared/shell.css">
+  <style>
+    /* 标签切换 */
+    .tabs {
+      display: flex;
+      background: rgba(255,255,255,0.15);
+      border-radius: 12px;
+      padding: 4px;
+      margin-bottom: 16px;
+    }
+    .tab {
+      flex: 1;
+      padding: 12px;
+      text-align: center;
+      color: rgba(255,255,255,0.8);
+      cursor: pointer;
+      border-radius: 10px;
+      transition: all 0.3s ease;
+      font-size: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .tab:hover { color: white; }
+    .tab.active {
+      background: white;
+      color: #667eea;
+      font-weight: 500;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* 进度条 */
+    .progress-bar-bg {
+      height: 8px;
+      background: #e0e0e0;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border-radius: 4px;
+      transition: width 0.3s ease;
+      width: 0%;
+    }
+    .progress-text {
+      font-size: 0.9em;
+      color: #666;
+      text-align: center;
+    }
+
+    /* 三列统计区（参考 weiqi-page 实战选点卡片） */
+    .triple-stats {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .stat-item {
+      flex: 1;
+      text-align: center;
+      padding: 20px 4px;
+      border-radius: 10px;
+    }
+    .stat-item .emoji {
+      font-size: 1.8em;
+      display: block;
+      margin-bottom: 6px;
+    }
+    .stat-item .count {
+      font-size: 2em;
+      font-weight: 700;
+      color: #333;
+      line-height: 1;
+      margin: 6px 0;
+      display: block;
+    }
+    .stat-item .name {
+      font-size: 0.8em;
+      color: #666;
+      margin-top: 4px;
+      display: block;
+    }
+    /* 选点卡片配色 */
+    .stat-item.layout { background: #e3f2fd; }
+    .stat-item.middle { background: #e8f5e9; }
+    .stat-item.endgame { background: #fff3e0; }
+
+    /* 等级标签行 */
+    .level-row {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      font-size: 0.8em;
+      flex-wrap: wrap;
+    }
+    .level-tag {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 0.85em;
+      font-weight: 500;
+    }
+    .level-tag.pro { background: #fce4ec; color: #c62828; }
+    .level-tag.high { background: #fff3e0; color: #ef6c00; }
+    .level-tag.normal { background: #e8f5e9; color: #2e7d32; }
+
+    /* 卡片可点击 */
+    .card-link {
+      text-decoration: none;
+      color: inherit;
+      display: block;
+    }
+    .card-link:hover .card {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .card-icon {
+      font-size: 1.5em;
+      flex-shrink: 0;
+    }
+    .card-header h2 {
+      color: #333;
+      font-size: 1.2em;
+      margin: 0;
+      font-weight: 600;
+    }
+
+    /* 表单 */
+    select {
+      width: 100%;
+      padding: 12px 16px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 16px;
+      margin-bottom: 12px;
+      background: white;
+    }
+    select:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+
+    /* 答题面板 */
+    #decision-root { margin: 8px 0; }
+    .decision-panel { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+    .decision-buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    
+    .btn { width: 44px; height: 44px; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; background: #f0f0f0; color: #333; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn:active:not(:disabled) { transform: scale(0.95); }
+    .btn-primary { background: #667eea; color: white; width: auto; padding: 8px 24px; }
+    .btn-option { width: 60px; height: 60px; font-size: 20px; border-radius: 12px; }
+    .btn-option.correct { background: #4CAF50; color: white; }
+    .btn-option.wrong { background: #F44336; color: white; }
+    .btn-option.neutral { background: #f0f0f0; color: #333; }
+    
+    /* 变化图浏览器 */
+    #variation-root { margin: 8px 0; }
+    .variation-viewer { background: #f8f9fa; border-radius: 8px; padding: 12px; }
+    .variation-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .variation-title { font-weight: bold; color: #667eea; }
+    .btn-close { background: transparent; border: none; font-size: 18px; cursor: pointer; color: #666; }
+    .variation-progress { text-align: center; font-size: 14px; color: #666; margin: 8px 0; }
+    .variation-controls { display: flex; justify-content: center; gap: 12px; }
+    .btn-nav { width: 40px; height: 40px; }
+    
+    /* 试下模式 */
+    #trial-panel { display: none; }
+    #trial-panel.active { display: block; margin: 8px 0; padding: 12px; background: #e8f5e9; border-radius: 8px; border: 1px solid #4caf50; }
+    .trial-controls { display: flex; justify-content: center; gap: 24px; }
+    .btn-small { width: auto; padding: 6px 16px; font-size: 14px; }
+    .btn-danger { background: #ff6b6b; color: white; }
+    .hidden { display: none !important; }
+
+    /* 历史记录 */
+    .history-list { display: flex; flex-direction: column; gap: 12px; }
+    .history-item { background: white; border-radius: 12px; padding: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); cursor: pointer; transition: transform 0.2s; }
+    .history-item:hover { transform: translateY(-2px); }
+    .history-header { display: flex; justify-content: space-between; align-items: center; }
+    .history-title { font-size: 1em; font-weight: 600; color: #333; display: flex; align-items: center; gap: 6px; }
+    .history-source { font-size: 0.75em; padding: 2px 10px; background: rgba(102,126,234,0.15); color: #667eea; border-radius: 10px; font-weight: 500; }
+    .history-meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 0.85em; color: #666; margin-top: 8px; }
+    .meta-phase { display: flex; align-items: center; gap: 3px; }
+    .meta-levels { display: flex; gap: 8px; margin-left: auto; }
+    .history-stats { display: flex; gap: 16px; padding-top: 12px; border-top: 1px solid #eee; }
+    .history-stat { display: flex; align-items: center; gap: 4px; font-size: 0.9em; color: #666; }
+
+    /* 图标按钮 */
+    .icon-btn { background: #f0f0f0; border: none; color: #666; cursor: pointer; border-radius: 8px; transition: background 0.2s; padding: 6px 12px; font-size: 0.85em; }
+    .icon-btn:hover { background: #e0e0e0; }
+
+    /* 空状态 */
+    .empty-state { text-align: center; padding: 40px 20px; color: #888; }
+    .empty-state-icon { font-size: 3em; margin-bottom: 12px; opacity: 0.5; }
+  </style>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon-180x180.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#667eea">
+</head>
+<body>
+  <div class="glass-container">
+    <header class="glass-header">
+      <h1 class="glass-title">🎯 实战选点</h1>
+      <p class="glass-subtitle">从棋谱中学习实战选点技巧</p>
+    </header>
+  
+    <div class="glass-content">
+  
+    <!-- 标签切换 -->
+    <div class="tabs">
+      <div class="tab active" data-tab="generate">
+        <span>🎲</span>
+        <span>生成题目</span>
+      </div>
+      <div class="tab" data-tab="history">
+        <span>📋</span>
+        <span>历史</span>
+      </div>
+    </div>
+
+    <!-- 生成题目 -->
+    <div id="generate-tab" class="tab-content active">
+      <div class="card">
+        <h2>🎲 生成实战选点题</h2>
+        <div data-ui="select"
+             id="source-select"
+             data-value="foxwq"
+             data-options='[{"value":"foxwq","label":"野狐围棋"}]'></div>
+        <div data-ui="select"
+             id="date-select"
+             data-value="1"
+             data-options='[{"value":"0","label":"今天"},{"value":"1","label":"昨天"},{"value":"","label":"全部"}]'></div>
+        <div data-ui="select"
+             id="limit-select"
+             data-value="50"
+             data-options='[{"value":"10","label":"最近 10 盘"},{"value":"20","label":"最近 20 盘"},{"value":"50","label":"最近 50 盘"}]'></div>
+        <button id="generate-btn">开始生成</button>
+      </div>
+    </div>
+
+    <!-- 历史记录 -->
+    <div id="history-tab" class="tab-content">
+      <div class="card">
+        <h2>📋 历史记录 <button class="icon-btn" id="clear-btn" style="width:auto;margin-left:auto;">🗑️ 清空</button></h2>
+        <div id="history-list" class="history-list">
+          <div class="empty-state">
+            <div class="empty-state-icon">📋</div>
+            <div>暂无历史记录</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 进度显示 -->
+    <div id="progress-card" class="card" style="display: none;">
+      <div class="progress-bar-bg">
+        <div id="progress-bar" class="progress-bar-fill"></div>
+      </div>
+      <div id="progress-text" class="progress-text">准备中...</div>
+    </div>
+
+    <!-- 统计卡片（参考 weiqi-page 实战选点卡片） -->
+    <div id="stats-section" style="display:none;">
+      <a href="#" class="card-link" id="stats-card-link">
+        <div class="card stats-card">
+          <div class="card-header">
+            <div class="card-icon">🎯</div>
+            <h2>实战选点</h2>
+          </div>
+          <!-- 三列阶段统计 -->
+          <div class="triple-stats">
+            <div class="stat-item layout">
+              <span class="emoji">🌅</span>
+              <span class="count" id="stat-layout">0</span>
+              <span class="name">布局</span>
+            </div>
+            <div class="stat-item middle">
+              <span class="emoji">⚔️</span>
+              <span class="count" id="stat-middle">0</span>
+              <span class="name">中盘</span>
+            </div>
+            <div class="stat-item endgame">
+              <span class="emoji">🔚</span>
+              <span class="count" id="stat-endgame">0</span>
+              <span class="name">官子</span>
+            </div>
+          </div>
+          <!-- 三色等级标签 -->
+          <div class="level-row" id="stat-levels">
+            <span class="level-tag pro">职业 0</span>
+            <span class="level-tag high">高段 0</span>
+            <span class="level-tag normal">普通 0</span>
+          </div>
+        </div>
+      </a>
+    </div>
+
+    <!-- 隐藏的容器，用于WebBootstrap初始化 -->
+    <div id="page-root" style="display:none;"></div>
+
+    <footer><p>围棋智能助手 &copy; 2026</p></footer>
+    </div>
+  </div>
+
+  <script src="../shared/error-catch.js"></script>
+  <script type="module" src="./index.ts"></script>
+</body>
+</html>

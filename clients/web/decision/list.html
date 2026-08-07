@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>题目列表 - 实战选点</title>
+  <link rel="stylesheet" href="../shared/shell.css">
+  <style>
+    .source-group {
+      background: rgba(255,255,255,0.9);
+      border-radius: 8px;
+      margin-bottom: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      overflow: hidden;
+    }
+    .source-header {
+      background: #f8f9fa;
+      padding: 12px 15px;
+      font-weight: bold;
+      color: #555;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .source-header-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .source-toggle { font-size: 0.8em; color: #999; }
+    .icon-btn {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      font-size: 1.2em;
+      padding: 4px;
+      transition: transform 0.2s ease;
+    }
+    .icon-btn:hover {
+      transform: scale(1.1);
+    }
+    .btn-small {
+      padding: 4px 12px;
+      font-size: 0.85em;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      background: #fff;
+      color: #666;
+    }
+    .btn-small:hover {
+      background: #e0e0e0;
+    }
+    .btn-clear-visited {
+      background: #fff3e0;
+      color: #e65100;
+    }
+    .btn-clear-visited:hover {
+      background: #ffe0b2;
+    }
+    .quiz-list {
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .quiz-card-wrapper { display: block; cursor: pointer; }
+    .quiz-card {
+      padding: 14px;
+      background: #fff;
+      border: 1px solid #eee;
+      border-radius: 10px;
+      transition: all 0.2s ease;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+      user-select: none;
+      -webkit-user-select: none;
+      position: relative; /* 为圆点定位 */
+    }
+    .quiz-card-wrapper:hover .quiz-card {
+      background: #fafafa;
+      border-color: #ddd;
+      transform: translateY(-1px);
+      box-shadow: 0 3px 8px rgba(0,0,0,0.08);
+    }
+    /* 已读标记：左上角小勾号 */
+    .quiz-card.visited::before {
+      content: '✓';
+      position: absolute;
+      left: 4px;
+      top: 4px;
+      font-size: 8px;
+      color: #999;
+      background: #f0f0f0;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    }
+    .quiz-header {
+      display: flex;
+      align-items: center;
+      margin-bottom: 6px;
+      width: 100%;
+      overflow: hidden;
+    }
+    .players {
+      font-weight: 600;
+      font-size: 1.05em;
+      color: #333;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .vs { color:#999; font-weight: normal; }
+    .rank { color:#999; font-weight: normal; font-size: 0.85em; }
+    .stone-icon {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .stone-black {
+      background: radial-gradient(circle at 30% 30%, #666, #000);
+      box-shadow: 1px 1px 3px rgba(0,0,0,0.3);
+    }
+    .stone-white {
+      background: radial-gradient(circle at 30% 30%, #fff, #ddd);
+      border: 1px solid #ccc;
+      box-shadow: 1px 1px 3px rgba(0,0,0,0.2);
+    }
+    .event {
+      font-size: 0.85em;
+      color: #888;
+      margin-bottom: 10px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 16px;
+      font-size: 0.85em;
+      color: #666;
+    }
+    .stats .count { font-weight: 600; color: #1976d2; }
+    .stats .phase { color: #888; }
+    .stats .level {
+      color: #fff;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+      font-size: 0.9em;
+    }
+    .stats .level[data-level="职业"] { background: #E57373; }
+    .stats .level[data-level="高段"] { background: #FFB74D; }
+    .stats .level[data-level="普通"] { background: #81C784; }
+    .quiz-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid #f0f0f0;
+    }
+    .result {
+      font-size: 0.9em;
+      color: #666;
+      background: #f0f0f0;
+      padding: 3px 10px;
+      border-radius: 4px;
+    }
+    .game-btn {
+      padding: 5px 12px;
+      background: #e8f5e9;
+      color: #2e7d32;
+      border-radius: 12px;
+      font-size: 0.85em;
+      white-space: nowrap;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .game-btn:hover { background: #c8e6c9; }
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: #888;
+    }
+    .empty-state-icon {
+      font-size: 3em;
+      margin-bottom: 12px;
+      opacity: 0.5;
+    }
+  </style>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon-180x180.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#667eea">
+</head>
+<body>
+  <div class="glass-container">
+    <header class="glass-header">
+      <h1 class="glass-title">🎯 实战选点</h1>
+    </header>
+
+    <div class="glass-content">
+      <div id="problem-list">
+      <div class="empty-state">
+        <div class="empty-state-icon">📝</div>
+        <div>加载中...</div>
+      </div>
+    </div>
+
+    <div id="page-root" style="display:none;"></div>
+
+    <footer><p>围棋智能助手 &copy; 2026</p></footer>
+    </div>
+  </div>
+
+  <script src="../shared/error-catch.js"></script>
+  <script type="module" src="./list.ts"></script>
+</body>
+</html>

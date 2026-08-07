@@ -1,0 +1,602 @@
+/**
+ * AI 自对弈页面样式
+ * @description 包含页面布局、标题栏、棋盘、工具栏、状态栏、弹框等样式
+ */
+
+/* ===== 基础样式 ===== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 0;
+  touch-action: manipulation;
+}
+
+.container {
+  background: white;
+  width: 100%;
+  max-width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* ===== 渐变标题栏 ===== */
+.page-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 12px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  flex-shrink: 0;
+}
+
+.page-header .header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.page-header .page-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.page-header .page-subtitle {
+  font-size: 12px;
+  opacity: 0.85;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 18px;
+}
+
+.page-header .header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ===== 棋子小图标 ===== */
+.stone-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.stone-dot.black {
+  background: radial-gradient(circle at 30% 30%, #555, #000);
+}
+
+.stone-dot.white {
+  background: radial-gradient(circle at 30% 30%, #fff, #ccc);
+  border: 1px solid #ddd;
+}
+
+/* ===== 手数显示 ===== */
+.move-count {
+  font-size: 14px;
+  color: white;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 2px 10px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+.move-count strong {
+  font-weight: 600;
+}
+
+/* ===== 三点菜单按钮 ===== */
+.menu-btn {
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  font-size: 20px;
+  cursor: pointer;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.menu-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* ===== 下拉菜单 ===== */
+.dropdown {
+  position: relative;
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  min-width: 180px;
+  display: none;
+  z-index: 1000;
+  overflow: hidden;
+}
+
+.dropdown-menu.visible {
+  display: block;
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  color: #333;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s;
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+}
+
+.dropdown-item:hover {
+  background: #f5f5f5;
+}
+
+.dropdown-item.danger {
+  color: #e53935;
+}
+
+.dropdown-item.danger:hover {
+  background: #ffebee;
+}
+
+.dropdown-divider {
+  height: 1px;
+  background: #e8e8e8;
+  margin: 4px 0;
+}
+
+/* ===== 后端信息项 ===== */
+.backend-info-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  color: #666;
+  font-size: 13px;
+  background: #f9f9f9;
+}
+
+.backend-info-item .backend-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.backend-info-item .backend-status {
+  font-weight: 500;
+}
+
+/* ===== 棋盘区域 ===== */
+.board-section {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 0;
+  background: white;
+}
+
+#page-root {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+#page-root canvas {
+  max-width: 100%;
+  height: auto;
+}
+
+/* ===== 工具栏 ===== */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background: white;
+  border-top: 1px solid #e8e8e8;
+}
+
+.btn-group {
+  display: flex;
+  gap: 12px;
+}
+
+/* ===== 统计信息（手数、提子） ===== */
+.stats-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: #666;
+}
+
+.stats-info .move-count {
+  font-size: 12px;
+  padding: 2px 8px;
+  background: rgba(102, 126, 234, 0.1);
+  color: #667eea;
+  border-radius: 12px;
+  font-weight: 500;
+}
+
+.stats-info .move-count strong {
+  font-weight: 600;
+  color: #667eea;
+}
+
+.stats-info .capture-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stats-info .capture-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.stats-info .capture-item strong {
+  font-weight: 600;
+  color: #333;
+}
+
+/* ===== SVG 图标按钮 ===== */
+.icon-btn {
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: #555;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.icon-btn svg {
+  width: 24px;
+  height: 24px;
+  stroke: currentColor;
+  stroke-width: 2;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon-btn:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
+.icon-btn:active:not(:disabled) {
+  transform: scale(0.92);
+  color: #333;
+}
+
+.icon-btn:hover:not(:disabled) {
+  background: #f5f5f5;
+}
+
+.icon-btn.primary {
+  color: #667eea;
+}
+
+.icon-btn.primary:hover:not(:disabled) {
+  background: #f0f4ff;
+}
+
+.icon-btn.danger {
+  color: #ff6b6b;
+}
+
+.icon-btn.danger:hover:not(:disabled) {
+  background: #fff5f5;
+}
+
+/* ===== 状态栏 ===== */
+.status-bar {
+  text-align: center;
+  padding: 10px;
+  background: #f0f4ff;
+  font-size: 14px;
+  color: #667eea;
+}
+
+/* ===== 加载覆盖层 ===== */
+#loadingOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.95);
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.loading-spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #667eea;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 20px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.loading-text {
+  font-size: 16px;
+  color: #333;
+  font-weight: 500;
+}
+
+.loading-progress {
+  margin-top: 15px;
+  font-size: 14px;
+  color: #999;
+}
+
+/* ===== 弹框通用样式 ===== */
+
+
+
+.form-group {
+  margin-bottom: 12px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 13px;
+  color: #666;
+  margin-bottom: 6px;
+}
+
+.form-group select {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+  background: white;
+}
+
+.form-group input {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.dialog-btn {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 8px;
+}
+
+.dialog-btn.primary {
+  background: #667eea;
+  color: white;
+}
+
+.dialog-btn.primary:hover {
+  background: #5568d3;
+}
+
+.dialog-btn.secondary {
+  background: #f5f5f5;
+  color: #333;
+}
+
+.dialog-btn.secondary:hover {
+  background: #e8e8e8;
+}
+
+/* ===== 形势判断弹框 ===== */
+.situation-content {
+  padding: 16px 0;
+}
+
+.situation-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid #eee;
+}
+
+.situation-row:last-child {
+  border-bottom: none;
+}
+
+.situation-label {
+  font-size: 14px;
+  color: #666;
+}
+
+.situation-value {
+  font-size: 20px;
+  font-weight: 600;
+  color: #333;
+}
+
+.situation-note {
+  font-size: 12px;
+  color: #999;
+  margin-top: 8px;
+  text-align: center;
+}
+
+/* ===== 结束弹窗 ===== */
+.game-end-dialog {
+  max-width: 320px;
+}
+
+.game-result {
+  text-align: center;
+  padding: 20px 0;
+  border-bottom: 1px solid #eee;
+  margin-bottom: 16px;
+}
+
+.result-winner {
+  font-size: 24px;
+  font-weight: 700;
+  color: #333;
+  margin-bottom: 4px;
+}
+
+.result-detail {
+  font-size: 16px;
+  color: #667eea;
+  font-weight: 500;
+}
+
+.game-end-info {
+  padding: 8px 0;
+  margin-bottom: 16px;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  font-size: 14px;
+  color: #666;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.info-row:last-child {
+  border-bottom: none;
+}
+
+.dialog-btn-group {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.dialog-btn-group .dialog-btn {
+  flex: 1;
+  margin-top: 0;
+}
+
+/* ===== 确认对话框 ===== */
+.confirm-message {
+  font-size: 14px;
+  color: #666;
+  text-align: center;
+  padding: 8px 0;
+  line-height: 1.6;
+}
+
+/* ===== 响应式 - 小屏幕 ===== */
+@media (max-width: 599px) {
+  .container {
+    padding: 0;
+  }
+  
+  .board-section {
+    padding: 4px;
+  }
+  
+  .toolbar {
+    padding: 8px 12px;
+  }
+  
+  .btn-group {
+    gap: 8px;
+  }
+  
+  .icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+  
+  .icon-btn svg {
+    width: 20px;
+    height: 20px;
+  }
+  
+  .status-bar {
+    margin: 4px 8px;
+    padding: 8px 12px;
+  }
+}
+
+/* ===== 响应式 - 大屏幕 ===== */
+@media (min-width: 600px) {
+  body {
+    padding: 8px;
+  }
+  
+  .container {
+    max-width: 500px;
+    padding: 16px;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    min-height: auto;
+  }
+  
+  .board-section {
+    margin-top: 16px;
+    padding: 0;
+  }
+}

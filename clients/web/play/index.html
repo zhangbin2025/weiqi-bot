@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no, viewport-fit=cover">
+  <title>围棋对弈</title>
+  <link rel="stylesheet" href="../shared/shell.css">
+  <style>
+    /* play 特有样式：棋子 logo */
+    .header-logo {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 8px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .header-logo .stone {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      display: inline-block;
+      animation: float 3s ease-in-out infinite;
+    }
+
+    .header-logo .stone:nth-child(1) { animation-delay: 0s; }
+    .header-logo .stone:nth-child(3) { animation-delay: 0.5s; }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-3px); }
+    }
+
+    .stone-black {
+      background: radial-gradient(circle at 30% 30%, #4a4a4a, #1a1a1a);
+      box-shadow: 2px 2px 8px rgba(0,0,0,0.5), inset -1px -1px 3px rgba(0,0,0,0.3);
+    }
+
+    .stone-white {
+      background: radial-gradient(circle at 30% 30%, #ffffff, #d0d0d0);
+      box-shadow: 2px 2px 8px rgba(0,0,0,0.3), inset -1px -1px 3px rgba(255,255,255,0.5);
+    }
+
+    /* 响应式 */
+    @media (max-width: 360px) {
+      .glass-title {
+        font-size: 1.7em;
+      }
+    }
+
+    /* 玻璃拟态卡片 */
+    .nav-btn {
+      display: flex;
+      align-items: center;
+      padding: 14px 16px;
+      background: rgba(255,255,255,0.15);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 16px;
+      margin-bottom: 10px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+      text-decoration: none;
+      color: white;
+      animation: fadeInUp 0.5s ease-out backwards;
+    }
+
+    .nav-btn:nth-child(1) { animation-delay: 0.1s; }
+    .nav-btn:nth-child(2) { animation-delay: 0.15s; }
+    .nav-btn:nth-child(3) { animation-delay: 0.2s; }
+
+    .nav-btn::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 100%);
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .nav-btn:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 8px 25px rgba(0,0,0,0.2);
+      border-color: rgba(255,255,255,0.3);
+    }
+
+    .nav-btn:hover::before {
+      opacity: 1;
+    }
+
+    .nav-btn:active {
+      transform: translateY(-1px);
+    }
+
+    .nav-btn .icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.6em;
+      background: rgba(255,255,255,0.2);
+      backdrop-filter: blur(5px);
+      flex-shrink: 0;
+      position: relative;
+      z-index: 1;
+    }
+
+    .nav-btn .content {
+      flex: 1;
+      margin-left: 14px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .nav-btn .title {
+      font-size: 16px;
+      font-weight: 600;
+      color: white;
+      margin-bottom: 3px;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    }
+
+    .nav-btn .desc {
+      font-size: 12px;
+      color: rgba(255,255,255,0.8);
+    }
+
+    .nav-btn .arrow {
+      font-size: 22px;
+      color: rgba(255,255,255,0.6);
+      margin-left: 8px;
+      transition: transform 0.3s, color 0.3s;
+      position: relative;
+      z-index: 1;
+    }
+
+    .nav-btn:hover .arrow {
+      transform: translateX(4px);
+      color: white;
+    }
+
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* 涟漪动画 */
+    .ripple {
+      position: absolute;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.4);
+      transform: scale(0);
+      animation: ripple 0.6s linear;
+      pointer-events: none;
+    }
+
+    @keyframes ripple {
+      to { transform: scale(4); opacity: 0; }
+    }
+
+    /* 响应式 */
+    @media (max-width: 360px) {
+      .glass-title {
+        font-size: 1.7em;
+      }
+    }
+  </style>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon-180x180.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#667eea">
+</head>
+<body>
+  <div class="glass-container">
+    <header class="glass-header">
+      <div class="header-logo">
+        <span class="stone stone-black"></span>
+        <h1 class="glass-title">围棋对弈</h1>
+        <span class="stone stone-white"></span>
+      </div>
+      <p class="glass-subtitle" id="greeting">选择对弈模式开始下棋</p>
+    </header>
+
+    <div class="glass-content">
+      <a href="hh.html" class="nav-btn">
+        <div class="icon">👥</div>
+        <div class="content">
+          <div class="title">真人对弈</div>
+          <div class="desc">创建房间邀请好友，P2P 直连实时对弈</div>
+        </div>
+        <div class="arrow">›</div>
+      </a>
+
+      <a href="hm.html" class="nav-btn">
+        <div class="icon">🎯</div>
+        <div class="content">
+          <div class="title">人机对弈</div>
+          <div class="desc">选择执黑执白，与 KataGo AI 对弈</div>
+        </div>
+        <div class="arrow">›</div>
+      </a>
+
+      <a href="mm.html" class="nav-btn">
+        <div class="icon">🤖</div>
+        <div class="content">
+          <div class="title">AI 自对弈</div>
+          <div class="desc">观看 AI 实战，学习 AI 棋路</div>
+        </div>
+        <div class="arrow">›</div>
+      </a>
+
+      <a href="../replay/list.html?category=play&key=all" class="nav-btn">
+        <div class="icon">📋</div>
+        <div class="content">
+          <div class="title">历史对局</div>
+          <div class="desc">查看过往对局记录与复盘</div>
+        </div>
+        <div class="arrow">›</div>
+      </a>
+    </div>
+  </div>
+
+  <script src="../shared/error-catch.js"></script>
+  <script type="module" src="./index.ts"></script>
+  <script>
+    // 动态问候语
+    const hour = new Date().getHours();
+    let greeting = '准备好对弈了吗？';
+    if (hour >= 5 && hour < 12) greeting = '早上好，来一局提神的对弈吧！';
+    else if (hour >= 12 && hour < 18) greeting = '下午好，休息片刻来下棋吧！';
+    else if (hour >= 18 || hour < 5) greeting = '晚上好，夜深人静适合深思棋局';
+    document.getElementById('greeting').textContent = greeting;
+
+    // 涟漪动画
+    document.addEventListener('click', function(e) {
+      const target = e.target.closest('.nav-btn, .history-btn');
+      if (!target) return;
+
+      const ripple = document.createElement('span');
+      ripple.classList.add('ripple');
+      const rect = target.getBoundingClientRect();
+      const size = Math.max(rect.width, rect.height);
+      ripple.style.width = ripple.style.height = size + 'px';
+      ripple.style.left = (e.clientX - rect.left - size/2) + 'px';
+      ripple.style.top = (e.clientY - rect.top - size/2) + 'px';
+      target.style.position = 'relative';
+      target.appendChild(ripple);
+      setTimeout(() => ripple.remove(), 600);
+    });
+  </script>
+</body>
+</html>

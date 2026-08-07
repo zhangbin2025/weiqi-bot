@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>棋谱列表 - 围棋智能助手</title>
+    <link rel="stylesheet" href="../shared/shell.css">
+    <style>
+        /* replay 特有样式：白色面板 */
+        .source-group {
+            background: rgba(255,255,255,0.9);
+            border-radius: 8px;
+            margin-bottom: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            overflow: hidden;
+        }
+        .source-header {
+            background: #f8f9fa;
+            padding: 12px 15px;
+            font-weight: bold;
+            color: #555;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .source-header-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .icon-btn {
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            font-size: 1.2em;
+            padding: 4px;
+            transition: transform 0.2s ease;
+            line-height: 1;
+        }
+        .icon-btn:hover { transform: scale(1.1); }
+
+        /* 棋谱列表 */
+        .game-list {
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .game-card-wrapper { display: block; cursor: pointer; }
+        .game-card {
+            padding: 14px;
+            background: #fff;
+            border: 1px solid #eee;
+            border-radius: 10px;
+            transition: all 0.2s ease;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+            user-select: none;
+            -webkit-user-select: none;
+            position: relative;
+        }
+        .game-card-wrapper:hover .game-card {
+            background: #fafafa;
+            border-color: #ddd;
+            transform: translateY(-1px);
+            box-shadow: 0 3px 8px rgba(0,0,0,0.08);
+        }
+        /* 已读标记：左上角小勾号 */
+        .game-card-wrapper.viewed .game-card::before {
+            content: '✓';
+            position: absolute;
+            left: 4px;
+            top: 4px;
+            font-size: 8px;
+            color: #999;
+            background: #f0f0f0;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+
+        /* 棋子图标 */
+        .stone-icon {
+            width: 14px; height: 14px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            display: inline-block;
+            margin-right: 4px;
+            vertical-align: middle;
+        }
+        .stone-black { background: radial-gradient(circle at 30% 30%, #666, #000); box-shadow: 1px 1px 3px rgba(0,0,0,0.3); }
+        .stone-white { background: radial-gradient(circle at 30% 30%, #fff, #ddd); border: 1px solid #ccc; box-shadow: 1px 1px 3px rgba(0,0,0,0.2); }
+
+        /* 卡片头部：玩家 + 结果 */
+        .game-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 6px;
+            width: 100%;
+            overflow: hidden;
+        }
+        .game-players {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: 600;
+            font-size: 1.05em;
+            color: #333;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .player-self { color: #1976d2; font-weight: 600; }
+        .player-vs { color: #999; font-weight: normal; }
+        .game-result {
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+        .result-win { background: #e8f5e9; color: #388e3c; }
+        .result-lose { background: #ffebee; color: #c62828; }
+
+        /* 卡片底部：日期 + 操作 */
+        .game-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #f0f0f0;
+            font-size: 0.85em;
+            color: #888;
+        }
+        .game-btn {
+            padding: 5px 12px;
+            background: #e8f5e9;
+            color: #2e7d32;
+            border-radius: 12px;
+            font-size: 0.85em;
+            white-space: nowrap;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .game-btn:hover { background: #c8e6c9; }
+
+        /* 空状态 */
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #888;
+        }
+        .empty-state-icon {
+            font-size: 3em;
+            margin-bottom: 12px;
+            opacity: 0.5;
+        }
+    </style>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon-180x180.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#667eea">
+</head>
+<body>
+    <div class="glass-container">
+        <header class="glass-header">
+            <h1 class="glass-title">📋 棋谱列表</h1>
+        </header>
+
+        <div class="glass-content">
+            <div id="page-root"></div>
+
+            <footer><p>围棋智能助手 &copy; 2026</p></footer>
+        </div>
+    </div>
+
+    <script src="../shared/error-catch.js"></script>
+    <script type="module" src="./list.ts"></script>
+</body>
+</html>

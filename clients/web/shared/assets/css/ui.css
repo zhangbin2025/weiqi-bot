@@ -1,0 +1,294 @@
+/* ============================================================
+ * shared/assets/css/ui.css
+ * 公共 UI 控件样式：Dialog、Select
+ * 命名复用 play/styles/*.css 中已有的 .dialog-overlay/.dialog/.dialog-btn 体系
+ * ============================================================ */
+
+/* ===== Dialog ===== */
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: none;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  animation: dialog-fade-in 0.18s ease-out;
+}
+.dialog-overlay.show {
+  display: flex;
+}
+
+.dialog {
+  background: #fff;
+  border-radius: 16px;
+  padding: 24px;
+  max-width: 340px;
+  width: 90%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  animation: dialog-zoom-in 0.18s ease-out;
+}
+
+.dialog-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  text-align: center;
+  color: #333;
+}
+
+.dialog-message {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #555;
+  margin-bottom: 20px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  text-align: center;
+}
+
+.dialog-btn-group {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+.dialog-btn-group .dialog-btn {
+  flex: 1;
+  margin-top: 0;
+}
+
+.dialog-btn {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 8px;
+}
+.dialog-btn.primary {
+  background: #667eea;
+  color: #fff;
+}
+.dialog-btn.primary:hover {
+  background: #5568d3;
+}
+.dialog-btn.secondary {
+  background: #f5f5f5;
+  color: #333;
+}
+.dialog-btn.secondary:hover {
+  background: #e8e8e8;
+}
+
+@keyframes dialog-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes dialog-zoom-in {
+  from { opacity: 0; transform: scale(0.92); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* ===== Select（自定义下拉） =====
+ * 升级流程：把原生 <select> 隐藏并保留作为数据源，
+ * 在同位置插入 .ui-select 包装层（按钮 + 弹出 panel）。
+ */
+.ui-select {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+  font-size: 14px;
+  font-family: inherit;
+  color: #333;
+  user-select: none;
+}
+
+.ui-select__trigger {
+  width: 100%;
+  padding: 10px 36px 10px 12px;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  text-align: left;
+  cursor: pointer;
+  position: relative;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  line-height: 1.4;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+}
+.ui-select__trigger:hover {
+  border-color: #b8c0ee;
+}
+.ui-select.is-open .ui-select__trigger,
+.ui-select__trigger:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.18);
+}
+.ui-select.is-disabled .ui-select__trigger {
+  background: #f5f5f5;
+  color: #999;
+  cursor: not-allowed;
+}
+
+.ui-select__label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #333;
+}
+.ui-select__label--placeholder {
+  color: #aaa;
+}
+
+.ui-select__empty {
+  padding: 14px;
+  text-align: center;
+  color: #999;
+  font-size: 13px;
+}
+
+.ui-select__arrow {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid #888;
+  border-bottom: 2px solid #888;
+  transform: translateY(-70%) rotate(45deg);
+  transition: transform 0.18s;
+  pointer-events: none;
+}
+.ui-select.is-open .ui-select__arrow {
+  transform: translateY(-30%) rotate(-135deg);
+}
+
+.ui-select__panel {
+  position: fixed;
+  min-width: 100px;
+  max-width: 400px;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  max-height: 260px;
+  overflow-y: auto;
+  z-index: 1100;
+  padding: 4px 0;
+  display: none;
+}
+.ui-select.is-open .ui-select__panel {
+  display: block;
+  animation: ui-select-pop 0.14s ease-out;
+}
+
+.ui-select__option {
+  padding: 10px 14px;
+  cursor: pointer;
+  line-height: 1.4;
+  transition: background 0.12s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.ui-select__option:hover,
+.ui-select__option.is-active {
+  background: #f0f3ff;
+}
+.ui-select__option.is-selected {
+  color: #667eea;
+  font-weight: 600;
+}
+.ui-select__option.is-selected::after {
+  content: '✓';
+  margin-left: auto;
+  color: #667eea;
+}
+.ui-select__option.is-disabled {
+  color: #bbb;
+  cursor: not-allowed;
+}
+
+@keyframes ui-select-pop {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ===== 状态栏安全区域适配 ===== */
+.page-header {
+  padding-top: calc(12px + env(safe-area-inset-top));
+}
+
+/* ===== 识别参数样式 ===== */
+.entity-list {
+  margin-top: 8px;
+  padding: 8px;
+  background: #f9f9f9;
+  border-radius: 4px;
+}
+
+.entity-item {
+  margin: 4px 0;
+  padding-left: 12px;
+  font-size: 14px;
+  color: #555;
+  /* 防止长参数值越过消息块边界 */
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-all;
+}
+
+
+/* ===== Slider 滑条控件 ===== */
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.slider-row input[type="range"] {
+  flex: 1;
+  height: 2px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: #e0e0e0;
+  border-radius: 1px;
+  outline: none;
+  cursor: pointer;
+}
+
+.slider-row input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #667eea;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(102,126,234,0.3);
+}
+
+.slider-row input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #667eea;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 1px 4px rgba(102,126,234,0.3);
+}
+
+.slider-num {
+  font-size: 14px;
+  font-weight: 600;
+  color: #667eea;
+  min-width: 45px;
+}

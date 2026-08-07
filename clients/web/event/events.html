@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>比赛列表 - 围棋智能助手</title>
+  <link rel="stylesheet" href="../shared/shell.css">
+  <style>
+    /* events 特有样式 */
+    
+    /* 覆盖容器宽度 */
+    .glass-content {
+      max-width: 100%;
+      padding: 0 12px 20px;
+    }
+    @media (min-width: 768px) {
+      .glass-content {
+        max-width: 800px;
+      }
+    }
+
+    /* 白色大面板 */
+    .event-list-group {
+      background: rgba(255,255,255,0.9);
+      border-radius: 8px;
+      margin-bottom: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      overflow: hidden;
+    }
+
+    /* ===== 面板头部 ===== */
+    .event-group-header {
+      background: #f8f9fa;
+      padding: 12px 15px;
+      font-weight: bold;
+      color: #555;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      justify-content: flex-start;
+      align-items: center;
+    }
+
+    /* ===== 筛选标签区域 ===== */
+    .filter-tabs {
+      display: flex;
+      gap: 6px;
+    }
+    .filter-tabs::-webkit-scrollbar { display: none; }
+
+    /* ===== 筛选按钮 ===== */
+    .filter-tab {
+      padding: 3px 8px;
+      font-size: 0.8em;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      background: #fff;
+      color: #666;
+      white-space: nowrap;
+    }
+    .filter-tab:hover {
+      background: #e0e0e0;
+    }
+    .filter-tab.active {
+      background: rgba(102,126,234,0.1);
+      color: #667eea;
+      font-weight: 600;
+    }
+    .filter-tab .count {
+      font-size: 0.75em;
+      opacity: 0.7;
+      font-weight: 400;
+      margin-left: 2px;
+    }
+    .filter-tab.active .count {
+      opacity: 0.9;
+      font-weight: 600;
+    }
+    .filter-tab .count {
+      font-size: 0.85em;
+      opacity: 0.7;
+      margin-left: 3px;
+      font-weight: 400;
+    }
+    .filter-tab.active .count {
+      opacity: 0.9;
+      font-weight: 600;
+    }
+
+    /* ===== 返回按钮 ===== */
+    .back-btn {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      font-size: 1.1em;
+      padding: 4px 6px;
+      transition: transform 0.2s ease;
+      color: #555;
+      flex-shrink: 0;
+    }
+    .back-btn:hover {
+      transform: scale(1.1);
+      color: #333;
+    }
+  </style>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon-180x180.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#667eea">
+</head>
+<body>
+  <div class="glass-container">
+    <header class="glass-header">
+      <h1 class="glass-title">🏆 比赛列表</h1>
+    </header>
+
+    <div class="glass-content">
+      <div class="event-list-group">
+        <div class="event-group-header">
+          <div class="filter-tabs" id="filter-tabs"></div>
+        </div>
+        <div id="page-root"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="../shared/error-catch.js"></script>
+  <script type="module" src="./events.ts"></script>
+</body>
+</html>

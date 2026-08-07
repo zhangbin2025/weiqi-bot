@@ -1,0 +1,56 @@
+{
+  "models": [
+    {
+      "id": "g170-b10c128",
+      "name": "KataGo b10c128",
+      "description": "10块128通道网络，较强棋力",
+      "url": "models/g170-b10c128.bin.gz",
+      "size": "10.6MB",
+      "sizeBytes": 11138987,
+      "version": "g170",
+      "blocks": 10,
+      "channels": 128,
+      "default": true,
+      "recommended": ["desktop", "advanced"],
+      "difficulty": ["hard"],
+      "features": {
+        "fastInference": false,
+        "lowMemory": false
+      },
+      "nativeModel": {
+        "url": "models/g170-b10c128.bin.gz",
+        "filename": "g170-b10c128.bin.gz",
+        "sizeBytes": 11138987
+      }
+    },
+    {
+      "id": "katago-small",
+      "name": "KataGo b6c96",
+      "description": "6块96通道网络，适合移动端和快速分析",
+      "url": "models/katago-small.bin.gz",
+      "size": "3.7MB",
+      "sizeBytes": 3879731,
+      "version": "g170",
+      "blocks": 6,
+      "channels": 96,
+      "default": false,
+      "recommended": ["mobile", "desktop", "beginner", "intermediate"],
+      "difficulty": ["easy", "medium", "hard"],
+      "features": {
+        "fastInference": true,
+        "lowMemory": true
+      },
+      "nativeModel": {
+        "url": "models/katago-small.bin.gz",
+        "filename": "katago-small.bin.gz",
+        "sizeBytes": 3879731
+      }
+    }
+  ],
+  "metadata": {
+    "version": "1.5.0",
+    "lastUpdated": "2026-06-29",
+    "source": "https://katagotraining.org/",
+    "note": "所有模型已内置，无需外部下载"
+  }
+}

@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no, viewport-fit=cover">
+  <title>围棋定式</title>
+  <link rel="stylesheet" href="../shared/shell.css">
+  <link rel="stylesheet" href="../shared/assets/css/joseki.css">
+  <style>
+    /* joseki 特有样式：棋子 logo */
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 8px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .header-logo .stone {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      display: inline-block;
+      animation: float 3s ease-in-out infinite;
+    }
+
+    .header-logo .stone:nth-child(1) { animation-delay: 0s; }
+    .header-logo .stone:nth-child(3) { animation-delay: 0.5s; }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-3px); }
+    }
+
+    .stone-black {
+      background: radial-gradient(circle at 30% 30%, #4a4a4a, #1a1a1a);
+      box-shadow: 2px 2px 8px rgba(0,0,0,0.5), inset -1px -1px 3px rgba(0,0,0,0.3);
+    }
+
+    .stone-white {
+      background: radial-gradient(circle at 30% 30%, #ffffff, #d0d0d0);
+      box-shadow: 2px 2px 8px rgba(0,0,0,0.3), inset -1px -1px 3px rgba(255,255,255,0.5);
+    }
+
+    /* joseki 特有样式：内容区域 */
+
+    /* 玻璃拟态卡片 */
+    .nav-btn {
+      display: flex;
+      align-items: center;
+      padding: 14px 16px;
+      background: rgba(255,255,255,0.15);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 16px;
+      margin-bottom: 10px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+      text-decoration: none;
+      color: white;
+      animation: fadeInUp 0.5s ease-out backwards;
+    }
+
+    .nav-btn:nth-child(1) { animation-delay: 0.1s; }
+    .nav-btn:nth-child(2) { animation-delay: 0.15s; }
+    .nav-btn:nth-child(3) { animation-delay: 0.2s; }
+
+    .nav-btn::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 100%);
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .nav-btn:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 8px 25px rgba(0,0,0,0.2);
+      border-color: rgba(255,255,255,0.3);
+    }
+
+    .nav-btn:hover::before {
+      opacity: 1;
+    }
+
+    .nav-btn:active {
+      transform: translateY(-1px);
+    }
+
+    .nav-btn .icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.6em;
+      background: rgba(255,255,255,0.2);
+      backdrop-filter: blur(5px);
+      flex-shrink: 0;
+      position: relative;
+      z-index: 1;
+    }
+
+    .nav-btn .content {
+      flex: 1;
+      margin-left: 14px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .nav-btn .title {
+      font-size: 16px;
+      font-weight: 600;
+      color: white;
+      margin-bottom: 3px;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    }
+
+    .nav-btn .desc {
+      font-size: 12px;
+      color: rgba(255,255,255,0.8);
+    }
+
+    .nav-btn .arrow {
+      font-size: 22px;
+      color: rgba(255,255,255,0.6);
+      margin-left: 8px;
+      transition: transform 0.3s, color 0.3s;
+      position: relative;
+      z-index: 1;
+    }
+
+    .nav-btn:hover .arrow {
+      transform: translateX(4px);
+      color: white;
+    }
+
+    .joseki-stats-bar {
+      text-align: center;
+      color: white;
+      padding: 16px;
+      font-size: 14px;
+      opacity: 0.9;
+    }
+
+    .joseki-stats-bar strong {
+      font-size: 1.2em;
+    }
+
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* 涟漪动画 */
+    .ripple {
+      position: absolute;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.4);
+      transform: scale(0);
+      animation: ripple 0.6s linear;
+      pointer-events: none;
+    }
+
+    @keyframes ripple {
+      to { transform: scale(4); opacity: 0; }
+    }
+
+    /* 响应式 */
+    @media (max-width: 360px) {
+      .glass-title {
+        font-size: 1.7em;
+      }
+    }
+  </style>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon-180x180.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#667eea">
+</head>
+<body>
+  <div class="glass-container">
+    <header class="glass-header">
+      <div class="header-logo">
+        <span class="stone stone-black"></span>
+        <h1 class="glass-title">围棋定式</h1>
+        <span class="stone stone-white"></span>
+      </div>
+      <p class="glass-subtitle">从AI实战中学习的定式库</p>
+    </header>
+
+    <div class="glass-content">
+      <a href="explore.html" class="nav-btn">
+        <div class="icon">🔍</div>
+        <div class="content">
+          <div class="title">定式探索</div>
+          <div class="desc">探索AI定式，收藏喜欢的变化</div>
+        </div>
+        <div class="arrow">›</div>
+      </a>
+
+      <a href="discover.html" class="nav-btn">
+        <div class="icon">📊</div>
+        <div class="content">
+          <div class="title">定式发现</div>
+          <div class="desc">分析棋谱，发现定式规律</div>
+        </div>
+        <div class="arrow">›</div>
+      </a>
+
+      <a href="quiz.html" class="nav-btn">
+        <div class="icon">🏆</div>
+        <div class="content">
+          <div class="title">定式挑战</div>
+          <div class="desc">学习挑战定式，记录挑战历史</div>
+        </div>
+        <div class="arrow">›</div>
+      </a>
+    </div>
+
+    <div class="joseki-stats-bar">
+      收录 <strong id="josekiCount">--</strong> 条定式
+    </div>
+  </div>
+
+  <script src="../shared/error-catch.js"></script>
+  <script type="module" src="./index.ts"></script>
+  <script>
+    // 涟漪动画
+    document.addEventListener('click', function(e) {
+      const target = e.target.closest('.nav-btn');
+      if (!target) return;
+
+      const ripple = document.createElement('span');
+      ripple.classList.add('ripple');
+      const rect = target.getBoundingClientRect();
+      const size = Math.max(rect.width, rect.height);
+      ripple.style.width = ripple.style.height = size + 'px';
+      ripple.style.left = (e.clientX - rect.left - size/2) + 'px';
+      ripple.style.top = (e.clientY - rect.top - size/2) + 'px';
+      target.style.position = 'relative';
+      target.appendChild(ripple);
+      setTimeout(() => ripple.remove(), 600);
+    });
+  </script>
+</body>
+</html>

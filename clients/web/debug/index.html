@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no, viewport-fit=cover">
+  <title>日志 - 围棋智能助手</title>
+  <link rel="stylesheet" href="../shared/shell.css">
+  <link rel="stylesheet" href="../shared/assets/css/ui.css">
+  <style>
+    /* 日志面板样式 */
+    .log-panel {
+      background: rgba(255,255,255,0.9);
+      border-radius: 8px;
+      margin-bottom: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      overflow: hidden;
+    }
+    
+    .log-header {
+      background: #f8f9fa;
+      padding: 12px 15px;
+      font-weight: bold;
+      color: #555;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .log-header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .log-count {
+      font-size: 14px;
+      color: #555;
+    }
+    
+    .log-header-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .icon-btn {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      font-size: 1.2em;
+      padding: 4px;
+      transition: transform 0.2s ease;
+      line-height: 1;
+    }
+    
+    .icon-btn:hover { transform: scale(1.1); }
+    
+    .log-list {
+      max-height: calc(100vh - 200px);
+      overflow-y: auto;
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      line-height: 1.4;
+      padding: 8px;
+    }
+    
+    .log-entry {
+      padding: 6px 8px;
+      margin-bottom: 2px;
+      border-radius: 4px;
+      background: #f9f9f9;
+      word-break: break-all;
+      border-left: 3px solid #ddd;
+    }
+    
+    .log-entry.error { border-left-color: #f44; background: #fff5f5; }
+    .log-entry.warn { border-left-color: #f80; background: #fffaf0; }
+    .log-entry.info { border-left-color: #08f; background: #f0f8ff; }
+    .log-entry.debug { border-left-color: #888; }
+    
+    .log-time { color: #999; }
+    .log-level { font-weight: bold; }
+    .log-level.error { color: #f44; }
+    .log-level.warn { color: #f80; }
+    .log-level.info { color: #08f; }
+    .log-level.debug { color: #888; }
+    .log-tag { color: #666; }
+    .log-message { color: #333; }
+    
+    .log-empty {
+      text-align: center;
+      padding: 40px 20px;
+      color: #999;
+      font-size: 14px;
+    }
+    
+    /* 确认对话框样式复用 ui.css */
+    .confirm-message {
+      text-align: center;
+      color: #666;
+      font-size: 14px;
+      margin-top: 12px;
+    }
+    
+    /* 筛选弹框样式 */
+    .filter-dialog {
+      max-width: 360px;
+    }
+    
+    .dialog-content {
+      padding: 16px 0;
+    }
+    
+    .filter-section {
+      margin-bottom: 16px;
+    }
+    
+    .filter-section:last-child {
+      margin-bottom: 0;
+    }
+    
+    .filter-label {
+      display: block;
+      font-weight: bold;
+      color: #333;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+    
+    .filter-levels {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    
+    .filter-checkbox {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      margin: 0;
+    }
+    
+    .filter-checkbox input[type="checkbox"] {
+      cursor: pointer;
+      margin: 0;
+      vertical-align: middle;
+    }
+    
+    .filter-checkbox-label {
+      color: #555;
+      line-height: 1;
+      vertical-align: middle;
+    }
+    
+    .filter-input {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    
+    .filter-input:focus {
+      outline: none;
+      border-color: #4a90e2;
+      box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.1);
+    }
+    
+    .dialog-btn-group {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+  </style>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon-180x180.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#667eea">
+</head>
+<body>
+  <div class="glass-container">
+    <header class="glass-header">
+      <h1 class="glass-title">📋 日志</h1>
+    </header>
+    <div class="glass-content">
+      <div id="page-root"></div>
+    </div>
+  </div>
+  
+  <script src="../shared/error-catch.js"></script>
+  <script type="module" src="./index.ts"></script>
+</body>
+</html>

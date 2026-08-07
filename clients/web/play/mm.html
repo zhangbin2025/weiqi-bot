@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>AI 自对弈</title>
+  <link rel="stylesheet" href="../shared/assets/css/ui.css">
+  <link rel="stylesheet" href="./styles/mm.css">
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon-180x180.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#667eea">
+</head>
+<body>
+  <div class="container">
+    <!-- 渐变标题栏 -->
+    <header class="page-header">
+      <div class="header-left">
+        <div class="page-title">
+          <span class="stone-dot black"></span>黑方 AI
+          <span style="opacity:0.6">vs</span>
+          <span class="stone-dot white"></span>白方 AI
+        </div>
+        <div class="page-subtitle" id="modelInfo">等待开始</div>
+      </div>
+      <div class="header-right">
+        <div class="dropdown">
+          <button class="menu-btn" id="menuBtn" title="菜单">⋮</button>
+          <div class="dropdown-menu" id="dropdownMenu">
+            <!-- 后端信息（显示在菜单顶部）-->
+            <div class="backend-info-item" id="backendInfoItem" style="display:none;">
+              <span class="backend-label">引擎</span>
+              <span class="backend-status" id="backendStatus">-</span>
+            </div>
+            <div class="dropdown-divider" id="backendDivider" style="display:none;"></div>
+            <div class="dropdown-item" id="menuSituationBtn" style="display:none;">
+              <svg viewBox="0 0 24 24" width="18" height="18">
+                <path d="M3 3v18h18" fill="none" stroke="currentColor" stroke-width="2"/>
+                <path d="M7 16l4-6 4 3 5-8" fill="none" stroke="currentColor" stroke-width="2"/>
+              </svg>
+              <span>形势判断</span>
+            </div>
+            <div class="dropdown-item danger" id="menuStopBtn" style="display:none;">
+              <svg viewBox="0 0 24 24" width="18" height="18">
+                <rect x="6" y="6" width="12" height="12" fill="currentColor"/>
+              </svg>
+              <span>结束对局</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+    
+    <!-- 棋盘区域 -->
+    <div class="board-section">
+      <div id="page-root"></div>
+    </div>
+    
+    <!-- 工具栏 -->
+    <div class="toolbar">
+      <div class="btn-group">
+        <button class="icon-btn" id="pauseBtn" title="暂停" disabled>
+          <svg viewBox="0 0 24 24" width="18" height="18">
+            <rect x="6" y="4" width="4" height="16" fill="currentColor"/>
+            <rect x="14" y="4" width="4" height="16" fill="currentColor"/>
+          </svg>
+        </button>
+      </div>
+      <div class="stats-info">
+        <span class="move-count">第 <strong id="moveCount">0</strong> 手</span>
+        <span class="capture-info">
+          <span class="capture-item"><span class="stone-dot black"></span>提<strong id="blackCaptures">0</strong></span>
+          <span class="capture-item"><span class="stone-dot white"></span>提<strong id="whiteCaptures">0</strong></span>
+        </span>
+      </div>
+    </div>
+    
+    <!-- 状态栏 -->
+    <div class="status-bar" id="statusBar">等待开始...</div>
+  </div>
+  
+  <!-- 弹框容器 -->
+  <div id="dialogContainer"></div>
+  
+  <!-- 加载覆盖层 -->
+  <div id="loadingOverlay">
+    <div class="loading-text" id="loadingText">正在加载模型...</div>
+    <div class="loading-progress" id="loadingProgress">准备下载...</div>
+  </div>
+  
+  <!-- 形势判断弹框 -->
+  <div class="dialog-overlay" id="situationDialog" style="display:none;">
+    <div class="dialog">
+      <div class="dialog-title">📊 形势判断</div>
+      <div class="situation-content">
+        <div class="situation-row">
+          <span class="situation-label">黑方胜率</span>
+          <span class="situation-value" id="winRate">--</span>
+        </div>
+        <div class="situation-row">
+          <span class="situation-label">目差</span>
+          <span class="situation-value" id="scoreDiff">--</span>
+        </div>
+        <div class="situation-note" id="situationNote"></div>
+      </div>
+      <button class="dialog-btn secondary" id="closeSituationBtn">关闭</button>
+    </div>
+  </div>
+  
+  <!-- 确认对话框 -->
+  <div class="dialog-overlay" id="confirmDialog" style="display:none;">
+    <div class="dialog">
+      <div class="dialog-title" id="confirmTitle">确认</div>
+      <div class="confirm-message" id="confirmMessage"></div>
+      <div class="dialog-btn-group">
+        <button class="dialog-btn secondary" id="confirmCancelBtn">取消</button>
+        <button class="dialog-btn primary" id="confirmOkBtn">确定</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- 结束弹窗 -->
+  <div class="dialog-overlay" id="gameEndDialog" style="display:none;">
+    <div class="dialog game-end-dialog">
+      <div class="dialog-title">🏁 对局结束</div>
+      <div class="game-result">
+        <div class="result-winner" id="resultWinner">黑方胜</div>
+        <div class="result-detail" id="resultDetail">3.5 目</div>
+      </div>
+      <div class="game-end-info">
+        <div class="info-row">
+          <span>总手数</span>
+          <span id="endMoveCount">128 手</span>
+        </div>
+        <div class="info-row">
+          <span>模型</span>
+          <span id="endModelInfo">KataGo · 100 visits</span>
+        </div>
+      </div>
+      <div class="dialog-btn-group">
+        <button class="dialog-btn secondary" id="viewHistoryBtn">📜 查看历史</button>
+        <button class="dialog-btn primary" id="newGameBtn">🔄 再来一局</button>
+      </div>
+    </div>
+  </div>
+  
+  <script type="module" src="./mm.ts"></script>
+</body>
+</html>
