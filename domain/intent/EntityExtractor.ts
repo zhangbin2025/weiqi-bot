@@ -255,6 +255,20 @@ export class EntityExtractor implements IEntityExtractor {
    * 提取对手分析参数
    */
   private extractOpponentParams(text: string, entities: Record<string, any>): void {
+    // 检查是否是纯意图查询（不包含具体对手名）
+    const cleaned = text
+      .replace(/对手/g, '')
+      .replace(/分析/g, '')
+      .replace(/棋风|风格/g, '')
+      .replace(/战绩|胜率/g, '')
+      .replace(/强弱|实力/g, '')
+      .replace(/\s+/g, '');
+
+    if (!cleaned) {
+      return; // 纯意图查询，不提取参数
+    }
+
+
     // 提取野狐昵称（如果还没提取到棋手名）
     if (!entities['player']) {
       // 匹配模式："分析对手XXX"、"对手XXX"、"分析XXX"
