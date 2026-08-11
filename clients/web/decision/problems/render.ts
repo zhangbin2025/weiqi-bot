@@ -7,6 +7,8 @@ import { GameGroup, PhaseStats, normalizeGroups } from './normalize';
 import { escapeHtml, escapeAttr, getSourceText, getLevelText, formatResult } from './utils';
 import type { IReadMarkService } from '../../../../services/readmark';
 
+type PhaseFilter = 'all' | 'layout' | 'middle' | 'endgame';
+
 /**
  * 渲染题目列表
  */
@@ -14,7 +16,9 @@ export async function renderProblemList(
   problems: any[], 
   favoriteId: string, 
   data: Record<string, unknown>,
-  readMarkService: IReadMarkService
+  readMarkService: IReadMarkService,
+  phase: PhaseFilter = 'all',
+  filterDropdownHtml: string = ''
 ): Promise<void> {
   const listContainer = document.getElementById('problem-list');
   if (!listContainer) return;
@@ -45,15 +49,30 @@ export async function renderProblemList(
         <span>🏷️ ${sourceName} (${groups.length}份, ${totalProblems}题)</span>
         <div class="source-header-controls">
           <button class="icon-btn" id="clear-visited-btn" title="清除已读标记">👁️</button>
+          ${filterDropdownHtml}
         </div>
       </div>
       <div class="quiz-list">
-        ${groups.map((group, groupIndex) => renderGameCard(group, favoriteId, groupIndex, readMarkSet)).join('')}
+        ${groups.map((group, groupIndex) => renderGameCard(group, groupIndex, readMarkSet)).join('')}
       </div>
     </div>
   `;
 
-  // 绑定卡片点击事件
+  // 绑定事件
+  bindEvents(listContainer, favoriteId, phase, category, readMarkService);
+}
+
+/**
+ * 绑定事件
+ */
+function bindEvents(
+  listContainer: HTMLElement,
+  favoriteId: string,
+  phase: PhaseFilter,
+  category: string,
+  readMarkService: IReadMarkService
+): void {
+  // 卡片点击事件
   listContainer.querySelectorAll('.quiz-card-wrapper').forEach(item => {
     item.addEventListener('click', async () => {
       const el = item as HTMLElement;
@@ -61,17 +80,17 @@ export async function renderProblemList(
       const groupIndex = parseInt(el.dataset['groupIndex'] || '-1', 10);
       const gameId = el.dataset['gameId'];
       
-      // 标记已读
       if (gameId) {
         await readMarkService.markRead(category, gameId);
       }
       
       const groupParam = groupIndex >= 0 ? `&groupIndex=${groupIndex}` : '';
-      window.location.href = `quiz.html?favoriteId=${encodeURIComponent(favoriteId)}&problemIndex=${index}${groupParam}`;
+      const phaseParam = phase !== 'all' ? `&phase=${phase}` : '';
+      window.location.href = `quiz.html?favoriteId=${encodeURIComponent(favoriteId)}&problemIndex=${index}${groupParam}${phaseParam}`;
     });
   });
 
-  // 绑定棋谱按钮点击事件
+  // 棋谱按钮点击事件
   listContainer.querySelectorAll('.game-btn').forEach(btn => {
     btn.addEventListener('click', (event) => {
       event.stopPropagation();
@@ -83,11 +102,8 @@ export async function renderProblemList(
   });
 
   // 清除已读标记按钮
-  const clearVisitedBtn = document.getElementById('clear-visited-btn');
-  clearVisitedBtn?.addEventListener('click', async () => {
+  document.getElementById('clear-visited-btn')?.addEventListener('click', async () => {
     await readMarkService.clearReadMarks(category);
-    
-    // 移除所有 visited 样式，不刷新页面
     listContainer.querySelectorAll('.quiz-card.visited').forEach(card => {
       card.classList.remove('visited');
     });
@@ -97,7 +113,7 @@ export async function renderProblemList(
 /**
  * 渲染游戏卡片
  */
-function renderGameCard(group: GameGroup, favoriteId: string, groupIndex: number, readMarkSet: Set<string>): string {
+function renderGameCard(group: GameGroup, groupIndex: number, readMarkSet: Set<string>): string {
   const firstProblemIndex = group.problemIndexes[0] ?? 0;
   const black = group.black || '黑棋';
   const white = group.white || '白棋';

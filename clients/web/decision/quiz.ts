@@ -16,16 +16,45 @@ import { selectOption } from './quiz/answer';
 import { startVariation, variationPrev, variationNext, backToMain } from './quiz/variation';
 import { startTrial, addTrialMove, trialPrev, trialNext, exitTrial } from './quiz/trial';
 import { goToMove, mainPrev, mainNext } from './quiz/navigation';
-import { normalizeProblemForPage, getGroupProblems, showFatal } from './quiz/utils';
+import { normalizeProblemForPage, showFatal } from './quiz/utils';
+import { normalizeGroups, GameGroup } from './problems/normalize';
 import { STATE_MAIN, STATE_TRYPLAY, STATE_VARIATION, QuizProblem, Move } from './quiz/types';
+
+type PhaseFilter = 'all' | 'layout' | 'middle' | 'endgame';
+
+/**
+ * 从 URL 读取筛选参数
+ */
+function getPhaseFromUrl(): PhaseFilter {
+  const params = new URLSearchParams(window.location.search);
+  const phase = params.get('phase') as PhaseFilter;
+  return ['all', 'layout', 'middle', 'endgame'].includes(phase) ? phase : 'all';
+}
+
+/**
+ * 按阶段过滤题目
+ */
+function filterProblemsByPhase(problems: any[], phase: PhaseFilter): any[] {
+  return phase === 'all' ? problems : problems.filter(p => p.phase === phase);
+}
+
+/**
+ * 根据分组获取题目
+ */
+function getGroupProblems(
+  allProblems: QuizProblem[], 
+  groups: GameGroup[], 
+  groupIndex: number
+): QuizProblem[] {
+  if (groupIndex < 0 || groupIndex >= groups.length) return [];
+  const group = groups[groupIndex];
+  return group?.problemIndexes?.map(i => allProblems[i]).filter((p): p is QuizProblem => Boolean(p)) || [];
+}
 
 async function main() {
   const ctx = await WebBootstrap.init({ containerId: 'page-root' });
   state.audioPlayer = new WebAudioPlayer();
-  
-  // 创建导出服务
-  const fileExporter = new WebFileExporter();
-  state.exportService = new ExportService(fileExporter);
+  state.exportService = new ExportService(new WebFileExporter());
 
   const params = new URLSearchParams(window.location.search);
   const favoriteId = params.get('favoriteId');
@@ -45,11 +74,25 @@ async function main() {
       return;
     }
 
-    const allProblems = rawProblems.map((problem, index) => normalizeProblemForPage(problem, index));
-    const groupProblems = getGroupProblems(allProblems, fav?.data as Record<string, unknown>, groupIndex);
+    const phase = getPhaseFromUrl();
+    const filteredRawProblems = filterProblemsByPhase(rawProblems, phase);
+    
+    // 归一化题目（保留原始索引用于导出）
+    const allProblems = filteredRawProblems.map(problem => 
+      normalizeProblemForPage(problem, rawProblems.indexOf(problem))
+    );
+    
+    // 重新计算分组
+    const filteredData = { ...fav?.data } as Record<string, unknown>;
+    delete filteredData['gameGroups'];
+    const groups = normalizeGroups(filteredRawProblems, filteredData);
+    
+    // 获取当前棋谱的题目
+    const groupProblems = getGroupProblems(allProblems, groups, groupIndex);
     const normalized = groupProblems.length ? groupProblems : allProblems;
-    const localStart = Math.max(0, normalized.findIndex(p => p.__originalIndex === problemIndex));
-    const start = localStart >= 0 ? localStart : 0;
+    
+    // 设置题目列表
+    const start = Math.min(problemIndex, normalized.length - 1);
     state.problems = normalized.slice(start).concat(normalized.slice(0, start));
 
     initBoard();
@@ -72,10 +115,11 @@ function bindEvents(): void {
 
   document.getElementById('prevBtn')?.addEventListener('click', handlePrevMove);
   document.getElementById('nextBtn')?.addEventListener('click', handleNextMove);
-  // 音效开关和保存SGF已移到菜单，改为监听window事件
+  
   window.addEventListener('toggleSound', ((e: CustomEvent) => {
     state.soundEnabled = e.detail;
   }) as EventListener);
+  
   window.addEventListener('downloadSGF', saveToSGF);
   document.getElementById('backToParentBtn')?.addEventListener('click', handleBackToParent);
 
@@ -94,31 +138,13 @@ function handleMainClick(x: number, y: number): void {
   const problem = state.problems[state.currentIndex];
   if (!problem) return;
 
-  // 检查是否点击了选项
-  let clickedOptionIndex = -1;
-  for (let i = 0; i < problem.options.length; i++) {
-    const opt = problem.options[i];
-    const pos = coordToPos(opt.coord);
-    if (pos && pos.x === x && pos.y === y) {
-      clickedOptionIndex = i;
-      break;
-    }
-  }
-
-  if (clickedOptionIndex !== -1) {
-    if (!state.answered) {
-      selectOption(clickedOptionIndex);
-    } else {
-      // 答题后点击选点查看变化图
-      startVariation(clickedOptionIndex);
-    }
-  } else if (!state.answered && state.currentMove === problem.position.length) {
-    // 未点击选点且在选点局面，进入试下
-    startTrial(x, y);
+  const clickedOptionIndex = problem.options.findIndex(opt => opt.x === x && opt.y === y);
+  if (clickedOptionIndex >= 0) {
+    selectOption(clickedOptionIndex);
   }
 }
 
-function handlePrevMove(): void {
+function handlePrevMove() {
   if (state.currentState === STATE_VARIATION) {
     variationPrev();
   } else if (state.currentState === STATE_TRYPLAY) {
@@ -128,7 +154,7 @@ function handlePrevMove(): void {
   }
 }
 
-function handleNextMove(): void {
+function handleNextMove() {
   if (state.currentState === STATE_VARIATION) {
     variationNext();
   } else if (state.currentState === STATE_TRYPLAY) {
@@ -138,86 +164,31 @@ function handleNextMove(): void {
   }
 }
 
-function handleBackToParent(): void {
-  if (state.currentState === STATE_TRYPLAY) {
-    exitTrial();
-  } else if (state.currentState === STATE_VARIATION) {
+function handleBackToParent() {
+  if (state.currentState === STATE_VARIATION) {
     backToMain();
-  }
-}
-
-function toggleSound(): void {
-  state.soundEnabled = !state.soundEnabled;
-  const btn = document.getElementById('soundToggleBtn');
-  if (btn) btn.textContent = state.soundEnabled ? '🔊' : '🔇';
-}
-
-async function saveToSGF(): Promise<void> {
-  const problem = currentProblem();
-  if (!problem) return;
-  
-  // 收集所有着法
-  let moves: Move[] = [];
-  
-  // 添加初始局面
-  moves = moves.concat(problem.position);
-  
-  // 根据当前状态添加额外着法
-  if (state.currentState === STATE_TRYPLAY) {
-    // 试下模式：添加试下着法
-    moves = moves.concat(state.trialMoves.slice(0, state.trialIndex + 1).map(m => ({
-      color: m.color,
-      coord: posToCoord(m.x, m.y)
-    })));
-  } else if (state.currentState === STATE_VARIATION) {
-    // 变化图模式：添加变化图着法
-    moves = moves.concat(state.currentVariation.slice(0, state.variationIndex + 1));
-  }
-  
-  // 生成 SGF
-  const sgf = generateSGF(moves, problem.metadata);
-  
-  // 触发下载
-  await downloadSGF(sgf, problem.metadata.gameName || problem.metadata.event || '实战选点');
-}
-
-function generateSGF(moves: Move[], metadata: Record<string, any>): string {
-  let sgf = '(;GM[1]FF[4]SZ[19]';
-  
-  // 添加元数据
-  if (metadata.playerBlack) sgf += `PB[${metadata.playerBlack}]`;
-  if (metadata.playerWhite) sgf += `PW[${metadata.playerWhite}]`;
-  if (metadata.gameName) sgf += `GN[${metadata.gameName}]`;
-  if (metadata.event) sgf += `EV[${metadata.event}]`;
-  
-  // 添加着法
-  for (const move of moves) {
-    const color = move.color === 'B' ? 'B' : 'W';
-    sgf += `;${color}[${move.coord}]`;
-  }
-  
-  sgf += ')';
-  return sgf;
-}
-
-async function downloadSGF(sgf: string, filename: string): Promise<void> {
-  if (state.exportService) {
-    const result = await state.exportService.exportSGF(sgf, filename);
-    if (!result.success) {
-      console.error('导出失败:', result.error);
-      alert(`导出失败: ${result.error}`);
-    }
+  } else if (state.currentState === STATE_TRYPLAY) {
+    exitTrial();
   } else {
-    // Fallback: 直接使用 Blob 下载
-    const blob = new Blob([sgf], { type: 'application/x-go-sgf' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${filename}.sgf`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const favoriteId = new URLSearchParams(window.location.search).get('favoriteId') || '';
+    const phase = getPhaseFromUrl();
+    const phaseParam = phase !== 'all' ? `&phase=${phase}` : '';
+    window.location.href = `list.html?favoriteId=${encodeURIComponent(favoriteId)}${phaseParam}`;
+  }
+}
+
+async function saveToSGF() {
+  const problem = state.problems[state.currentIndex];
+  if (!problem) return;
+
+  try {
+    const sgf = state.exportService?.exportToSGF(problem);
+    if (!sgf) return;
+
+    const filename = `problem_${problem.__originalIndex + 1}.sgf`;
+    await state.fileExporter?.save(sgf, filename);
+  } catch (e) {
+    console.error('导出 SGF 失败', e);
   }
 }
 
