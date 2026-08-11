@@ -746,4 +746,18 @@ export class ReviewUI {
     this.setButtonEnabled('nextBadmoveBtn', true);
     this.setButtonEnabled('undoBtn', true);
   }
+
+  /** 设置所有交互按钮的启用/禁用状态（分析时禁用） */
+  setButtonsEnabled(enabled: boolean): void {
+    const buttonIds = ['prevBtn', 'nextBtn', 'aiBtn', 'aiRecommendBtn', 'undoBtn'];
+    buttonIds.forEach(id => {
+      this.setButtonEnabled(id, enabled);
+    });
+    
+    // 禁用滑块
+    if (this.moveSlider) {
+      this.moveSlider.disabled = !enabled;
+      this.moveSlider.style.opacity = enabled ? '1' : '0.5';
+    }
+  }
 }

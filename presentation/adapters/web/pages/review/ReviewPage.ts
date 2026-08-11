@@ -180,7 +180,7 @@ export class ReviewPage implements IPage {
 
     this.analysis.setConfigVisits(this.ui.getConfigVisits());
     this.board.initialize({ size: 19, showCoordinates: true });
-    this.board.on({ onClick: (pos) => this.interaction.handleBoardClick(pos.x, pos.y) });
+    this.board.on({ onClick: (pos) => this.handleBoardClick(pos.x, pos.y) });
     this.interaction.initVariationManager();
     this.ui.setupComponents();
     this.ui.bindEvents();
@@ -278,6 +278,7 @@ export class ReviewPage implements IPage {
   }
 
   goToMove(moveNumber: number): void {
+    if (this.analyzing) return;
     if (moveNumber < 0 || moveNumber > this.totalMoves) return;
     this.currentMove = moveNumber;
     this.rebuildBoard(moveNumber);
@@ -293,6 +294,7 @@ export class ReviewPage implements IPage {
   }
 
   prevMove(): void {
+    if (this.analyzing) return;
     const prevMoveIndex = this.currentMove - 1;
     this.goToMove(prevMoveIndex);
     // 播放音效（检查前一手是否是 pass）
@@ -306,6 +308,7 @@ export class ReviewPage implements IPage {
     }
   }
   nextMove(): void {
+    if (this.analyzing) return;
     const nextMoveIndex = this.currentMove + 1;
     this.goToMove(nextMoveIndex);
     // 播放音效（检查当前手是否是 pass）
@@ -354,6 +357,7 @@ export class ReviewPage implements IPage {
     this.ui.updateStatus('分析中...');
     this.analyzing = true;
 
+    this.ui.setButtonsEnabled(false);
     try {
       const moveIndex = this.currentMove;
       let moveReview: MoveReview | null = null;
@@ -444,6 +448,7 @@ export class ReviewPage implements IPage {
       console.error('[ReviewPage] 局面分析失败', error as Error | undefined);
       this.ui.updateStatus('分析失败');
     } finally {
+      this.ui.setButtonsEnabled(true);
       this.analyzing = false;
       this.ui.showProgress(false);
     }
@@ -502,6 +507,7 @@ export class ReviewPage implements IPage {
     this.ui.updateStatus('分析中...');
     this.analyzing = true;
 
+    this.ui.setButtonsEnabled(false);
     try {
       const moveReview = await this.reviewApp.analyzePosition(
         this.analysis.getReviewId()!,
@@ -563,6 +569,7 @@ export class ReviewPage implements IPage {
       console.error('[ReviewPage] 自动选点分析失败', error as Error | undefined);
       this.ui.updateStatus('分析失败');
     } finally {
+      this.ui.setButtonsEnabled(true);
       this.analyzing = false;
       this.ui.showProgress(false);
     }
@@ -978,7 +985,12 @@ export class ReviewPage implements IPage {
     }
   }
 
+  /** 处理棋盘点击（封装 analyzing 检查） */  private handleBoardClick(x: number, y: number): void {    if (this.analyzing) return;    this.interaction.handleBoardClick(x, y);  }
   private handleKeyDown(event: KeyboardEvent): void {
+    if (this.analyzing) {
+      event.preventDefault();
+      return;
+    }
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
     switch (event.key) {
       case 'ArrowLeft':
