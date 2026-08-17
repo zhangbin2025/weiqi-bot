@@ -138,7 +138,7 @@ function handleMainClick(x: number, y: number): void {
   const problem = state.problems[state.currentIndex];
   if (!problem) return;
 
-  const clickedOptionIndex = problem.options.findIndex(opt => opt.x === x && opt.y === y);
+  const clickedOptionIndex = problem.options.findIndex(opt => { const pos = coordToPos(opt.coord); return pos && pos.x === x && pos.y === y; });
   if (clickedOptionIndex >= 0) {
     selectOption(clickedOptionIndex);
   }
