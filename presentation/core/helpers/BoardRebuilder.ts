@@ -85,25 +85,44 @@ export class BoardRebuilder {
       }
     }
     // 第二步：沿着主分支走 targetIndex 步（包括 Pass）
-    while (moveCounter < targetIndex && node.children && node.children.length > 0) {
-      node = node.children[0]!;
-      if (node.color) {
-        const pos = node.coord ? coordToPos(node.coord) : null;
-        if (pos) {
-          // 正常落子
-          game.placeStone(pos.x, pos.y);
-          moveCounter++;
-          if (options.inVariation) {
-            const variationMoveNum = moveCounter - variationStartIndex;
+    // 注意：在变化图模式下，path 不包含变化分支的后续着法，所以需要单独计算
+    if (options.inVariation) {
+      // 变化图模式：沿着当前分支走 targetIndex 步
+      for (let step = 0; step < targetIndex && node.children && node.children.length > 0; step++) {
+        node = node.children[0]!;
+        if (node.color) {
+          const pos = node.coord ? coordToPos(node.coord) : null;
+          if (pos) {
+            // 正常落子
+            game.placeStone(pos.x, pos.y);
+            moveCounter++;
+            // 手数编号：基于变化分支起点计算
+            const variationMoveNum = moveNumbers.length + 1;
             moveNumbers.push({ x: pos.x, y: pos.y, number: variationMoveNum });
           } else {
-            moveNumbers.push({ x: pos.x, y: pos.y, number: moveCounter });
+            // Pass（停一手）
+            game.pass();
+            moveCounter++;
           }
-        } else {
-          // Pass（停一手）
-          game.pass();
-          moveCounter++;
-          // Pass 不显示手数标记
+        }
+      }
+    } else {
+      // 主分支模式：沿着主分支走，直到达到 targetIndex
+      while (moveCounter < targetIndex && node.children && node.children.length > 0) {
+        node = node.children[0]!;
+        if (node.color) {
+          const pos = node.coord ? coordToPos(node.coord) : null;
+          if (pos) {
+            // 正常落子
+            game.placeStone(pos.x, pos.y);
+            moveCounter++;
+            moveNumbers.push({ x: pos.x, y: pos.y, number: moveCounter });
+          } else {
+            // Pass（停一手）
+            game.pass();
+            moveCounter++;
+            // Pass 不显示手数标记
+          }
         }
       }
     }
