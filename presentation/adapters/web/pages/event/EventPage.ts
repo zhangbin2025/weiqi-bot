@@ -247,8 +247,9 @@ export class EventPage implements IPage {
       const pdfScores = this.buildPdfScores(result.matches);
       const playerIdMap = await this.buildPlayerIdMap(title, groupName);
 
-      const matches = result.matches.map(m => ({
+      const matches = result.matches.map((m, idx) => ({
         bout: round,
+        table: m.table ?? idx + 1,
         p1Id: playerIdMap.get(m.blackName) ?? m.blackNo ?? 0,
         p1Name: m.blackName,
         p1Score: m.blackScore,
@@ -329,6 +330,7 @@ export class EventPage implements IPage {
           const existingId = this.findPlayerId(rounds, name);
           curRound.matches.push({
             bout: curRound.round,
+            table: curRound.matches.length + 1,
             p1Id: existingId,
             p1Name: name,
             p1Score: this.deltaToWinLoss(delta),

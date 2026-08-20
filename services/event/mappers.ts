@@ -41,8 +41,9 @@ export const mapPlayer = (r: Record<string, unknown>): Player => {
 /**
  * 映射对阵数据
  */
-export const mapMatch = (r: Record<string, unknown>, bout: number): Match => ({
+export const mapMatch = (r: Record<string, unknown>, bout: number, table: number): Match => ({
   bout,
+  table,
   p1Id: Number(r['p1id']) || 0,
   p1Name: String(r['p1'] || ''),
   p1Score: Number(r['p1_score']) || 0,

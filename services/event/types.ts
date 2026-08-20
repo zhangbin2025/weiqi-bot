@@ -99,6 +99,8 @@ export interface PlayerListResult {
 export interface Match {
   /** 轮次 */
   bout: number;
+  /** 台号（第几台） */
+  table: number;
   /** 黑方ID */
   p1Id: number;
   /** 黑方姓名 */

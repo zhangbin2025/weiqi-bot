@@ -93,7 +93,7 @@ export class EventService implements IEventService {
         error?: number; datArr?: { rows?: Record<string, unknown>[]; total_bout?: string | number };
       }>(url, config.timeout);
       if (res.error !== 0) return { rows: [], totalBout: 0, success: false, error: 'API error' };
-      const rows = (res.datArr?.rows || []).map(r => mapMatch(r, bout));
+      const rows = (res.datArr?.rows || []).map((r, idx) => mapMatch(r, bout, idx + 1));
       return { rows, totalBout: Number(res.datArr?.total_bout) || 0, success: true };
     } catch (e) {
       return { rows: [], totalBout: 0, success: false, error: e instanceof Error ? e.message : String(e) };
