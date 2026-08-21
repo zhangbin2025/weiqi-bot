@@ -55,7 +55,7 @@ export class EventDetailPage implements IPage {
     this.nav = c.onNavigate; this.pcFn = c.onPlayerClick; this.cache = c.pageCache;
     this.renderer = new EventDetailRenderer({
       onGroupChange: (g) => this.selectGroup(g),
-      onTabChange: (t) => { this.curTab = t as 'ranking' | 'matches'; this.renderContent(); },
+      onTabChange: (t) => { this.curTab = t as 'ranking' | 'matches'; this.renderContent(); this.saveCache(); },
       onPrevRound: () => { if (this.curRound > 1 && this.selGid) { this.curRound--; this.loadRound(); } },
       onNextRound: () => { if (this.curRound < this.totRounds && this.selGid) { this.curRound++; this.loadRound(); } },
       onPlayerClick: (n) => { if (this.pcFn) this.pcFn(n); },

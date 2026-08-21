@@ -202,12 +202,15 @@ export class EventDetailRenderer {
     this.showRankingTab();
     // 绑定行点击高亮
     this.bindRowHighlight();
-    // 恢复上次选中的行高亮和滚动位置
-    if (this.highlightedPlayerName) {
-      this.highlightRow(this.highlightedPlayerName, true);
-    }
-    // 显示容器
     this.showContainer();
+    // 恢复上次选中的行高亮和滚动位置（延迟到下一帧确保 DOM 渲染完成）
+    if (this.highlightedPlayerName) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          this.highlightRow(this.highlightedPlayerName, true);
+        });
+      });
+    }
   }
   renderMatches(data: AgainstPlanResult, scoreMap?: Map<string, number>): void {
     this.hideOverlay();
@@ -285,7 +288,6 @@ export class EventDetailRenderer {
     document.querySelectorAll('tr[data-player-name]').forEach(r => {
       (r as HTMLElement).style.background = '';
     });
-    // 高亮目标行
     const target = document.getElementById(`rank-row-${playerName}`);
     if (target) {
       target.style.background = 'rgba(59,130,246,0.1)';
