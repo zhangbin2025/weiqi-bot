@@ -301,6 +301,12 @@ export class EventDetailRenderer {
     this.highlightedPlayerName = name;
   }
 
+
+  /** 设置当前激活的标签页（用于从缓存恢复时） */
+  setActiveTab(tab: 'ranking' | 'matches'): void {
+    this.activeTab = tab;
+    this.renderTabs(); // 重新渲染标签按钮
+  }
   /** 切换排名模式下拉菜单 */
   private toggleModeMenu(anchor: HTMLElement): void {
     const existing = document.getElementById('ranking-mode-menu');

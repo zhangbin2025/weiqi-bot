@@ -217,6 +217,7 @@ export class EventDetailPage implements IPage {
       this.groups = c.groups; this.selGid = c.selectedGroupId;
       this.curRound = c.currentRound; this.totRounds = c.totalRounds;
       this.curTab = c.currentTab; this.rankData = c.rankingData; this.matchData = c.matchData;
+      this.renderer.setActiveTab(this.curTab); // 同步渲染器的标签页状态
       this.renderer.renderGroupSelect(this.groups, this.selGid);
       this.renderContent();
       this.renderer.showContainer();
