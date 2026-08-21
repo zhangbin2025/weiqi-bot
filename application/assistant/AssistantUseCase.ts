@@ -309,7 +309,6 @@ export class AssistantUseCase implements IAssistantUseCase {
       'discover_joseki',  // 定式发现
       'generate_decision',  // 实战选点
       'download_game',  // 抓取棋谱
-      'start_review',  // 复盘分析
     ];
     return backgroundSupportedIntents.includes(intent);
   }
