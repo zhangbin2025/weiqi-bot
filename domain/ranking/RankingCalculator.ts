@@ -105,7 +105,8 @@ export class RankingCalculator implements IRankingCalculator {
     player.reverseMinus = [];
     if (opponentScore > 0) {
       let cumulative = 0;
-      for (let i = roundScores.length - 1; i >= 0; i--) {
+      // 对手分逆减：从前往后减（去掉第1轮、第1-2轮、...）
+      for (let i = 0; i < roundScores.length; i++) {
         cumulative += roundScores[i] ?? 0;
         player.reverseMinus.push(opponentScore - cumulative);
       }
