@@ -1002,20 +1002,28 @@ export class ReviewPage implements IPage {
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
     switch (event.key) {
       case 'ArrowLeft':
-        event.preventDefault();
-        this.goToMove(this.currentMove - 1);
+        if (this.interaction.getMode() === 'normal') {
+          event.preventDefault();
+          this.goToMove(this.currentMove - 1);
+        }
         break;
       case 'ArrowRight':
-        event.preventDefault();
-        this.goToMove(this.currentMove + 1);
+        if (this.interaction.getMode() === 'normal') {
+          event.preventDefault();
+          this.goToMove(this.currentMove + 1);
+        }
         break;
       case 'Home':
-        event.preventDefault();
-        this.goToMove(0);
+        if (this.interaction.getMode() === 'normal') {
+          event.preventDefault();
+          this.goToMove(0);
+        }
         break;
       case 'End':
-        event.preventDefault();
-        this.goToMove(this.totalMoves);
+        if (this.interaction.getMode() === 'normal') {
+          event.preventDefault();
+          this.goToMove(this.totalMoves);
+        }
         break;
       case 'a':
       case 'A':
