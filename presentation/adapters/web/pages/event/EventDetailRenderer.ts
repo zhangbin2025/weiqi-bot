@@ -224,7 +224,14 @@ export class EventDetailRenderer {
     // 确保轮次导航在对阵列表之前
     this.roundNav.ensureBefore?.(this.matchCard);
     this.showMatchesTab();
-    // 显示容器
+    // 恢复上次选中的对阵卡片滚动位置（延迟到下一帧确保 DOM 渲染完成）
+    if (this.highlightedPlayerName) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          this.scrollToMatchCard(this.highlightedPlayerName);
+        });
+      });
+    }
     this.showContainer();
   }
   renderRoundNav(current: number, total: number): void {
@@ -303,6 +310,24 @@ export class EventDetailRenderer {
     this.highlightedPlayerName = name;
   }
 
+
+  /** 滚动到包含目标棋手的对阵卡片 */
+  scrollToMatchCard(playerName: string): void {
+    // 清除之前的高亮
+    document.querySelectorAll('[data-match]').forEach(card => {
+      (card as HTMLElement).style.background = '';
+    });
+    // 查找包含目标棋手的对阵卡片
+    const cards = Array.from(document.querySelectorAll('[data-match]'));
+    for (const card of cards) {
+      const match = card.getAttribute('data-match');
+      if (match && match.includes(playerName)) {
+        (card as HTMLElement).style.background = 'rgba(59,130,246,0.1)';
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        break; // 只滚动到第一个匹配的卡片
+      }
+    }
+  }
 
   /** 设置当前激活的标签页（用于从缓存恢复时） */
   setActiveTab(tab: 'ranking' | 'matches'): void {
