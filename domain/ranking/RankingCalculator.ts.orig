@@ -110,6 +110,7 @@ export class RankingCalculator implements IRankingCalculator {
         cumulative += roundScores[i] ?? 0;
         player.reverseMinus.push(opponentScore - cumulative);
       }
+      console.log('[RM] ' + player.name + ': first=' + player.reverseMinus[0] + ', all=' + JSON.stringify(player.reverseMinus));
     }
   }
 
@@ -127,7 +128,6 @@ export class RankingCalculator implements IRankingCalculator {
         // 无直胜关系，直接用对手分逆减，不使用累进分
         return this.compareReverseMinus(a, b);
       }
-      // Debug: show which mode is being used
       if (mode !== 'simple') {
         // default 模式：用累进分
         if (b.progressiveScore !== a.progressiveScore) {
@@ -162,6 +162,7 @@ export class RankingCalculator implements IRankingCalculator {
     if (a.score !== b.score || a.opponentScore !== b.opponentScore) return false;
     if (mode === 'default') return a.progressiveScore === b.progressiveScore;
     // Debug log for directWin mode
+    if (a.name === '张铭轩' || a.name === '侯兹耀' || a.name === '孙艺鸣') console.log('[isTied] ' + a.name + ' vs ' + b.name + ', mode=' + mode + ', directWinResult=' + a.directWinResults.get(b.id));
     if (mode === 'directWin') {
       // 如果两人对局过且有胜负，不算同分
       const aVsB = a.directWinResults.get(b.id);
@@ -178,6 +179,7 @@ export class RankingCalculator implements IRankingCalculator {
     // Debug: find specific players
     const targetNames = ['张铭轩', '侯兹耀', '孙艺鸣'];
     const targetPlayers = players.filter(p => targetNames.includes(p.name));
+    console.log('[ProcessTieBreak] Target players:', targetPlayers.map(p => p.name + '(' + p.score + '/' + p.opponentScore + '/' + p.progressiveScore + ')').join(', '));
 
     while (i < players.length) {
       let j = i + 1;
@@ -195,6 +197,7 @@ export class RankingCalculator implements IRankingCalculator {
         for (let round = 0; round < maxRounds; round++) {
           const values = group.map((p) => p.reverseMinus[round] ?? 0);
           if (new Set(values).size === group.length) {
+            console.log('[TieBreak] Round ' + (round+1) + ' found for:', group.map(p => p.name).join(','));
             group.forEach((p) => {
               p.reverseMinusDisplay = `${round + 1}-${Math.floor(p.reverseMinus[round] ?? 0)}`;
             });

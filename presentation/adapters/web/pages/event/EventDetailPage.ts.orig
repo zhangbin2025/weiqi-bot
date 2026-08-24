@@ -256,7 +256,7 @@ export class EventDetailPage implements IPage {
     if (!this.eid) return;
     this.renderer.showProgress(20, `正在加载「${g.name}」数据...`);
     try {
-      const rr = await this.q.getGroupRanking(this.eid, g.id, this.rankingMode,
+      const rr = await this.q.getGroupRanking(this.eid, g.id, undefined,
         (msg, pct) => this.renderer.showProgress(20 + pct * 0.6, msg), forceRefresh);
       this.rankData = rr; this.totRounds = rr.totalRounds; this.curRound = rr.totalRounds;
       this.renderer.showProgress(90, '正在加载对阵数据...');
