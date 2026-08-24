@@ -203,6 +203,9 @@ export class LiveModeManager {
     this.isLiveMode = false;
     this.liveFetchFailCount = 0;
     console.info('[LiveModeManager] 停止直播模式');
+    
+    // 不通知 UI 恢复控件（直播结束后仍保持禁用，只有跳转复盘才恢复）
+    // this.callbacks.onLiveStop?.();
   }
 
   /**

@@ -457,6 +457,73 @@ export class ReviewUI {
       aiBtn.textContent = isLive ? '研究' : 'AI';
       aiBtn.title = isLive ? '研究' : 'AI推荐';
     }
+    
+    // 直播模式：禁用滑条和导航按钮
+    if (isLive) {
+      // 禁用滑条
+      if (this.moveSlider) {
+        this.moveSlider.disabled = true;
+        this.moveSlider.style.opacity = '0.5';
+        this.moveSlider.style.cursor = 'not-allowed';
+      }
+      
+      // 禁用上一步/下一步按钮
+      const prevBtn = document.getElementById('prevBtn');
+      if (prevBtn) {
+        prevBtn.setAttribute('disabled', 'true');
+        (prevBtn as HTMLButtonElement).disabled = true;
+        prevBtn.style.opacity = '0.5';
+        prevBtn.style.cursor = 'not-allowed';
+      }
+      
+      const nextBtn = document.getElementById('nextBtn');
+      if (nextBtn) {
+        nextBtn.setAttribute('disabled', 'true');
+        (nextBtn as HTMLButtonElement).disabled = true;
+        nextBtn.style.opacity = '0.5';
+        nextBtn.style.cursor = 'not-allowed';
+      }
+      
+      // 禁用撤销按钮（直播模式不允许试下）
+      const undoBtn = document.getElementById('undoBtn');
+      if (undoBtn) {
+        undoBtn.setAttribute('disabled', 'true');
+        (undoBtn as HTMLButtonElement).disabled = true;
+        undoBtn.style.opacity = '0.5';
+        undoBtn.style.cursor = 'not-allowed';
+      }
+    } else {
+      // 非直播模式：恢复控件
+      if (this.moveSlider) {
+        this.moveSlider.disabled = false;
+        this.moveSlider.style.opacity = '1';
+        this.moveSlider.style.cursor = 'pointer';
+      }
+      
+      const prevBtn = document.getElementById('prevBtn');
+      if (prevBtn) {
+        prevBtn.removeAttribute('disabled');
+        (prevBtn as HTMLButtonElement).disabled = false;
+        prevBtn.style.opacity = '1';
+        prevBtn.style.cursor = 'pointer';
+      }
+      
+      const nextBtn = document.getElementById('nextBtn');
+      if (nextBtn) {
+        nextBtn.removeAttribute('disabled');
+        (nextBtn as HTMLButtonElement).disabled = false;
+        nextBtn.style.opacity = '1';
+        nextBtn.style.cursor = 'pointer';
+      }
+      
+      const undoBtn = document.getElementById('undoBtn');
+      if (undoBtn) {
+        undoBtn.removeAttribute('disabled');
+        (undoBtn as HTMLButtonElement).disabled = false;
+        undoBtn.style.opacity = '1';
+        undoBtn.style.cursor = 'pointer';
+      }
+    }
   }
 
   /**

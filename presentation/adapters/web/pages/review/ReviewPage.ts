@@ -270,6 +270,8 @@ export class ReviewPage implements IPage {
   }
 
   async viewFavorite(archiveId: string): Promise<void> {
+    // 从直播进入复盘，恢复 UI 控件
+    this.ui.setLiveMode(false);
     await this.analysis.viewFavorite(archiveId);
   }
 
@@ -295,6 +297,9 @@ export class ReviewPage implements IPage {
 
   prevMove(): void {
     if (this.analyzing) return;
+    // 直播进行中不允许手动浏览
+    if (this.liveModeManager?.isActive()) return;
+    
     const prevMoveIndex = this.currentMove - 1;
     this.goToMove(prevMoveIndex);
     // 播放音效（检查前一手是否是 pass）
@@ -309,6 +314,9 @@ export class ReviewPage implements IPage {
   }
   nextMove(): void {
     if (this.analyzing) return;
+    // 直播进行中不允许手动浏览
+    if (this.liveModeManager?.isActive()) return;
+    
     const nextMoveIndex = this.currentMove + 1;
     this.goToMove(nextMoveIndex);
     // 播放音效（检查当前手是否是 pass）
