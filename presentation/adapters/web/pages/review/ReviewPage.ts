@@ -1039,6 +1039,12 @@ export class ReviewPage implements IPage {
           }
         }
         break;
+      case 'Enter':
+        if (!this.analyzing) {
+          event.preventDefault();
+          this.analyzeCurrentPosition();
+        }
+        break;
     }
   }
 
