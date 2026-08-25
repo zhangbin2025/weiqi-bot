@@ -20,6 +20,39 @@ class WeiqiApp : Application() {
         
         @Volatile
         private var runtime: GeckoRuntime? = null
+        
+        @Volatile
+        private var assetServer: AssetServer? = null
+        
+        /**
+         * 获取或创建 AssetServer 单例
+         */
+        fun getOrCreateAssetServer(app: Application): AssetServer {
+            return assetServer ?: synchronized(this) {
+                assetServer ?: AssetServer(app).also { 
+                    assetServer = it
+                    it.start()
+                    Logger.i(TAG, "AssetServer started on port ${AssetServer.DEFAULT_PORT}")
+                }
+            }
+        }
+        
+        /**
+         * 停止 AssetServer
+         */
+        fun stopAssetServer() {
+            synchronized(this) {
+                assetServer?.let {
+                    try {
+                        it.stop()
+                        Logger.i(TAG, "AssetServer stopped")
+                    } catch (e: Exception) {
+                        Logger.w(TAG, "Error stopping AssetServer", e)
+                    }
+                }
+                assetServer = null
+            }
+        }
 
         /**
          * 获取全局 GeckoRuntime 实例

@@ -1,4 +1,5 @@
 package com.weiqi.app
+import com.weiqi.app.WeiqiApp
 
 import android.app.Activity
 import android.content.Context
@@ -290,9 +291,10 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks {
         handleNotificationIntent(intent)
         
         // 如果有 pendingDetailUrl，立即加载页面
-        if (pendingDetailUrl != null) {
-            geckoSession?.loadUri(pendingDetailUrl)
-            lastLoadedUrl = pendingDetailUrl
+        val url = pendingDetailUrl
+        if (url != null) {
+            geckoSession?.loadUri(url)
+            lastLoadedUrl = url
             pendingDetailUrl = null
         }
         
@@ -459,17 +461,8 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks {
         // ========== 阶段1：启动服务器 ==========
         uiHelper.showLoading("正在初始化", 0)
 
-        withContext(Dispatchers.IO) {
-            assetServer = AssetServer(applicationContext)
-
-            // 先启动服务器
-            try {
-                assetServer.start()
-                Logger.i(TAG, "AssetServer started on port ${AssetServer.DEFAULT_PORT}")
-            } catch (e: Exception) {
-                Logger.e(TAG, "Failed to start AssetServer", e)
-            }
-        }
+        // 使用单例 AssetServer，避免端口冲突
+        assetServer = WeiqiApp.getOrCreateAssetServer(application)
 
         // ========== 阶段2：预下载资源（阻塞页面显示，带进度） ==========
         // 预下载时不触发 onDemandCallback（避免底部 toast 干扰加载界面）
@@ -589,11 +582,12 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks {
 
     override fun onDestroy() {
         isDestroyed = true
-        try {
+        // AssetServer 由 WeiqiApp 单例管理，不在这里 stop
+        /* try {
             assetServer.stop()
         } catch (e: Exception) {
             Logger.e(TAG, "Error stopping server", e)
-        }
+        } */
         snifferManager?.stopAll()
         geckoSession?.close()
         geckoSession = null
