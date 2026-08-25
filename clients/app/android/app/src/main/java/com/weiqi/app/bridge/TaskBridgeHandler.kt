@@ -231,7 +231,7 @@ class TaskBridgeHandler(
 
                     val scheduleConfig = JSONObject().apply {
                         put("id", jsonStr)
-                        put("type", "periodic")
+                        // 立即执行：不设置 type，让它走 executeNow 分支
                     }
                     try {
                         taskManager!!.submit(type, params, pageUrl, scheduleConfig)

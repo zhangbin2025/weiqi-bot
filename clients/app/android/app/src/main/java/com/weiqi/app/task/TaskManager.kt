@@ -52,12 +52,9 @@ class TaskManager(private val context: Context) {
         // 判断是否是周期任务
         val isPeriodic = schedule != null && schedule.optString("type") == "periodic"
         
-        // 周期任务使用 schedule ID，一次性任务生成 task ID
-        val taskId = if (isPeriodic) {
-            schedule.optString("id", generateTaskId())
-        } else {
-            generateTaskId()
-        }
+        // 优先使用 schedule ID（用于通知判断），否则生成新 task ID
+        val taskId = schedule?.optString("id")?.takeIf { it.isNotEmpty() }
+            ?: generateTaskId()
         
         Logger.i(TAG, "Submitting task: id=$taskId, type=$type, pageUrl=$pageUrl, isPeriodic=$isPeriodic")
         
