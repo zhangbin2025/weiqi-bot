@@ -289,6 +289,13 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks {
         
         handleNotificationIntent(intent)
         
+        // 如果有 pendingDetailUrl，立即加载页面
+        if (pendingDetailUrl != null) {
+            geckoSession?.loadUri(pendingDetailUrl)
+            lastLoadedUrl = pendingDetailUrl
+            pendingDetailUrl = null
+        }
+        
         if (pendingSgfFile != null) {
             loadSgfFile(pendingSgfFile!!)
         }
