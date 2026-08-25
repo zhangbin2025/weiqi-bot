@@ -641,7 +641,12 @@ export class ReviewPage implements IPage {
   }
 
   private handleDepthChange(depth: number): void {
-    this.ui.updateDepthIndicator(depth, this.interaction.MAX_DEPTH);
+    this.ui.updateDepthIndicator(depth, this.interaction.MAX_DEPTH, (targetDepth) => {
+      // 点击深度格子，跳转到对应深度
+      if (targetDepth < depth) {
+        this.interaction.exitToDepth(targetDepth);
+      }
+    });
     this.ui.updateButtonsState(this.interaction.isMaxDepth());
     this.ui.updateUndoButtonState(this.interaction.isUndoDisabled());
   }

@@ -234,6 +234,39 @@ export class ReviewInteraction {
     this.fireModeChanged();
   }
 
+
+  /** 退出到指定深度（点击深度指示器格子时调用） */
+  exitToDepth(targetDepth: number): void {
+    const currentDepth = this.stateStack.length;
+    if (targetDepth >= currentDepth) return; // 目标深度不能大于等于当前深度
+    
+    // 连续弹出状态栈，直到到达目标深度
+    while (this.stateStack.length > targetDepth) {
+      const prev = this.stateStack.pop();
+      if (!prev) break;
+      
+      // 如果到达目标深度，恢复该层状态
+      if (this.stateStack.length === targetDepth) {
+        this.restoreVariationManager(prev);
+        this.restoreBoardFromMoves(prev.moves);
+        this.currentVariationPv = prev.currentVariationPv;
+        this.variationPvIndex = prev.variationPvIndex;
+        this.restoreCircles(prev);
+        this.mode = prev.mode;
+        this.restoredMoveCount = prev.moves.length;
+        if (prev.candidatesHtml && this.mode === 'recommendation') {
+          this.callbacks.onRestoreCandidates?.(prev.candidatesHtml);
+        }
+        this.fireModeChanged();
+      }
+    }
+    
+    // 如果退出到深度 0，返回普通模式
+    if (this.stateStack.length === 0) {
+      this.returnToNormal();
+    }
+  }
+
   /** 获取候选选点表格的 HTML（用于状态栈保存） */
   private getCandidatesHtml(): string {
     const container = document.getElementById("candidatesListCompact");

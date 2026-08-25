@@ -374,7 +374,7 @@ export class ReviewUI {
     if (chartContainer) chartContainer.style.display = show ? 'block' : 'none';
   }
 
-  updateDepthIndicator(depth: number, maxDepth: number): void {
+  updateDepthIndicator(depth: number, maxDepth: number, onCellClick?: (index: number) => void): void {
     if (!this.depthCellsEl || !this.depthCountEl) return;
     const displayCells = maxDepth;
     let cellsHtml = '';
@@ -383,6 +383,17 @@ export class ReviewUI {
       cellsHtml += `<div class="depth-cell ${active}"></div>`;
     }
     this.depthCellsEl.innerHTML = cellsHtml;
+    
+    // 添加点击事件：点击格子跳转到对应深度
+    if (onCellClick) {
+      this.depthCellsEl.querySelectorAll('.depth-cell').forEach(cell => {
+        cell.addEventListener('click', (e) => {
+          const index = parseInt((e.target as HTMLElement).dataset.index || '0', 10);
+          onCellClick(index);
+        });
+      });
+    }
+    
     this.depthCountEl.textContent = `${depth}`;
   }
 
