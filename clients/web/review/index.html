@@ -481,37 +481,53 @@
       gap: 16px;
     }
     
-    /* 探索深度指示器（底部，简洁） */
+    /* 探索深度滑条（底部，简洁） */
     .depth-indicator {
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 6px;
-      opacity: 0.6;
+      gap: 8px;
+      opacity: 0.8;
       margin-top: 8px;
     }
     
-    .depth-cells {
-      display: flex;
-      gap: 1px;
-    }
-    
-    .depth-cell {
-      width: 3px;
-      height: 12px;
-      border-radius: 0;
+    .depth-slider {
+      width: 240px;
+      height: 6px;
+      -webkit-appearance: none;
+      appearance: none;
       background: #e0e0e0;
+      border-radius: 3px;
+      outline: none;
       cursor: pointer;
-      transition: background 0.2s;
     }
     
-    .depth-cell.active {
+    .depth-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(102,126,234,0.4);
     }
     
-    .depth-cell:hover {
-      opacity: 0.7;
-      transform: scaleY(1.2);
+    .depth-slider::-moz-range-thumb {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      cursor: pointer;
+      border: none;
+      box-shadow: 0 2px 6px rgba(102,126,234,0.4);
+    }
+    
+    .depth-count {
+      font-size: 11px;
+      color: #666;
+      min-width: 24px;
+      text-align: right;
     }
     
     .depth-count {

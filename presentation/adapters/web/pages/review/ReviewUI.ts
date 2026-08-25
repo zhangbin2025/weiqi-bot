@@ -58,7 +58,6 @@ export class ReviewUI {
   private chartStatsEl: HTMLElement | null = null;
   private specialControlsBarEl: HTMLElement | null = null;
   private mainControlsBarEl: HTMLElement | null = null;
-  private depthCellsEl: HTMLElement | null = null;
   private depthCountEl: HTMLElement | null = null;
 
   // 配置
@@ -85,7 +84,6 @@ export class ReviewUI {
       loadingProgressEl: this.loadingProgressEl,
       specialControlsBarEl: this.specialControlsBarEl,
       mainControlsBarEl: this.mainControlsBarEl,
-      depthCellsEl: this.depthCellsEl,
       depthCountEl: this.depthCountEl,
     };
   }
@@ -113,7 +111,6 @@ export class ReviewUI {
     this.chartStatsEl = document.getElementById('chartStats');
     this.specialControlsBarEl = document.getElementById('specialControlsBar');
     this.mainControlsBarEl = document.getElementById('mainControlsBar');
-    this.depthCellsEl = document.getElementById('depthCells');
     this.depthCountEl = document.getElementById('depthCount');
     this.setupMenu();
   }
@@ -374,27 +371,26 @@ export class ReviewUI {
     if (chartContainer) chartContainer.style.display = show ? 'block' : 'none';
   }
 
-  updateDepthIndicator(depth: number, maxDepth: number, onCellClick?: (index: number) => void): void {
-    if (!this.depthCellsEl || !this.depthCountEl) return;
-    const displayCells = maxDepth;
-    let cellsHtml = '';
-    for (let i = 0; i < displayCells; i++) {
-      const active = i < depth ? 'active' : '';
-      cellsHtml += `<div class="depth-cell ${active}"></div>`;
-    }
-    this.depthCellsEl.innerHTML = cellsHtml;
+  updateDepthIndicator(depth: number, maxDepth: number, onSliderChange?: (value: number) => void): void {
+    if (!this.depthCountEl) return;
     
-    // 添加点击事件：点击格子跳转到对应深度
-    if (onCellClick) {
-      this.depthCellsEl.querySelectorAll('.depth-cell').forEach(cell => {
-        cell.addEventListener('click', (e) => {
-          const index = parseInt((e.target as HTMLElement).dataset.index || '0', 10);
-          onCellClick(index);
-        });
-      });
-    }
+    // 更新深度计数
+    this.depthCountEl.textContent = String(depth);
     
-    this.depthCountEl.textContent = `${depth}`;
+    // 更新滑条
+    const slider = document.getElementById('depthSlider') as HTMLInputElement | null;
+    if (slider) {
+      slider.max = String(maxDepth);
+      slider.value = String(depth);
+      
+      // 添加滑条变化事件
+      if (onSliderChange) {
+        slider.oninput = () => {
+          const value = parseInt(slider.value, 10);
+          onSliderChange(value);
+        };
+      }
+    }
   }
 
   updateButtonsState(isMaxDepth: boolean): void {

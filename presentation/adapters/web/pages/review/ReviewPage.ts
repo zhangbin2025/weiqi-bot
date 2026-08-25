@@ -642,7 +642,7 @@ export class ReviewPage implements IPage {
 
   private handleDepthChange(depth: number): void {
     this.ui.updateDepthIndicator(depth, this.interaction.MAX_DEPTH, (targetDepth) => {
-      // 点击深度格子，跳转到对应深度
+      // 滑条变化，跳转到对应深度
       if (targetDepth < depth) {
         this.interaction.exitToDepth(targetDepth);
       }
