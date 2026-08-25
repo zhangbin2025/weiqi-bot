@@ -316,6 +316,15 @@ export class KataGoNativeClient {
       if (obj.type === 'katago:exit') {
         this.running = false;
         const exitCode = obj.exitCode ?? -1;
+
+        // 如果是启动阶段的退出，reject ready promise
+        if (this.startReject) {
+          this.startReject(new Error(`KataGo process exited during startup with code ${exitCode}`));
+          this.startReject = null;
+          this.readyResolve = null;
+          this.clearStartTimeout();
+        }
+
         for (const cb of this.exitCallbacks) cb(exitCode);
         // reject 所有 pending
         for (const [id, entry] of this.pending) {
