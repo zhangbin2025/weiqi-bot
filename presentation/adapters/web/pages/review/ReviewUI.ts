@@ -380,15 +380,16 @@ export class ReviewUI {
     // 更新滑条
     const slider = document.getElementById('depthSlider') as HTMLInputElement | null;
     if (slider) {
-      // 滑条的 max 是当前深度，value 也是当前深度
-      slider.max = String(depth);
+      // 滑条的 max 是 MAX_DEPTH（200），value 是当前深度
+      // 这样滑块位置显示当前深度占总深度的比例
+      slider.max = String(maxDepth);
       slider.value = String(depth);
       
       // 添加滑条变化事件（只允许回撤，不允许前进）
       if (onSliderChange) {
         slider.oninput = () => {
           const newValue = parseInt(slider.value, 10);
-          const currentDepth = parseInt(slider.max, 10);
+          const currentDepth = this.depthCountEl ? parseInt(this.depthCountEl.textContent || '0', 10) : 0;
           // 只允许回撤（newValue < currentDepth），不允许前进
           if (newValue < currentDepth) {
             onSliderChange(newValue);
