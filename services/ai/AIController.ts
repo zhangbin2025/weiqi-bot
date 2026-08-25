@@ -68,7 +68,14 @@ export class AIController implements IAIController {
       console.error('[AIController] engine.init() failed:', error);
       
       // Fallback to WebAdapter if native KataGo is unavailable
+      // Web KataGo 只支持内置模型，不能加载 custom 模型
       if (error?.code === 'KATAGO_NATIVE_UNAVAILABLE') {
+        const isExternalModel = this.modelUrl?.startsWith('http://') || this.modelUrl?.startsWith('https://');
+        if (isExternalModel) {
+          console.error('[AIController] Custom model not supported by WebAdapter:', this.modelUrl);
+          throw new Error('Custom model not supported by Web KataGo. Please use a built-in model or fix native KataGo.');
+        }
+        
         console.warn('[AIController] Native KataGo unavailable, fallback to WebAdapter');
         this.engine = forceUseWebAdapter();
         await this.engine.init({
