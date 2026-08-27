@@ -541,6 +541,39 @@ export class ReviewUI {
       }
     }
   }
+  /** 隐藏胜率图（分析局面模式） */
+  hideChart(): void {
+    const chartContainer = document.getElementById('chart-container');
+    if (chartContainer) {
+      chartContainer.style.display = 'none';
+    }
+    // 也隐藏 chart-section
+    const chartSection = document.querySelector('.chart-section') as HTMLElement;
+    if (chartSection) {
+      chartSection.style.display = 'none';
+    }
+  }
+
+  /** 禁用导航控件（滑条、上一步、下一步） */
+  disableNavigation(): void {
+    // 禁用滑条
+    if (this.moveSlider) {
+      this.moveSlider.disabled = true;
+      this.moveSlider.style.opacity = '0.3';
+    }
+    // 禁用上一步/下一步按钮
+    const prevBtn = document.getElementById('prevBtn') as HTMLButtonElement;
+    const nextBtn = document.getElementById('nextBtn') as HTMLButtonElement;
+    if (prevBtn) {
+      prevBtn.disabled = true;
+      prevBtn.style.opacity = '0.3';
+    }
+    if (nextBtn) {
+      nextBtn.disabled = true;
+      nextBtn.style.opacity = '0.3';
+    }
+  }
+
 
   /**
    * 显示"返回直播"按钮（从直播进入复盘时）

@@ -56,6 +56,8 @@ export class ReviewPage implements IPage {
 
   // 控制器
   private moveNavigator: MoveNavigator;
+  // 分析局面模式（只分析指定局面，不分析整局）
+  private analyzePositionMode = false;
 
   // 子模块
   private interaction: ReviewInteraction;
@@ -223,6 +225,24 @@ export class ReviewPage implements IPage {
   }
 
   handleParams(params: PageParams): void {
+    // 分析局面模式：只分析指定局面（不分析整局）
+    if (params['analyzePosition'] === 'true' && params['archiveId'] && params['moveTo']) {
+      const archiveId = params['archiveId'] as string;
+      const moveTo = parseInt(params['moveTo'] as string, 10);
+      console.info('[ReviewPage] 进入分析局面模式', { archiveId, moveTo });
+      this.analyzePositionMode = true;
+      // 隐藏胜率图
+      this.ui.hideChart();
+      // 禁用滑条和前进后退按钮
+      this.ui.disableNavigation();
+      // 加载棋谱并跳转到指定局面
+      this.loadFromArchiveId(archiveId, undefined, undefined, true).then(() => {
+        this.goToMove(moveTo);
+        // 自动触发 AI 推荐
+        this.analyzeCurrentPosition();
+      });
+      return;
+    }
     // 直播模式：交给 LiveModeManager 处理
     if (params['live'] === 'true' && params['url']) {
       const liveUrl = decodeURIComponent(params['url'] as string);
@@ -262,13 +282,11 @@ export class ReviewPage implements IPage {
       this.loadFromArchiveId(archiveId, taskId);
     }
   }
-
   // ========== 公开接口 ==========
 
-  async loadFromArchiveId(archiveId: string, taskId?: string): Promise<boolean> {
-    return await this.analysis.loadFromArchiveId(archiveId, taskId, this.moves);
+  async loadFromArchiveId(archiveId: string, taskId?: string, baseMoves?: Array<{ x: number; y: number; color: PlayerColor }>, skipAnalysis?: boolean): Promise<boolean> {
+    return await this.analysis.loadFromArchiveId(archiveId, taskId, baseMoves || this.moves, skipAnalysis);
   }
-
   async viewFavorite(archiveId: string): Promise<void> {
     // 从直播进入复盘，恢复 UI 控件
     this.ui.setLiveMode(false);
@@ -297,6 +315,8 @@ export class ReviewPage implements IPage {
 
   prevMove(): void {
     if (this.analyzing) return;
+    // 分析局面模式：禁用手动浏览
+    if (this.analyzePositionMode) return;
     // 直播进行中不允许手动浏览
     if (this.liveModeManager?.isActive()) return;
     
@@ -313,6 +333,8 @@ export class ReviewPage implements IPage {
     }
   }
   nextMove(): void {
+    // 分析局面模式：禁用手动浏览
+    if (this.analyzePositionMode) return;
     if (this.analyzing) return;
     // 直播进行中不允许手动浏览
     if (this.liveModeManager?.isActive()) return;

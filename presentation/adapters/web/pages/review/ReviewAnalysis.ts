@@ -102,8 +102,8 @@ export class ReviewAnalysis {
   setConfigVisits(visits: number): void { this.configVisits = visits; }
 
   /** 从归档 ID 加载棋谱并分析 */
-  async loadFromArchiveId(archiveId: string, taskId?: string, baseMoves?: Array<{ x: number; y: number; color: PlayerColor }>): Promise<boolean> {
-    console.log('[ReviewAnalysis.loadFromArchiveId] 开始加载:', { archiveId, taskId });
+  async loadFromArchiveId(archiveId: string, taskId?: string, baseMoves?: Array<{ x: number; y: number; color: PlayerColor }>, skipAnalysis?: boolean): Promise<boolean> {
+    console.log('[ReviewAnalysis.loadFromArchiveId] 开始加载:', { archiveId, taskId, skipAnalysis });
     
     // 确保模型已加载（与 loadAndAnalyze 保持一致）
     await this.ensureModelLoaded(taskId);
@@ -117,6 +117,12 @@ export class ReviewAnalysis {
       if (!sgf) throw new Error('棋谱不存在');
       this.currentArchiveId = archiveId;
       this.reviewId = await this.reviewApp.loadFromSGF(sgf);
+
+      // 分析局面模式：只加载棋谱，不恢复数据、不分析
+      if (skipAnalysis) {
+        console.info('[ReviewAnalysis.loadFromArchiveId] 跳过分析，只加载棋谱');
+        return true;
+      }
 
       const hasSavedData = await this.loadSavedReviewData(archiveId);
       if (hasSavedData) {
