@@ -121,6 +121,17 @@ export class ReviewAnalysis {
       // 分析局面模式：只加载棋谱，不恢复数据、不分析
       if (skipAnalysis) {
         console.info('[ReviewAnalysis.loadFromArchiveId] 跳过分析，只加载棋谱');
+        // 获取棋谱基本信息并通知页面
+        const state = this.reviewApp.getState(this.reviewId);
+        if (state) {
+          const moves = this.reviewApp.getMoves(this.reviewId) ?? [];
+          this.callbacks.onAnalysisComplete({
+            totalMoves: state.totalMoves,
+            badMoves: [],
+            winrateTrend: [],
+            moves,
+          });
+        }
         return true;
       }
 
