@@ -123,14 +123,18 @@ export class ReviewAnalysis {
         console.info('[ReviewAnalysis.loadFromArchiveId] 跳过分析，只加载棋谱');
         // 获取棋谱基本信息并通知页面
         const state = this.reviewApp.getState(this.reviewId);
+        console.info('[ReviewAnalysis.loadFromArchiveId] state:', state ? { totalMoves: state.totalMoves, gameInfo: state.gameInfo } : null);
         if (state) {
           const moves = this.reviewApp.getMoves(this.reviewId) ?? [];
+          console.info('[ReviewAnalysis.loadFromArchiveId] moves length:', moves.length);
           this.callbacks.onAnalysisComplete({
             totalMoves: state.totalMoves,
             badMoves: [],
             winrateTrend: [],
             moves,
           });
+        } else {
+          console.warn('[ReviewAnalysis.loadFromArchiveId] state is null');
         }
         return true;
       }

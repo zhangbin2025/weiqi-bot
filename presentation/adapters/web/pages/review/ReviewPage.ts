@@ -236,10 +236,18 @@ export class ReviewPage implements IPage {
       // 禁用滑条和前进后退按钮
       this.ui.disableNavigation();
       // 加载棋谱并跳转到指定局面
-      this.loadFromArchiveId(archiveId, undefined, undefined, true).then(() => {
-        this.goToMove(moveTo);
-        // 自动触发 AI 推荐
-        this.analyzeCurrentPosition();
+      this.loadFromArchiveId(archiveId, undefined, undefined, true).then((success) => {
+        console.info('[ReviewPage] loadFromArchiveId 返回:', success, 'totalMoves:', this.totalMoves, 'moves.length:', this.moves.length);
+        if (success) {
+          this.goToMove(moveTo);
+          // 自动触发 AI 推荐
+          this.analyzeCurrentPosition();
+        } else {
+          this.ui.updateStatus('加载棋谱失败');
+        }
+      }).catch((err) => {
+        console.error('[ReviewPage] loadFromArchiveId 错误:', err);
+        this.ui.updateStatus('加载棋谱失败');
       });
       return;
     }
