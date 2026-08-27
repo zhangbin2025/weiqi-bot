@@ -67,6 +67,8 @@ export class ReviewUI {
 
   // 音效
   private soundEnabled = true;
+  // 分析局面模式标志（禁用胜率图和导航控件）
+  private analyzePositionMode = false;
 
   constructor(callbacks: UICallbacks) {
     this.callbacks = callbacks;
@@ -367,6 +369,12 @@ export class ReviewUI {
   }
 
   showChartAndBadmoveInfo(show: boolean): void {
+    // 分析局面模式：永远不显示胜率图
+    if (this.analyzePositionMode) {
+      const chartContainer = document.getElementById('chart-container');
+      if (chartContainer) chartContainer.style.display = 'none';
+      return;
+    }
     const chartContainer = document.getElementById('chart-container');
     if (chartContainer) chartContainer.style.display = show ? 'block' : 'none';
   }
@@ -543,6 +551,7 @@ export class ReviewUI {
   }
   /** 隐藏胜率图（分析局面模式） */
   hideChart(): void {
+    this.analyzePositionMode = true;
     const chartContainer = document.getElementById('chart-container');
     if (chartContainer) {
       chartContainer.style.display = 'none';
@@ -556,6 +565,7 @@ export class ReviewUI {
 
   /** 禁用导航控件（滑条、上一步、下一步） */
   disableNavigation(): void {
+    this.analyzePositionMode = true;
     // 禁用滑条
     if (this.moveSlider) {
       this.moveSlider.disabled = true;
@@ -855,6 +865,13 @@ export class ReviewUI {
 
   /** 启用所有功能按钮（有棋谱时） */
   enableAllButtons(): void {
+    // 分析局面模式：不启用导航控件（滑条、上一步、下一步）
+    if (this.analyzePositionMode) {
+      // 只启用AI按钮、undoBtn等非导航按钮
+      this.setButtonEnabled('analyzeBtn', true);
+      this.setButtonEnabled('undoBtn', true);
+      return;
+    }
     this.setButtonEnabled('prevMoveBtn', true);
     this.setButtonEnabled('nextMoveBtn', true);
     this.setButtonEnabled('analyzeBtn', true);

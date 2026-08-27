@@ -726,7 +726,10 @@ export class ReviewPage implements IPage {
       this.ui.updateStatus('点击推荐选点查看变化图');
     }
     // 启用所有功能按钮（有棋谱时）
-    this.ui.enableAllButtons();
+    // 分析局面模式：不启用导航控件
+    if (!this.analyzePositionMode) {
+      this.ui.enableAllButtons();
+    }
 
     // 如果有待选中的选点（从直播跳转过来），自动分析并选中
     if (this.pendingSelectCoord) {
