@@ -884,13 +884,23 @@ export class ReviewUI {
   setButtonsEnabled(enabled: boolean): void {
     const buttonIds = ['prevBtn', 'nextBtn', 'aiBtn', 'aiRecommendBtn', 'undoBtn'];
     buttonIds.forEach(id => {
+      // 分析局面模式：不启用导航按钮（prevBtn、nextBtn）
+      if (this.analyzePositionMode && (id === 'prevBtn' || id === 'nextBtn')) {
+        return; // 跳过，保持禁用状态
+      }
       this.setButtonEnabled(id, enabled);
     });
     
     // 禁用滑块
     if (this.moveSlider) {
-      this.moveSlider.disabled = !enabled;
-      this.moveSlider.style.opacity = enabled ? '1' : '0.5';
+      // 分析局面模式：滑块保持禁用
+      if (this.analyzePositionMode) {
+        this.moveSlider.disabled = true;
+        this.moveSlider.style.opacity = '0.3';
+      } else {
+        this.moveSlider.disabled = !enabled;
+        this.moveSlider.style.opacity = enabled ? '1' : '0.5';
+      }
     }
   }
 }
