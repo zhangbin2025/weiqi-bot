@@ -522,6 +522,8 @@
           <div class="dropdown-menu" id="dropdownMenu">
             <button class="dropdown-item" id="soundMenuItem">✓ 落子音效</button>
             <button class="dropdown-item" id="downloadMenuItem">📥 下载SGF</button>
+            <div class="dropdown-divider"></div>
+            <button class="dropdown-item" id="aiAnalysisMenuItem">🤖 AI分析</button>
           </div>
         </div>
       </div>
@@ -634,6 +636,14 @@
       e.stopPropagation();
       dropdownMenu?.classList.remove('visible');
       window.dispatchEvent(new CustomEvent('downloadSGF'));
+    });
+    
+    // AI分析菜单项
+    const aiAnalysisMenuItem = document.getElementById('aiAnalysisMenuItem');
+    aiAnalysisMenuItem?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dropdownMenu?.classList.remove('visible');
+      window.dispatchEvent(new CustomEvent('aiAnalysis'));
     });
     
     // 原有的 moreBtn 展开/收起逻辑（保留，以防有其他地方用到）

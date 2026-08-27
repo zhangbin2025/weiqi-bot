@@ -37,8 +37,33 @@ export class DecisionQuizPage implements IPage {
     this.toast = AdapterFactory.createToast();
     this.score = { correct: 0, total: 0, results: [] };
   }
+  private handleAiAnalysis: (() => void) | null = null;
+
   async initialize(): Promise<void> {
     this.board.initialize({ size: 19, showCoordinates: true });
+    
+    // 监听 AI 分析事件
+    this.handleAiAnalysis = () => {
+      const problem = this.problems[this.currentIndex];
+      if (!problem) {
+        this.toast.error('没有当前题目');
+        return;
+      }
+      
+      const archiveId = problem.metadata.archiveId;
+      const moveTo = problem.metadata.moveNumber;
+      
+      if (!archiveId) {
+        this.toast.error('该题目没有关联棋谱');
+        return;
+      }
+      
+      // 跳转到复盘页面的分析局面模式
+      const url = `../review/index.html?analyzePosition=true&archiveId=${encodeURIComponent(archiveId)}&moveTo=${moveTo}`;
+      window.location.href = url;
+    };
+    
+    window.addEventListener('aiAnalysis', this.handleAiAnalysis);
   }
   handleParams(params: PageParams): void {
     if (params['problemsJson']) {
@@ -118,6 +143,9 @@ export class DecisionQuizPage implements IPage {
     this.card.render();
   }
   destroy(): void {
+    if (this.handleAiAnalysis) {
+      window.removeEventListener('aiAnalysis', this.handleAiAnalysis);
+    }
     this.board.destroy();
     this.card.destroy();
     this.dialog.destroy();
