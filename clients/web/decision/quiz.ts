@@ -121,6 +121,10 @@ function bindEvents(): void {
   }) as EventListener);
   
   window.addEventListener('downloadSGF', saveToSGF);
+  
+  // AI分析事件
+  window.addEventListener('aiAnalysis', handleAiAnalysis);
+  
   document.getElementById('backToParentBtn')?.addEventListener('click', handleBackToParent);
 
   getBoard()?.on({ onClick: (pos) => handleBoardClick(pos.x, pos.y) });
@@ -190,6 +194,29 @@ async function saveToSGF() {
   } catch (e) {
     console.error('导出 SGF 失败', e);
   }
+}
+
+/**
+ * 跳转到复盘页面进行AI分析
+ */
+function handleAiAnalysis() {
+  const problem = state.problems[state.currentIndex];
+  if (!problem) {
+    console.error('没有当前题目');
+    return;
+  }
+  
+  const archiveId = problem.metadata?.archiveId;
+  const moveTo = problem.metadata?.moveNumber;
+  
+  if (!archiveId) {
+    alert('该题目没有关联棋谱');
+    return;
+  }
+  
+  // 跳转到复盘页面的分析局面模式
+  const url = `../review/index.html?analyzePosition=true&archiveId=${encodeURIComponent(archiveId)}&moveTo=${moveTo}`;
+  window.location.href = url;
 }
 
 main().catch(console.error);
