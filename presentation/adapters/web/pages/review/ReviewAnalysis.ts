@@ -103,7 +103,6 @@ export class ReviewAnalysis {
 
   /** 从归档 ID 加载棋谱并分析 */
   async loadFromArchiveId(archiveId: string, taskId?: string, baseMoves?: Array<{ x: number; y: number; color: PlayerColor }>, skipAnalysis?: boolean): Promise<boolean> {
-    console.log('[ReviewAnalysis.loadFromArchiveId] 开始加载:', { archiveId, taskId, skipAnalysis });
     
     // 确保模型已加载（与 loadAndAnalyze 保持一致）
     await this.ensureModelLoaded(taskId);
@@ -120,13 +119,10 @@ export class ReviewAnalysis {
 
       // 分析局面模式：只加载棋谱，不恢复数据、不分析
       if (skipAnalysis) {
-        console.info('[ReviewAnalysis.loadFromArchiveId] 跳过分析，只加载棋谱');
         // 获取棋谱基本信息并通知页面
         const state = this.reviewApp.getState(this.reviewId);
-        console.info('[ReviewAnalysis.loadFromArchiveId] state:', state ? { totalMoves: state.totalMoves, gameInfo: state.gameInfo } : null);
         if (state) {
           const moves = this.reviewApp.getMoves(this.reviewId) ?? [];
-          console.info('[ReviewAnalysis.loadFromArchiveId] moves length:', moves.length);
           this.callbacks.onAnalysisComplete({
             totalMoves: state.totalMoves,
             badMoves: [],
@@ -134,7 +130,6 @@ export class ReviewAnalysis {
             moves,
           });
         } else {
-          console.warn('[ReviewAnalysis.loadFromArchiveId] state is null');
         }
         return true;
       }

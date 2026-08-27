@@ -237,7 +237,6 @@ export class ReviewPage implements IPage {
       this.ui.disableNavigation();
       // 加载棋谱并跳转到指定局面
       this.loadFromArchiveId(archiveId, undefined, undefined, true).then((success) => {
-        console.info('[ReviewPage] loadFromArchiveId 返回:', success, 'totalMoves:', this.totalMoves, 'moves.length:', this.moves.length);
         if (success) {
           this.goToMove(moveTo);
           // 自动触发 AI 推荐
