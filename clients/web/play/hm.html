@@ -108,36 +108,19 @@
     <div class="dialog options-dialog">
       <div class="dialog-title">🎮 开始对局</div>
       
-      <!-- AI 配置 -->
+      <!-- AI 难度选择 -->
       <div class="options-section">
-        <span class="options-label">AI 配置</span>
-        <div style="margin-top: 12px; padding: 12px; background: rgba(0,0,0,0.05); border-radius: 8px;">
-          <div class="slider-group">
-            <label class="slider-label">搜索深度</label>
-            <div class="slider-row">
-              <input type="range" id="visitsSlider" min="10" max="500" value="20" step="10">
-              <span id="visitsValue" class="slider-num">20</span>
-            </div>
-          </div>
-          <div class="slider-group">
-            <label class="slider-label">随机性</label>
-            <div class="slider-row">
-              <input type="range" id="noiseSlider" min="0" max="0.5" value="0" step="0.05">
-              <span id="noiseValue" class="slider-num">0</span>
-            </div>
-          </div>
-          <div class="checkbox-group">
-            <label>
-              <input type="checkbox" id="nnRandomize">
-              <span>神经网络随机</span>
-            </label>
-          </div>
-          <div class="save-difficulty-row">
-            <input type="text" id="difficultyLabelInput" placeholder="输入名称保存配置" maxlength="20">
-            <button class="save-btn" id="saveDifficultyBtn">保存</button>
-          </div>
-          <!-- 已保存的自定义配置 -->
-          <div id="savedDifficulties" style="margin-top: 12px;"></div>
+        <span class="options-label">AI 难度</span>
+        <div class="difficulty-selector">
+          <select id="difficultySelect" class="difficulty-select">
+            <option value="default">默认</option>
+          </select>
+          <button id="configDifficultyBtn" class="config-btn" title="配置难度">
+            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+          </button>
         </div>
       </div>
       
@@ -213,6 +196,47 @@
       <div class="dialog-btn-group">
         <button class="dialog-btn secondary" id="confirmCancelBtn">取消</button>
         <button class="dialog-btn primary" id="confirmOkBtn">确定</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- AI 难度配置弹框 -->
+  <div class="dialog-overlay" id="difficultyConfigDialog" style="display:none;">
+    <div class="dialog difficulty-config-dialog">
+      <div class="dialog-title">⚙️ AI 难度配置</div>
+      <div class="difficulty-config-content">
+        <div class="slider-group">
+          <label class="slider-label">搜索深度 (visits)</label>
+          <div class="slider-row">
+            <input type="range" id="configVisitsSlider" min="10" max="500" value="20" step="10">
+            <span id="configVisitsValue" class="slider-num">20</span>
+          </div>
+          <div class="slider-hint">值越大 AI 越强，计算时间越长</div>
+        </div>
+        <div class="slider-group">
+          <label class="slider-label">随机性 (wideRootNoise)</label>
+          <div class="slider-row">
+            <input type="range" id="configNoiseSlider" min="0" max="0.5" value="0" step="0.05">
+            <span id="configNoiseValue" class="slider-num">0</span>
+          </div>
+          <div class="slider-hint">值越大 AI 越容易犯错</div>
+        </div>
+        <div class="checkbox-group">
+          <label>
+            <input type="checkbox" id="configNnRandomize">
+            <span>神经网络随机</span>
+          </label>
+        </div>
+        <div class="form-group">
+          <label>配置名称</label>
+          <input type="text" id="configDifficultyLabel" placeholder="自动命名：难度1、难度2..." maxlength="20">
+        </div>
+        <!-- 已保存的配置 -->
+        <div id="savedDifficultyList" style="margin-top: 16px;"></div>
+      </div>
+      <div class="dialog-btn-group">
+        <button class="dialog-btn secondary" id="cancelDifficultyConfigBtn">取消</button>
+        <button class="dialog-btn primary" id="saveDifficultyConfigBtn">保存</button>
       </div>
     </div>
   </div>
