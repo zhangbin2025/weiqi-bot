@@ -223,6 +223,10 @@ export class HMPlayService implements IHMPlayService {
     this.aiController.setDifficulty(difficulty as unknown as import('../../ai/types').Difficulty);
   }
 
+  setCustomDifficultyConfig(config: import('../../ai/types').DifficultyConfig): void {
+    this.aiController.setCustomDifficultyConfig(config);
+  }
+
   async setModel(modelId: string): Promise<void> {
     await this.aiController.init(modelId);
   }

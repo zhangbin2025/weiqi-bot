@@ -5,6 +5,7 @@
 
 import type { HMPlayPage } from '../HMPlayPage';
 import type { GameOptions } from '../HMPlayPage';
+import type { DifficultyConfig } from '@services/ai/types';
 import { DefaultModelService } from '@services/model';
 
 /**
@@ -141,13 +142,47 @@ export class HMEventBinder {
     const colorRow = document.getElementById('colorRow');
     const handicapRow = document.getElementById('handicapRow');
     const rulesRow = document.getElementById('rulesRow');
+    const difficultyRow = document.getElementById('difficultyRow');
+    const customPanel = document.getElementById('customDifficultyPanel');
     const startGameBtn = document.getElementById('startGameBtn');
 
-    // 滑条值变化监听
-    const slider = document.getElementById('visitsSlider') as HTMLInputElement;
-    const valueEl = document.getElementById('visitsValue');
-    slider?.addEventListener('input', () => {
-      if (valueEl) valueEl.textContent = slider.value;
+    // 难度选择
+    difficultyRow?.querySelectorAll('.option-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        difficultyRow.querySelectorAll('.option-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        
+        // 显示/隐藏自定义配置面板
+        const value = btn.getAttribute('data-value');
+        if (customPanel) {
+          customPanel.style.display = value === 'custom' ? 'block' : 'none';
+        }
+        
+        // 如果选择了预设难度，更新滑条值
+        if (value && value !== 'custom') {
+          this.updateSlidersFromPreset(value as 'easy' | 'medium' | 'hard');
+        }
+      });
+    });
+
+    // 滑条值变化监听 - visits
+    const visitsSlider = document.getElementById('visitsSlider') as HTMLInputElement;
+    const visitsValue = document.getElementById('visitsValue');
+    visitsSlider?.addEventListener('input', () => {
+      if (visitsValue) visitsValue.textContent = visitsSlider.value;
+    });
+
+    // 滑条值变化监听 - noise
+    const noiseSlider = document.getElementById('noiseSlider') as HTMLInputElement;
+    const noiseValue = document.getElementById('noiseValue');
+    noiseSlider?.addEventListener('input', () => {
+      if (noiseValue) noiseValue.textContent = noiseSlider.value;
+    });
+
+    // 保存自定义难度
+    const saveDifficultyBtn = document.getElementById('saveDifficultyBtn');
+    saveDifficultyBtn?.addEventListener('click', () => {
+      this.saveCustomDifficulty();
     });
 
     // 执色选择
@@ -179,6 +214,199 @@ export class HMEventBinder {
       const options = this.getOptionsFromDialog();
       this.config.onStartGame(options);
     });
+
+    // 加载已保存的自定义难度
+    this.loadSavedDifficulties();
+  }
+
+  /**
+   * 从预设难度更新滑条值
+   */
+  private updateSlidersFromPreset(preset: 'easy' | 'medium' | 'hard'): void {
+    const presetConfig: Record<string, { visits: number; noise: number }> = {
+      easy: { visits: 50, noise: 0.2 },
+      medium: { visits: 100, noise: 0.1 },
+      hard: { visits: 200, noise: 0 },
+    };
+    
+    const config = presetConfig[preset];
+    if (!config) return;
+    
+    const visitsSlider = document.getElementById('visitsSlider') as HTMLInputElement;
+    const visitsValue = document.getElementById('visitsValue');
+    const noiseSlider = document.getElementById('noiseSlider') as HTMLInputElement;
+    const noiseValue = document.getElementById('noiseValue');
+    
+    if (visitsSlider) {
+      visitsSlider.value = String(config.visits);
+      if (visitsValue) visitsValue.textContent = String(config.visits);
+    }
+    
+    if (noiseSlider) {
+      noiseSlider.value = String(config.noise);
+      if (noiseValue) noiseValue.textContent = String(config.noise);
+    }
+  }
+
+  /**
+   * 保存自定义难度配置
+   */
+  private async saveCustomDifficulty(): Promise<void> {
+    const labelInput = document.getElementById('difficultyLabelInput') as HTMLInputElement;
+    const label = labelInput?.value?.trim();
+    
+    if (!label) {
+      alert('请输入配置名称');
+      return;
+    }
+    
+    const visitsSlider = document.getElementById('visitsSlider') as HTMLInputElement;
+    const noiseSlider = document.getElementById('noiseSlider') as HTMLInputElement;
+    const nnRandomize = document.getElementById('nnRandomize') as HTMLInputElement;
+    
+    const config: DifficultyConfig = {
+      visits: parseInt(visitsSlider?.value || '100'),
+      wideRootNoise: parseFloat(noiseSlider?.value || '0'),
+      nnRandomize: nnRandomize?.checked || false,
+      label,
+    };
+    
+    // 保存到 localStorage
+    try {
+      const storageKey = 'weiqi-custom-difficulties';
+      const stored = localStorage.getItem(storageKey);
+      const difficulties = stored ? JSON.parse(stored) : [];
+      
+      difficulties.unshift({
+        id: `difficulty_${Date.now()}`,
+        ...config,
+        createdAt: Date.now(),
+      });
+      
+      // 最多保存 10 个配置
+      if (difficulties.length > 10) {
+        difficulties.pop();
+      }
+      
+      localStorage.setItem(storageKey, JSON.stringify(difficulties));
+      
+      // 清空输入框
+      if (labelInput) labelInput.value = '';
+      
+      // 刷新列表
+      this.loadSavedDifficulties();
+      
+      alert('配置已保存');
+    } catch (error) {
+      console.error('保存失败:', error);
+      alert('保存失败');
+    }
+  }
+
+  /**
+   * 加载已保存的自定义难度
+   */
+  private loadSavedDifficulties(): void {
+    const container = document.getElementById('savedDifficulties');
+    if (!container) return;
+    
+    try {
+      const storageKey = 'weiqi-custom-difficulties';
+      const stored = localStorage.getItem(storageKey);
+      const difficulties = stored ? JSON.parse(stored) : [];
+      
+      if (difficulties.length === 0) {
+        container.innerHTML = '<div style="color: #999; font-size: 14px;">暂无保存的配置</div>';
+        return;
+      }
+      
+      container.innerHTML = difficulties.map((d: any) => `
+        <div class="saved-difficulty-item" data-id="${d.id}" style="display: flex; justify-content: space-between; align-items: center; padding: 8px; margin-top: 4px; background: rgba(255,255,255,0.8); border-radius: 4px; cursor: pointer;">
+          <span>${d.label} (v:${d.visits}, n:${d.wideRootNoise})</span>
+          <button class="delete-btn" data-id="${d.id}" style="background: none; border: none; color: #ff6b6b; cursor: pointer; font-size: 12px;">删除</button>
+        </div>
+      `).join('');
+      
+      // 绑定点击事件
+      container.querySelectorAll('.saved-difficulty-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+          const target = e.target as HTMLElement;
+          if (target.classList.contains('delete-btn')) {
+            // 删除配置
+            const id = target.getAttribute('data-id');
+            this.deleteCustomDifficulty(id!);
+            e.stopPropagation();
+          } else {
+            // 加载配置
+            const id = item.getAttribute('data-id');
+            this.loadCustomDifficulty(id!);
+          }
+        });
+      });
+    } catch (error) {
+      console.error('加载失败:', error);
+    }
+  }
+
+  /**
+   * 删除自定义难度
+   */
+  private deleteCustomDifficulty(id: string): void {
+    try {
+      const storageKey = 'weiqi-custom-difficulties';
+      const stored = localStorage.getItem(storageKey);
+      const difficulties = stored ? JSON.parse(stored) : [];
+      
+      const filtered = difficulties.filter((d: any) => d.id !== id);
+      localStorage.setItem(storageKey, JSON.stringify(filtered));
+      
+      this.loadSavedDifficulties();
+    } catch (error) {
+      console.error('删除失败:', error);
+    }
+  }
+
+  /**
+   * 加载自定义难度到表单
+   */
+  private loadCustomDifficulty(id: string): void {
+    try {
+      const storageKey = 'weiqi-custom-difficulties';
+      const stored = localStorage.getItem(storageKey);
+      const difficulties = stored ? JSON.parse(stored) : [];
+      
+      const config = difficulties.find((d: any) => d.id === id);
+      if (!config) return;
+      
+      // 更新表单值
+      const visitsSlider = document.getElementById('visitsSlider') as HTMLInputElement;
+      const visitsValue = document.getElementById('visitsValue');
+      const noiseSlider = document.getElementById('noiseSlider') as HTMLInputElement;
+      const noiseValue = document.getElementById('noiseValue');
+      const nnRandomize = document.getElementById('nnRandomize') as HTMLInputElement;
+      
+      if (visitsSlider) {
+        visitsSlider.value = String(config.visits);
+        if (visitsValue) visitsValue.textContent = String(config.visits);
+      }
+      
+      if (noiseSlider) {
+        noiseSlider.value = String(config.wideRootNoise);
+        if (noiseValue) noiseValue.textContent = String(config.wideRootNoise);
+      }
+      
+      if (nnRandomize) {
+        nnRandomize.checked = config.nnRandomize;
+      }
+      
+      // 切换到自定义模式
+      const difficultyRow = document.getElementById('difficultyRow');
+      difficultyRow?.querySelectorAll('.option-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-value') === 'custom');
+      });
+    } catch (error) {
+      console.error('加载失败:', error);
+    }
   }
 
   /**
@@ -190,8 +418,14 @@ export class HMEventBinder {
     const rulesRow = document.getElementById('rulesRow');
     const modelCardsContainer = document.getElementById('modelCards');
     const visitsSlider = document.getElementById('visitsSlider') as HTMLInputElement;
+    const noiseSlider = document.getElementById('noiseSlider') as HTMLInputElement;
+    const nnRandomize = document.getElementById('nnRandomize') as HTMLInputElement;
+    const difficultyRow = document.getElementById('difficultyRow');
 
     const visits = parseInt(visitsSlider?.value || '100');
+    const wideRootNoise = parseFloat(noiseSlider?.value || '0');
+    const nnRand = nnRandomize?.checked || false;
+    const difficulty = difficultyRow?.querySelector('.option-btn.active')?.getAttribute('data-value') || 'medium';
     const playerColor = colorRow?.querySelector('.option-btn.active')?.getAttribute('data-value') as GameOptions['playerColor'] || 'black';
     const handicap = parseInt(handicapRow?.querySelector('.option-btn.active')?.getAttribute('data-value') || '0');
     const noUndo = rulesRow?.querySelector('.option-btn.active')?.getAttribute('data-value') === 'no-undo';
@@ -200,6 +434,18 @@ export class HMEventBinder {
     const selectedModelRadio = modelCardsContainer?.querySelector('input[name="aiModel"]:checked') as HTMLInputElement;
     const modelId = selectedModelRadio?.value || DefaultModelService.getDefaultModelId();
 
-    return { visits, playerColor, handicap, modelId, noUndo };
+    const options: GameOptions = { visits, playerColor, handicap, modelId, noUndo };
+    
+    // 如果是自定义难度，保存配置
+    if (difficulty === 'custom') {
+      (options as any).difficultyConfig = {
+        visits,
+        wideRootNoise,
+        nnRandomize: nnRand,
+        label: '自定义',
+      };
+    }
+    
+    return options;
   }
 }

@@ -9,6 +9,7 @@ import type {
   IAnalysisResult,
   Difficulty,
 } from '../../services/play/hm';
+import type { DifficultyConfig } from '@services/ai/types';
 import type { HMPlayDraft } from '../../services/play/hm/HMPlayDraftTypes';
 import type { IModelService, ModelConfig, ModelList } from '../../services/model';
 import type { IActivityLogService, ActivityEntry } from '../../services/activity';
@@ -75,6 +76,11 @@ export class HMPlayApp {
   getState = (): IHMPlayState => this.requirePlay().getState();
   setCallbacks = (callbacks: IHMPlayCallbacks): void => this.requirePlay().setCallbacks(callbacks);
   setDifficulty = (difficulty: Difficulty): void => this.requirePlay().setDifficulty(difficulty);
+  setCustomDifficultyConfig = (config: DifficultyConfig): void => {
+    if (this.hmPlayService && 'setCustomDifficultyConfig' in this.hmPlayService) {
+      (this.hmPlayService as any).setCustomDifficultyConfig(config);
+    }
+  };
   setModel = (modelId: string): Promise<void> => this.requirePlay().setModel(modelId);
   cancelAiThinking = (): void => this.requirePlay().cancelAiThinking();
   genmoveForAutoPlay = (): Promise<{ x: number; y: number; winRate: number; scoreLead: number } | null> =>

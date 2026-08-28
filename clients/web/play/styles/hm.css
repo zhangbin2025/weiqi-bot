@@ -726,3 +726,112 @@ body {
 .winrate-bar-white.leading {
   box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.1);
 }
+
+/* ===== 难度配置面板 ===== */
+.slider-group {
+  margin-bottom: 12px;
+}
+
+.slider-label {
+  display: block;
+  font-size: 13px;
+  color: #666;
+  margin-bottom: 6px;
+}
+
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.slider-row input[type=range] {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: #e0e0e0;
+  outline: none;
+  -webkit-appearance: none;
+}
+
+.slider-row input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #667eea;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.slider-num {
+  min-width: 32px;
+  text-align: right;
+  font-size: 13px;
+  color: #667eea;
+  font-weight: 500;
+}
+
+.checkbox-group {
+  margin-bottom: 12px;
+}
+
+.checkbox-group label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #666;
+}
+
+.checkbox-group input[type=checkbox] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.save-difficulty-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.save-difficulty-row input[type=text] {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.save-btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  background: #667eea;
+  color: white;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.save-btn:hover {
+  background: #5568d3;
+}
+
+.saved-difficulty-item {
+  transition: background 0.2s;
+}
+
+.saved-difficulty-item:hover {
+  background: rgba(102, 126, 234, 0.1) !important;
+}
+
+.delete-btn {
+  padding: 4px 8px;
+}
+
+.delete-btn:hover {
+  text-decoration: underline;
+}

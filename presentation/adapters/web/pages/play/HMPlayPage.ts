@@ -668,6 +668,12 @@ export class HMPlayPage implements IPage {
         });
       }
 
+      // 设置自定义难度配置（如果有）
+      const difficultyConfig = (options as any).difficultyConfig;
+      if (difficultyConfig) {
+        this.hmPlayApp.setCustomDifficultyConfig(difficultyConfig);
+      }
+
       await this.hmPlayApp.newGame({
         playerColor: options.playerColor,
         difficulty: 'medium',  // 固定中等难度
