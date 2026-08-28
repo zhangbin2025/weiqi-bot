@@ -747,9 +747,6 @@ body {
 
 .slider-row input[type=range] {
   flex: 1;
-  height: 6px;
-  border-radius: 3px;
-  background: #e0e0e0;
   outline: none;
   -webkit-appearance: none;
 }
