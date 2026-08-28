@@ -67,6 +67,10 @@ export function markOptions(): void {
   const problem = currentProblem();
   state.board.clearMarkers();
   
+  // 答题后始终显示标记（用户需要看答案）
+  // 未答题时根据 showOptions 决定是否显示
+  if (!state.answered && !state.showOptions) return;
+  
   for (const option of problem.options) {
     const pos = coordToPos(option.coord);
     if (pos) {

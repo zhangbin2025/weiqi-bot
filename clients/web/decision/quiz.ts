@@ -95,6 +95,10 @@ async function main() {
     const start = Math.min(problemIndex, normalized.length - 1);
     state.problems = normalized.slice(start).concat(normalized.slice(0, start));
 
+    // 从 localStorage 读取显示选点的设置
+    const savedShowOptions = localStorage.getItem('quiz-showOptions');
+    state.showOptions = savedShowOptions !== 'false';
+
     initBoard();
     bindEvents();
     loadProblem(0);
@@ -120,6 +124,14 @@ function bindEvents(): void {
     state.soundEnabled = e.detail;
   }) as EventListener);
   
+  window.addEventListener('toggleShowOptions', ((e: CustomEvent) => {
+    state.showOptions = e.detail;
+    // 重新标记选项
+    if (!state.answered) {
+      markOptions();
+    }
+  }) as EventListener);
+  
   window.addEventListener('downloadSGF', saveToSGF);
   
   // AI分析事件
@@ -142,10 +154,110 @@ function handleMainClick(x: number, y: number): void {
   const problem = state.problems[state.currentIndex];
   if (!problem) return;
 
-  const clickedOptionIndex = problem.options.findIndex(opt => { const pos = coordToPos(opt.coord); return pos && pos.x === x && pos.y === y; });
-  if (clickedOptionIndex >= 0) {
-    selectOption(clickedOptionIndex);
+  // 如果显示选点标记，点击选点答题
+  if (state.showOptions) {
+    const clickedOptionIndex = problem.options.findIndex(opt => { const pos = coordToPos(opt.coord); return pos && pos.x === x && pos.y === y; });
+    if (clickedOptionIndex >= 0) {
+      selectOption(clickedOptionIndex);
+    }
+  } else {
+    // 不显示选点标记的困难模式：点中正确的选点才对，否则错
+    if (state.answered) return;
+    
+    const correctCoord = problem.options[problem.correctIndex]?.coord;
+    if (!correctCoord) return;
+    
+    const correctPos = coordToPos(correctCoord);
+    if (correctPos && correctPos.x === x && correctPos.y === y) {
+      // 答对了
+      selectOption(problem.correctIndex);
+    } else {
+      // 答错了
+      state.answered = true;
+      state.selectedOptionIndex = -1; // -1 表示用户自己选的点
+      
+      // 播放音效
+      if (state.soundEnabled && state.audioPlayer) {
+        state.audioPlayer.play("wrong");
+      }
+      
+      // 显示所有正确选项，告诉用户正确答案在哪
+      showHiddenOptionsWrongResult(problem);
+      // 答题后显示选点标记
+      markOptions();
+    }
   }
+}
+
+/**
+ * 显示隐藏选点模式的错误结果（显示所有正确选项）
+ */
+function showHiddenOptionsWrongResult(problem: QuizProblem): void {
+  const resultCard = document.getElementById("resultCard");
+  const resultStatus = document.getElementById("resultStatus");
+  const resultIcon = document.getElementById("resultIcon");
+  const resultText = document.getElementById("resultText");
+  const optionsList = document.getElementById("optionsList");
+
+  if (!resultCard || !resultStatus || !resultIcon || !resultText || !optionsList) return;
+
+  // 设置状态
+  resultStatus.className = "result-status wrong";
+  resultIcon.textContent = "✗";
+  resultText.textContent = "答错了";
+
+  // 渲染选项列表：显示所有正确选项，告诉用户正确答案在哪
+  optionsList.innerHTML = "";
+  problem.options.forEach((option, index) => {
+    const item = document.createElement("div");
+    const isCorrectItem = index === problem.correctIndex;
+
+    let itemClasses = "option-item";
+    if (isCorrectItem) itemClasses += " correct";
+
+    item.className = itemClasses;
+
+    // 选项标签
+    const letterDiv = document.createElement("div");
+    letterDiv.className = "option-letter";
+    letterDiv.textContent = option.letter || option.label;
+
+    // 信息
+    const infoDiv = document.createElement("div");
+    infoDiv.className = "option-info";
+
+    const labelDiv = document.createElement("div");
+    labelDiv.className = "option-label";
+    labelDiv.textContent = option.label;
+    if (isCorrectItem) labelDiv.classList.add("correct");
+
+    const winrateDiv = document.createElement("div");
+    winrateDiv.className = "option-winrate";
+    winrateDiv.textContent = option.winrate !== undefined ? `${option.winrate.toFixed(1)}%` : "-";
+
+    infoDiv.appendChild(labelDiv);
+    infoDiv.appendChild(winrateDiv);
+
+    // 指示器
+    const indicatorDiv = document.createElement("div");
+    indicatorDiv.className = "option-indicator";
+    if (isCorrectItem) indicatorDiv.textContent = "⭐";
+
+    item.appendChild(letterDiv);
+    item.appendChild(infoDiv);
+    item.appendChild(indicatorDiv);
+    
+    // 添加点击事件，查看变化图
+    item.addEventListener("click", () => {
+      startVariation(index);
+    });
+    item.style.cursor = "pointer";
+    
+    optionsList.appendChild(item);
+  });
+
+  // 显示卡片
+  resultCard.classList.remove("hidden");
 }
 
 function handlePrevMove() {
@@ -190,7 +302,7 @@ async function saveToSGF() {
     if (!sgf) return;
 
     const filename = `problem_${problem.__originalIndex + 1}.sgf`;
-    await state.fileExporter?.save(sgf, filename);
+    await state.exportService?.save(sgf, filename);
   } catch (e) {
     console.error('导出 SGF 失败', e);
   }

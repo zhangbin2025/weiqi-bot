@@ -36,3 +36,4 @@ dist-web/
 # Project memory (moved to weiqi-ops)
 .project-memory/
 clients/desktop/dist-builder/
+.parcel-cache/

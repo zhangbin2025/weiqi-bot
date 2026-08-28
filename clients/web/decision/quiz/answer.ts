@@ -4,7 +4,7 @@
  */
 
 import { state, currentProblem, resetAnswerState } from './state';
-import { syncBoard, highlightLastMove } from './board';
+import { syncBoard, highlightLastMove, markOptions } from './board';
 import { startVariation } from './variation';
 import { QuizProblem } from './types';
 
@@ -26,6 +26,9 @@ export function selectOption(index: number): void {
 
   // 显示结果卡片
   showResultCard(index, problem.correctIndex, problem);
+
+  // 答题后显示选点标记（让用户看到答案位置）
+  markOptions();
 
   // 高亮最后一手
   highlightLastMove();

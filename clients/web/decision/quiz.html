@@ -520,6 +520,7 @@
         <div class="dropdown">
           <button class="menu-btn" id="menuBtn" title="菜单">⋮</button>
           <div class="dropdown-menu" id="dropdownMenu">
+            <button class="dropdown-item" id="showOptionsMenuItem">✓ 显示选点</button>
             <button class="dropdown-item" id="soundMenuItem">✓ 落子音效</button>
             <button class="dropdown-item" id="downloadMenuItem">📥 下载SGF</button>
             <div class="dropdown-divider"></div>
@@ -616,6 +617,23 @@
       if (!e.target.closest('.dropdown')) {
         dropdownMenu?.classList.remove('visible');
       }
+    });
+
+    // 显示选点开关菜单项（从 localStorage 读取上次的设置）
+    let showOptionsEnabled = localStorage.getItem('quiz-showOptions') !== 'false';
+    const showOptionsMenuItem = document.getElementById('showOptionsMenuItem');
+    if (showOptionsMenuItem) {
+      showOptionsMenuItem.textContent = showOptionsEnabled ? '✓ 显示选点' : '✗ 显示选点';
+    }
+    showOptionsMenuItem?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      showOptionsEnabled = !showOptionsEnabled;
+      showOptionsMenuItem.textContent = showOptionsEnabled ? '✓ 显示选点' : '✗ 显示选点';
+      dropdownMenu?.classList.remove('visible');
+      // 保存到 localStorage
+      localStorage.setItem('quiz-showOptions', String(showOptionsEnabled));
+      // 通知 TypeScript 代码
+      window.dispatchEvent(new CustomEvent('toggleShowOptions', { detail: showOptionsEnabled }));
     });
 
     // 音效开关菜单项

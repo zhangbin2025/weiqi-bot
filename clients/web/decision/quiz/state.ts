@@ -23,6 +23,7 @@ export interface QuizState {
   answered: boolean;
   selectedOptionIndex: number | null;
   soundEnabled: boolean;
+  showOptions: boolean; // 是否显示选点标记
   currentMove: number;
   
   // 试下状态
@@ -51,6 +52,7 @@ export const state: QuizState = {
   answered: false,
   selectedOptionIndex: null,
   soundEnabled: true,
+  showOptions: true, // 默认显示选点
   currentMove: 0,
   trialMoves: [],
   trialIndex: 0,
