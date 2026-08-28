@@ -160,6 +160,9 @@ export class HMEventBinder {
     configDifficultyBtn?.addEventListener('click', () => {
       this.showDifficultyConfigDialog();
     });
+    
+    // 绑定配置弹框的事件（只绑定一次）
+    this.bindDifficultyConfigEvents();
 
     // 执色选择
     colorRow?.querySelectorAll('.option-btn').forEach(btn => {
@@ -288,6 +291,46 @@ export class HMEventBinder {
   }
 
   /**
+   * 绑定配置弹框事件（只执行一次）
+   */
+  private difficultyConfigEventsBound = false;
+  
+  private bindDifficultyConfigEvents(): void {
+    if (this.difficultyConfigEventsBound) return;
+    
+    const saveBtn = document.getElementById('saveDifficultyConfigBtn');
+    const cancelBtn = document.getElementById('cancelDifficultyConfigBtn');
+    const visitsSlider = document.getElementById('configVisitsSlider') as HTMLInputElement;
+    const visitsValue = document.getElementById('configVisitsValue');
+    const noiseSlider = document.getElementById('configNoiseSlider') as HTMLInputElement;
+    const noiseValue = document.getElementById('configNoiseValue');
+    
+    // 滑条事件
+    visitsSlider?.addEventListener('input', () => {
+      if (visitsValue) visitsValue.textContent = visitsSlider.value;
+    });
+    
+    noiseSlider?.addEventListener('input', () => {
+      if (noiseValue) noiseValue.textContent = noiseSlider.value;
+    });
+    
+    // 保存按钮
+    saveBtn?.addEventListener('click', () => {
+      this.saveNewDifficulty();
+      const dialog = document.getElementById('difficultyConfigDialog');
+      if (dialog) dialog.style.display = 'none';
+    });
+    
+    // 取消按钮
+    cancelBtn?.addEventListener('click', () => {
+      const dialog = document.getElementById('difficultyConfigDialog');
+      if (dialog) dialog.style.display = 'none';
+    });
+    
+    this.difficultyConfigEventsBound = true;
+  }
+
+  /**
    * 显示难度配置弹框
    */
   private showDifficultyConfigDialog(): void {
@@ -300,6 +343,7 @@ export class HMEventBinder {
     const noiseSlider = document.getElementById('configNoiseSlider') as HTMLInputElement;
     const noiseValue = document.getElementById('configNoiseValue');
     const nnRandomize = document.getElementById('configNnRandomize') as HTMLInputElement;
+    const labelInput = document.getElementById('configDifficultyLabel') as HTMLInputElement;
     
     if (visitsSlider) {
       visitsSlider.value = '20';
@@ -312,38 +356,12 @@ export class HMEventBinder {
     if (nnRandomize) {
       nnRandomize.checked = false;
     }
+    if (labelInput) {
+      labelInput.value = '';
+    }
     
     // 加载已保存的配置列表
     this.loadSavedDifficultyList();
-    
-    // 绑定滑条事件
-    visitsSlider?.addEventListener('input', () => {
-      if (visitsValue) visitsValue.textContent = visitsSlider.value;
-    });
-    
-    noiseSlider?.addEventListener('input', () => {
-      if (noiseValue) noiseValue.textContent = noiseSlider.value;
-    });
-    
-    // 绑定按钮事件
-    const saveBtn = document.getElementById('saveDifficultyConfigBtn');
-    const cancelBtn = document.getElementById('cancelDifficultyConfigBtn');
-    
-    const handleSave = () => {
-      this.saveNewDifficulty();
-      dialog.style.display = 'none';
-    };
-    
-    const handleCancel = () => {
-      dialog.style.display = 'none';
-    };
-    
-    // 移除旧监听器（避免重复绑定）
-    saveBtn?.removeEventListener('click', handleSave);
-    cancelBtn?.removeEventListener('click', handleCancel);
-    
-    saveBtn?.addEventListener('click', handleSave);
-    cancelBtn?.addEventListener('click', handleCancel);
     
     dialog.style.display = 'flex';
   }
