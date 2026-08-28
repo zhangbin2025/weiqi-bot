@@ -108,22 +108,15 @@
     <div class="dialog options-dialog">
       <div class="dialog-title">🎮 开始对局</div>
       
-      <!-- 难度选择 -->
+      <!-- AI 配置 -->
       <div class="options-section">
-        <span class="options-label">AI 难度</span>
-        <div class="options-row" id="difficultyRow">
-          <button class="option-btn" data-value="easy">简单</button>
-          <button class="option-btn active" data-value="medium">中等</button>
-          <button class="option-btn" data-value="hard">困难</button>
-          <button class="option-btn" data-value="custom">自定义</button>
-        </div>
-        <!-- 自定义难度配置面板 -->
-        <div id="customDifficultyPanel" style="display:none; margin-top: 16px; padding: 12px; background: rgba(0,0,0,0.05); border-radius: 8px;">
+        <span class="options-label">AI 配置</span>
+        <div style="margin-top: 12px; padding: 12px; background: rgba(0,0,0,0.05); border-radius: 8px;">
           <div class="slider-group">
             <label class="slider-label">搜索深度</label>
             <div class="slider-row">
-              <input type="range" id="visitsSlider" min="10" max="500" value="100" step="10">
-              <span id="visitsValue" class="slider-num">100</span>
+              <input type="range" id="visitsSlider" min="10" max="500" value="20" step="10">
+              <span id="visitsValue" class="slider-num">20</span>
             </div>
           </div>
           <div class="slider-group">
