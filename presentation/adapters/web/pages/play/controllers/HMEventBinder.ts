@@ -378,27 +378,45 @@ export class HMEventBinder {
     const visits = parseInt(visitsSlider?.value || '20');
     const wideRootNoise = parseFloat(noiseSlider?.value || '0');
     const nnRand = nnRandomize?.checked || false;
+    const customLabel = labelInput?.value?.trim();
     
-    // 自动命名：难度1、难度2...
+    // 加载已保存的配置
     const stored = localStorage.getItem('weiqi-custom-difficulties');
-    const difficulties = stored ? JSON.parse(stored) : [];
-    const defaultLabel = `难度${difficulties.length + 1}`;
-    const label = labelInput?.value?.trim() || defaultLabel;
+    let difficulties = stored ? JSON.parse(stored) : [];
+    
+    let label: string;
+    let existingIndex = -1;
+    
+    if (customLabel) {
+      // 用户输入了自定义名称，检查是否已存在
+      existingIndex = difficulties.findIndex((d: any) => d.label === customLabel);
+      label = customLabel;
+    } else {
+      // 自动命名：难度1、难度2...
+      label = `难度${difficulties.length + 1}`;
+    }
     
     const newConfig = {
-      id: `difficulty_${Date.now()}`,
+      id: existingIndex >= 0 ? difficulties[existingIndex].id : `difficulty_${Date.now()}`,
       visits,
       wideRootNoise,
       nnRandomize: nnRand,
       label,
-      createdAt: Date.now(),
+      createdAt: existingIndex >= 0 ? difficulties[existingIndex].createdAt : Date.now(),
+      updatedAt: Date.now(),
     };
     
-    difficulties.push(newConfig);
-    
-    // 最多保存 10 个
-    if (difficulties.length > 10) {
-      difficulties.shift();
+    if (existingIndex >= 0) {
+      // 更新已存在的配置
+      difficulties[existingIndex] = newConfig;
+    } else {
+      // 添加新配置
+      difficulties.push(newConfig);
+      
+      // 最多保存 10 个
+      if (difficulties.length > 10) {
+        difficulties.shift();
+      }
     }
     
     localStorage.setItem('weiqi-custom-difficulties', JSON.stringify(difficulties));
