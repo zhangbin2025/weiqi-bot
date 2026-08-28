@@ -3,7 +3,7 @@
  */
 
 import type { BoardState, PlayerColor } from '../../domain';
-import type { Difficulty, IAnalysisResult } from './types';
+import type { Difficulty, DifficultyConfig, IAnalysisResult } from './types';
 
 /**
  * AI 控制器接口
@@ -35,6 +35,8 @@ export interface IAIController {
    * @param visits - 搜索深度/访问次数（可选，不传则使用内部默认值）
    * @param maxTimeMs - 最大思考时间（可选）
    * @param initialStones - 初始棋子（让子等，可选）
+   * @param wideRootNoise - 根节点随机性（可选）
+   * @param nnRandomize - 神经网络随机化（可选）
    */
   genmove(
     board: BoardState,
@@ -44,7 +46,9 @@ export interface IAIController {
     komi: number,
     visits?: number,
     maxTimeMs?: number,
-    initialStones?: Array<{ player: PlayerColor; x: number; y: number }>
+    initialStones?: Array<{ player: PlayerColor; x: number; y: number }>,
+    wideRootNoise?: number,
+    nnRandomize?: boolean
   ): Promise<{ x: number; y: number; winRate: number; scoreLead: number } | null>;
 
   /**
@@ -58,6 +62,8 @@ export interface IAIController {
    * @param maxTimeMs - 最大思考时间（可选）
    * @param analysisPvLen - PV长度（可选，0表示不获取PV，提高速度）
    * @param initialStones - 初始棋子（让子等，可选）
+   * @param wideRootNoise - 根节点随机性（可选）
+   * @param nnRandomize - 神经网络随机化（可选）
    */
   analyze(
     board: BoardState,
@@ -68,7 +74,9 @@ export interface IAIController {
     visits?: number,
     maxTimeMs?: number,
     analysisPvLen?: number,
-    initialStones?: Array<{ player: PlayerColor; x: number; y: number }>
+    initialStones?: Array<{ player: PlayerColor; x: number; y: number }>,
+    wideRootNoise?: number,
+    nnRandomize?: boolean
   ): Promise<IAnalysisResult>;
 
   /**
@@ -98,6 +106,16 @@ export interface IAIController {
    * 设置难度
    */
   setDifficulty(difficulty: Difficulty): void;
+
+  /**
+   * 设置自定义难度配置
+   */
+  setCustomDifficultyConfig(config: DifficultyConfig): void;
+
+  /**
+   * 获取当前难度配置
+   */
+  getDifficultyConfig(): DifficultyConfig;
 
   /**
    * 获取难度

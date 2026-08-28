@@ -54,6 +54,10 @@ export class HMPlayConfigLoader {
    * 获取指定难度的访问次数
    */
   getVisitsForDifficulty(difficulty: Difficulty, config: IHMPlayServiceConfig): number {
+    // custom 难度使用 medium 的默认值，实际值由 AIController 管理
+    if (difficulty === 'custom') {
+      return config.defaultVisits['medium'] ?? 100;
+    }
     return config.defaultVisits[difficulty] ?? 100;
   }
 }

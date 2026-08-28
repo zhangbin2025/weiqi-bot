@@ -7,7 +7,7 @@ import type { IAIEngine, AnalyzeOptions } from '../../infrastructure/ai';
 import { forceUseWebAdapter } from '../../infrastructure/ai';
 import type { BoardState, PlayerColor } from '../../domain';
 import type { IAIController } from './IAIController';
-import type { Difficulty, IAnalysisResult, IMoveAnalysis } from './types';
+import type { Difficulty, DifficultyConfig, IAnalysisResult, IMoveAnalysis } from './types';
 import { DifficultyManager } from './DifficultyManager';
 
 /**
@@ -28,9 +28,9 @@ export class AIController implements IAIController {
   /**
    * 创建 AI 控制器
    * @param engine - AI 引擎（可选，用于依赖注入）
-   * @param difficulty - 初始难度
+   * @param difficulty - 初始难度或配置
    */
-  constructor(engine?: IAIEngine, difficulty: Difficulty = 'medium') {
+  constructor(engine?: IAIEngine, difficulty: Difficulty | DifficultyConfig = 'medium') {
     this.engine = engine ?? null;
     this.difficultyManager = new DifficultyManager(difficulty);
   }
@@ -100,16 +100,20 @@ export class AIController implements IAIController {
     komi: number,
     visits?: number,  // AI 搜索深度，不传则使用内部默认值
     maxTimeMs?: number,
-    initialStones?: Array<{ player: PlayerColor; x: number; y: number }>  // 让子棋
+    initialStones?: Array<{ player: PlayerColor; x: number; y: number }>,  // 让子棋
+    wideRootNoise?: number,  // 根节点随机性
+    nnRandomize?: boolean    // 神经网络随机
   ): Promise<{ x: number; y: number; winRate: number; scoreLead: number } | null> {
     this.thinking = true;
     this.canceled = false;
 
     try {
       const actualVisits = Math.max(10, visits ?? this.difficultyManager.getVisits());
+      const actualNoise = wideRootNoise ?? this.difficultyManager.getWideRootNoise();
+      const actualRandomize = nnRandomize ?? this.difficultyManager.getNnRandomize();
 
       const result = await this.callAnalyze(
-        board, previousBoard, currentPlayer, moveHistory, komi, actualVisits, maxTimeMs, undefined, initialStones
+        board, previousBoard, currentPlayer, moveHistory, komi, actualVisits, maxTimeMs, undefined, initialStones, actualNoise, actualRandomize
       );
 
       if (this.canceled || !result.moves.length) return null;
@@ -136,11 +140,16 @@ export class AIController implements IAIController {
     visits?: number,
     maxTimeMs?: number,
     analysisPvLen?: number,  // PV长度，0表示不获取PV
-    initialStones?: Array<{ player: PlayerColor; x: number; y: number }>  // 让子棋
+    initialStones?: Array<{ player: PlayerColor; x: number; y: number }>,  // 让子棋
+    wideRootNoise?: number,  // 根节点随机性
+    nnRandomize?: boolean    // 神经网络随机
   ): Promise<IAnalysisResult> {
     const actualVisits = visits ?? this.difficultyManager.getVisits();
+    const actualNoise = wideRootNoise ?? this.difficultyManager.getWideRootNoise();
+    const actualRandomize = nnRandomize ?? this.difficultyManager.getNnRandomize();
+    
     const result = await this.callAnalyze(
-      board, previousBoard, currentPlayer, moveHistory, komi, actualVisits, maxTimeMs, analysisPvLen, initialStones
+      board, previousBoard, currentPlayer, moveHistory, komi, actualVisits, maxTimeMs, analysisPvLen, initialStones, actualNoise, actualRandomize
     );
 
     return {
@@ -180,6 +189,20 @@ export class AIController implements IAIController {
 
   setDifficulty(difficulty: Difficulty): void {
     this.difficultyManager.setDifficulty(difficulty);
+  }
+
+  /**
+   * 设置自定义难度配置
+   */
+  setCustomDifficultyConfig(config: DifficultyConfig): void {
+    this.difficultyManager.setCustomConfig(config);
+  }
+
+  /**
+   * 获取当前难度配置
+   */
+  getDifficultyConfig(): DifficultyConfig {
+    return this.difficultyManager.getConfig();
   }
 
   getDifficulty(): Difficulty {
@@ -374,7 +397,9 @@ export class AIController implements IAIController {
     visits: number,
     maxTimeMs?: number,
     analysisPvLen?: number,  // PV长度，0表示不获取PV
-    initialStones?: Array<{ player: PlayerColor; x: number; y: number }>  // 让子棋
+    initialStones?: Array<{ player: PlayerColor; x: number; y: number }>,  // 让子棋
+    wideRootNoise?: number,  // 根节点随机性
+    nnRandomize?: boolean    // 神经网络随机
   ) {
     this.ensureInitialized();
 
@@ -398,6 +423,16 @@ export class AIController implements IAIController {
     // 设置让子棋
     if (initialStones && initialStones.length > 0) {
       options.initialStones = initialStones;
+    }
+    
+    // 设置根节点随机性
+    if (wideRootNoise !== undefined && wideRootNoise > 0) {
+      options.wideRootNoise = wideRootNoise;
+    }
+    
+    // 设置神经网络随机
+    if (nnRandomize !== undefined) {
+      options.nnRandomize = nnRandomize;
     }
 
     return this.engine!.analyze(options);
