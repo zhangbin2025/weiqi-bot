@@ -73,7 +73,11 @@ export class HMPlayService implements IHMPlayService {
       playerColor: merged.playerColor,
       komi: handicapKomi,
     });
-    this.aiController.setDifficulty(merged.difficulty);
+    
+    // 设置难度（如果未设置自定义配置）
+    if (this.aiController.getDifficulty() !== 'custom') {
+      this.aiController.setDifficulty(merged.difficulty);
+    }
     this.previousBoard = null; // 重置打劫判断
 
     if (!this.aiController.isInitialized()) {
