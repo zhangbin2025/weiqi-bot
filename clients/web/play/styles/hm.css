@@ -888,7 +888,7 @@ body {
 
 /* ===== AI 难度配置弹框 ===== */
 .difficulty-config-dialog {
-  max-width: 400px;
+  max-width: 340px;
 }
 
 .difficulty-config-content {
