@@ -756,12 +756,21 @@ body {
 
 .slider-row input[type=range]::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background: #667eea;
   cursor: pointer;
   box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+  transition: transform 0.2s;
+}
+
+.slider-row input[type=range]::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+}
+
+.slider-row input[type=range]::-webkit-slider-thumb:active {
+  transform: scale(0.95);
 }
 
 .slider-num {
