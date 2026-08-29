@@ -13,6 +13,7 @@ import type {
 } from './types';
 import type { ISGFVariation, VariationMove, WinratePoint } from './SGFVariationTypes';
 import { parseTree } from './SGFTreeParser';
+import type { PlayerColor } from '../primitives';
 import { SGFNodeInternal } from './SGFNodeInternal';
 import { calcStats, nodeToDict } from './SGFStatsCalculator';
 import { extractVariations, extractWinrates } from './SGFVariationExtractor';
@@ -106,7 +107,6 @@ export class SGFParser {
       errors: this.errors,
     };
   }
-
   private extractGameInfo(tree: ISGFNode): ISGFGameInfoFull {
     const props = tree.properties;
     const childProps = tree.children[0]?.properties || {};
@@ -151,6 +151,15 @@ export class SGFParser {
       }
     }
 
+    // 解析 PL[] (先手方)
+    const plValue = getProp('PL');
+    let initialPlayer: PlayerColor = 'black';
+    if (plValue === 'W') {
+      initialPlayer = 'white';
+    } else if (plValue === 'B') {
+      initialPlayer = 'black';
+    }
+
     return {
       boardSize,
       black: getProp('PB', '黑棋'),
@@ -164,6 +173,7 @@ export class SGFParser {
       komi: getProp('KM', '375'),
       handicap,
       handicapStones,
+      initialPlayer,
     };
   }
 

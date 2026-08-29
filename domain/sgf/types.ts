@@ -61,6 +61,8 @@ export interface ISGFGameInfoFull {
   komi: string;
   handicap: number;
   handicapStones: HandicapStone[];
+  /** 先手方 */
+  initialPlayer?: PlayerColor;
 }
 
 /**
@@ -125,6 +127,8 @@ export interface ISGFGameInfo {
   readonly handicap?: number | undefined;
   readonly handicapStones?: readonly { x: number; y: number; color: 'B' | 'W' }[] | undefined;
   readonly rules?: string | undefined;
+  /** 先手方 */
+  readonly initialPlayer?: PlayerColor | undefined;
 }
 
 /**

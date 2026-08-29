@@ -41,6 +41,10 @@ export interface IGameState {
   readonly komi: number;
   /** 最后一手 */
   readonly lastMove: ICoordinate | null;
+  /** 初始棋子（摆子模式） */
+  readonly initialStones: readonly { x: number; y: number; color: 'B' | 'W' }[];
+  /** 先手方 */
+  readonly initialPlayer: PlayerColor;
 }
 
 /**

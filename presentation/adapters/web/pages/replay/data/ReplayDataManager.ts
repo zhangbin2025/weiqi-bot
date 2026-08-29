@@ -75,6 +75,14 @@ export class ReplayDataManager {
     const size = replayData.board_size as 9 | 13 | 19;
     this.board.initialize({ size, showCoordinates: true });
     this.board.clear();
+    
+    // 放置初始棋子（让子棋）
+    if (replayData.handicap_stones && replayData.handicap_stones.length > 0) {
+      for (const stone of replayData.handicap_stones) {
+        const color = stone.color === 'B' ? 'black' : 'white' ;
+        this.board.placeStone({ x: stone.x, y: stone.y }, color);
+      }
+    }
     // 更新控制器
     const maxMoves = replayData.max_moves || this.countMaxMoves(replayData.tree);
     this.moveNavigator.setMaxMoves(maxMoves);

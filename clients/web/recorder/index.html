@@ -18,7 +18,6 @@
       touch-action: manipulation;
     }
 
-    /* ---- 页面容器 ---- */
     .page-container {
       background: white;
       width: 100%;
@@ -29,7 +28,6 @@
       position: relative;
     }
 
-    /* 紧凑布局 */
     .page-container.compact {
       justify-content: flex-start;
     }
@@ -39,7 +37,6 @@
       padding: 4px;
     }
 
-    /* ---- 渐变标题栏 ---- */
     .page-header {
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       color: white;
@@ -83,7 +80,18 @@
       gap: 8px;
     }
 
-    /* 三点菜单按钮 */
+    .mode-indicator {
+      padding: 4px 10px;
+      background: rgba(255,255,255,0.15);
+      border-radius: 6px;
+      font-size: 11px;
+      opacity: 0.9;
+    }
+
+    .mode-indicator.setup-mode {
+      background: rgba(255,193,7,0.3);
+    }
+
     .menu-btn {
       width: 36px;
       height: 36px;
@@ -103,7 +111,6 @@
       background: rgba(255,255,255,0.25);
     }
 
-    /* 下拉菜单 */
     .dropdown {
       position: relative;
     }
@@ -144,13 +151,21 @@
       background: #f5f5f5;
     }
 
+    .dropdown-item:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .dropdown-item.hidden {
+      display: none;
+    }
+
     .dropdown-divider {
       height: 1px;
       background: #e8e8e8;
       margin: 4px 0;
     }
 
-    /* ---- 棋盘区域 ---- */
     .board-section {
       flex: 1;
       display: flex;
@@ -179,7 +194,6 @@
       height: auto;
     }
 
-    /* ---- 底部功能按钮栏 ---- */
     .toolbar {
       display: flex;
       align-items: center;
@@ -198,7 +212,6 @@
       flex: 1;
     }
 
-    /* 手数显示 */
     .move-count {
       font-size: 14px;
       color: #333;
@@ -207,7 +220,46 @@
       text-align: right;
     }
 
-    /* SVG 图标按钮（无背景，纯线条） */
+    .setup-tools {
+      display: none;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .setup-tools.visible {
+      display: flex;
+    }
+
+    .setup-tool-btn {
+      width: 36px;
+      height: 36px;
+      border: 2px solid #e0e0e0;
+      background: white;
+      color: #333;
+      cursor: pointer;
+      border-radius: 8px;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+    }
+
+    .setup-tool-btn.active {
+      border-color: #667eea;
+      background: #f0f4ff;
+      color: #667eea;
+    }
+
+    .setup-tool-btn:hover:not(.active) {
+      border-color: #999;
+    }
+
+    .setup-tool-btn svg {
+      width: 20px;
+      height: 20px;
+    }
+
     .icon-btn {
       width: 36px;
       height: 36px;
@@ -257,15 +309,6 @@
       background: #f0f4ff;
     }
 
-    .icon-btn.danger {
-      color: #ff6b6b;
-    }
-
-    .icon-btn.danger:hover:not(:disabled) {
-      background: #fff5f5;
-    }
-
-    /* ---- 弹框/模态框 ---- */
     .modal-overlay {
       position: fixed;
       inset: 0;
@@ -342,7 +385,6 @@
       color: white;
     }
 
-    /* ---- 响应式 ---- */
     @media (min-width: 600px) {
       body {
         padding: 8px;
@@ -364,26 +406,28 @@
     }
   </style>
 
-    <!-- Favicon -->
-    <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
-    <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon-180x180.png">
-    <link rel="manifest" href="/manifest.json">
-    <meta name="theme-color" content="#667eea">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon-180x180.png">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#667eea">
 </head>
 <body>
   <div class="page-container compact">
-    <!-- 渐变标题栏 -->
     <header class="page-header">
       <div class="header-left">
         <div class="page-title">围棋记谱</div>
         <div class="page-subtitle">手动录入棋谱</div>
       </div>
       <div class="header-right">
+        <div class="mode-indicator" id="modeIndicator">对局模式</div>
         <div class="dropdown">
           <button class="menu-btn" id="menuBtn" title="菜单">⋮</button>
           <div class="dropdown-menu" id="dropdownMenu">
             <button class="dropdown-item" id="passMenuItem">⭕ 停一手</button>
+            <button class="dropdown-item" id="setupModeMenuItem">🎯 摆子模式</button>
+            <button class="dropdown-item hidden" id="playModeMenuItem">▶️ 对局模式</button>
+            <div class="dropdown-divider"></div>
             <button class="dropdown-item" id="downloadMenuItem">📥 下载SGF</button>
             <button class="dropdown-item" id="copyMenuItem">📄 复制SGF</button>
             <div class="dropdown-divider"></div>
@@ -393,12 +437,10 @@
       </div>
     </header>
 
-    <!-- 棋盘区域 -->
     <div class="board-section">
       <div id="page-root"></div>
     </div>
 
-    <!-- 底部功能按钮栏 -->
     <div class="toolbar">
       <div class="btn-group">
         <button class="icon-btn" id="undoBtn" title="悔棋">
@@ -410,12 +452,26 @@
         <button class="icon-btn" id="newBtn" title="清空棋盘">
           <svg viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
         </button>
+        
+        <div class="setup-tools" id="setupTools">
+          <button class="setup-tool-btn active" id="blackStoneBtn" title="黑子">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="black"/></svg>
+          </button>
+          <button class="setup-tool-btn" id="whiteStoneBtn" title="白子">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="white" stroke="black" stroke-width="2"/></svg>
+          </button>
+          <button class="setup-tool-btn" id="eraserBtn" title="橡皮擦">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 20H7L3 16C2.5 15.5 2.5 14.5 3 14L13 4C13.5 3.5 14.5 3.5 15 4L21 10C21.5 10.5 21.5 11.5 21 12L12 21"/>
+              <path d="M6 11L13 18"/>
+            </svg>
+          </button>
+        </div>
       </div>
-      <span class="move-count">第 <strong id="moveNum">0</strong> 手</span>
+      <span class="move-count" id="moveCountDisplay">第 <strong id="moveNum">0</strong> 手</span>
     </div>
   </div>
 
-  <!-- 保存弹框 -->
   <div class="modal-overlay" id="saveModal">
     <div class="modal-content">
       <div class="modal-title">保存棋谱</div>

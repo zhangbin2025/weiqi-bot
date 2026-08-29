@@ -125,6 +125,7 @@ export class TrialHandler {
       targetIndex,
       {
         handicapStones: replayData.handicap_stones,
+        initialPlayer: replayData.initial_player,
         inVariation: this.state.get('inVariation'),
         variationStartIndex: this.state.get('savedDisplayIndex'),
       }

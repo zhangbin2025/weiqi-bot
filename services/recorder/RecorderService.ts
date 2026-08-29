@@ -3,6 +3,7 @@
  */
 
 import type { IGameState, IMoveResult, IGameConfig } from '../../domain/game';
+import type { PlayerColor } from '../../domain/primitives';
 import { Game } from '../../domain/game';
 import { SGFWriter, SGFParser } from '../../domain/sgf';
 import type { IRecorderService } from './IRecorderService';
@@ -62,57 +63,108 @@ export class RecorderService implements IRecorderService {
     return this.game.getState();
   }
 
+  // ===== 摆子模式 =====
+
+  addInitialStone(x: number, y: number, color: 'B' | 'W'): boolean {
+    const result = this.game.addInitialStone(x, y, color);
+    if (result) {
+      this.notifyUpdate();
+    }
+    return result;
+  }
+
+  removeInitialStone(x: number, y: number): boolean {
+    const result = this.game.removeInitialStone(x, y);
+    if (result) {
+      this.notifyUpdate();
+    }
+    return result;
+  }
+
+  setInitialPlayer(player: PlayerColor): void {
+    this.game.setInitialPlayer(player);
+    this.notifyUpdate();
+  }
+
   // ===== SGF 生成 =====
 
   generateSGF(metadata?: IGameMetadata): string {
     const state = this.game.getState();
-    const sgfMeta: Parameters<typeof this.writer.write>[1] = {
+    const sgfMeta = {
       size: state.board.size,
       blackName: metadata?.blackName ?? '黑方',
       whiteName: metadata?.whiteName ?? '白方',
       komi: state.komi,
       handicap: state.handicap,
       date: metadata?.date ?? new Date().toISOString().slice(0, 10),
+      handicapStones: state.initialStones.length > 0 ? [...state.initialStones] : undefined,
+      initialPlayer: state.initialPlayer,
+      result: metadata?.result,
+      rules: metadata?.rules,
     };
-    Object.assign(sgfMeta, { ...sgfMeta, ...(metadata?.result ? { result: metadata.result } : {}), ...(metadata?.rules ? { rules: metadata.rules } : {}) })
     return this.writer.write(state.moveHistory, sgfMeta);
   }
 
   // ===== 草稿管理 =====
 
-  async saveDraft(): Promise<void> {
+  async saveDraft(mode: 'play' | 'setup' = 'play'): Promise<void> {
     const draft: IDraft = {
       sgf: this.generateSGF(),
       state: this.game.getState(),
+      mode: mode,
     };
     await this.storage.write(DRAFT_KEY, draft);
   }
 
-  async loadDraft(): Promise<void> {
+  async loadDraft(): Promise<{ mode: 'play' | 'setup' } | undefined> {
     const draft = await this.storage.read<IDraft>(DRAFT_KEY);
-    if (!draft) return;
+    if (!draft) return undefined;
 
     const result = this.parser.parse(draft.sgf);
     const info = result.gameInfo;
-    this.game.newGame({
+    
+    const config: IGameConfig = {
       size: info.boardSize,
       komi: parseFloat(info.komi) || 6.5,
       handicap: info.handicap,
-    });
+    };
+    
+    if (info.initialPlayer) {
+      Object.assign(config, { initialPlayer: info.initialPlayer });
+    }
+    
+    this.game.newGame(config);
 
+    // 恢复 initialStones
+    for (const stone of info.handicapStones) {
+      this.game.addInitialStone(stone.x, stone.y, stone.color);
+    }
+
+    // 重放着法，确保颜色匹配
     for (const move of result.moves) {
       const coord = move.coord;
-      // Pass move: 'tt' for 19x19, or empty
       if (coord === 'tt' || coord === '' || !coord) {
         this.game.pass();
       } else {
         const x = coord.charCodeAt(0) - 97;
         const y = coord.charCodeAt(1) - 97;
+        
+        // 确保 currentPlayer 与着法颜色匹配
+        const expectedPlayer = move.color === 'B' ? 'black' : 'white';
+        const state = this.game.getState();
+        
+        if (state.currentPlayer !== expectedPlayer) {
+          (this.game as any).currentPlayer = expectedPlayer;
+        }
+        
         this.game.placeStone(x, y);
       }
     }
 
     this.notifyUpdate();
+
+    // 返回保存的模式
+    return { mode: draft.mode || 'play' };
   }
 
   async clearDraft(): Promise<void> {

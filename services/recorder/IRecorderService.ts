@@ -1,85 +1,60 @@
 /**
- * @fileoverview RecorderService 接口定义
+ * @fileoverview 记谱服务接口
  */
 
 import type { IGameState, IMoveResult, IGameConfig } from '../../domain/game';
+import type { PlayerColor } from '../../domain/primitives';
 import type { IGameMetadata, OnUpdateCallback } from './types';
 
 /**
- * 记谱编排服务接口
- * @description 管理游戏实例、处理UI交互、生成SGF、保存草稿
- * @ai-example
- * const service: IRecorderService = {
- *   placeStone: (x, y) => ({ success: true, captured: [] }),
- *   generateSGF: () => '(;SZ[19]...)',
- *   saveDraft: async () => { ... }
- * };
+ * 记谱服务接口
  */
 export interface IRecorderService {
-  // ===== 游戏管理 =====
-
-  /**
-   * 落子
-   * @param x - X 坐标
-   * @param y - Y 坐标
-   * @returns 落子结果
-   */
+  /** 初始化游戏 */
+  newGame(config?: Partial<IGameConfig>): void;
+  
+  /** 落子 */
   placeStone(x: number, y: number): IMoveResult;
-
-  /**
-   * 停一手
-   */
-  pass(): void;
-
-  /**
-   * 悔棋
-   * @returns 是否成功
-   */
+  
+  /** 撤销 */
   undo(): boolean;
-
-  /**
-   * 新建对局
-   * @param config - 游戏配置
-   */
-  newGame(config?: IGameConfig): void;
-
-  /**
-   * 获取当前游戏状态
-   * @returns 游戏状态
-   */
+  
+  /** 停一手 */
+  pass(): void;
+  
+  /** 获取当前状态 */
   getState(): IGameState;
-
-  // ===== SGF 生成 =====
-
-  /**
-   * 生成 SGF 字符串
-   * @param metadata - 对局元数据
-   * @returns SGF 文本
-   */
-  generateSGF(metadata?: IGameMetadata): string;
-
-  // ===== 草稿管理 =====
-
-  /**
-   * 保存草稿
-   */
-  saveDraft(): Promise<void>;
-
-  /**
-   * 加载草稿
-   */
-  loadDraft(): Promise<void>;
-
-  /**
-   * 清除草稿
-   */
+  
+  /** 设置更新回调 */
+  onUpdate(callback: OnUpdateCallback): void;
+  
+  /** 播放音效 */
+  playSound(type: 'stone' | 'capture' | 'pass' | 'undo'): void;
+  
+  /** 生成 SGF */
+  generateSGF(): string;
+  
+  /** 下载 SGF */
+  downloadSGF(metadata: IGameMetadata): Promise<void>;
+  
+  /** 保存到历史 */
+  saveToHistory(metadata: IGameMetadata): Promise<string | null>;
+  
+  /** 保存草稿 */
+  saveDraft(mode?: 'play' | 'setup'): Promise<void>;
+  
+  /** 加载草稿 */
+  loadDraft(): Promise<{ mode: 'play' | 'setup' } | undefined>;
+  
+  /** 清除草稿 */
   clearDraft(): Promise<void>;
-
-  // ===== 回调通知 =====
-
-  /**
-   * 设置状态更新回调
-   * @param callback - 回调函数
-   */
-  setOnUpdate(callback: OnUpdateCallback): void;
+  
+  /** 添加初始棋子 */
+  addInitialStone(x: number, y: number, color: 'B' | 'W'): boolean;
+  
+  /** 移除初始棋子 */
+  removeInitialStone(x: number, y: number): boolean;
+  
+  /** 设置先手方 */
+  setInitialPlayer(color: PlayerColor): void;
 }

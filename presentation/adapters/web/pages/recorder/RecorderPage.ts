@@ -1,20 +1,19 @@
 /**
  * 记谱工具页面控制器
- * @module presentation/pages/recorder/RecorderPage
- * @description 参考 ReplayPage 的简洁设计，专注于记谱核心功能
  */
 import { WebBoard } from '../../components/Board';
 import { WebDialog } from '../../components/Dialog';
 import { AdapterFactory } from '../../../../adapters';
-import { isPass } from '../../../../../domain/move';
 import type { PlayerColor } from '../../../../../domain/primitives';
 import type { IPage, PageParams } from '../../../../core/interfaces';
 import type { BoardSize } from '../../../../core/types';
 import type { RecorderApp } from '../../../../../application/recorder';
+
 export interface RecorderPageConfig {
   recorderApp: RecorderApp;
   onNavigate?: (page: string, params?: Record<string, string>) => void;
 }
+
 export class RecorderPage implements IPage {
   readonly title = '记谱工具';
   private recorderApp: RecorderApp;
@@ -24,86 +23,180 @@ export class RecorderPage implements IPage {
   private onNavigate: ((page: string, params?: Record<string, string>) => void) | undefined;
   private boardSize: BoardSize = 19;
   private initialized = false;
+  private mode: 'play' | 'setup' = 'play';
+  private setupColor: 'B' | 'W' = 'B';
+  private setupTool: 'stone' | 'eraser' = 'stone';
+
   constructor(config: RecorderPageConfig) {
     this.recorderApp = config.recorderApp;
     this.onNavigate = config.onNavigate;
-    // 直接创建组件
     this.board = new WebBoard();
     this.dialog = new WebDialog();
     this.toast = AdapterFactory.createToast();
   }
+
   async initialize(): Promise<void> {
     if (this.initialized) return;
-    // 初始化棋盘
     this.board.initialize({ size: this.boardSize, showCoordinates: false });
     this.board.on({ onClick: (pos) => this.handleStoneClick(pos) });
-    // 尝试加载草稿
+
     try {
-      await this.recorderApp.loadDraft();
+      const draftResult = await this.recorderApp.loadDraft();
       const state = this.recorderApp.getState();
-      if (state.moveHistory.length > 0) {
+      if (state.moveHistory.length > 0 || state.initialStones.length > 0) {
         this.renderBoard();
       }
-    } catch (e) {
-      // 无草稿或加载失败，忽略
-    }
+      if (draftResult && draftResult.mode === 'setup') {
+        this.mode = 'setup';
+        this.switchToSetupMode();
+      }
+    } catch (e) {}
+
     this.initialized = true;
   }
-  handleParams(params: PageParams): void {
-    // 不支持参数
-  }
-  /** 处理落子点击 */
+
+  handleParams(params: PageParams): void {}
+
   private handleStoneClick(pos: { x: number; y: number }): void {
-    const result = this.recorderApp.placeStone(pos.x, pos.y);
-    if (result.success) {
-      this.recorderApp.playSound(result.captured.length > 0 ? 'capture' : 'stone');
-      this.renderBoard();
+    if (this.mode === 'setup') {
+      if (this.setupTool === 'stone') {
+        const success = this.recorderApp.addInitialStone(pos.x, pos.y, this.setupColor);
+        if (success) this.renderBoard();
+      } else {
+        const success = this.recorderApp.removeInitialStone(pos.x, pos.y);
+        if (success) this.renderBoard();
+      }
+    } else {
+      const result = this.recorderApp.placeStone(pos.x, pos.y);
+      if (result.success) {
+        this.recorderApp.playSound(result.captured.length > 0 ? 'capture' : 'stone');
+        this.renderBoard();
+      }
     }
   }
-  /** 渲染棋盘（从状态同步到棋盘组件） */
+
   private renderBoard(): void {
     const state = this.recorderApp.getState();
     const gameBoard = state.board;
     const size = gameBoard.size;
-    // 清空棋盘
     this.board.clear();
-    // 从 Game 的棋盘状态同步所有棋子（包括提子后的状态）
     const stones: Array<{ pos: { x: number; y: number }; color: PlayerColor | null }> = [];
     for (let x = 0; x < size; x++) {
       for (let y = 0; y < size; y++) {
         const stone = gameBoard.getStone(x, y);
-        if (stone) {
-          stones.push({ pos: { x, y }, color: stone });
-        }
+        if (stone) stones.push({ pos: { x, y }, color: stone });
       }
     }
     this.board.setStones(stones);
-    // 标记最后一手
     if (state.lastMove) {
       this.board.highlight({ x: state.lastMove.x, y: state.lastMove.y }, 'last');
     }
   }
-  /** 撤销 */
-  undo(): void {
+
+  switchToSetupMode(): void {
     const state = this.recorderApp.getState();
-    if (state.moveHistory.length === 0) {
+    if (state.moveHistory.length > 0) {
+      this.toast.warning('已有落子记录，不能切换到摆子模式');
       return;
     }
+    this.mode = 'setup';
+    this.recorderApp.saveDraft('setup').catch(e => console.error('保存草稿失败', e));
+    
+    const setupModeMenuItem = document.getElementById('setupModeMenuItem');
+    const playModeMenuItem = document.getElementById('playModeMenuItem');
+    if (setupModeMenuItem) setupModeMenuItem.classList.add('hidden');
+    if (playModeMenuItem) playModeMenuItem.classList.remove('hidden');
+    
+    const modeIndicator = document.getElementById('modeIndicator');
+    if (modeIndicator) {
+      modeIndicator.textContent = '摆子模式';
+      modeIndicator.classList.add('setup-mode');
+    }
+    
+    const setupTools = document.getElementById('setupTools');
+    if (setupTools) setupTools.classList.add('visible');
+    
+    const undoBtn = document.getElementById('undoBtn');
+    if (undoBtn) undoBtn.style.display = 'none';
+    
+    const moveCountDisplay = document.getElementById('moveCountDisplay');
+    if (moveCountDisplay) moveCountDisplay.style.display = 'none';
+    
+    const passMenuItem = document.getElementById('passMenuItem') as HTMLButtonElement;
+    if (passMenuItem) passMenuItem.disabled = true;
+  }
+
+  switchToPlayMode(): void {
+    const state = this.recorderApp.getState();
+    const hasWhiteStones = state.initialStones.some(s => s.color === 'W');
+    if (hasWhiteStones) {
+      this.toast.warning('已放置白子，不能切换到对局模式（死活题请直接保存）');
+      return;
+    }
+    this.mode = 'play';
+    this.recorderApp.saveDraft('play').catch(e => console.error('保存草稿失败', e));
+    
+    const setupModeMenuItem = document.getElementById('setupModeMenuItem');
+    const playModeMenuItem = document.getElementById('playModeMenuItem');
+    if (setupModeMenuItem) setupModeMenuItem.classList.remove('hidden');
+    if (playModeMenuItem) playModeMenuItem.classList.add('hidden');
+    
+    const modeIndicator = document.getElementById('modeIndicator');
+    if (modeIndicator) {
+      modeIndicator.textContent = '对局模式';
+      modeIndicator.classList.remove('setup-mode');
+    }
+    
+    const setupTools = document.getElementById('setupTools');
+    if (setupTools) setupTools.classList.remove('visible');
+    
+    const undoBtn = document.getElementById('undoBtn');
+    if (undoBtn) undoBtn.style.display = '';
+    
+    const moveCountDisplay = document.getElementById('moveCountDisplay');
+    if (moveCountDisplay) moveCountDisplay.style.display = '';
+    
+    const passMenuItem = document.getElementById('passMenuItem') as HTMLButtonElement;
+    if (passMenuItem) passMenuItem.disabled = false;
+
+    if (state.initialStones.length > 0) {
+      this.recorderApp.setInitialPlayer('white');
+    }
+  }
+
+  setSetupColor(color: 'B' | 'W'): void {
+    this.setupColor = color;
+  }
+
+  setSetupTool(tool: 'stone' | 'eraser'): void {
+    this.setupTool = tool;
+  }
+
+  clearInitialStones(): void {
+    const state = this.recorderApp.getState();
+    for (const stone of state.initialStones) {
+      this.recorderApp.removeInitialStone(stone.x, stone.y);
+    }
+    this.renderBoard();
+  }
+
+  undo(): void {
+    const state = this.recorderApp.getState();
+    if (state.moveHistory.length === 0) return;
     if (this.recorderApp.undo()) {
       this.recorderApp.playSound('undo');
       this.renderBoard();
     }
   }
-  /** 停一手 */
+
   pass(): void {
     this.recorderApp.pass();
     this.recorderApp.playSound('pass');
   }
-  /** 新对局（清空棋盘） */
+
   async newGame(options?: { skipConfirm?: boolean }): Promise<void> {
     const state = this.recorderApp.getState();
-    // 检查当前是否有落子（保存后跳过确认）
-    if (!options?.skipConfirm && state.moveHistory.length > 0) {
+    if (!options?.skipConfirm && (state.moveHistory.length > 0 || state.initialStones.length > 0)) {
       const result = await this.dialog.show({
         type: 'confirm',
         title: '清空棋盘',
@@ -112,30 +205,43 @@ export class RecorderPage implements IPage {
         cancelText: '不保存',
       });
       if (result === true) {
-        // 用户选择保存，显示保存弹框
         const saveModal = document.getElementById('saveModal');
         if (saveModal) {
-          saveModal.classList.add('show');
+          saveModal.classList.add('visible');
           const blackNameInput = document.getElementById('blackNameInput') as HTMLInputElement;
           blackNameInput?.focus();
         }
-        return; // 不清空，等待保存完成
+        return;
       } else if (result === undefined) {
-        // 用户取消
         return;
       }
     }
-    // 清理草稿并新建
     await this.recorderApp.clearDraft();
     this.recorderApp.newGame({ size: this.boardSize });
     this.board.clear();
+    this.mode = 'play';
+    this.switchToPlayMode();
   }
-  /** 保存棋谱到历史 */
+
   async saveToHistory(blackName: string, whiteName: string): Promise<void> {
-    const metadata = {
-      blackName: blackName || '黑方',
-      whiteName: whiteName || '白方',
-    };
+    const state = this.recorderApp.getState();
+    if (state.moveHistory.length === 0) {
+      const result = await this.dialog.show({
+        type: 'confirm',
+        title: '选择先手方',
+        content: '当前没有落子记录，请选择先手方：',
+        confirmText: '⚫ 黑先',
+        cancelText: '⚪ 白先',
+      });
+      if (result === true) {
+        this.recorderApp.setInitialPlayer('black');
+      } else if (result === false) {
+        this.recorderApp.setInitialPlayer('white');
+      } else {
+        return;
+      }
+    }
+    const metadata = { blackName: blackName || '黑方', whiteName: whiteName || '白方' };
     const id = await this.recorderApp.saveToHistory(metadata);
     if (id) {
       this.toast.success('棋谱已保存');
@@ -143,38 +249,30 @@ export class RecorderPage implements IPage {
       this.toast.error('保存失败');
     }
   }
-  /** 下载 SGF */
+
   async downloadSGF(): Promise<void> {
     const state = this.recorderApp.getState();
-    if (state.moveHistory.length === 0) {
-      return;
-    }
+    if (state.moveHistory.length === 0 && state.initialStones.length === 0) return;
     const dateStr = new Date().toISOString().split('T')[0] ?? '';
-    const metadata = {
-      blackName: '黑方',
-      whiteName: '白方',
-      date: dateStr,
-    };
-    const result = await this.recorderApp.downloadSGF(metadata);
-    // 不显示 toast
+    const metadata = { blackName: '黑方', whiteName: '白方', date: dateStr };
+    await this.recorderApp.downloadSGF(metadata);
   }
-  /** 复制 SGF 到剪贴板 */
+
   async copySGF(): Promise<void> {
     const state = this.recorderApp.getState();
-    if (state.moveHistory.length === 0) {
-      return;
-    }
+    if (state.moveHistory.length === 0 && state.initialStones.length === 0) return;
     const sgf = this.recorderApp.generateSGF();
     try {
       await navigator.clipboard.writeText(sgf);
-      // 不显示 toast
     } catch (e) {
       console.error('复制失败', e as Error);
     }
   }
+
   render(): void {
     this.board.render();
   }
+
   destroy(): void {
     this.board.destroy();
     this.dialog.destroy();

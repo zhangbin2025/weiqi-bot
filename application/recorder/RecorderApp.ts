@@ -1,10 +1,11 @@
 /**
  * 记谱应用编排器
- * @description Application 层编排器，组合 RecorderService、ExportService、HistoryManager 完成记谱业务流程
+ * @description Application 层编排器,组合 RecorderService、ExportService、HistoryManager 完成记谱业务流程
  */
 import type { IRecorderService } from '../../services/recorder';
 import type { IExportService } from '../../services/export';
 import type { IGameConfig, IGameState, IMoveResult } from '../../domain/game';
+import type { PlayerColor } from '../../domain/primitives';
 import type { IGameMetadata, OnUpdateCallback } from '../../services/recorder/types';
 import type { ExportResult } from '../../infrastructure/utils/export';
 import type { IAudioPlayer, SoundType } from '../../infrastructure/audio';
@@ -15,12 +16,15 @@ import type {
   RecorderHistoryDetail,
 } from './types';
 import { RecorderHistoryManager } from './RecorderHistoryManager';
+
 /**
  * 记谱应用编排器
  * @description 组合 RecorderService、ExportService、HistoryManager 完成记谱业务流程
  */
 export class RecorderApp {
   private historyManager: RecorderHistoryManager;
+  private currentMode: 'play' | 'setup' = 'play';
+  
   constructor(
     private readonly recorderService: IRecorderService,
     private readonly exportService: IExportService,
@@ -28,32 +32,40 @@ export class RecorderApp {
     private readonly audioPlayer?: IAudioPlayer,
   ) {
     this.historyManager = historyManager;
-    // 每次 state 变化时自动保存草稿
+    // 每次 state 变化时自动保存草稿（包含当前模式）
     this.recorderService.setOnUpdate((state: IGameState) => {
-      this.saveDraft().catch((err) => {
+      this.saveDraft(this.currentMode).catch((err) => {
         console.warn('自动保存草稿失败', err);
       });
     });
   }
+
   // ===== 记谱操作 =====
+
   placeStone(x: number, y: number): IMoveResult {
     return this.recorderService.placeStone(x, y);
   }
+
   pass(): void {
     this.recorderService.pass();
   }
+
   undo(): boolean {
     return this.recorderService.undo();
   }
+
   newGame(config?: IGameConfig): void {
     this.recorderService.newGame(config);
   }
+
   getState(): IGameState {
     return this.recorderService.getState();
   }
+
   generateSGF(metadata?: IGameMetadata): string {
     return this.recorderService.generateSGF(metadata);
   }
+
   /**
    * 下载 SGF
    */
@@ -62,17 +74,51 @@ export class RecorderApp {
     const gameName = `${metadata?.blackName || '黑'}_vs_${metadata?.whiteName || '白'}`;
     return this.exportService.exportSGF(sgf, gameName);
   }
+
+  // ===== 摆子模式 =====
+
+  /**
+   * 添加初始棋子
+   */
+  addInitialStone(x: number, y: number, color: 'B' | 'W'): boolean {
+    return this.recorderService.addInitialStone(x, y, color);
+  }
+
+  /**
+   * 移除初始棋子
+   */
+  removeInitialStone(x: number, y: number): boolean {
+    return this.recorderService.removeInitialStone(x, y);
+  }
+
+  /**
+   * 设置先手方
+   */
+  setInitialPlayer(player: PlayerColor): void {
+    this.recorderService.setInitialPlayer(player);
+  }
+
   // ===== 草稿管理 =====
-  async saveDraft(): Promise<void> {
-    return this.recorderService.saveDraft();
+
+  async saveDraft(mode: 'play' | 'setup' = this.currentMode): Promise<void> {
+    this.currentMode = mode;
+    return this.recorderService.saveDraft(mode);
   }
-  async loadDraft(): Promise<void> {
-    return this.recorderService.loadDraft();
+
+  async loadDraft(): Promise<{ mode: 'play' | 'setup' } | undefined> {
+    const result = await this.recorderService.loadDraft();
+    if (result) {
+      this.currentMode = result.mode;
+    }
+    return result;
   }
+
   async clearDraft(): Promise<void> {
     return this.recorderService.clearDraft();
   }
+
   // ===== 历史管理（委托给 HistoryManager） =====
+
   /**
    * 保存到历史
    * @description 通过 HistoryManager 归档 SGF 并存储到收藏
@@ -87,27 +133,35 @@ export class RecorderApp {
       metadata,
     );
   }
+
   /** 查询棋谱历史 */
   async queryHistory(options?: RecorderHistoryOptions): Promise<RecorderHistoryEntry[]> {
     return this.historyManager.queryHistory(options);
   }
+
   /** 获取历史棋谱详情 */
   async getHistoryDetail(id: string): Promise<RecorderHistoryDetail | null> {
     return this.historyManager.getHistoryDetail(id);
   }
+
   /** 清空历史 */
   async clearHistory(): Promise<void> {
     return this.historyManager.clearHistory();
   }
+
   /** 获取统计 */
   async getStats(): Promise<RecorderStats> {
     return this.historyManager.getStats();
   }
+
   // ===== 回调设置 =====
+
   setOnUpdate(callback: OnUpdateCallback): void {
     this.recorderService.setOnUpdate(callback);
   }
+
   // ===== 音效 =====
+
   /** 播放音效 */
   playSound(type: SoundType): void {
     if (!this.audioPlayer) return;

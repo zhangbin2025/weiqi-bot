@@ -35,28 +35,63 @@ async function main() {
 
   // 6. 绑定 HTML 按钮事件
   document.getElementById('undoBtn')?.addEventListener('click', () => page.undo());
+  
+  // 保存按钮：根据模式决定是否显示名称输入框
   document.getElementById('saveBtn')?.addEventListener('click', () => {
-    saveModal?.classList.add('visible');
-    if (blackNameInput) blackNameInput.value = '';
-    if (whiteNameInput) whiteNameInput.value = '';
-    blackNameInput?.focus();
+    const state = recorderApp.getState();
+    // 摆子模式且没有落子：直接询问先手方
+    if (state.moveHistory.length === 0 && state.initialStones.length > 0) {
+      page.saveToHistory('', '').then(() => {
+        page.newGame({ skipConfirm: true });
+      });
+    } else {
+      // 对局模式：显示名称输入框
+      const saveModal = document.getElementById('saveModal');
+      const blackNameInput = document.getElementById('blackNameInput') as HTMLInputElement;
+      const whiteNameInput = document.getElementById('whiteNameInput') as HTMLInputElement;
+      saveModal?.classList.add('visible');
+      if (blackNameInput) blackNameInput.value = '';
+      if (whiteNameInput) whiteNameInput.value = '';
+      blackNameInput?.focus();
+    }
   });
+  
   document.getElementById('newBtn')?.addEventListener('click', () => page.newGame());
 
-  // 7. 保存按钮和弹框
-  const saveBtn = document.getElementById('saveBtn');
+  // 7. 摆子工具事件
+  const blackStoneBtn = document.getElementById('blackStoneBtn');
+  const whiteStoneBtn = document.getElementById('whiteStoneBtn');
+  const eraserBtn = document.getElementById('eraserBtn');
+
+  blackStoneBtn?.addEventListener('click', () => {
+    blackStoneBtn.classList.add('active');
+    whiteStoneBtn?.classList.remove('active');
+    eraserBtn?.classList.remove('active');
+    page.setSetupColor('B');
+    page.setSetupTool('stone');
+  });
+
+  whiteStoneBtn?.addEventListener('click', () => {
+    whiteStoneBtn.classList.add('active');
+    blackStoneBtn?.classList.remove('active');
+    eraserBtn?.classList.remove('active');
+    page.setSetupColor('W');
+    page.setSetupTool('stone');
+  });
+
+  eraserBtn?.addEventListener('click', () => {
+    eraserBtn.classList.add('active');
+    blackStoneBtn?.classList.remove('active');
+    whiteStoneBtn?.classList.remove('active');
+    page.setSetupTool('eraser');
+  });
+
+  // 8. 保存弹框事件
   const saveModal = document.getElementById('saveModal');
   const saveCancelBtn = document.getElementById('saveCancelBtn');
   const saveConfirmBtn = document.getElementById('saveConfirmBtn');
   const blackNameInput = document.getElementById('blackNameInput') as HTMLInputElement;
   const whiteNameInput = document.getElementById('whiteNameInput') as HTMLInputElement;
-
-  saveBtn?.addEventListener('click', () => {
-    saveModal?.classList.add('visible');
-    if (blackNameInput) blackNameInput.value = '';
-    if (whiteNameInput) whiteNameInput.value = '';
-    blackNameInput?.focus();
-  });
 
   saveCancelBtn?.addEventListener('click', () => {
     saveModal?.classList.remove('visible');
@@ -78,7 +113,7 @@ async function main() {
     }
   });
 
-  // 菜单切换
+  // 9. 菜单切换
   const menuBtn = document.getElementById('menuBtn');
   const dropdownMenu = document.getElementById('dropdownMenu');
   
@@ -86,16 +121,27 @@ async function main() {
     dropdownMenu?.classList.toggle('visible');
   });
 
+  // 点击页面其他地方关闭菜单
   document.addEventListener('click', (e) => {
-    if (!e.target.closest('.dropdown')) {
+    if (!menuBtn?.contains(e.target as Node) && !dropdownMenu?.contains(e.target as Node)) {
       dropdownMenu?.classList.remove('visible');
     }
   });
 
-  // 菜单项事件
+  // 10. 菜单项事件
   document.getElementById('passMenuItem')?.addEventListener('click', () => {
     dropdownMenu?.classList.remove('visible');
     page.pass();
+  });
+
+  document.getElementById('setupModeMenuItem')?.addEventListener('click', () => {
+    dropdownMenu?.classList.remove('visible');
+    page.switchToSetupMode();
+  });
+
+  document.getElementById('playModeMenuItem')?.addEventListener('click', () => {
+    dropdownMenu?.classList.remove('visible');
+    page.switchToPlayMode();
   });
 
   document.getElementById('downloadMenuItem')?.addEventListener('click', () => {
@@ -113,7 +159,7 @@ async function main() {
     window.location.href = '../replay/list.html?category=recorder&key=all';
   });
 
-  // 8. 监听状态变化，更新 UI
+  // 11. 监听状态变化，更新 UI
   recorderApp.setOnUpdate((state) => {
     // 更新手数
     const moveNum = document.getElementById('moveNum');
@@ -127,11 +173,6 @@ async function main() {
       const nextPlayer = state.currentPlayer;
       indicator.className = 'stone-indicator ' + (nextPlayer === 'B' ? 'black' : 'white');
     }
-
-    // 手动保存草稿（因为 setOnUpdate 会覆盖自动保存）
-    recorderApp.saveDraft().catch((err) => {
-      console.warn('保存草稿失败', err);
-    });
   });
 
   console.info('RecorderPage 已启动');

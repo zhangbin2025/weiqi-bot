@@ -12,6 +12,8 @@ export interface IDraft {
   readonly sgf: string;
   /** 游戏状态元数据 */
   readonly state: IGameState;
+  /** 当前模式：对局模式或摆子模式 */
+  readonly mode?: 'play' | 'setup';
 }
 
 /**

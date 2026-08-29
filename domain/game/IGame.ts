@@ -17,6 +17,8 @@ export interface IGameConfig {
   readonly size?: number;
   /** 贴目 */
   readonly komi?: number;
+  /** 先手方 */
+  readonly initialPlayer?: PlayerColor;
   /** 让子数 */
   readonly handicap?: number;
   /** 玩家执黑还是执白 */
@@ -81,4 +83,19 @@ export interface IGame {
    * @returns 让子棋子数组（如果没有让子则返回空数组）
    */
   getHandicapStones(): Array<{ x: number; y: number; color: 'B' | 'W' }>;
+
+  /**
+   * 添加初始棋子（摆子模式）
+   */
+  addInitialStone(x: number, y: number, color: 'B' | 'W'): boolean;
+
+  /**
+   * 移除初始棋子
+   */
+  removeInitialStone(x: number, y: number): boolean;
+
+  /**
+   * 设置先手方
+   */
+  setInitialPlayer(player: PlayerColor): void;
 }

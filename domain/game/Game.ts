@@ -24,6 +24,8 @@ export class Game implements IGame {
   private suicideRule = new SuicideRule();
   private koRule = new KoRule();
   private handicapStones: Array<{ x: number; y: number; color: 'B' | 'W' }> = [];
+  private initialStones: Array<{ x: number; y: number; color: 'B' | 'W' }> = [];
+  private initialPlayer: PlayerColor = 'black';
 
   constructor(config?: IGameConfig) {
     this.board = new Board(config?.size ?? 19);
@@ -47,6 +49,8 @@ export class Game implements IGame {
       handicap: this.handicap,
       komi: this.komi,
       lastMove,
+      initialStones: this.initialStones,
+      initialPlayer: this.initialPlayer,
     };
   }
 
@@ -90,12 +94,19 @@ export class Game implements IGame {
     if (this.moveHistory.length === 0) return false;
     this.moveHistory.pop();
     this.board.clear();
-    this.currentPlayer = 'black';
+    this.currentPlayer = this.initialPlayer;
     this.capturedBlack = 0;
     this.capturedWhite = 0;
     this.koPosition = null;
-    this.phase = 'playing';
+    this.phase = 'playing' ;
     this.consecutivePasses = 0;
+    
+    // 重新放置初始棋子（让子）
+    for (const stone of this.initialStones) {
+      const color = stone.color === 'B'  ? 'black'  : 'white' ;
+      this.board.setStone(stone.x, stone.y, color);
+    }
+    
     const moves = [...this.moveHistory];
     this.moveHistory = [];
     for (const move of moves) {
@@ -107,7 +118,7 @@ export class Game implements IGame {
 
   newGame(config?: IGameConfig): void {
     this.board = new Board(config?.size ?? 19);
-    this.currentPlayer = 'black';
+    this.currentPlayer = config?.initialPlayer ?? 'black';
     this.moveHistory = [];
     this.phase = 'playing';
     this.capturedBlack = 0;
@@ -117,12 +128,15 @@ export class Game implements IGame {
     this.komi = config?.komi ?? 7.5;
     this.consecutivePasses = 0;
     this.handicapStones = [];
+    this.initialStones = [];
+    this.initialPlayer = config?.initialPlayer ?? 'black';
     
     // 放置让子棋子（黑子）
     if (this.handicap > 0) {
       this.placeHandicapStones(this.handicap);
       // 让子情况下，白方先行
       this.currentPlayer = 'white';
+      this.initialPlayer = 'white';
     }
   }
 
@@ -189,6 +203,7 @@ export class Game implements IGame {
     }
     // 让子情况下，白方先行
     this.currentPlayer = 'white';
+    this.initialPlayer = 'white';
   }
 
   getBoard(): Board { return this.board; }
@@ -210,5 +225,39 @@ export class Game implements IGame {
    */
   getHandicapStones(): Array<{ x: number; y: number; color: 'B' | 'W' }> {
     return this.handicapStones;
+  }
+
+  /**
+   * 添加初始棋子（摆子模式）
+   * @param x - X 坐标
+   * @param y - Y 坐标
+   * @param color - 棋子颜色 ('B' 或 'W')
+   * @returns 是否成功
+   */
+  addInitialStone(x: number, y: number, color: 'B' | 'W'): boolean {
+    if (this.board.getStone(x, y) !== null) return false;
+    const stoneColor = color === 'B' ? 'black' : 'white';
+    this.board.setStone(x, y, stoneColor);
+    this.initialStones.push({ x, y, color });
+    return true;
+  }
+
+  /**
+   * 移除初始棋子
+   */
+  removeInitialStone(x: number, y: number): boolean {
+    const idx = this.initialStones.findIndex(s => s.x === x && s.y === y);
+    if (idx === -1) return false;
+    this.initialStones.splice(idx, 1);
+    this.board.setStone(x, y, null);
+    return true;
+  }
+
+  /**
+   * 设置先手方
+   */
+  setInitialPlayer(player: PlayerColor): void {
+    this.currentPlayer = player;
+    this.initialPlayer = player;
   }
 }

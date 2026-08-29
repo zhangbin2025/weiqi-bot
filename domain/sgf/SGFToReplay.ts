@@ -22,6 +22,7 @@ export interface ReplayData {
   board_size: number;
   handicap?: number | undefined;
   handicap_stones?: Array<{ x: number; y: number; color: 'B' | 'W' }> | undefined;
+  initial_player?: 'black' | 'white' ;
   result?: string | undefined;
   tree: ReplayNode;
   download_filename?: string | undefined;
@@ -123,6 +124,7 @@ export function sgfToReplayData(sgf: string, options?: SGFToReplayOptions): Repl
     board_size: gameInfo.boardSize,
     handicap: gameInfo.handicap,
     handicap_stones: handicapStones,
+    initial_player: gameInfo.initialPlayer,
     result: gameInfo.result,
     tree: simplifyTree(result.tree),
     download_filename: options?.downloadFilename || 'game.sgf',
