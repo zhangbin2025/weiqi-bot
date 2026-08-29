@@ -61,7 +61,6 @@ export class ReviewUI {
   private mainControlsBarEl: HTMLElement | null = null;
   private depthCountEl: HTMLElement | null = null;
   private regionSelectBtnEl: HTMLElement | null = null;
-  private regionStatusEl: HTMLElement | null = null;  private regionSelectBtnEl: HTMLElement | null = null;  private regionStatusEl: HTMLElement | null = null;
 
   // 配置
   private configVisits = 200;  // 默认分析局面用
@@ -459,7 +458,6 @@ export class ReviewUI {
       this.regionStatusEl.textContent = hasSelection ? ' ✓' : ' ✗';
     }
   }
-    updateRegionSelectionStatus(hasSelection: boolean): void {    if (this.regionStatusEl) {      this.regionStatusEl.textContent = hasSelection ? ' ✓' : ' ✗';    }  }
 
   showHistory(): void {
     window.location.href = '../replay/list.html?category=review&key=all';
