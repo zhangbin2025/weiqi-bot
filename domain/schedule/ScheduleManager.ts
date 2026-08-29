@@ -125,17 +125,9 @@ export class ScheduleManager {
       return false;
     }
 
-    // 2. 检查时间是否匹配（允许 ±1 小时误差）
-    const currentHour = now.getHours();
-    const hourDiff = Math.abs(currentHour - config.hour);
-    if (hourDiff > 1) {
-      console.log(`[shouldExecute] ${id} → NO (hour mismatch: current=${currentHour}, target=${config.hour}, diff=${hourDiff})`);
-      return false;
-    }
-
-    // 3. 从未执行过 → 执行
+    // 2. 从未执行过 → 执行
     if (!config.lastRunTime) {
-      console.log(`[shouldExecute] ${id} → YES (never executed, hour=${currentHour} matches target=${config.hour})`);
+      console.log(`[shouldExecute] ${id} → YES (never executed)`);
       return true;
     }
 
@@ -298,11 +290,11 @@ export class ScheduleManager {
 
   /**
    * 获取执行时间的描述
+   *
+   * 注意：不再显示具体的执行时间（hour），因为已去掉时间窗口限制
+   * 只显示频率描述
    */
   static getTimeDescription(config: ScheduleConfig): string {
-    const hour = String(config.hour).padStart(2, '0');
-    const minute = String(config.minute).padStart(2, '0');
-    const frequency = this.getFrequencyDescription(config);
-    return `${frequency} ${hour}:${minute}`;
+    return this.getFrequencyDescription(config);
   }
 }

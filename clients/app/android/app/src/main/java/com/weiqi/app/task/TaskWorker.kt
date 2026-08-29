@@ -92,26 +92,25 @@ class TaskWorker(
      * 2. 从未执行过 → 执行
      * 3. 已执行过 → 检查是否跨周期（天/周/月）
      */
+    /**
+     * 判断是否需要执行
+     * 
+     * 规则：
+     * - 去掉 hour 时间窗口检查
+     * - 只要当前周期（天/周/月）内没有执行过，就执行一次
+     */
     private fun shouldExecute(config: JSONObject): Boolean {
         val now = Calendar.getInstance()
-        val hour = config.optInt("hour", 0)
         val frequency = config.optString("frequency", "daily")
         val lastRunDate = config.optString("lastRunDate", "")
         
-        // 1. 时间窗口检查：当前 hour 必须等于目标 hour
-        val currentHour = now.get(Calendar.HOUR_OF_DAY)
-        if (currentHour != hour) {
-            Logger.d(TAG, "Hour mismatch: current=$currentHour, target=$hour")
-            return false
-        }
-        
-        // 2. 从未执行过 → 执行
+        // 从未执行过 → 执行
         if (lastRunDate.isEmpty()) {
             Logger.d(TAG, "Never executed, will execute")
             return true
         }
         
-        // 3. 已执行过 → 检查是否跨周期
+        // 已执行过 → 检查是否跨周期
         val today = formatDate(now)
         
         return when (frequency) {

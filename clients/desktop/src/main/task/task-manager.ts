@@ -22,6 +22,30 @@ export class TaskManager {
   constructor() {
     this.store = new TaskStore();
     this.scheduleManager = new ScheduleManager();
+
+    // 启动时调度已有的定时任务
+    this.initSchedules();
+  }
+
+  /**
+   * 初始化调度：启动时加载并调度所有已有的定时任务
+   */
+  private initSchedules() {
+    try {
+      const schedules = this.scheduleManager.list();
+      console.log(`[TaskManager] Found ${schedules.length} schedules to init`);
+
+      for (const config of schedules) {
+        const id = config.id;
+        if (!id) continue;
+
+        // 调度周期任务（会设置 interval timer）
+        this.schedulePeriodic(id, { interval: 0.5 });
+        console.log(`[TaskManager] Initialized schedule: ${id}`);
+      }
+    } catch (error) {
+      console.error('[TaskManager] Failed to init schedules:', error);
+    }
   }
 
   /**
@@ -48,7 +72,7 @@ export class TaskManager {
         params,
         pageUrl: finalPageUrl,
         scheduleType: 'periodic',
-        scheduleInterval: schedule.interval || 15 * 60,
+        scheduleInterval: schedule.interval || 0.5 * 60,
       });
     } else {
       this.store.createSync({
@@ -194,7 +218,7 @@ export class TaskManager {
     });
     
     // 调度周期任务
-    this.schedulePeriodic(taskId, { interval: 15 });
+    this.schedulePeriodic(taskId, { interval: 0.5 });
     
     // 立即执行一次
     setImmediate(() => this.executeNow(taskId, finalPageUrl, params));
@@ -227,7 +251,7 @@ export class TaskManager {
         params,
         pageUrl: finalPageUrl,
         scheduleType: 'periodic',
-        scheduleInterval: schedule.interval || 15 * 60,
+        scheduleInterval: schedule.interval || 0.5 * 60,
       });
     } else {
       // 立即任务：在 Worker 中执行
@@ -360,7 +384,7 @@ export class TaskManager {
       this.periodicTimers = new Map<string, NodeJS.Timeout>();
     }
     
-    const intervalMinutes = schedule.interval || 15;
+    const intervalMinutes = schedule.interval || 0.5;
     const intervalMs = intervalMinutes * 60 * 1000;
     
     console.log(`[TaskManager] Scheduling periodic task ${taskId}: interval=${intervalMinutes}min`);
@@ -372,6 +396,12 @@ export class TaskManager {
         return;
       }
       
+      
+      // 检查是否需要执行（周期内已执行过则跳过）
+      if (!this.shouldExecute(config)) {
+        console.log(`[TaskManager] Task ${taskId} already executed in current period, skipping`);
+        return;
+      }
       // 处理 pageUrl（替换占位符）
       let pageUrl = config.pageUrl || '';
       const encodedId = encodeURIComponent(taskId);
@@ -393,34 +423,34 @@ export class TaskManager {
   }
 
   /**
-   * 判断是否需要执行（对等 Android TaskWorker.shouldExecute）
+   * 判断是否需要执行
+   *
+   * 规则：
+   * - 去掉 hour 时间窗口检查
+   * - 只要当前周期（天/周/月）内没有执行过，就执行一次
    */
   private shouldExecute(config: any): boolean {
-    // 简化实现：检查上次执行时间
-    const lastRun = config.lastRun;
-    if (!lastRun) return true;
-
-    const now = Date.now();
     const frequency = config.frequency || 'daily';
-    const hour = config.hour || 0;
+    const lastRunTime = config.lastRunTime || config.lastRun;
 
-    // 检查当前小时
-    const currentHour = new Date().getHours();
-    if (currentHour !== hour) return false;
+    // 从未执行过 → 执行
+    if (!lastRunTime) {
+      return true;
+    }
 
-    // 检查是否跨周期
-    const lastDate = new Date(lastRun).toDateString();
+    // 已执行过 → 检查是否跨周期
+    const lastDate = new Date(lastRunTime).toDateString();
     const today = new Date().toDateString();
 
     switch (frequency) {
       case 'daily':
         return lastDate !== today;
       case 'weekly':
-        const lastWeek = this.getWeekNumber(new Date(lastRun));
+        const lastWeek = this.getWeekNumber(new Date(lastRunTime));
         const currentWeek = this.getWeekNumber(new Date());
         return lastWeek !== currentWeek;
       case 'monthly':
-        const lastMonth = new Date(lastRun).getMonth();
+        const lastMonth = new Date(lastRunTime).getMonth();
         const currentMonth = new Date().getMonth();
         return lastMonth !== currentMonth;
       default:

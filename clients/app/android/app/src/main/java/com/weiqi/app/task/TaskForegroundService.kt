@@ -649,6 +649,17 @@ class TaskForegroundService : Service() {
             
             // 更新任务状态并发送完成通知
             store.markCompleted(taskId, title, message, detailUrl)
+            
+            // 更新 schedule 的 lastRunDate
+            val scheduleManager = ScheduleManager.getInstance(applicationContext)
+            val scheduleConfig = scheduleManager.get(taskId)
+            if (scheduleConfig != null) {
+                val now = System.currentTimeMillis()
+                scheduleConfig.put("lastRunDate", java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date(now)))
+                scheduleConfig.put("lastRunTime", now)
+                scheduleManager.update(taskId, scheduleConfig)
+                Logger.i(TAG, "Schedule $taskId lastRunDate updated")
+            }
             notifier.notify(taskId, title, message, detailUrl)
             
             // 清理资源并停止服务
@@ -672,6 +683,18 @@ class TaskForegroundService : Service() {
             }
             
             store.markFailed(taskId, error)
+            
+            // 更新 schedule 的 lastRunDate（即使失败也算执行过）
+            val scheduleManager = ScheduleManager.getInstance(applicationContext)
+            val scheduleConfig = scheduleManager.get(taskId)
+            if (scheduleConfig != null) {
+                val now = System.currentTimeMillis()
+                scheduleConfig.put("lastRunDate", java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date(now)))
+                scheduleConfig.put("lastRunTime", now)
+                scheduleManager.update(taskId, scheduleConfig)
+                Logger.i(TAG, "Schedule $taskId lastRunDate updated (failed)")
+            }
+            
             notifier.notifyError(taskId, error)
             cleanup()
             stopForeground(STOP_FOREGROUND_REMOVE)

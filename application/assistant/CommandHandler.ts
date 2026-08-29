@@ -254,8 +254,6 @@ export class CommandHandler {
         } else {
           text = `📋 定时计划列表（共 ${schedules.length} 个）\n\n`;
           for (const schedule of schedules) {
-            const timeStr = `${String(schedule.hour).padStart(2, '0')}:${String(schedule.minute).padStart(2, '0')}`;
-            
             text += `**${schedule.id}**\n`;
             text += `├ 类型: ${schedule.type}\n`;
             text += `├ 频率: ${this.managementService.formatFrequency(schedule.frequency)}`;
@@ -266,7 +264,6 @@ export class CommandHandler {
               text += `（${schedule.dayOfMonth}号）`;
             }
             text += `\n`;
-            text += `├ 时间: ${timeStr}\n`;
             
             // 显示参数
             if (schedule.params && Object.keys(schedule.params).length > 0) {
