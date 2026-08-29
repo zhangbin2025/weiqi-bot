@@ -16,6 +16,7 @@ export interface ReviewOptions {
   mode?: 'quick' | 'deep';
   /** 是否包含PV line（后续变化），默认false（不包含，速度更快） */
   includePv?: boolean;
+  /** 局部分析区域（可选） */  regionOfInterest?: { xMin: number; yMin: number; xMax: number; yMax: number } | null;
 }
 
 /** 复盘回调 */

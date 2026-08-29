@@ -49,6 +49,7 @@ export interface IAIController {
     initialStones?: Array<{ player: PlayerColor; x: number; y: number }>,
     wideRootNoise?: number,
     nnRandomize?: boolean
+    regionOfInterest?: { xMin: number; yMin: number; xMax: number; yMax: number } | null,
   ): Promise<{ x: number; y: number; winRate: number; scoreLead: number } | null>;
 
   /**
@@ -77,6 +78,7 @@ export interface IAIController {
     initialStones?: Array<{ player: PlayerColor; x: number; y: number }>,
     wideRootNoise?: number,
     nnRandomize?: boolean
+    regionOfInterest?: { xMin: number; yMin: number; xMax: number; yMax: number } | null,
   ): Promise<IAnalysisResult>;
 
   /**

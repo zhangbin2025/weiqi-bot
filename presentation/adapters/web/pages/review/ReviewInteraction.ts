@@ -82,6 +82,11 @@ export class ReviewInteraction {
   /** 当前显示的推荐圆圈 */
   private currentRecommendationCircles: RecommendationCircle[] = [];
 
+  /** 框选区域状态 */
+  private regionOfInterest: { xMin: number; yMin: number; xMax: number; yMax: number } | null = null;
+  private selectionStep = 0; // 0=未框选, 1=已选第一点, 2=完成
+  private firstPoint: { x: number; y: number } | null = null;
+
   /** 基础着法（完整棋谱） */
   private baseMoves: Array<{ x: number; y: number; color: PlayerColor }> = [];
   
@@ -512,6 +517,143 @@ export class ReviewInteraction {
     }]);
     } else {
       this.board.clearRecommendationCircles();
+    }
+  }
+
+  // ========== 框选区域相关方法 ==========
+
+  /**
+   * 开始框选
+   */
+  startRegionSelection(): void {
+    this.selectionStep = 1;
+    this.callbacks.onStatusUpdate('点击区域的第一个角');
+  }
+
+  /**
+   * 处理框选点击
+   * @returns true 表示已处理此点击
+   */
+  handleRegionSelectionClick(x: number, y: number): boolean {
+    if (this.selectionStep === 1) {
+      this.firstPoint = { x, y };
+      this.selectionStep = 2;
+      this.callbacks.onStatusUpdate('点击区域的对角点');
+      // 显示特殊标记（红色圆圈）
+      this.board.setMarker({ x, y }, '●', true);
+      return false; // 第一个点，未完成
+    } else if (this.selectionStep === 2) {
+      // 计算矩形（自动排序为左上→右下）
+      this.regionOfInterest = {
+        xMin: Math.min(this.firstPoint!.x, x),
+        yMin: Math.min(this.firstPoint!.y, y),
+        xMax: Math.max(this.firstPoint!.x, x),
+        yMax: Math.max(this.firstPoint!.y, y),
+      };
+      this.selectionStep = 0;
+      this.callbacks.onStatusUpdate('框选完成');
+      this.board.clearMarkers();
+      // 显示矩形覆盖层
+      this.showSelectionRect(this.regionOfInterest!);
+      return true; // 第二个点，完成框选
+    }
+    return false;
+  }
+
+  /**
+   * 清除框选
+   */
+  clearRegionSelection(): void {
+    this.regionOfInterest = null;
+    this.selectionStep = 0;
+    this.firstPoint = null;
+    this.callbacks.onStatusUpdate('已清除框选');
+    this.hideSelectionRect();
+  }
+
+  /**
+   * 检查是否在区域内
+   */
+  isInRegion(x: number, y: number): boolean {
+    if (!this.regionOfInterest) return true;
+    const { xMin, yMin, xMax, yMax } = this.regionOfInterest;
+    return x >= xMin && x <= xMax && y >= yMin && y <= yMax;
+  }
+
+  /**
+   * 获取当前框选区域
+   */
+  getRegionOfInterest(): { xMin: number; yMin: number; xMax: number; yMax: number } | null {
+    return this.regionOfInterest;
+  }
+
+  /**
+   * 是否正在框选
+   */
+  isSelecting(): boolean {
+    return this.selectionStep > 0;
+  }
+
+  /**
+   * 是否有框选区域
+   */
+  hasRegionSelection(): boolean {
+    return this.regionOfInterest !== null;
+  }
+
+  /**
+   * 显示矩形覆盖层
+   */
+  private showSelectionRect(roi: { xMin: number; yMin: number; xMax: number; yMax: number }): void {
+        
+    // 创建或获取覆盖层元素
+    let overlay = document.getElementById('region-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'region-overlay';
+      overlay.className = 'region-overlay';
+      const boardContainer = document.getElementById('page-root');
+      if (boardContainer) {
+        boardContainer.appendChild(overlay);
+      }
+    }
+
+    // 获取 Canvas 元素
+    const canvas = document.querySelector('#page-root canvas');
+    if (!canvas) {
+      console.error('[ReviewInteraction] Canvas not found');
+      return;
+    }
+
+    const canvasRect = canvas.getBoundingClientRect();
+    const boardSize = 19;
+    const cellSize = canvasRect.width / (boardSize + 1);  // 棋盘有 19 条线，加上边距共 20 格
+
+    // 使用 toCanvas 的坐标转换公式：cx = (x + 1) * cellSize
+    // 矩形左边界：x1 交叉点左半格
+    const left = roi.xMin * cellSize + cellSize / 2;
+    // 矩形上边界：y1 交叉点上半格
+    const top = roi.yMin * cellSize + cellSize / 2;
+    // 矩形宽度：(x2 - x1 + 1) 格
+    const width = (roi.xMax - roi.xMin + 1) * cellSize;
+    // 矩形高度：(y2 - y1 + 1) 格
+    const height = (roi.yMax - roi.yMin + 1) * cellSize;
+
+    
+    overlay.style.left = left + 'px';
+    overlay.style.top = top + 'px';
+    overlay.style.width = width + 'px';
+    overlay.style.height = height + 'px';
+    overlay.style.display = 'block';
+  }
+
+  /**
+   * 隐藏矩形覆盖层
+   */
+  private hideSelectionRect(): void {
+    const overlay = document.getElementById('region-overlay');
+    if (overlay) {
+      overlay.style.display = 'none';
     }
   }
 }

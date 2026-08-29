@@ -78,6 +78,9 @@ export class ReviewPage implements IPage {
   private winrateTrend: Array<{ moveNumber: number; winRate: number; scoreLead: number }> = [];
   private analyzing = false;
 
+  // 框选区域状态
+  private hasRegionSelection = false;
+
   // 当前 AI 推荐
   private currentCandidates: Array<{ x: number; y: number; pv?: string[]; isCurrentMove?: boolean }> = [];
   private savedRecommendationCircles: RecommendationCircle[] = [];
@@ -152,6 +155,17 @@ export class ReviewPage implements IPage {
       onHandleKeyDown: (e) => this.handleKeyDown(e),
       onToggleLiveRecommendations: () => this.toggleLiveRecommendations(),
       onRefreshIntervalChange: (seconds) => this.liveModeManager?.setRefreshInterval(seconds),
+      onToggleRegionSelection: () => {
+        if (this.hasRegionSelection) {
+          // 清除框选
+          this.interaction.clearRegionSelection();
+          this.hasRegionSelection = false;
+          this.ui.updateRegionSelectionStatus(false);
+        } else {
+          // 开始框选
+          this.interaction.startRegionSelection();
+        }
+      },
     });
 
     this.analysis = new ReviewAnalysis(
@@ -239,8 +253,6 @@ export class ReviewPage implements IPage {
       this.loadFromArchiveId(archiveId, undefined, undefined, true).then((success) => {
         if (success) {
           this.goToMove(moveTo);
-          // 自动触发 AI 推荐
-          this.analyzeCurrentPosition();
         } else {
           this.ui.updateStatus('加载棋谱失败');
         }
@@ -405,9 +417,11 @@ export class ReviewPage implements IPage {
 
       if (!isInGameMode) {
         const allMoves = this.interaction.getCurrentMoves();
-        moveReview = await this.reviewApp.analyzeMoves(allMoves, 7.5, { visits }, this.handicapStones);
+        const roi = this.interaction.getRegionOfInterest();
+                moveReview = await this.reviewApp.analyzeMoves(allMoves, 7.5, { visits, regionOfInterest: roi }, this.handicapStones);
       } else {
-        moveReview = await this.reviewApp.analyzePosition(this.analysis.getReviewId()!, moveIndex, { visits, includePv: true });
+        const roi = this.interaction.getRegionOfInterest();
+                moveReview = await this.reviewApp.analyzePosition(this.analysis.getReviewId()!, moveIndex, { visits, includePv: true, regionOfInterest: roi });
       }
 
       if (moveReview?.candidates) {
@@ -549,7 +563,7 @@ export class ReviewPage implements IPage {
       const moveReview = await this.reviewApp.analyzePosition(
         this.analysis.getReviewId()!,
         this.totalMoves,
-        { visits: this.ui.getConfigVisits(), includePv: true }
+        { visits: this.ui.getConfigVisits(), includePv: true, regionOfInterest: this.interaction.getRegionOfInterest() }
       );
 
       if (moveReview?.candidates) {
@@ -758,7 +772,7 @@ export class ReviewPage implements IPage {
       const moveReview = await this.reviewApp.analyzePosition(
         this.analysis.getReviewId()!,
         moveIndex,
-        { visits: this.ui.getConfigVisits() }
+        { visits: this.ui.getConfigVisits(), regionOfInterest: this.interaction.getRegionOfInterest() }
       );
       
       if (moveReview?.candidates && moveReview.candidates.length > 0) {
@@ -1030,7 +1044,28 @@ export class ReviewPage implements IPage {
     }
   }
 
-  /** 处理棋盘点击（封装 analyzing 检查） */  private handleBoardClick(x: number, y: number): void {    if (this.analyzing) return;    this.interaction.handleBoardClick(x, y);  }
+  /** 处理棋盘点击（封装 analyzing 检查） */
+  private handleBoardClick(x: number, y: number): void {
+    if (this.analyzing) return;
+
+    // 如果正在框选
+    if (this.interaction.isSelecting()) {
+      const completed = this.interaction.handleRegionSelectionClick(x, y);
+      if (completed) {
+        this.hasRegionSelection = true;
+        this.ui.updateRegionSelectionStatus(true);
+      }
+      return;
+    }
+
+    // 试下模式：检查是否在区域内
+    if (!this.interaction.isInRegion(x, y)) {
+      this.ui.updateStatus("只能在框选区域内试下");
+      return;
+    }
+
+    this.interaction.handleBoardClick(x, y);
+  }
   private handleKeyDown(event: KeyboardEvent): void {
     if (this.analyzing) {
       event.preventDefault();

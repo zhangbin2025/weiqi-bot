@@ -142,14 +142,15 @@ export class AIController implements IAIController {
     analysisPvLen?: number,  // PV长度，0表示不获取PV
     initialStones?: Array<{ player: PlayerColor; x: number; y: number }>,  // 让子棋
     wideRootNoise?: number,  // 根节点随机性
-    nnRandomize?: boolean    // 神经网络随机
+    nnRandomize?: boolean,    // 神经网络随机
+    regionOfInterest?: { xMin: number; yMin: number; xMax: number; yMax: number } | null
   ): Promise<IAnalysisResult> {
     const actualVisits = visits ?? this.difficultyManager.getVisits();
     const actualNoise = wideRootNoise ?? this.difficultyManager.getWideRootNoise();
     const actualRandomize = nnRandomize ?? this.difficultyManager.getNnRandomize();
     
     const result = await this.callAnalyze(
-      board, previousBoard, currentPlayer, moveHistory, komi, actualVisits, maxTimeMs, analysisPvLen, initialStones, actualNoise, actualRandomize
+      board, previousBoard, currentPlayer, moveHistory, komi, actualVisits, maxTimeMs, analysisPvLen, initialStones, actualNoise, actualRandomize, regionOfInterest
     );
 
     return {
@@ -399,7 +400,8 @@ export class AIController implements IAIController {
     analysisPvLen?: number,  // PV长度，0表示不获取PV
     initialStones?: Array<{ player: PlayerColor; x: number; y: number }>,  // 让子棋
     wideRootNoise?: number,  // 根节点随机性
-    nnRandomize?: boolean    // 神经网络随机
+    nnRandomize?: boolean,    // 神经网络随机
+    regionOfInterest?: { xMin: number; yMin: number; xMax: number; yMax: number } | null
   ) {
     this.ensureInitialized();
 
@@ -433,6 +435,11 @@ export class AIController implements IAIController {
     // 设置神经网络随机
     if (nnRandomize !== undefined) {
       options.nnRandomize = nnRandomize;
+    }
+
+    // 设置框选区域
+    if (regionOfInterest) {
+            options.regionOfInterest = regionOfInterest;
     }
 
     return this.engine!.analyze(options);

@@ -28,6 +28,7 @@ export interface UICallbacks {
   onHandleKeyDown: (event: KeyboardEvent) => void;
   onToggleLiveRecommendations?: () => void;
   onRefreshIntervalChange?: (seconds: number) => void;
+  onToggleRegionSelection?: () => void;
 }
 
 /**
@@ -59,6 +60,8 @@ export class ReviewUI {
   private specialControlsBarEl: HTMLElement | null = null;
   private mainControlsBarEl: HTMLElement | null = null;
   private depthCountEl: HTMLElement | null = null;
+  private regionSelectBtnEl: HTMLElement | null = null;
+  private regionStatusEl: HTMLElement | null = null;  private regionSelectBtnEl: HTMLElement | null = null;  private regionStatusEl: HTMLElement | null = null;
 
   // 配置
   private configVisits = 200;  // 默认分析局面用
@@ -113,7 +116,7 @@ export class ReviewUI {
     this.chartStatsEl = document.getElementById('chartStats');
     this.specialControlsBarEl = document.getElementById('specialControlsBar');
     this.mainControlsBarEl = document.getElementById('mainControlsBar');
-    this.depthCountEl = document.getElementById('depthCount');
+    this.depthCountEl = document.getElementById('depthCount');    this.regionSelectBtnEl = document.getElementById('regionSelectBtn');    this.regionStatusEl = document.getElementById('regionStatus');
     this.setupMenu();
   }
 
@@ -168,6 +171,7 @@ export class ReviewUI {
       this.callbacks.onShowConfig();
     });
     document.addEventListener('click', () => this.closeMenu());
+    this.regionSelectBtnEl?.addEventListener('click', () => {      this.closeMenu();      this.callbacks.onToggleRegionSelection?.();    });
   }
 
   private toggleMenu(): void {
@@ -449,6 +453,13 @@ export class ReviewUI {
   }
 
   isSoundEnabled(): boolean { return this.soundEnabled; }
+
+  updateRegionSelectionStatus(hasSelection: boolean): void {
+    if (this.regionStatusEl) {
+      this.regionStatusEl.textContent = hasSelection ? ' ✓' : ' ✗';
+    }
+  }
+    updateRegionSelectionStatus(hasSelection: boolean): void {    if (this.regionStatusEl) {      this.regionStatusEl.textContent = hasSelection ? ' ✓' : ' ✗';    }  }
 
   showHistory(): void {
     window.location.href = '../replay/list.html?category=review&key=all';
