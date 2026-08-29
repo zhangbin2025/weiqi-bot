@@ -150,6 +150,26 @@ export class KataGoQueryBuilder {
     if (opts.includeMovesOwnership !== undefined) query['includeMovesOwnership'] = opts.includeMovesOwnership;
     if (opts.wideRootNoise !== undefined) query['wideRootNoise'] = opts.wideRootNoise;
 
+    // 处理局部分析区域（框选范围）
+    if (opts.regionOfInterest) {
+      const { xMin, yMin, xMax, yMax } = opts.regionOfInterest;
+      const allowedMoves: string[] = [];
+      
+      // 生成区域内所有交叉点的 GTP 坐标
+      for (let x = xMin; x <= xMax; x++) {
+        for (let y = yMin; y <= yMax; y++) {
+          allowedMoves.push(this.moveToGtp(x, y));
+        }
+      }
+      
+      // 构造 allowMoves 参数（限制当前玩家只能在指定区域内选点）
+      query['allowMoves'] = [{
+        player: opts.currentPlayer === 'black' ? 'B' : 'W',
+        moves: allowedMoves,
+        untilDepth: 100,  // 限制深度足够覆盖主要变化
+      }];
+    }
+
     return query;
   }
 
