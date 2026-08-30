@@ -371,26 +371,18 @@ export class ReviewPage implements IPage {
     return await this.analysis.loadFromArchiveId(archiveId, taskId, baseMoves || this.moves, skipAnalysis);
   }
   async loadFromSessionId(sessionId: string, baseMoves?: Array<{ x: number; y: number; color: PlayerColor }>, skipAnalysis?: boolean): Promise<boolean> {
-    console.info('[ReviewPage] loadFromSessionId 调用', { sessionId, hasService: !!this.sessionService });
     if (!this.sessionService) {
       console.error('[ReviewPage] SessionService 未注入');
       return false;
     }
     try {
       const session = await this.sessionService.get<{ sgf: string }>(sessionId);
-      console.info('[ReviewPage] 获取到的会话数据', { 
-        hasSession: !!session, 
-        type: session?.type,
-        hasData: !!session?.data,
-        sgfLength: session?.data?.sgf?.length
-      });
-      if (!session || !session.data) {
+        if (!session || !session.data) {
         console.error('[ReviewPage] 会话不存在或已过期', { sessionId });
         return false;
       }
       const sgf = session.data.sgf;
-      console.info('[ReviewPage] SGF 长度', { length: sgf?.length, preview: sgf?.substring(0, 100) });
-      await this.analysis.loadAndAnalyze(sgf, baseMoves || this.moves, { skipArchive: true });
+        await this.analysis.loadAndAnalyze(sgf, baseMoves || this.moves, { skipArchive: true });
       return true;
     } catch (err) {
       console.error('[ReviewPage] 从会话加载失败:', err);
@@ -514,7 +506,6 @@ export class ReviewPage implements IPage {
         const roi = this.interaction.getRegionOfInterest();
                 moveReview = await this.reviewApp.analyzePosition(this.analysis.getReviewId()!, moveIndex, { visits, includePv: true, regionOfInterest: roi });
       }
-      console.info('[ReviewPage] DEBUG analyze: moveIndex=', moveIndex, 'moveReview.color=', moveReview?.color, 'game.currentPlayer=', this.game.getState().currentPlayer, 'initialPlayer=', this.initialPlayer, 'handicapStones.length=', this.handicapStones.length);
 
       if (moveReview?.candidates) {
         // 构建候选着法列表
@@ -857,8 +848,6 @@ export class ReviewPage implements IPage {
     this.savedLiveCircles = [];
     this.board.setRecommendationCircles([]);
     // DEBUG: 对比 ReviewPage.moves 和 ReviewService.data.moves
-    console.info('[ReviewPage] DEBUG showLiveRecommendations: moveIndex=', moveIndex, 'totalMoves=', this.totalMoves, 'moves.length=', this.moves.length);
-    console.info('[ReviewPage] DEBUG last 5 moves:', JSON.stringify(this.moves.slice(-5).map(m => ({x:m.x, y:m.y, c:m.color}))));
     console.info('[ReviewPage] 开始分析局面', moveIndex, '的AI选点');
     
     try {

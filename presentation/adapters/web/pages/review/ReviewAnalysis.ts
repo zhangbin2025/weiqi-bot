@@ -315,10 +315,7 @@ export class ReviewAnalysis {
       this.reviewId = await this.reviewApp.loadFromSGF(sgf);
       const state = this.reviewApp.getState(this.reviewId);
 
-      // 打印 SGF 解析结果
-      console.info('[ReviewAnalysis.loadAndAnalyze] reviewId:', this.reviewId,
-        'totalMoves:', state?.totalMoves, 'sgfLength:', sgf.length,
-        'sgfMoves:', sgf.match(/;[BW]\[/g)?.length ?? 0);
+
 
       // 归档棋谱（直播模式下跳过，因为棋谱已通过 gameService.fetch 归档）
       if (!options?.skipArchive && this.historyManager && state) {

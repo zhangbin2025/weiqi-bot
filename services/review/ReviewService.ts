@@ -164,9 +164,7 @@ export class ReviewService implements IReviewService {
    * 分析最后一着之后的局面（当前局面下下一步应该怎么下）
    */
   private async analyzeNextMove(data: ReviewData, komi: number, visits: number, topK: number, includePv: boolean, regionOfInterest?: { xMin: number; yMin: number; xMax: number; yMax: number } | null): Promise<MoveReview> {
-    // DEBUG: 对比 data.moves 最后10手
-    console.info('[ReviewService] DEBUG analyzeNextMove: data.moves.length=', data.moves.length);
-    console.info('[ReviewService] DEBUG last 5 moves:', JSON.stringify(data.moves.slice(-5).map(m => ({x:m.x, y:m.y, c:m.color}))));
+
 
     // 重建当前棋盘状态（所有着法都已下）
     const board = this.rebuildBoard(data.handicapStones, data.moves.slice(0, data.moves.length));
