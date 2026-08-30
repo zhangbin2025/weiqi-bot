@@ -280,9 +280,9 @@ export class ReviewPage implements IPage {
 
   handleParams(params: PageParams): void {
     // 分析局面模式 + sessionId：从会话加载棋谱并分析局面
-    if (params['analyzePosition'] === 'true' && params['sessionId'] && params['moveTo']) {
+    if (params['analyzePosition'] === 'true' && params['sessionId']) {
       const sessionId = params['sessionId'] as string;
-      const moveTo = parseInt(params['moveTo'] as string, 10);
+      const moveTo = params['moveTo'] ? parseInt(params['moveTo'] as string, 10) : 0;
       console.info('[ReviewPage] 进入分析局面模式（sessionId）', { sessionId, moveTo });
       this.analyzePositionMode = true;
       // 隐藏胜率图
@@ -292,7 +292,7 @@ export class ReviewPage implements IPage {
       // 从会话加载棋谱
       this.loadFromSessionId(sessionId, undefined, true).then((success) => {
         if (success) {
-          this.goToMove(moveTo);
+          if (moveTo > 0) this.goToMove(moveTo);
         } else {
           this.ui.updateStatus('加载棋谱失败');
         }
@@ -303,9 +303,9 @@ export class ReviewPage implements IPage {
       return;
     }
     // 分析局面模式：只分析指定局面（不分析整局）
-    if (params['analyzePosition'] === 'true' && params['archiveId'] && params['moveTo']) {
+    if (params['analyzePosition'] === 'true' && params['archiveId']) {
       const archiveId = params['archiveId'] as string;
-      const moveTo = parseInt(params['moveTo'] as string, 10);
+      const moveTo = params['moveTo'] ? parseInt(params['moveTo'] as string, 10) : 0;
       console.info('[ReviewPage] 进入分析局面模式', { archiveId, moveTo });
       this.analyzePositionMode = true;
       // 隐藏胜率图
@@ -315,7 +315,7 @@ export class ReviewPage implements IPage {
       // 加载棋谱并跳转到指定局面
       this.loadFromArchiveId(archiveId, undefined, undefined, true).then((success) => {
         if (success) {
-          this.goToMove(moveTo);
+          if (moveTo > 0) this.goToMove(moveTo);
         } else {
           this.ui.updateStatus('加载棋谱失败');
         }
