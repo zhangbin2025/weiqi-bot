@@ -168,7 +168,10 @@ export class ReviewService implements IReviewService {
 
     // 重建当前棋盘状态（所有着法都已下）
     const board = this.rebuildBoard(data.handicapStones, data.moves.slice(0, data.moves.length));
-    const moveHistory = data.moves.map((m) => ({ x: m.x, y: m.y, player: m.color }));
+    const moveHistory = data.moves.map((m) => {
+      if (m.x < 0 || m.y < 0) return { pass: true as const, player: m.color };
+      return { x: m.x, y: m.y, player: m.color };
+    }) as any;
     
     // 确定当前玩家（最后一手之后轮到谁）
     const lastMove = data.moves[data.moves.length - 1];
@@ -195,7 +198,7 @@ export class ReviewService implements IReviewService {
       y: s.y,
     }));
     
-    const analysis = await this.ai!.analyze(board, previousBoard, currentPlayer, moveHistory, komi, visits, undefined, includePv ? 15 : 0, initialStones, undefined, undefined, regionOfInterest);
+    const analysis = await this.ai!.analyze(board, previousBoard, currentPlayer, moveHistory as any, komi, visits, undefined, includePv ? 15 : 0, initialStones, undefined, undefined, regionOfInterest);
     
     // 返回结果（没有胜率变化，因为没有实际着法可以比较）
     return {
@@ -423,7 +426,10 @@ export class ReviewService implements IReviewService {
     // 使用传入的让子棋，如果没有则使用空数组
     const stones = handicapStones ?? [];
     const board = this.rebuildBoard(stones, moves);
-    const moveHistory = moves.map((m) => ({ x: m.x, y: m.y, player: m.color }));
+    const moveHistory = moves.map((m) => {
+      if (m.x < 0 || m.y < 0) return { pass: true as const, player: m.color };
+      return { x: m.x, y: m.y, player: m.color };
+    }) as any;
     
     // 确定当前玩家（最后一手的对手）
     const lastMove = moves[moves.length - 1]!;  // 已检查 moves.length > 0
@@ -439,7 +445,7 @@ export class ReviewService implements IReviewService {
       y: s.y,
     }));
     
-    const analysis = await this.ai!.analyze(board, previousBoard, currentPlayer, moveHistory, komi, visits, undefined, includePv ? 15 : 0, initialStones, undefined, undefined, regionOfInterest);
+    const analysis = await this.ai!.analyze(board, previousBoard, currentPlayer, moveHistory as any, komi, visits, undefined, includePv ? 15 : 0, initialStones, undefined, undefined, regionOfInterest);
     
     // 返回结果
     return {
@@ -527,7 +533,10 @@ export class ReviewService implements IReviewService {
             board,
             previousBoard,
             currentPlayer: move.color,
-            moveHistory: data.moves.slice(0, i).map(m => ({ x: m.x, y: m.y, player: m.color })),
+            moveHistory: data.moves.slice(0, i).map(m => {
+              if (m.x < 0 || m.y < 0) return { pass: true as const, player: m.color };
+              return { x: m.x, y: m.y, player: m.color };
+            }) as any,
             komi,
           });
         }
@@ -604,7 +613,10 @@ export class ReviewService implements IReviewService {
 
   private async analyzeMoveAt(data: ReviewData, index: number, komi: number, visits: number, topK: number, prev: MoveReview[], includePv = false, regionOfInterest?: { xMin: number; yMin: number; xMax: number; yMax: number } | null): Promise<MoveReview> {
     const move = data.moves[index]!;
-    const moveHistory = data.moves.slice(0, index).map((m) => ({ x: m.x, y: m.y, player: m.color }));
+    const moveHistory = data.moves.slice(0, index).map((m) => {
+      if (m.x < 0 || m.y < 0) return { pass: true as const, player: m.color };
+      return { x: m.x, y: m.y, player: m.color };
+    }) as any;
     
     // 重建当前棋盘状态（落子前的局面）
     const board = this.rebuildBoard(data.handicapStones, data.moves.slice(0, index));
@@ -776,7 +788,10 @@ export class ReviewService implements IReviewService {
         board,
         previousBoard,
         currentPlayer: move.color,
-        moveHistory: data.moves.slice(0, i).map(m => ({ x: m.x, y: m.y, player: m.color })),
+        moveHistory: data.moves.slice(0, i).map(m => {
+              if (m.x < 0 || m.y < 0) return { pass: true as const, player: m.color };
+              return { x: m.x, y: m.y, player: m.color };
+            }) as any,
         komi,
       };
     });
