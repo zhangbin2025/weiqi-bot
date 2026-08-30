@@ -536,18 +536,8 @@
         
         reviewUrl += params.join('&');
         
-        // 判断环境（Web 或 App）
-        const isApp = typeof navigator !== 'undefined' && navigator.userAgent.includes('WeiqiApp');
-        
-        if (isApp) {
-          // App 环境：跳转到 assistant 页面
-          const text = archiveId ? '复盘棋谱 ' + archiveId : '分析会话棋谱 ' + sessionId;
-          const assistantUrl = '../assistant/index.html?text=' + encodeURIComponent(text);
-          window.location.href = assistantUrl;
-        } else {
-          // Web 环境：跳转到 review 页面
-          window.location.href = reviewUrl;
-        }
+        // 不管什么环境都直接跳转到 review 页面
+        window.location.href = reviewUrl;
       });
     }
     
