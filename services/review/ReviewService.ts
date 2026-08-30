@@ -25,6 +25,7 @@ interface ReviewData {
   result: FullReviewResult | null;
   analyzing: boolean;
   progress: number;
+  initialPlayer?: PlayerColor | undefined;
 }
 
 export class ReviewService implements IReviewService {
@@ -91,7 +92,9 @@ export class ReviewService implements IReviewService {
     
     const gameInfo: ReviewState['gameInfo'] = { black: info.black, white: info.white, komi };
     if (info.result) gameInfo.result = info.result;
-    this.reviews.set(id, { id, moves, handicapStones, komi, gameInfo, result: null, analyzing: false, progress: 0 });
+    // 保存先手方：PL[] 指定的优先，否则让子棋自动白先
+    const initialPlayer = info.initialPlayer;
+    this.reviews.set(id, { id, moves, handicapStones, komi, gameInfo, result: null, analyzing: false, progress: 0, initialPlayer });
     return id;
   }
 
@@ -171,7 +174,18 @@ export class ReviewService implements IReviewService {
     
     // 确定当前玩家（最后一手之后轮到谁）
     const lastMove = data.moves[data.moves.length - 1];
-    const currentPlayer: PlayerColor = lastMove?.color === 'black' ? 'white' : 'black';
+    let currentPlayer: PlayerColor;
+    if (lastMove) {
+      currentPlayer = lastMove.color === 'black' ? 'white' : 'black';
+    } else if (data.initialPlayer) {
+      // 没有着法但有 initialPlayer（PL[] 属性）
+      currentPlayer = data.initialPlayer;
+    } else if (data.handicapStones.length > 0) {
+      // 让子棋无 PL[] 时白先
+      currentPlayer = 'white';
+    } else {
+      currentPlayer = 'black';
+    }
     
     // 重建前一手的棋盘状态
     const previousBoard = data.moves.length > 0 ? this.rebuildBoard(data.handicapStones, data.moves.slice(0, data.moves.length - 1)) : null;
