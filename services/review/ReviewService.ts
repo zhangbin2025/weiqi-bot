@@ -149,8 +149,10 @@ export class ReviewService implements IReviewService {
     const visits = options?.visits ?? config.defaultVisits;
     const topK = options?.topK ?? config.defaultTopK;
     const komi = options?.komi ?? data.komi ?? config.defaultKomi;
-    const includePv = options?.includePv ?? true;
-    const regionOfInterest = options?.regionOfInterest;  // 局面分析默认获取PV
+    // 局部分析（有 regionOfInterest）时禁用 PV，避免超出框选范围
+    // 局部分析主要用于死活题、局部战斗、定式研究，只需要推荐选点
+    const includePv = options?.regionOfInterest ? false : (options?.includePv ?? true);
+    const regionOfInterest = options?.regionOfInterest;
         
     // 如果是最后一着之后（moveIndex >= data.moves.length），分析当前局面的下一步
     if (moveIndex >= data.moves.length) {

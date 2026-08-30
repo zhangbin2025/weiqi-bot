@@ -46,44 +46,6 @@ export interface ReviewPageConfig {
  */
 export class ReviewPage implements IPage {
 
-  /**
-   * 过滤 PV line，只保留框选范围内的着法
-   * 
-   * 原因：KataGo 的 allowMoves 只支持限制当前玩家，无法限制对手
-   * 所以对手（白棋）可能会在框选外下子，需要在前端过滤 PV
-   */
-  private filterPvByRegion(pv: string[] | undefined): string[] | undefined {
-    if (!pv || pv.length === 0) return pv;
-    
-    const roi = this.interaction.getRegionOfInterest();
-    if (!roi) return pv; // 没有框选，返回完整 PV
-    
-    // 过滤 PV 中的每个着法
-    const filtered: string[] = [];
-    for (const coord of pv) {
-      // 解析坐标，例如 "Q16" -> { x: 16, y: 3 }
-      const letterUpper = coord.charAt(0).toUpperCase();
-      const numberStr = coord.substring(1);
-      
-      let x: number;
-      if (letterUpper >= "A" && letterUpper <= "H") {
-        x = letterUpper.charCodeAt(0) - 65;
-      } else if (letterUpper >= "J" && letterUpper <= "T") {
-        x = letterUpper.charCodeAt(0) - 66;
-      } else {
-        continue; // 无效坐标，跳过
-      }
-      
-      const y = 19 - parseInt(numberStr, 10);
-      
-      // 检查是否在框选范围内
-      if (x >= roi.xMin && x <= roi.xMax && y >= roi.yMin && y <= roi.yMax) {
-        filtered.push(coord);
-      }
-    }
-    
-    return filtered.length > 0 ? filtered : undefined;
-  }
 
   readonly title = 'AI 复盘';
   private reviewApp: ReviewApp;
@@ -545,7 +507,7 @@ export class ReviewPage implements IPage {
             winRate: isBlackToPlay ? c.winRate : (1 - c.winRate),
             scoreLead: isBlackToPlay ? c.scoreLead : -c.scoreLead,
             visits: c.visits,
-            pv: this.filterPvByRegion(c.pv),
+            pv: c.pv,
             isHit: hit,
             isActualMove: hit,
           });
@@ -569,7 +531,7 @@ export class ReviewPage implements IPage {
             x: c.x,
             y: c.y,
             rank: i + 1,
-            pv: this.filterPvByRegion(c.pv),
+            pv: c.pv,
             isActualMove: false, // 这些都是推荐圆圈
             nextColor,
           }));
@@ -667,7 +629,7 @@ export class ReviewPage implements IPage {
             winRate: isBlackToPlay ? c.winRate : (1 - c.winRate),
             scoreLead: isBlackToPlay ? c.scoreLead : -c.scoreLead,
             visits: c.visits,
-            pv: this.filterPvByRegion(c.pv),
+            pv: c.pv,
             isHit: hit,
             isActualMove: hit,
           };
@@ -682,7 +644,7 @@ export class ReviewPage implements IPage {
           .map((c, i) => ({
             x: c.x, y: c.y,
             rank: i + 1,
-            pv: this.filterPvByRegion(c.pv),
+            pv: c.pv,
             isActualMove: false,
             nextColor,
           }));
