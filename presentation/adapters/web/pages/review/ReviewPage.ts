@@ -370,17 +370,24 @@ export class ReviewPage implements IPage {
     return await this.analysis.loadFromArchiveId(archiveId, taskId, baseMoves || this.moves, skipAnalysis);
   }
   async loadFromSessionId(sessionId: string, baseMoves?: Array<{ x: number; y: number; color: PlayerColor }>, skipAnalysis?: boolean): Promise<boolean> {
+    console.info('[ReviewPage] loadFromSessionId 调用', { sessionId, hasService: !!this.sessionStorageService });
     if (!this.sessionStorageService) {
-      console.warn('[ReviewPage] SessionStorageService 未注入');
+      console.error('[ReviewPage] SessionStorageService 未注入');
       return false;
     }
     try {
       const sessionData = await this.sessionStorageService.get<{ sgf: string }>(sessionId);
+      console.info('[ReviewPage] 获取到的会话数据', { 
+        hasData: !!sessionData, 
+        type: typeof sessionData,
+        keys: sessionData ? Object.keys(sessionData) : []
+      });
       if (!sessionData) {
-        console.warn('[ReviewPage] 会话不存在或已过期', { sessionId });
+        console.error('[ReviewPage] 会话不存在或已过期', { sessionId });
         return false;
       }
       const sgf = sessionData.sgf;
+      console.info('[ReviewPage] SGF 长度', { length: sgf?.length, preview: sgf?.substring(0, 100) });
       await this.analysis.loadAndAnalyze(sgf, baseMoves || this.moves, { skipArchive: true });
       return true;
     } catch (err) {
