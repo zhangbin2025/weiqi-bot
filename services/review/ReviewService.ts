@@ -169,7 +169,7 @@ export class ReviewService implements IReviewService {
     // 重建当前棋盘状态（所有着法都已下）
     const board = this.rebuildBoard(data.handicapStones, data.moves.slice(0, data.moves.length));
     const moveHistory = data.moves.map((m) => {
-      if (m.x < 0 || m.y < 0) return { pass: true as const, player: m.color };
+      if (m.x < 0 || m.y < 0) return { x: -1, y: -1, player: m.color };
       return { x: m.x, y: m.y, player: m.color };
     }) as any;
     
@@ -427,7 +427,7 @@ export class ReviewService implements IReviewService {
     const stones = handicapStones ?? [];
     const board = this.rebuildBoard(stones, moves);
     const moveHistory = moves.map((m) => {
-      if (m.x < 0 || m.y < 0) return { pass: true as const, player: m.color };
+      if (m.x < 0 || m.y < 0) return { x: -1, y: -1, player: m.color };
       return { x: m.x, y: m.y, player: m.color };
     }) as any;
     
@@ -534,7 +534,7 @@ export class ReviewService implements IReviewService {
             previousBoard,
             currentPlayer: move.color,
             moveHistory: data.moves.slice(0, i).map(m => {
-              if (m.x < 0 || m.y < 0) return { pass: true as const, player: m.color };
+              if (m.x < 0 || m.y < 0) return { x: -1, y: -1, player: m.color };
               return { x: m.x, y: m.y, player: m.color };
             }) as any,
             komi,
@@ -614,7 +614,7 @@ export class ReviewService implements IReviewService {
   private async analyzeMoveAt(data: ReviewData, index: number, komi: number, visits: number, topK: number, prev: MoveReview[], includePv = false, regionOfInterest?: { xMin: number; yMin: number; xMax: number; yMax: number } | null): Promise<MoveReview> {
     const move = data.moves[index]!;
     const moveHistory = data.moves.slice(0, index).map((m) => {
-      if (m.x < 0 || m.y < 0) return { pass: true as const, player: m.color };
+      if (m.x < 0 || m.y < 0) return { x: -1, y: -1, player: m.color };
       return { x: m.x, y: m.y, player: m.color };
     }) as any;
     
@@ -789,7 +789,7 @@ export class ReviewService implements IReviewService {
         previousBoard,
         currentPlayer: move.color,
         moveHistory: data.moves.slice(0, i).map(m => {
-              if (m.x < 0 || m.y < 0) return { pass: true as const, player: m.color };
+              if (m.x < 0 || m.y < 0) return { x: -1, y: -1, player: m.color };
               return { x: m.x, y: m.y, player: m.color };
             }) as any,
         komi,
