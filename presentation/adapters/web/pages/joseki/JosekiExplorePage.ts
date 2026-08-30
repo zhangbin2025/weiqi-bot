@@ -7,6 +7,9 @@ import { JosekiBoard, JosekiBranch } from '../../components/JosekiBoard';
 import type { IPage, IToast, IDialog, PageParams } from '../../../../core/interfaces';
 import type { JosekiExploreApp, ExploreResult } from '../../../../../application/joseki';
 import type { IAudioPlayer } from '../../../../../infrastructure/audio/IAudioPlayer';
+import type { ISessionService } from '../../../../../services/session/ISessionService';
+import { SGFWriter } from '../../../../../domain/sgf/SGFWriter';
+import type { MoveOrPass } from '../../../../../domain/move';
 import type { IReadMarkService } from '../../../../../services/readmark';
 import { ExploreFavoritesManager } from './explore/ExploreFavoritesManager';
 import { ExploreUIHelper } from './explore/ExploreUIHelper';
@@ -14,6 +17,7 @@ type JosekiTab = 'explore' | 'favorites';
 export interface JosekiExplorePageConfig {
   exploreApp: JosekiExploreApp;
   readMarkService: IReadMarkService;
+  sessionService?: ISessionService;
   onNavigate?: (page: string, params?: Record<string, string>) => void;
   audioPlayer?: IAudioPlayer;
 }
@@ -23,6 +27,7 @@ export class JosekiExplorePage implements IPage {
   private readMarkService: IReadMarkService;
   private onNavigate: ((page: string, params?: Record<string, string>) => void) | undefined;
   private audioPlayer?: IAudioPlayer | undefined;
+  private sessionService?: ISessionService | undefined;
   private board!: JosekiBoard;
   private toast: IToast;
   private dialog: IDialog;
@@ -38,6 +43,7 @@ export class JosekiExplorePage implements IPage {
     this.readMarkService = config.readMarkService;
     this.onNavigate = config.onNavigate;
     this.audioPlayer = config.audioPlayer;
+    this.sessionService = config.sessionService;
     this.toast = AdapterFactory.createToast();
     this.dialog = AdapterFactory.createDialog();
     // 创建子模块
@@ -99,6 +105,8 @@ export class JosekiExplorePage implements IPage {
     if (undoBtn) undoBtn.addEventListener('click', () => this.undo());
     if (favBtn) favBtn.addEventListener('click', () => this.addFavorite());
     if (resetBtn) resetBtn.addEventListener('click', () => this.reset());
+    const aiBtn = document.getElementById('ai-btn');
+    if (aiBtn) aiBtn.addEventListener('click', () => this.aiAnalysis());
     document.getElementById('stat-winrate')?.addEventListener('click', () => this.uiHelper.showWinrateDetail());
     document.getElementById('winrate-close-btn')?.addEventListener('click', () => this.uiHelper.hideWinrateDetail());
     document.getElementById('winrate-backdrop')?.addEventListener('click', () => this.uiHelper.hideWinrateDetail());
@@ -333,6 +341,52 @@ export class JosekiExplorePage implements IPage {
   goBack(): void {
     this.undo();
   }
+  /** AI 分析：生成 SGF 并跳转到 review 页面 */
+  private async aiAnalysis(): Promise<void> {
+    if (this.currentPath.length === 0) {
+      this.toast.info('请先在棋盘上下几手棋');
+      return;
+    }
+    if (!this.sessionService) {
+      this.toast.error('AI 分析功能不可用');
+      return;
+    }
+
+    try {
+      // 将 currentPath 转换为着法序列
+      const moves: MoveOrPass[] = this.currentPath.map((coord, i) => {
+        const isPass = coord === 'tt';
+        const color = i % 2 === 0 ? 'black' as const : 'white' as const;
+        if (isPass) {
+          return { color, number: i + 1, isPass: true as const };
+        }
+        return {
+          x: coord.charCodeAt(0) - 97,
+          y: coord.charCodeAt(1) - 97,
+          color,
+          number: i + 1,
+        };
+      });
+
+      // 生成 SGF
+      const writer = new SGFWriter();
+      const sgf = writer.write(moves, {
+        blackName: '定式探索',
+        whiteName: '定式探索',
+      });
+
+      // 创建会话
+      const sessionId = await this.sessionService.create('joseki', { sgf });
+
+      // 跳转到 review 页面（局面分析模式）
+      const reviewUrl = `../review/index.html?sessionId=${encodeURIComponent(sessionId)}&analyzePosition=true&moveTo=${this.currentPath.length}`;
+      window.location.href = reviewUrl;
+    } catch (error) {
+      console.error('AI 分析失败', error as Error);
+      this.toast.error('AI 分析失败');
+    }
+  }
+
   render(): void {
     this.board.render();
   }

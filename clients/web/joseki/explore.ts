@@ -99,10 +99,17 @@ async function main() {
   // 6. 创建音效播放器
   const audioPlayer = new WebAudioPlayer();
 
+  // 6.5. 创建 SessionService（用于 AI 分析跳转）
+  const cacheStorage = ctx.createCacheStorage();
+  await cacheStorage.initialize();
+  const { SessionService } = await import('../../../services/session');
+  const sessionService = new SessionService(cacheStorage);
+
   // 7. 创建页面
   const page = new JosekiExplorePage({
     exploreApp,
     readMarkService,
+    sessionService,
     logger: ctx.logger,
     onNavigate: (pageId, params) => {
       if (pageId === 'joseki/list') {
