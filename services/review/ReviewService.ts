@@ -218,7 +218,8 @@ export class ReviewService implements IReviewService {
         winRate: m.winRate,
         scoreLead: m.scoreLead,
         visits: m.visits,
-        ...(m.pv ? { pv: m.pv } : {}),
+        // 局部分析不返回 PV（regionOfInterest 存在时）
+        ...(m.pv && !regionOfInterest ? { pv: m.pv } : {}),
       })),
     };
   }
@@ -465,7 +466,8 @@ export class ReviewService implements IReviewService {
         winRate: m.winRate,
         scoreLead: m.scoreLead,
         visits: m.visits,
-        ...(m.pv ? { pv: m.pv } : {}),
+        // 局部分析不返回 PV（regionOfInterest 存在时）
+        ...(m.pv && !regionOfInterest ? { pv: m.pv } : {}),
       })),
     };
   }
