@@ -113,6 +113,7 @@ export class ReviewPage implements IPage {
   private currentMove = 0;
   private moves: Array<{ x: number; y: number; color: PlayerColor }> = [];
   private handicapStones: Array<{ x: number; y: number; color: PlayerColor }> = [];
+  private initialPlayer: PlayerColor | undefined;
   private winrateTrend: Array<{ moveNumber: number; winRate: number; scoreLead: number }> = [];
   private analyzing = false;
 
@@ -513,6 +514,7 @@ export class ReviewPage implements IPage {
         const roi = this.interaction.getRegionOfInterest();
                 moveReview = await this.reviewApp.analyzePosition(this.analysis.getReviewId()!, moveIndex, { visits, includePv: true, regionOfInterest: roi });
       }
+      console.info('[ReviewPage] DEBUG analyze: moveIndex=', moveIndex, 'moveReview.color=', moveReview?.color, 'game.currentPlayer=', this.game.getState().currentPlayer, 'initialPlayer=', this.initialPlayer, 'handicapStones.length=', this.handicapStones.length);
 
       if (moveReview?.candidates) {
         // 构建候选着法列表
@@ -801,6 +803,7 @@ export class ReviewPage implements IPage {
       const state = this.reviewApp.getState(reviewId);
       if (state) {
         this.handicapStones = state.handicapStones || [];
+        this.initialPlayer = state.initialPlayer;
         // 初始化基础层时传入让子棋
         this.interaction.initializeBaseLayer(this.moves, this.handicapStones);
         this.ui.updateGameInfo(state.gameInfo.black, state.gameInfo.white, state.gameInfo.result);
@@ -927,6 +930,10 @@ export class ReviewPage implements IPage {
         color: playerColorToSGFColor(s.color),
       }));
       this.game.setHandicapStones(sgfHandicapStones);
+    }
+    // 设置先手方（覆盖让子棋的默认白先）
+    if (this.initialPlayer) {
+      this.game.setInitialPlayer(this.initialPlayer);
     }
     
     // 处理着法（包括 Pass）
