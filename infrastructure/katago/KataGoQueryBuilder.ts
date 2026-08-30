@@ -162,20 +162,14 @@ export class KataGoQueryBuilder {
         }
       }
       
-      // 构造 allowMoves 参数（限制黑白双方都只能在指定区域内选点）
-      // 注意：只限制当前玩家是不够的，对手也会在框选外下子
-      query['allowMoves'] = [
-        {
-          player: 'B',
-          moves: allowedMoves,
-          untilDepth: 100,
-        },
-        {
-          player: 'W',
-          moves: allowedMoves,
-          untilDepth: 100,
-        }
-      ];
+      // 构造 allowMoves 参数（限制当前玩家只能在指定区域内选点）
+      // 注意：KataGo 的 allowMoves 只支持一个条目，无法同时限制双方
+      // 所以对手（白棋）可能会在框选外下子，需要在显示时过滤 PV
+      query['allowMoves'] = [{
+        player: opts.currentPlayer === 'black' ? 'B' : 'W',
+        moves: allowedMoves,
+        untilDepth: 100,  // 限制深度足够覆盖主要变化
+      }];
     }
 
     return query;
