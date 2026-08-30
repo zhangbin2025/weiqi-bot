@@ -67,8 +67,8 @@ export class ReviewService implements IReviewService {
     const id = `review_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     // 转换着法列表，处理 Pass 着法
     const moves = parsed.moves.map((m) => {
-      // 空字符串表示 Pass 着法
-      if (!m.coord || m.coord.length < 2) {
+      // 空字符串或 'tt' 表示 Pass 着法
+      if (!m.coord || m.coord.length < 2 || m.coord === 'tt') {
         return { x: -1, y: -1, color: sgfColorToPlayerColor(m.color as 'B' | 'W') };
       }
       return {
