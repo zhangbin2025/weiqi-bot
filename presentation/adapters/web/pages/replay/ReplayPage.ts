@@ -183,7 +183,9 @@ export class ReplayPage implements IPage {
           black: replayData.black,
           white: replayData.white,
           result: resultText,
-          game_name: replayData.game_name
+          game_name: replayData.game_name,
+          max_moves: replayData.max_moves,
+          handicap_stones: replayData.handicap_stones
         }
       }));
     }

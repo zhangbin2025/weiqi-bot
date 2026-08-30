@@ -359,7 +359,7 @@
             <button class="dropdown-item" id="numMenuItem">⭕ 显示手数</button>
             <button class="dropdown-item" id="playMenuItem">▶️ 自动播放</button>
             <div class="dropdown-divider"></div>
-            <button class="dropdown-item" id="aiReviewMenuItem">🤖 AI复盘</button>
+            <button class="dropdown-item" id="aiReviewMenuItem">🤖 AI分析</button>
             <button class="dropdown-item" id="downloadMenuItem">📥 下载SGF</button>
           </div>
         </div>
@@ -471,38 +471,93 @@
       window.dispatchEvent(new CustomEvent('downloadSGF'));
     });
     
-    // AI复盘
+    // AI分析
     const aiReviewMenuItem = document.getElementById('aiReviewMenuItem');
     
-    // 获取 archiveId 参数
+    // 获取 URL 参数
     const urlParams = new URLSearchParams(window.location.search);
     const archiveId = urlParams.get('archiveId');
+    const sessionId = urlParams.get('sessionId');
+    const moveParam = urlParams.get('move');
     
-    // 如果没有 archiveId，禁用菜单项
-    if (!archiveId) {
+    // 判断棋谱数据类型的函数
+    function getReplayDataType() {
+      const replayData = window.__replayData;
+      if (!replayData) {
+        return { hasMoves: false, hasInitialStones: false };
+      }
+      return {
+        hasMoves: replayData.max_moves > 0,
+        hasInitialStones: !!(replayData.handicap_stones && replayData.handicap_stones.length > 0)
+      };
+    }
+    
+    // 如果既没有 archiveId 也没有 sessionId，禁用菜单项
+    if (!archiveId && !sessionId) {
       if (aiReviewMenuItem) {
         aiReviewMenuItem.disabled = true;
         aiReviewMenuItem.style.opacity = '0.5';
         aiReviewMenuItem.style.cursor = 'not-allowed';
       }
     } else {
-      // 有 archiveId，绑定点击事件
+      // 有 archiveId 或 sessionId，绑定点击事件
       aiReviewMenuItem?.addEventListener('click', (e) => {
         e.stopPropagation();
         dropdownMenu?.classList.remove('visible');
+        
+        // 判断棋谱类型
+        const dataType = getReplayDataType();
+        
+        // 判断是否需要局面分析模式
+        // 1. 有着法 -> 正常模式
+        // 2. 无着法但有初始棋子 -> 局面分析模式
+        // 3. sessionId 加载 -> 局面分析模式
+        const needPositionMode = !dataType.hasMoves && (dataType.hasInitialStones || sessionId);
+        
+        // 构建基础 URL
+        let reviewUrl = '../review/index.html?';
+        const params = [];
+        
+        if (archiveId) {
+          params.push('archiveId=' + archiveId);
+        } else if (sessionId) {
+          params.push('sessionId=' + sessionId);
+        }
+        
+        // 添加模式参数
+        if (needPositionMode) {
+          params.push('mode=position');
+        }
+        
+        // 添加手数参数
+        if (moveParam) {
+          params.push('moveTo=' + moveParam);
+        }
+        
+        reviewUrl += params.join('&');
         
         // 判断环境（Web 或 App）
         const isApp = typeof navigator !== 'undefined' && navigator.userAgent.includes('WeiqiApp');
         
         if (isApp) {
-          // App 环境：跳转到 assistant 页面，传递 text 参数（包含 archiveId）
-          const assistantUrl = `../assistant/index.html?text=${encodeURIComponent('复盘棋谱 ' + archiveId)}`;
+          // App 环境：跳转到 assistant 页面
+          const text = archiveId ? '复盘棋谱 ' + archiveId : '分析会话棋谱 ' + sessionId;
+          const assistantUrl = '../assistant/index.html?text=' + encodeURIComponent(text);
           window.location.href = assistantUrl;
         } else {
           // Web 环境：跳转到 review 页面
-          const reviewUrl = `../review/index.html?archiveId=${archiveId}`;
           window.location.href = reviewUrl;
         }
+      });
+    }
+    
+    // 监听游戏数据加载完成事件（由 TypeScript 代码触发）
+    window.addEventListener('gameInfoUpdated', (e) => {
+      // 保存 replayData 到全局，供 AI 分析菜单使用
+      if (e.detail) {
+        window.__replayData = e.detail;
+      }
+    });
       });
     }
     
