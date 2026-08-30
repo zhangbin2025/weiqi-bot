@@ -61,6 +61,7 @@ export class ReviewUI {
   private mainControlsBarEl: HTMLElement | null = null;
   private depthCountEl: HTMLElement | null = null;
   private regionSelectBtnEl: HTMLElement | null = null;
+  private regionStatusEl: HTMLElement | null = null;
 
   // 配置
   private configVisits = 200;  // 默认分析局面用

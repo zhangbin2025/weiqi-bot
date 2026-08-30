@@ -124,7 +124,7 @@ export function sgfToReplayData(sgf: string, options?: SGFToReplayOptions): Repl
     board_size: gameInfo.boardSize,
     handicap: gameInfo.handicap,
     handicap_stones: handicapStones,
-    initial_player: gameInfo.initialPlayer,
+    ...(gameInfo.initialPlayer ? { initial_player: gameInfo.initialPlayer } : {}),
     result: gameInfo.result,
     tree: simplifyTree(result.tree),
     download_filename: options?.downloadFilename || 'game.sgf',

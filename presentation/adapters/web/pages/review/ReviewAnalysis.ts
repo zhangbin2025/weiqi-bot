@@ -306,7 +306,7 @@ export class ReviewAnalysis {
   }
 
   /** 加载棋谱并开始分析 */
-  async loadAndAnalyze(sgf: string, baseMoves?: Array<{ x: number; y: number; color: PlayerColor }>, options?: { skipArchive?: boolean; archiveId?: string }): Promise<void> {
+  async loadAndAnalyze(sgf: string, baseMoves?: Array<{ x: number; y: number; color: PlayerColor }>, options?: { skipArchive?: boolean; archiveId?: string; skipAnalysis?: boolean }): Promise<void> {
     try {
       // 确保模型已加载
       await this.ensureModelLoaded();
@@ -339,8 +339,22 @@ export class ReviewAnalysis {
         this.currentArchiveId = options.archiveId;
       }
 
-      await this.startAnalysis('deep', undefined, baseMoves);
-      await this.saveReviewData();
+      if (options?.skipAnalysis) {
+        // 局面分析模式：只加载棋谱，不触发深度分析
+        const state = this.reviewApp.getState(this.reviewId);
+        if (state) {
+          const moves = this.reviewApp.getMoves(this.reviewId) ?? [];
+          this.callbacks.onAnalysisComplete({
+            totalMoves: state.totalMoves,
+            badMoves: [],
+            winrateTrend: [],
+            moves,
+          });
+        }
+      } else {
+        await this.startAnalysis('deep', undefined, baseMoves);
+        await this.saveReviewData();
+      }
     } catch (error) {
       console.error('加载棋谱失败', error as Error | undefined);
       this.callbacks.onStatusUpdate('加载失败');

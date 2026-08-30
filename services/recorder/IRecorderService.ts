@@ -26,19 +26,16 @@ export interface IRecorderService {
   getState(): IGameState;
   
   /** 设置更新回调 */
-  onUpdate(callback: OnUpdateCallback): void;
+  setOnUpdate(callback: OnUpdateCallback): void;
   
   /** 播放音效 */
-  playSound(type: 'stone' | 'capture' | 'pass' | 'undo'): void;
   
   /** 生成 SGF */
-  generateSGF(): string;
+  generateSGF(metadata?: IGameMetadata): string;
   
   /** 下载 SGF */
-  downloadSGF(metadata: IGameMetadata): Promise<void>;
   
   /** 保存到历史 */
-  saveToHistory(metadata: IGameMetadata): Promise<string | null>;
   
   /** 保存草稿 */
   saveDraft(mode?: 'play' | 'setup'): Promise<void>;

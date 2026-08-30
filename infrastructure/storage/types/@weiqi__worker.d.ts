@@ -62,10 +62,10 @@ declare module '@weiqi/worker' {
   }
 
   export interface RegionOfInterest {
-    x1: number;
-    y1: number;
-    x2: number;
-    y2: number;
+    xMin: number;
+    yMin: number;
+    xMax: number;
+    yMax: number;
   }
 
   export type FloatArray = Float32Array | Float64Array;

@@ -382,7 +382,7 @@ export class ReviewPage implements IPage {
         return false;
       }
       const sgf = session.data.sgf;
-        await this.analysis.loadAndAnalyze(sgf, baseMoves || this.moves, { skipArchive: true });
+        await this.analysis.loadAndAnalyze(sgf, baseMoves || this.moves, { skipArchive: true, skipAnalysis: !!skipAnalysis });
       return true;
     } catch (err) {
       console.error('[ReviewPage] 从会话加载失败:', err);
