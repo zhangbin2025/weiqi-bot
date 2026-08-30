@@ -12,6 +12,7 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.util.Calendar
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
@@ -93,10 +94,10 @@ class TaskManager(private val context: Context) {
     }
     
     /**
-     * 立即执行任务
+     * 立即执行任务（内部方法）
      */
     @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
-    private fun executeNow(taskId: String, pageUrl: String, params: JSONObject) {
+    internal fun executeNow(taskId: String, pageUrl: String, params: JSONObject) {
         val intent = Intent(context, TaskForegroundService::class.java).apply {
             action = TaskForegroundService.ACTION_EXECUTE_TASK
             putExtra(TaskForegroundService.EXTRA_TASK_ID, taskId)
@@ -331,6 +332,175 @@ class TaskManager(private val context: Context) {
     suspend fun listSchedules(): List<JSONObject> {
         val scheduleManager = ScheduleManager.getInstance(context)
         return scheduleManager.list()
+    }
+    
+    // ========== 立即检查和执行 ==========
+    
+    /**
+     * 检查并立即执行调度（如果需要）
+     * 
+     * 用于 App 启动/恢复时检查是否有到期的任务
+     */
+    fun checkAndExecuteNow(scheduleId: String) {
+        val scheduleManager = ScheduleManager.getInstance(context)
+        val config = scheduleManager.get(scheduleId)
+        
+        if (config == null) {
+            Logger.w(TAG, "Schedule not found: $scheduleId")
+            return
+        }
+        
+        // 检查是否需要执行
+        if (!shouldExecute(config)) {
+            Logger.d(TAG, "Schedule $scheduleId: not due yet, skipping")
+            return
+        }
+        
+        // 需要执行，立即启动
+        Logger.i(TAG, "Schedule $scheduleId: due now, executing immediately")
+        
+        // 构造 pageUrl
+        var pageUrl = config.optString("pageUrl", AppConfig.localPageUrl("index.html"))
+        val encodedId = java.net.URLEncoder.encode(scheduleId, "UTF-8")
+        pageUrl = pageUrl.replace("__SCHEDULE_ID__".toRegex(), encodedId)
+        
+        if (!pageUrl.contains("://")) {
+            pageUrl = AppConfig.localPageUrl(pageUrl)
+        }
+        
+        // 添加 taskId 参数
+        val separator = if (pageUrl.contains("?")) "&" else "?"
+        pageUrl = "$pageUrl${separator}taskId=${encodedId}"
+        
+        val params = config.optJSONObject("params") ?: JSONObject()
+        
+        // 立即执行
+        executeNow(scheduleId, pageUrl, params)
+        
+        // 更新 lastRunDate
+        config.put("lastRunDate", formatDate(Calendar.getInstance()))
+        scheduleManager.update(scheduleId, config)
+    }
+    
+    /**
+     * 检查所有调度并立即执行（如果需要）
+     * 
+     * 用于 App 启动/恢复时批量检查
+     */
+    fun checkAllAndExecute() {
+        try {
+            val scheduleManager = ScheduleManager.getInstance(context)
+            val schedules = scheduleManager.list()
+            
+            Logger.i(TAG, "Checking ${schedules.size} schedules for immediate execution")
+            
+            for (config in schedules) {
+                val id = config.optString("id")
+                if (id.isNotEmpty()) {
+                    checkAndExecuteNow(id)
+                }
+            }
+        } catch (e: Exception) {
+            Logger.e(TAG, "Failed to check all schedules", e)
+        }
+    }
+    
+    /**
+     * 判断是否需要执行
+     * 
+     * 规则：
+     * - 只要当前周期（天/周/月）内没有执行过，就执行一次
+     */
+    fun shouldExecute(config: JSONObject): Boolean {
+        val now = Calendar.getInstance()
+        val frequency = config.optString("frequency", "daily")
+        val lastRunDate = config.optString("lastRunDate", "")
+        
+        // 从未执行过 → 执行
+        if (lastRunDate.isEmpty()) {
+            Logger.d(TAG, "Never executed, will execute")
+            return true
+        }
+        
+        // 已执行过 → 检查是否跨周期
+        val today = formatDate(now)
+        
+        return when (frequency) {
+            "daily" -> {
+                val crossed = lastRunDate != today
+                Logger.d(TAG, "Daily: lastRunDate=$lastRunDate, today=$today, crossed=$crossed")
+                crossed
+            }
+            "weekly" -> {
+                val crossed = !sameWeek(lastRunDate, today)
+                Logger.d(TAG, "Weekly: lastRunDate=$lastRunDate, today=$today, crossed=$crossed")
+                crossed
+            }
+            "monthly" -> {
+                val crossed = !sameMonth(lastRunDate, today)
+                Logger.d(TAG, "Monthly: lastRunDate=$lastRunDate, today=$today, crossed=$crossed")
+                crossed
+            }
+            else -> {
+                Logger.w(TAG, "Unknown frequency: $frequency")
+                false
+            }
+        }
+    }
+    
+    /**
+     * 格式化日期为 YYYY-MM-DD
+     */
+    fun formatDate(calendar: Calendar): String {
+        return String.format("%04d-%02d-%02d",
+            calendar.get(Calendar.YEAR),
+            calendar.get(Calendar.MONTH) + 1,
+            calendar.get(Calendar.DAY_OF_MONTH))
+    }
+    
+    /**
+     * 判断两个日期是否在同一周
+     */
+    private fun sameWeek(date1: String, date2: String): Boolean {
+        try {
+            val parts1 = date1.split("-").map { it.toInt() }
+            val parts2 = date2.split("-").map { it.toInt() }
+            
+            val cal1 = Calendar.getInstance().apply {
+                set(Calendar.YEAR, parts1[0])
+                set(Calendar.MONTH, parts1[1] - 1)
+                set(Calendar.DAY_OF_MONTH, parts1[2])
+            }
+            
+            val cal2 = Calendar.getInstance().apply {
+                set(Calendar.YEAR, parts2[0])
+                set(Calendar.MONTH, parts2[1] - 1)
+                set(Calendar.DAY_OF_MONTH, parts2[2])
+            }
+            
+            val week1 = cal1.get(Calendar.WEEK_OF_YEAR)
+            val year1 = cal1.get(Calendar.YEAR)
+            val week2 = cal2.get(Calendar.WEEK_OF_YEAR)
+            val year2 = cal2.get(Calendar.YEAR)
+            
+            return week1 == week2 && year1 == year2
+        } catch (e: Exception) {
+            return false
+        }
+    }
+    
+    /**
+     * 判断两个日期是否在同一月
+     */
+    private fun sameMonth(date1: String, date2: String): Boolean {
+        try {
+            val parts1 = date1.split("-")
+            val parts2 = date2.split("-")
+            
+            return parts1[0] == parts2[0] && parts1[1] == parts2[1]
+        } catch (e: Exception) {
+            return false
+        }
     }
     
     // ========== 辅助方法 ==========

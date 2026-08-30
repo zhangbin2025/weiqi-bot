@@ -547,6 +547,9 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks {
         
         AppStateManager.setForeground(true)
         
+        // 检查所有调度，看是否需要立即执行
+        taskManager.checkAllAndExecute()
+        
         if (geckoSession != null && geckoRuntime != null) {
             if (geckoSession?.isOpen == false) {
                 try {
