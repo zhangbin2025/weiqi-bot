@@ -509,10 +509,10 @@
         const dataType = getReplayDataType();
         
         // 判断是否需要局面分析模式
-        // 1. 有着法 -> 正常模式
-        // 2. 无着法但有初始棋子 -> 局面分析模式
-        // 3. sessionId 加载 -> 局面分析模式
-        const needPositionMode = !dataType.hasMoves && (dataType.hasInitialStones || sessionId);
+        // 1. 有着法的archiveId -> 正常模式
+        // 2. 无着法但有初始棋子的archiveId -> 局面分析模式
+        // 3. sessionId 加载 -> 局面分析模式（总是）
+        const needPositionMode = sessionId || (!dataType.hasMoves && dataType.hasInitialStones);
         
         // 构建基础 URL
         let reviewUrl = '../review/index.html?';
