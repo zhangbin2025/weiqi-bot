@@ -129,7 +129,7 @@ export interface ReviewState {
   /** 让子棋的初始棋子 */
   handicapStones: Array<{ x: number; y: number; color: PlayerColor }>;
   /** 先手方（PL[] 属性，让子棋默认白先） */
-  initialPlayer?: PlayerColor;
+  initialPlayer?: PlayerColor | undefined;
   /** 总手数 */
   totalMoves: number;
   /** 是否正在分析 */

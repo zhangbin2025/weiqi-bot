@@ -480,6 +480,7 @@ export class ReviewService implements IReviewService {
       id: data.id, 
       gameInfo: data.gameInfo, 
       handicapStones: data.handicapStones,
+      initialPlayer: data.initialPlayer,
       totalMoves: data.moves.length, 
       analyzing: data.analyzing, 
       progress: data.progress 
