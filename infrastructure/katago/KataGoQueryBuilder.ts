@@ -145,8 +145,11 @@ export class KataGoQueryBuilder {
     if (opts.visits !== undefined) query['maxVisits'] = opts.visits;
     // 注意：maxTime 不是 KataGo 支持的字段，已移除
     // 如果需要时间限制，应该在 analysis.cfg 中设置
-    // analysisPVLen 必须是 1-1000 之间的整数，0 表示不获取 PV（不传递该字段）
-    if (opts.analysisPvLen && opts.analysisPvLen >= 1) query['analysisPVLen'] = opts.analysisPvLen;
+    // analysisPVLen: 0 = 禁用 PV，>0 = 指定长度
+    // 注意：必须明确传递 0，否则 KataGo 默认返回 PV
+    if (opts.analysisPvLen !== undefined && opts.analysisPvLen >= 0) {
+      query['analysisPVLen'] = opts.analysisPvLen;
+    }
     if (opts.includeMovesOwnership !== undefined) query['includeMovesOwnership'] = opts.includeMovesOwnership;
     if (opts.wideRootNoise !== undefined) query['wideRootNoise'] = opts.wideRootNoise;
 
