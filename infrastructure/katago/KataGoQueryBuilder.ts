@@ -162,12 +162,20 @@ export class KataGoQueryBuilder {
         }
       }
       
-      // 构造 allowMoves 参数（限制当前玩家只能在指定区域内选点）
-      query['allowMoves'] = [{
-        player: opts.currentPlayer === 'black' ? 'B' : 'W',
-        moves: allowedMoves,
-        untilDepth: 100,  // 限制深度足够覆盖主要变化
-      }];
+      // 构造 allowMoves 参数（限制黑白双方都只能在指定区域内选点）
+      // 注意：只限制当前玩家是不够的，对手也会在框选外下子
+      query['allowMoves'] = [
+        {
+          player: 'B',
+          moves: allowedMoves,
+          untilDepth: 100,
+        },
+        {
+          player: 'W',
+          moves: allowedMoves,
+          untilDepth: 100,
+        }
+      ];
     }
 
     return query;
