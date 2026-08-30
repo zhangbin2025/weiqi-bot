@@ -92,6 +92,7 @@ export class ReviewInteraction {
   
   /** 让子棋 */
   private handicapStones: Array<{ x: number; y: number; color: PlayerColor }> = [];
+  private initialPlayer: PlayerColor | undefined;
   /** 恢复后的步数（供外部读取） */
   restoredMoveCount = 0;
 
@@ -111,9 +112,10 @@ export class ReviewInteraction {
     });
   }
 
-  initializeBaseLayer(moves: Array<{ x: number; y: number; color: PlayerColor }>, handicapStones?: Array<{ x: number; y: number; color: PlayerColor }>): void {
+  initializeBaseLayer(moves: Array<{ x: number; y: number; color: PlayerColor }>, handicapStones?: Array<{ x: number; y: number; color: PlayerColor }>, initialPlayer?: PlayerColor): void {
     this.baseMoves = moves;
     this.handicapStones = handicapStones ?? [];
+    this.initialPlayer = initialPlayer;
     this.variationManager?.initializeBaseLayer(moves);
   }
 
@@ -363,10 +365,17 @@ export class ReviewInteraction {
       }));
       this.game.setHandicapStones(handicapStones);
     }
+    if (this.initialPlayer) {
+      this.game.setInitialPlayer(this.initialPlayer);
+    }
     
-    // 然后放置着法
+    // 然后放置着法（处理 Pass）
     for (const move of moves) {
-      this.game.placeStone(move.x, move.y);
+      if (move.x < 0 || move.y < 0) {
+        this.game.pass();
+      } else {
+        this.game.placeStone(move.x, move.y);
+      }
     }
     BoardSyncer.sync(this.board, this.game, [], false);
   }
@@ -439,9 +448,8 @@ export class ReviewInteraction {
   /** 实际添加试下着法到 variationManager */
   private doAddTrialMove(x: number, y: number): void {
     if (!this.variationManager?.isInTrial()) return;
-    const currentMoves = this.variationManager.getCurrentMoves();
-    const lastMove = currentMoves.length > 0 ? currentMoves[currentMoves.length - 1] : null;
-    const currentPlayer: PlayerColor = lastMove?.color === 'black' ? 'white' : 'black';
+    // 使用 Game 对象的 currentPlayer，它已经正确处理了让子棋和 pass
+    const currentPlayer: PlayerColor = this.game.getState().currentPlayer;
     this.variationManager.addTrialMove(x, y, currentPlayer);
     this.rebuildBoardFromCurrentMoves();
     this.callbacks.onStonePlaced();

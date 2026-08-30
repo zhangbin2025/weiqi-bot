@@ -795,8 +795,8 @@ export class ReviewPage implements IPage {
       if (state) {
         this.handicapStones = state.handicapStones || [];
         this.initialPlayer = state.initialPlayer;
-        // 初始化基础层时传入让子棋
-        this.interaction.initializeBaseLayer(this.moves, this.handicapStones);
+        // 初始化基础层时传入让子棋和先手方
+        this.interaction.initializeBaseLayer(this.moves, this.handicapStones, this.initialPlayer);
         this.ui.updateGameInfo(state.gameInfo.black, state.gameInfo.white, state.gameInfo.result);
       }
     }
