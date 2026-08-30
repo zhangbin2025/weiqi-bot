@@ -82,6 +82,7 @@ async function main() {
     reviewApp,
     gameService,
     favoriteService: ctx.favoriteService,
+    sessionStorageService: ctx.sessionStorageService,
     modelManager,
     aiController,
     onNavigate: (pageName, params) => {

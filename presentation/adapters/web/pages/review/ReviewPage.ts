@@ -21,6 +21,7 @@ import type { VariationLayer } from './VariationManager';
 import type { RecommendationCircle } from '../../components/BoardRenderer';
 import type { IGameService } from '../../../../../services/game/IGameService';
 import type { IFavoriteService } from '../../../../../services/favorite/IFavoriteService';
+import type { ISessionStorageService } from '../../../../../services/session';
 import { Dialog } from '@ui';
 import { showLoading as showModelLoading, updateProgress as updateModelProgress, hideLoading as hideModelLoading, setLoadingText as setModelLoadingText } from '../../../../../clients/web/play/shared/ProgressManager';
 import { ReviewInteraction, type PageMode } from './ReviewInteraction';
@@ -33,6 +34,7 @@ export interface ReviewPageConfig {
   reviewApp: ReviewApp;
   gameService?: IGameService;
   favoriteService?: IFavoriteService;
+  sessionStorageService?: ISessionStorageService;
   onNavigate?: (page: string, params?: Record<string, string>) => void;
   modelManager?: any; // ModelManagementService
   aiController?: any; // AIController
@@ -128,6 +130,7 @@ export class ReviewPage implements IPage {
   // 服务
   private gameService: IGameService | undefined;
   private favoriteService: IFavoriteService | undefined;
+  private sessionStorageService?: ISessionStorageService | undefined;
 
   // 直播模式管理器
   private liveModeManager?: LiveModeManager;
@@ -141,6 +144,7 @@ export class ReviewPage implements IPage {
     this.aiController = config.aiController;
     this.gameService = config.gameService;
     this.favoriteService = config.favoriteService; // 保存引用
+    this.sessionStorageService = config.sessionStorageService;
     this.onNavigate = config.onNavigate;
 
     this.sgfParser = new SGFParser();
@@ -275,6 +279,29 @@ export class ReviewPage implements IPage {
   }
 
   handleParams(params: PageParams): void {
+    // 分析局面模式 + sessionId：从会话加载棋谱并分析局面
+    if (params['analyzePosition'] === 'true' && params['sessionId'] && params['moveTo']) {
+      const sessionId = params['sessionId'] as string;
+      const moveTo = parseInt(params['moveTo'] as string, 10);
+      console.info('[ReviewPage] 进入分析局面模式（sessionId）', { sessionId, moveTo });
+      this.analyzePositionMode = true;
+      // 隐藏胜率图
+      this.ui.hideChart();
+      // 禁用滑条和前进后退按钮
+      this.ui.disableNavigation();
+      // 从会话加载棋谱
+      this.loadFromSessionId(sessionId, undefined, true).then((success) => {
+        if (success) {
+          this.goToMove(moveTo);
+        } else {
+          this.ui.updateStatus('加载棋谱失败');
+        }
+      }).catch((err) => {
+        console.error('[ReviewPage] loadFromSessionId 错误:', err);
+        this.ui.updateStatus('加载棋谱失败');
+      });
+      return;
+    }
     // 分析局面模式：只分析指定局面（不分析整局）
     if (params['analyzePosition'] === 'true' && params['archiveId'] && params['moveTo']) {
       const archiveId = params['archiveId'] as string;
@@ -341,6 +368,25 @@ export class ReviewPage implements IPage {
 
   async loadFromArchiveId(archiveId: string, taskId?: string, baseMoves?: Array<{ x: number; y: number; color: PlayerColor }>, skipAnalysis?: boolean): Promise<boolean> {
     return await this.analysis.loadFromArchiveId(archiveId, taskId, baseMoves || this.moves, skipAnalysis);
+  }
+  async loadFromSessionId(sessionId: string, baseMoves?: Array<{ x: number; y: number; color: PlayerColor }>, skipAnalysis?: boolean): Promise<boolean> {
+    if (!this.sessionStorageService) {
+      console.warn('[ReviewPage] SessionStorageService 未注入');
+      return false;
+    }
+    try {
+      const sessionData = await this.sessionStorageService.get<{ sgf: string }>(sessionId);
+      if (!sessionData) {
+        console.warn('[ReviewPage] 会话不存在或已过期', { sessionId });
+        return false;
+      }
+      const sgf = sessionData.sgf;
+      await this.analysis.loadAndAnalyze(sgf, baseMoves || this.moves, { skipArchive: true });
+      return true;
+    } catch (err) {
+      console.error('[ReviewPage] 从会话加载失败:', err);
+      return false;
+    }
   }
   async viewFavorite(archiveId: string): Promise<void> {
     // 从直播进入复盘，恢复 UI 控件
