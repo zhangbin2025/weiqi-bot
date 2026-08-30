@@ -159,8 +159,8 @@ export class ReviewInteraction {
       }
       return;
     }
-    // 没有加载棋谱时不允许试下
-    if (this.baseMoves.length === 0) return;
+    // 没有加载棋谱时不允许试下（但局面分析模式有让子棋无着法时也允许）
+    if (this.baseMoves.length === 0 && this.handicapStones.length === 0) return;
     if (this.stateStack.length >= this.MAX_DEPTH) return;
     // 已有棋子的位置不能点击
     if (this.game.getBoard().getStone(x, y) !== null) return;
