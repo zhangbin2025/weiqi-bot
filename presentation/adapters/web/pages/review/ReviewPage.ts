@@ -21,7 +21,7 @@ import type { VariationLayer } from './VariationManager';
 import type { RecommendationCircle } from '../../components/BoardRenderer';
 import type { IGameService } from '../../../../../services/game/IGameService';
 import type { IFavoriteService } from '../../../../../services/favorite/IFavoriteService';
-import type { ISessionStorageService } from '../../../../../services/session';
+import type { ISessionService } from '../../../../../services/session/ISessionService';
 import { Dialog } from '@ui';
 import { showLoading as showModelLoading, updateProgress as updateModelProgress, hideLoading as hideModelLoading, setLoadingText as setModelLoadingText } from '../../../../../clients/web/play/shared/ProgressManager';
 import { ReviewInteraction, type PageMode } from './ReviewInteraction';
@@ -34,7 +34,7 @@ export interface ReviewPageConfig {
   reviewApp: ReviewApp;
   gameService?: IGameService;
   favoriteService?: IFavoriteService;
-  sessionStorageService?: ISessionStorageService;
+  sessionService?: ISessionService;
   onNavigate?: (page: string, params?: Record<string, string>) => void;
   modelManager?: any; // ModelManagementService
   aiController?: any; // AIController
@@ -130,7 +130,7 @@ export class ReviewPage implements IPage {
   // 服务
   private gameService: IGameService | undefined;
   private favoriteService: IFavoriteService | undefined;
-  private sessionStorageService?: ISessionStorageService | undefined;
+  private sessionService?: ISessionService | undefined;
 
   // 直播模式管理器
   private liveModeManager?: LiveModeManager;
@@ -144,7 +144,7 @@ export class ReviewPage implements IPage {
     this.aiController = config.aiController;
     this.gameService = config.gameService;
     this.favoriteService = config.favoriteService; // 保存引用
-    this.sessionStorageService = config.sessionStorageService;
+    this.sessionService = config.sessionService;
     this.onNavigate = config.onNavigate;
 
     this.sgfParser = new SGFParser();
@@ -370,23 +370,24 @@ export class ReviewPage implements IPage {
     return await this.analysis.loadFromArchiveId(archiveId, taskId, baseMoves || this.moves, skipAnalysis);
   }
   async loadFromSessionId(sessionId: string, baseMoves?: Array<{ x: number; y: number; color: PlayerColor }>, skipAnalysis?: boolean): Promise<boolean> {
-    console.info('[ReviewPage] loadFromSessionId 调用', { sessionId, hasService: !!this.sessionStorageService });
-    if (!this.sessionStorageService) {
-      console.error('[ReviewPage] SessionStorageService 未注入');
+    console.info('[ReviewPage] loadFromSessionId 调用', { sessionId, hasService: !!this.sessionService });
+    if (!this.sessionService) {
+      console.error('[ReviewPage] SessionService 未注入');
       return false;
     }
     try {
-      const sessionData = await this.sessionStorageService.get<{ sgf: string }>(sessionId);
+      const session = await this.sessionService.get<{ sgf: string }>(sessionId);
       console.info('[ReviewPage] 获取到的会话数据', { 
-        hasData: !!sessionData, 
-        type: typeof sessionData,
-        keys: sessionData ? Object.keys(sessionData) : []
+        hasSession: !!session, 
+        type: session?.type,
+        hasData: !!session?.data,
+        sgfLength: session?.data?.sgf?.length
       });
-      if (!sessionData) {
+      if (!session || !session.data) {
         console.error('[ReviewPage] 会话不存在或已过期', { sessionId });
         return false;
       }
-      const sgf = sessionData.sgf;
+      const sgf = session.data.sgf;
       console.info('[ReviewPage] SGF 长度', { length: sgf?.length, preview: sgf?.substring(0, 100) });
       await this.analysis.loadAndAnalyze(sgf, baseMoves || this.moves, { skipArchive: true });
       return true;

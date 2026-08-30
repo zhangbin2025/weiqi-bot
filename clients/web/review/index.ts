@@ -32,7 +32,13 @@ async function main() {
   // 3. 创建 GameService（用于棋谱归档）
   const { gameService } = await createGameDeps(ctx);
 
-  // 3. 从 WebBootstrap 获取 NetworkManager（App 环境需要，用于代理下载非同源模型）
+  // 3.5. 创建 SessionService（用于从会话加载棋谱）
+  const cacheStorage = ctx.createCacheStorage();
+  await cacheStorage.initialize();
+  const { SessionService } = await import('../../../services/session');
+  const sessionService = new SessionService(cacheStorage);
+
+  // 4. 从 WebBootstrap 获取 NetworkManager（App 环境需要，用于代理下载非同源模型）
   const networkManager = typeof navigator !== 'undefined' && navigator.userAgent.includes('WeiqiApp')
     ? ctx.network
     : undefined;
@@ -82,7 +88,7 @@ async function main() {
     reviewApp,
     gameService,
     favoriteService: ctx.favoriteService,
-    sessionStorageService: ctx.sessionStorageService,
+    sessionService,
     modelManager,
     aiController,
     onNavigate: (pageName, params) => {
