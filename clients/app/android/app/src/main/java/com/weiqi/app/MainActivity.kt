@@ -634,6 +634,9 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoView.
 
     override fun setSessionToView(session: GeckoSession) {
         geckoView.setSession(session)
+            // 设置Activity上下文代理（打印功能需要）
+            geckoView.setActivityContextDelegate(this)
+    }
 
     override fun jsCallback(fn: String, json: String) {
         val escaped = json
@@ -682,7 +685,7 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoView.
 
     // ========== GeckoView.ActivityContextDelegate 实现 ==========
 
-    override fun onActivityContext(): Activity {
+    override fun getActivityContext(): Context? {
         return this@MainActivity
     }
 }
