@@ -35,6 +35,7 @@ import com.weiqi.app.bridge.ConsoleBridgeHandler
 import com.weiqi.app.bridge.SnifferBridgeHandler
 import com.weiqi.app.bridge.FileBridgeHandler
 import com.weiqi.app.bridge.ConfigBridgeHandler
+import com.weiqi.app.bridge.PrintBridgeHandler
 import com.weiqi.app.katago.KataGoBridgeHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -160,6 +161,7 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks {
         promptHandler.register(ClipboardBridgeHandler(this))
         promptHandler.register(KataGoBridgeHandler(this, lifecycleScope))
         promptHandler.register(ConfigBridgeHandler(this))
+        promptHandler.register(PrintBridgeHandler(this))
         Logger.i(TAG, "BridgeHandlers registered")
     }
 

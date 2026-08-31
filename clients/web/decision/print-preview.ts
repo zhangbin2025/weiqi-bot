@@ -305,17 +305,28 @@ function renderThumbnail(
 /**
  * 绑定事件
  */
+/**
+ * 绑定事件
+ */
 function bindEvents(): void {
+  // 打印按钮
   document.getElementById('printBtn')?.addEventListener('click', () => {
-    window.print();
-  });
-
-  document.getElementById('closeBtn')?.addEventListener('click', () => {
-    window.close();
-    const params = new URLSearchParams(window.location.search);
-    const favoriteId = params.get('favoriteId');
-    if (favoriteId) {
-      window.location.href = `list.html?favoriteId=${favoriteId}`;
+    // 检测是否在Android App环境
+    const isAndroidApp = /android/i.test(navigator.userAgent) && /weiqi|geckoview/i.test(navigator.userAgent);
+    
+    if (isAndroidApp) {
+      // 调用原生打印bridge
+      try {
+        console.log('Calling native print bridge...');
+        const result = prompt('print:invoke');
+        console.log('Print bridge result:', result);
+      } catch (error) {
+        console.error('Print bridge failed:', error);
+        alert('打印失败，请尝试截图分享');
+      }
+    } else {
+      // Web环境使用标准打印
+      window.print();
     }
   });
 }
