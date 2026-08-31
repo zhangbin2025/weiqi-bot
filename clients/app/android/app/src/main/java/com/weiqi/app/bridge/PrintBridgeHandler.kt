@@ -1,5 +1,6 @@
 package com.weiqi.app.bridge
 
+import android.print.PrintManager
 import android.util.Log
 import com.weiqi.app.MainActivity
 import org.mozilla.geckoview.GeckoResult
@@ -31,27 +32,36 @@ class PrintBridgeHandler(private val activity: MainActivity) : BridgeHandler {
         return when (command) {
             "invoke" -> {
                 try {
-                    // 获取GeckoSession并调用打印
+                    // 获取GeckoSession
                     val session = activity.getGeckoSession()
-                    session?.let { geckoSession ->
-                        // GeckoView提供了printPageContent方法
-                        Log.d(TAG, "Calling printPageContent...")
-                        geckoSession.printPageContent()
-
-                        GeckoResult.fromValue(
-                            prompt.dismiss()
-                        )
-                    } ?: run {
+                    if (session == null) {
                         Log.e(TAG, "GeckoSession is null")
-                        GeckoResult.fromValue(
-                            prompt.dismiss()
-                        )
+                        return GeckoResult.fromValue(prompt.dismiss())
                     }
+
+                    Log.d(TAG, "Attempting to print...")
+
+                    // 方法1：尝试printPageContent（可能需要Android 10+）
+                    try {
+                        session.printPageContent()
+                        Log.d(TAG, "printPageContent() called")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "printPageContent failed, trying printToPdf", e)
+                        
+                        // 方法2：尝试printToPdf
+                        try {
+                            val result = GeckoResult<android.os.ParcelFileDescriptor>()
+                            session.window?.printToPdf(result)
+                            Log.d(TAG, "printToPdf() called")
+                        } catch (e2: Exception) {
+                            Log.e(TAG, "printToPdf also failed", e2)
+                        }
+                    }
+
+                    GeckoResult.fromValue(prompt.dismiss())
                 } catch (e: Exception) {
                     Log.e(TAG, "Print failed", e)
-                    GeckoResult.fromValue(
-                        prompt.dismiss()
-                    )
+                    GeckoResult.fromValue(prompt.dismiss())
                 }
             }
             else -> null

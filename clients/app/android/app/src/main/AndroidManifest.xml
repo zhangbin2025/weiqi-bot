@@ -97,4 +97,6 @@
             android:required="false" />
     </application>
 
+    <!-- 打印功能 -->
+    <uses-feature android:name="android.hardware.print" android:required="false" />
 </manifest>

@@ -305,14 +305,11 @@ function renderThumbnail(
 /**
  * 绑定事件
  */
-/**
- * 绑定事件
- */
 function bindEvents(): void {
   // 打印按钮
   document.getElementById('printBtn')?.addEventListener('click', () => {
-    // 检测是否在Android App环境
-    const isAndroidApp = /android/i.test(navigator.userAgent) && /weiqi|geckoview/i.test(navigator.userAgent);
+    // 检测是否在Android App环境（UserAgent: WeiqiApp/1.0）
+    const isAndroidApp = /WeiqiApp/i.test(navigator.userAgent);
     
     if (isAndroidApp) {
       // 调用原生打印bridge
