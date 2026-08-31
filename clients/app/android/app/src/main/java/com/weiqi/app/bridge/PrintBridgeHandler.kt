@@ -25,6 +25,7 @@ class PrintBridgeHandler(private val activity: MainActivity) : BridgeHandler {
         prompt: GeckoSession.PromptDelegate.TextPrompt,
         message: String
     ): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
+        Log.d(TAG, "Received print command: $command")
         val command = message.removePrefix(prefix)
 
         return when (command) {
@@ -34,6 +35,7 @@ class PrintBridgeHandler(private val activity: MainActivity) : BridgeHandler {
                     val session = activity.getGeckoSession()
                     session?.let { geckoSession ->
                         // GeckoView提供了printPageContent方法
+                        Log.d(TAG, "Calling printPageContent...")
                         geckoSession.printPageContent()
 
                         GeckoResult.fromValue(

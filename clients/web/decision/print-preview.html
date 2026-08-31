@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>打印预览 - 实战选点</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -14,20 +14,21 @@
       padding-bottom: env(safe-area-inset-bottom);
     }
 
-    /* 顶部工具栏 - 适配刘海屏 */
+    /* 顶部工具栏 - 适配刘海屏，增加间距 */
     .toolbar {
       position: fixed;
       top: 0;
       left: 0;
       right: 0;
       background: white;
-      padding: 12px 20px;
-      padding-top: max(12px, env(safe-area-inset-top));
+      padding: 20px;
+      padding-top: max(20px, env(safe-area-inset-top));
       box-shadow: 0 2px 8px rgba(0,0,0,0.1);
       display: flex;
       justify-content: space-between;
       align-items: center;
       z-index: 100;
+      min-height: 60px;
     }
     .toolbar h1 {
       font-size: 16px;
@@ -38,12 +39,13 @@
       gap: 8px;
     }
     .btn {
-      padding: 8px 16px;
+      padding: 10px 20px;
       border: none;
       border-radius: 6px;
       cursor: pointer;
       font-size: 14px;
       transition: all 0.2s;
+      min-height: 44px;
     }
     .btn-primary {
       background: #667eea;
@@ -58,7 +60,7 @@
 
     /* 内容区域 */
     .content {
-      padding: 70px 15px 15px;
+      padding: 80px 15px 15px;
     }
 
     /* 缩略图网格 - 2列布局 */
@@ -137,8 +139,9 @@
         padding: 8px;
       }
       .toolbar {
-        padding: 10px 12px;
-        padding-top: max(10px, env(safe-area-inset-top));
+        padding: 15px;
+        padding-top: max(15px, env(safe-area-inset-top));
+        min-height: 60px;
       }
       .toolbar h1 {
         font-size: 14px;
