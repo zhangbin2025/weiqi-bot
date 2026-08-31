@@ -309,15 +309,19 @@ function bindEvents(): void {
   // 打印按钮
   document.getElementById('printBtn')?.addEventListener('click', () => {
     // 检测环境类型
+    const isDesktop = !!(window as any).electronAPI?.isDesktop;
     const userAgent = navigator.userAgent;
     const platform = navigator.platform;
     
-    // 判断是否是Android环境（WeiqiApp + Android平台）
+    // 判断是否是Android环境
     const isAndroid = /Android/i.test(userAgent) || /Linux arm/i.test(platform);
     const isWeiqiApp = /WeiqiApp/i.test(userAgent);
-    const isAndroidApp = isWeiqiApp && isAndroid;
+    const isAndroidApp = isWeiqiApp && isAndroid && !isDesktop;
     
-    if (isAndroidApp) {
+    if (isDesktop) {
+      // Desktop环境：使用标准window.print()
+      window.print();
+    } else if (isAndroidApp) {
       // Android环境：调用原生打印bridge
       try {
         console.log('Calling native print bridge...');
@@ -328,7 +332,7 @@ function bindEvents(): void {
         alert('打印失败，请尝试截图分享');
       }
     } else {
-      // Web环境或Desktop环境：使用标准打印
+      // Web环境：使用标准window.print()
       window.print();
     }
   });
