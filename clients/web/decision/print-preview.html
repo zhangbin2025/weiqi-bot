@@ -5,7 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>打印预览 - 实战选点</title>
   <style>
-    html, body { zoom: 1 !important; transform: scale(1) !important; -webkit-text-size-adjust: 100% !important; }
+    html, body {
+      width: 100% !important;
+      overflow-x: hidden !important;
+      zoom: 1 !important;
+      transform: scale(1) !important;
+      -webkit-text-size-adjust: 100% !important;
+      text-size-adjust: 100% !important;
+      min-zoom: 1 !important;
+      max-zoom: 1 !important;
+      user-zoom: fixed !important;
+    }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemSystem, "Segoe UI", Roboto, sans-serif;
@@ -84,6 +94,9 @@
       align-items: center;
     }
     .thumbnail-card canvas {
+      width: 100% !important;
+      height: auto !important;
+      max-width: 300px;
       border: 1px solid #e0e0e0;
       border-radius: 4px;
     }
