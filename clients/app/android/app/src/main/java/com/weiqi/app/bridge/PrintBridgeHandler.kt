@@ -25,8 +25,8 @@ class PrintBridgeHandler(private val activity: MainActivity) : BridgeHandler {
         prompt: GeckoSession.PromptDelegate.TextPrompt,
         message: String
     ): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
-        Log.d(TAG, "Received print command: $command")
         val command = message.removePrefix(prefix)
+        Log.d(TAG, "Received print command: $command")
 
         return when (command) {
             "invoke" -> {
