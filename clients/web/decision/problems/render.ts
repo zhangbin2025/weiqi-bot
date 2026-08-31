@@ -48,6 +48,7 @@ export async function renderProblemList(
       <div class="source-header">
         <span>🏷️ ${sourceName} (${groups.length}份, ${totalProblems}题)</span>
         <div class="source-header-controls">
+          <button class="icon-btn" id="print-btn" title="打印题目">🖨️</button>
           <button class="icon-btn" id="clear-visited-btn" title="清除已读标记">👁️</button>
           ${filterDropdownHtml}
         </div>
@@ -59,7 +60,7 @@ export async function renderProblemList(
   `;
 
   // 绑定事件
-  bindEvents(listContainer, favoriteId, phase, category, readMarkService);
+  bindEvents(listContainer, problems, favoriteId, phase, category, readMarkService);
 }
 
 /**
@@ -67,6 +68,7 @@ export async function renderProblemList(
  */
 function bindEvents(
   listContainer: HTMLElement,
+  problems: any[],
   favoriteId: string,
   phase: PhaseFilter,
   category: string,
@@ -101,7 +103,20 @@ function bindEvents(
     });
   });
 
-  // 清除已读标记按钮
+  
+  // 打印按钮事件
+  document.getElementById('print-btn')?.addEventListener('click', () => {
+    // 获取所有题目索引
+    const indexes = problems.map((_, idx) => idx);
+    
+    // 跳转到打印预览页面
+    const params = new URLSearchParams({
+      favoriteId,
+      indexes: indexes.join(',')
+    });
+    window.open(`print-preview.html?${params.toString()}`, '_blank');
+  });
+// 清除已读标记按钮
   document.getElementById('clear-visited-btn')?.addEventListener('click', async () => {
     await readMarkService.clearReadMarks(category);
     listContainer.querySelectorAll('.quiz-card.visited').forEach(card => {

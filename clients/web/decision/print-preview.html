@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>打印预览 - 实战选点</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemSystem, "Segoe UI", Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+    }
+    
+    /* 顶部工具栏 */
+    .toolbar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      background: white;
+      padding: 12px 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 100;
+    }
+    .toolbar h1 {
+      font-size: 16px;
+      color: #333;
+    }
+    .toolbar-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: #667eea;
+      color: white;
+    }
+    .btn-primary:hover {
+      background: #5568d3;
+    }
+    .btn-secondary {
+      background: #f0f0f0;
+      color: #333;
+    }
+    .btn-secondary:hover {
+      background: #e0e0e0;
+    }
+    
+    /* 内容区域 */
+    .content {
+      padding: 60px 15px 15px;
+    }
+    
+    /* 缩略图网格 - 3列布局 */
+    .thumbnail-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    
+    /* 缩略图卡片 */
+    .thumbnail-card {
+      background: white;
+      border-radius: 8px;
+      padding: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .thumbnail-card canvas {
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+    }
+    .thumbnail-title {
+      margin-top: 6px;
+      font-size: 11px;
+      color: #333;
+      text-align: center;
+      line-height: 1.2;
+    }
+    
+    /* 提示信息（App环境） */
+    .hint {
+      text-align: center;
+      padding: 20px;
+      background: #fff3e0;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      color: #e65100;
+      font-size: 14px;
+    }
+    .hint.hidden {
+      display: none;
+    }
+    
+    /* 打印样式 */
+    @media print {
+      .toolbar, .hint {
+        display: none !important;
+      }
+      .content {
+        padding: 5mm;
+      }
+      body {
+        background: white;
+      }
+      .thumbnail-card {
+        box-shadow: none;
+        page-break-inside: avoid;
+      }
+      .thumbnail-grid {
+        gap: 10px;
+      }
+    }
+    
+    /* 响应式：小屏幕保持3列 */
+    @media (max-width: 768px) {
+      .thumbnail-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+      }
+      .thumbnail-card {
+        padding: 8px;
+      }
+      .toolbar {
+        padding: 10px 12px;
+      }
+      .toolbar h1 {
+        font-size: 14px;
+      }
+    }
+  </style>
+  
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon-180x180.png">
+</head>
+<body>
+  <div class="toolbar no-print">
+    <h1>📋 打印预览</h1>
+    <div class="toolbar-actions">
+      <button class="btn btn-primary" id="printBtn">🖨️ 打印</button>
+      <button class="btn btn-secondary" id="closeBtn">关闭</button>
+    </div>
+  </div>
+  
+  <div class="content">
+    <div class="hint hidden" id="appHint">
+      💡 提示：长按图片可保存，或截图分享
+    </div>
+    <div class="thumbnail-grid" id="thumbnails"></div>
+  </div>
+  
+  <div id="page-root" style="display:none;"></div>
+  <script src="../shared/error-catch.js"></script>
+  <script type="module" src="./print-preview.ts"></script>
+</body>
+</html>

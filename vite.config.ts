@@ -49,6 +49,7 @@ export default defineConfig({
         'decision/index': path.resolve(__dirname, 'clients/web/decision/index.html'),
         'decision/list': path.resolve(__dirname, 'clients/web/decision/list.html'),
         'decision/quiz': path.resolve(__dirname, 'clients/web/decision/quiz.html'),
+        'decision/print-preview': path.resolve(__dirname, 'clients/web/decision/print-preview.html'),
         'debug/index': path.resolve(__dirname, 'clients/web/debug/index.html'),
       },
       output: {
