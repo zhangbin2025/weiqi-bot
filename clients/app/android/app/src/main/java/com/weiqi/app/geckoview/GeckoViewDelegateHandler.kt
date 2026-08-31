@@ -42,6 +42,14 @@ class GeckoViewDelegateHandler(
         setupContentDelegate(session)
         setupPromptDelegate(session)
         setupPermissionDelegate(session)
+        
+        // 设置Activity上下文代理（打印功能需要）
+        if (callbacks is org.mozilla.geckoview.GeckoSession.ActivityContextDelegate) {
+            session.setActivityContextDelegate(callbacks)
+            Logger.i(TAG, "ActivityContextDelegate set successfully")
+        } else {
+            Logger.w(TAG, "callbacks does not implement ActivityContextDelegate")
+        }
     }
     
     /**

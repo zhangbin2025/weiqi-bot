@@ -74,7 +74,7 @@ object AppStateManager {
     }
 }
 
-class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks {
+class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoSession.ActivityContextDelegate {
 
     private lateinit var geckoView: GeckoView
     private lateinit var assetServer: AssetServer
@@ -677,5 +677,11 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks {
         } catch (e: Exception) {
             jsCallback("onSnifferResult", """{"action":"error","data":"${e.message}"}""")
         }
+    }
+
+    // ========== GeckoSession.ActivityContextDelegate 实现 ==========
+
+    override fun onActivityContext(): Activity {
+        return this@MainActivity
     }
 }
