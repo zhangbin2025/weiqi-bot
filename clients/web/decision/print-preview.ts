@@ -308,11 +308,17 @@ function renderThumbnail(
 function bindEvents(): void {
   // 打印按钮
   document.getElementById('printBtn')?.addEventListener('click', () => {
-    // 检测是否在Android App环境（UserAgent: WeiqiApp/1.0）
-    const isAndroidApp = /WeiqiApp/i.test(navigator.userAgent);
+    // 检测环境类型
+    const userAgent = navigator.userAgent;
+    const platform = navigator.platform;
+    
+    // 判断是否是Android环境（WeiqiApp + Android平台）
+    const isAndroid = /Android/i.test(userAgent) || /Linux arm/i.test(platform);
+    const isWeiqiApp = /WeiqiApp/i.test(userAgent);
+    const isAndroidApp = isWeiqiApp && isAndroid;
     
     if (isAndroidApp) {
-      // 调用原生打印bridge
+      // Android环境：调用原生打印bridge
       try {
         console.log('Calling native print bridge...');
         const result = prompt('print:invoke');
@@ -322,7 +328,7 @@ function bindEvents(): void {
         alert('打印失败，请尝试截图分享');
       }
     } else {
-      // Web环境使用标准打印
+      // Web环境或Desktop环境：使用标准打印
       window.print();
     }
   });
