@@ -139,7 +139,7 @@ async function renderWithFilter(
   delete filteredData['gameGroups']; // 强制重新计算分组
   
   const filterDropdownHtml = renderFilterDropdown(phase);
-  await renderProblemList(filteredProblems, favoriteId, filteredData, readMarkService, phase, filterDropdownHtml);
+  await renderProblemList(problems, filteredProblems, favoriteId, filteredData, readMarkService, phase, filterDropdownHtml);
   
   bindFilterEvents(problems, favoriteId, data, readMarkService, phase);
 }

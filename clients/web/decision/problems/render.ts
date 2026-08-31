@@ -13,6 +13,7 @@ type PhaseFilter = 'all' | 'layout' | 'middle' | 'endgame';
  * 渲染题目列表
  */
 export async function renderProblemList(
+  allProblems: any[],
   problems: any[], 
   favoriteId: string, 
   data: Record<string, unknown>,
@@ -60,7 +61,7 @@ export async function renderProblemList(
   `;
 
   // 绑定事件
-  bindEvents(listContainer, problems, favoriteId, phase, category, readMarkService);
+  bindEvents(listContainer, allProblems, problems, favoriteId, phase, category, readMarkService);
 }
 
 /**
@@ -68,6 +69,7 @@ export async function renderProblemList(
  */
 function bindEvents(
   listContainer: HTMLElement,
+  allProblems: any[],
   problems: any[],
   favoriteId: string,
   phase: PhaseFilter,
@@ -103,20 +105,25 @@ function bindEvents(
     });
   });
 
-  
+  // 清除已读标记按钮
   // 打印按钮事件
   document.getElementById('print-btn')?.addEventListener('click', () => {
-    // 获取所有题目索引
-    const indexes = problems.map((_, idx) => idx);
-    
+    // 根据筛选条件过滤题目（使用原始数组）
+    const filteredProblems = phase === 'all'
+      ? allProblems
+      : allProblems.filter(p => p.phase === phase);
+
+    // 获取筛选后的题目索引（原始数组的索引）
+    const indexes = filteredProblems.map(p => allProblems.indexOf(p)).filter(idx => idx >= 0);
+
     // 跳转到打印预览页面
     const params = new URLSearchParams({
       favoriteId,
       indexes: indexes.join(',')
     });
-    window.open(`print-preview.html?${params.toString()}`, '_blank');
+    window.location.href = `print-preview.html?${params.toString()}`;
   });
-// 清除已读标记按钮
+
   document.getElementById('clear-visited-btn')?.addEventListener('click', async () => {
     await readMarkService.clearReadMarks(category);
     listContainer.querySelectorAll('.quiz-card.visited').forEach(card => {
