@@ -1,6 +1,5 @@
 package com.weiqi.app.bridge
 
-import android.print.PrintManager
 import android.util.Log
 import com.weiqi.app.MainActivity
 import org.mozilla.geckoview.GeckoResult
@@ -39,24 +38,13 @@ class PrintBridgeHandler(private val activity: MainActivity) : BridgeHandler {
                         return GeckoResult.fromValue(prompt.dismiss())
                     }
 
-                    Log.d(TAG, "Attempting to print...")
-
-                    // 方法1：尝试printPageContent（可能需要Android 10+）
-                    try {
-                        session.printPageContent()
-                        Log.d(TAG, "printPageContent() called")
-                    } catch (e: Exception) {
-                        Log.w(TAG, "printPageContent failed, trying printToPdf", e)
-                        
-                        // 方法2：尝试printToPdf
-                        try {
-                            val result = GeckoResult<android.os.ParcelFileDescriptor>()
-                            session.window?.printToPdf(result)
-                            Log.d(TAG, "printToPdf() called")
-                        } catch (e2: Exception) {
-                            Log.e(TAG, "printToPdf also failed", e2)
-                        }
-                    }
+                    Log.d(TAG, "Calling printPageContent()...")
+                    
+                    // 调用GeckoView打印功能
+                    // 需要ActivityContextDelegate已设置
+                    session.printPageContent()
+                    
+                    Log.d(TAG, "printPageContent() called successfully")
 
                     GeckoResult.fromValue(prompt.dismiss())
                 } catch (e: Exception) {

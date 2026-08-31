@@ -74,7 +74,7 @@ object AppStateManager {
     }
 }
 
-class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoSession.ActivityContextDelegate {
+class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoView.ActivityContextDelegate {
 
     private lateinit var geckoView: GeckoView
     private lateinit var assetServer: AssetServer
@@ -442,6 +442,8 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoSessi
 
             session.open(geckoRuntime!!)
             geckoView.setSession(session)
+            // 设置Activity上下文代理（打印功能需要）
+            geckoView.setActivityContextDelegate(this)
 
             snifferManager = SnifferManager(applicationContext, geckoRuntime!!) { fn, json ->
                 jsCallback(fn, json)
@@ -632,7 +634,6 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoSessi
 
     override fun setSessionToView(session: GeckoSession) {
         geckoView.setSession(session)
-    }
 
     override fun jsCallback(fn: String, json: String) {
         val escaped = json
@@ -679,7 +680,7 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoSessi
         }
     }
 
-    // ========== GeckoSession.ActivityContextDelegate 实现 ==========
+    // ========== GeckoView.ActivityContextDelegate 实现 ==========
 
     override fun onActivityContext(): Activity {
         return this@MainActivity
