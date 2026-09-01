@@ -356,8 +356,79 @@ function bindEvents(): void {
         alert('打印失败，请尝试截图分享');
       }
     } else if (isWechat) {
-      // 微信浏览器：提示用户
-      alert('微信浏览器不支持打印功能\n\n请尝试以下方式：\n1. 点击右上角菜单，选择「在浏览器中打开」\n2. 或截图保存后分享');
+      // 微信浏览器：合成图片下载
+      try {
+        console.log('WeChat browser: generating image for download...');
+        
+        // 获取所有Canvas
+        const canvases = document.querySelectorAll('.thumbnail-card canvas') as NodeListOf<HTMLCanvasElement>;
+        if (canvases.length === 0) {
+          alert('没有可打印的内容');
+          return;
+        }
+        
+        // 计算合成图片的尺寸（A4比例，2列布局）
+        const cols = 2;
+        const rows = Math.ceil(canvases.length / cols);
+        const cardWidth = 600; // Canvas原始宽度
+        const cardHeight = 650; // Canvas高度 + 标题区域
+        const gap = 20;
+        
+        const totalWidth = cols * cardWidth + (cols - 1) * gap;
+        const totalHeight = rows * cardHeight + (rows - 1) * gap;
+        
+        // 创建合成Canvas
+        const mergedCanvas = document.createElement('canvas');
+        mergedCanvas.width = totalWidth;
+        mergedCanvas.height = totalHeight;
+        const ctx = mergedCanvas.getContext('2d');
+        
+        if (!ctx) {
+          alert('生成图片失败');
+          return;
+        }
+        
+        // 白色背景
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, totalWidth, totalHeight);
+        
+        // 绘制所有Canvas
+        canvases.forEach((canvas, i) => {
+          const col = i % cols;
+          const row = Math.floor(i / cols);
+          const x = col * (cardWidth + gap);
+          const y = row * (cardHeight + gap);
+          
+          // 绘制Canvas
+          ctx.drawImage(canvas, x, y, cardWidth, cardWidth);
+          
+          // 绘制标题
+          const titleEl = canvas.parentElement?.querySelector('.thumbnail-title');
+          if (titleEl) {
+            ctx.fillStyle = '#333333';
+            ctx.font = 'bold 24px Arial';
+            ctx.textAlign = 'center';
+            const titleText = titleEl.textContent || '';
+            ctx.fillText(titleText, x + cardWidth / 2, y + cardWidth + 30);
+          }
+        });
+        
+        // 生成下载链接
+        const dataUrl = mergedCanvas.toDataURL('image/jpeg', 0.9);
+        const link = document.createElement('a');
+        link.href = dataUrl;
+        link.download = `围棋题目_${new Date().toISOString().slice(0, 10)}.jpg`;
+        
+        // 触发下载
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        alert('图片已生成并开始下载\n\n您可以：\n1. 保存图片后打印\n2. 或直接分享图片');
+      } catch (error) {
+        console.error('Generate image failed:', error);
+        alert('生成图片失败，请稍后重试');
+      }
     } else {
       // Web环境：使用标准window.print()
       window.print();
