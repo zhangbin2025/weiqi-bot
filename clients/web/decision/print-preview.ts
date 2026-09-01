@@ -430,18 +430,20 @@ function bindEvents(): void {
           display: flex;
           flex-direction: column;
           align-items: center;
-          justify-content: center;
           padding: 20px;
+          overflow-y: auto;
         `;
         
         // 创建图片元素
         const img = document.createElement('img');
         img.src = dataUrl;
         img.style.cssText = `
-          max-width: 100%;
-          max-height: 80vh;
+          width: 100%;
+          max-width: 600px;
+          height: auto;
           border-radius: 8px;
           box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+          margin-bottom: 20px;
         `;
         
         // 创建提示文字
