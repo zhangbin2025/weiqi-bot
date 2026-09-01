@@ -318,6 +318,9 @@ function bindEvents(): void {
     const isWeiqiApp = /WeiqiApp/i.test(userAgent);
     const isAndroidApp = isWeiqiApp && isAndroid && !isDesktop;
     
+    // 判断是否是微信浏览器
+    const isWechat = /MicroMessenger/i.test(userAgent);
+    
     if (isDesktop) {
       // Desktop环境：使用标准window.print()
       window.print();
@@ -352,6 +355,9 @@ function bindEvents(): void {
         console.error('Print bridge failed:', error);
         alert('打印失败，请尝试截图分享');
       }
+    } else if (isWechat) {
+      // 微信浏览器：提示用户
+      alert('微信浏览器不支持打印功能\n\n请尝试以下方式：\n1. 点击右上角菜单，选择「在浏览器中打开」\n2. 或截图保存后分享');
     } else {
       // Web环境：使用标准window.print()
       window.print();
