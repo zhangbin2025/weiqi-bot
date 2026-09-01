@@ -326,21 +326,30 @@ function bindEvents(): void {
       try {
         console.log('Android print: adjusting canvas size...');
         
-        // 标记Android打印模式
-        document.body.classList.add('android-print');
+        // 保存原始样式
+        const canvases = document.querySelectorAll('.thumbnail-card canvas') as NodeListOf<HTMLCanvasElement>;
+        const originalStyles: Array<{width: string; height: string}> = [];
+        canvases.forEach((canvas, i) => {
+          originalStyles[i] = {width: canvas.style.width, height: canvas.style.height};
+          // 设置打印尺寸：85mm ≈ 321px (1mm ≈ 3.78px at 96dpi)
+          canvas.style.width = '85mm';
+          canvas.style.height = '85mm';
+        });
         
         // 调用原生打印bridge
         console.log('Calling native print bridge...');
         const result = prompt('print:invoke');
         console.log('Print bridge result:', result);
         
-        // 打印完成后移除标记（延迟执行，确保打印完成）
+        // 打印完成后恢复原始样式
         setTimeout(() => {
-          document.body.classList.remove('android-print');
+          canvases.forEach((canvas, i) => {
+            canvas.style.width = originalStyles[i].width;
+            canvas.style.height = originalStyles[i].height;
+          });
         }, 1000);
       } catch (error) {
         console.error('Print bridge failed:', error);
-        document.body.classList.remove('android-print');
         alert('打印失败，请尝试截图分享');
       }
     } else {
