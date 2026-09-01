@@ -322,13 +322,25 @@ function bindEvents(): void {
       // Desktop环境：使用标准window.print()
       window.print();
     } else if (isAndroidApp) {
-      // Android环境：调用原生打印bridge
+      // Android环境：调整Canvas尺寸后再打印
       try {
+        console.log('Android print: adjusting canvas size...');
+        
+        // 标记Android打印模式
+        document.body.classList.add('android-print');
+        
+        // 调用原生打印bridge
         console.log('Calling native print bridge...');
         const result = prompt('print:invoke');
         console.log('Print bridge result:', result);
+        
+        // 打印完成后移除标记（延迟执行，确保打印完成）
+        setTimeout(() => {
+          document.body.classList.remove('android-print');
+        }, 1000);
       } catch (error) {
         console.error('Print bridge failed:', error);
+        document.body.classList.remove('android-print');
         alert('打印失败，请尝试截图分享');
       }
     } else {

@@ -143,6 +143,22 @@
       }
     }
 
+    /* Android打印专用样式 */
+    body.android-print .thumbnail-card canvas {
+      max-width: 85mm !important;
+      height: auto !important;
+    }
+    body.android-print .thumbnail-card {
+      padding: 4mm;
+    }
+    body.android-print .thumbnail-title {
+      font-size: 10px;
+      margin-top: 2mm;
+    }
+    body.android-print .thumbnail-grid {
+      gap: 3mm;
+    }
+
     /* 响应式：小屏幕保持2列 */
     @media (max-width: 768px) {
       .thumbnail-grid {
