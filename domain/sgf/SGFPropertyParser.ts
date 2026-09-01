@@ -32,8 +32,21 @@ export function parsePropertiesAt(
       const { name, values, newPos } = propResult;
       i = newPos;
       if (values.length > 0) {
-        const val = values.length > 1 ? values : values[0];
-        if (val) props[name] = val;
+        // 处理同名属性合并（如 AB[nc]AB[pe]）
+        if (props[name]) {
+          // 已存在同名属性，需要合并
+          const existing = Array.isArray(props[name]) ? props[name] : [props[name]];
+          const newVal = values.length > 1 ? values : values[0];
+          if (Array.isArray(newVal)) {
+            props[name] = [...existing, ...newVal];
+          } else if (newVal) {
+            props[name] = [...existing, newVal];
+          }
+        } else {
+          // 首次出现该属性
+          const val = values.length > 1 ? values : values[0];
+          if (val) props[name] = val;
+        }
       } else {
         props[name] = '';
       }
