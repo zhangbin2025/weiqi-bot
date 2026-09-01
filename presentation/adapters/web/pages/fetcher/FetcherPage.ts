@@ -216,9 +216,26 @@ export class FetcherPage implements IPage {
       return;
     }
     
+    // 判断是否是题目（101围棋网 qday 或 q 页面）
+    const questionPatterns = [
+      /101weiqi\.com\/qday\//,
+      /101weiqi\.com\/q\//,
+      /101weiqi\.cn\/qday\//,
+      /101weiqi\.cn\/q\//,
+    ];
+    const isQuestion = this.currentResult?.source === 'weiqi101' && 
+                       questionPatterns.some(p => p.test(this.currentResult?.url || ''));
+    
     // 正常模式：原有逻辑
     if (!this._onNavigate) return;
-    this._onNavigate('replay', { archiveId: this.currentResult.archiveId });
+    
+    // 题目棋谱：从初始局面开始（move=0）
+    if (isQuestion) {
+      this._onNavigate('replay', { archiveId: this.currentResult.archiveId, move: '0' });
+    } else {
+      // 对局棋谱：默认显示最后一手
+      this._onNavigate('replay', { archiveId: this.currentResult.archiveId });
+    }
   }
   private async generateShareUrl(): Promise<void> {
     if (!this.currentResult?.archiveId) return;

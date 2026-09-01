@@ -20,10 +20,16 @@ export class Weiqi101Provider extends BaseProvider implements IWeiqi101Provider 
   readonly name = 'weiqi101';
   readonly displayName = '101围棋网';
   readonly urlPatterns = [
+    // 对局页面
     /101weiqi\.com\/play\/p\/(\d+)/,
     /101weiqi\.com\/play\/(\d+)/,
     /101weiqi\.cn\/play\/p\/(\d+)/,
     /101weiqi\.cn\/play\/(\d+)/,
+    // 题目页面
+    /101weiqi\.com\/qday\/(\d+)\/(\d+)\/(\d+)\/(\d+)/, // 每日八题
+    /101weiqi\.com\/q\/(\d+)/, // 单题
+    /101weiqi\.cn\/qday\/(\d+)\/(\d+)\/(\d+)\/(\d+)/,
+    /101weiqi\.cn\/q\/(\d+)/,
   ];
 
   private readonly wsHelper = new Weiqi101WsHelper();
@@ -31,7 +37,7 @@ export class Weiqi101Provider extends BaseProvider implements IWeiqi101Provider 
   private readonly parser = new Weiqi101Parser();
 
   async fetchById(playId: string): Promise<FetchResult> {
-    const url = `https://www.101weiqi.com/play/p/${playId}/`;
+    const url = 'https://www.101weiqi.com/play/p/' + playId + '/';
     return this.fetch(url);
   }
 
@@ -39,17 +45,33 @@ export class Weiqi101Provider extends BaseProvider implements IWeiqi101Provider 
     const timing: PerformanceTiming = {};
     const startTime = this.now();
 
-    const playId = this.extractId(url);
-    timing.extractId = this.now() - startTime;
+    // 判断URL类型
+    const playId = this.extractPlayId(url);
+    const questionId = this.extractQuestionId(url);
 
-    if (!playId) {
-      return this.createErrorResult(url, '无法从 URL 提取对局 ID', timing);
+    if (playId) {
+      // 对局页面
+      return this.fetchPlay(url, playId, timing, startTime);
+    } else if (questionId) {
+      // 题目页面
+      return this.fetchQuestion(url, timing, startTime);
     }
 
+    return this.createErrorResult(url, '不支持的URL格式', timing);
+  }
+
+  /**
+   * 抓取对局页面
+   */
+  private async fetchPlay(
+    url: string,
+    playId: string,
+    timing: PerformanceTiming,
+    startTime: number
+  ): Promise<FetchResult> {
     try {
-      // 直接下载，不缓存
       const pageStart = this.now();
-      const pageUrl = `${WEIQI101_BASE_URL}/play/p/${playId}/`;
+      const pageUrl = WEIQI101_BASE_URL + '/play/p/' + playId + '/';
 
       const response = await this.network.request<string>({
         url: pageUrl,
@@ -77,10 +99,123 @@ export class Weiqi101Provider extends BaseProvider implements IWeiqi101Provider 
     } catch (error) {
       return this.createErrorResult(
         url,
-        `下载失败: ${error instanceof Error ? error.message : String(error)}`,
+        '下载失败: ' + (error instanceof Error ? error.message : String(error)),
         timing
       );
     }
+  }
+
+  /**
+   * 抓取题目页面
+   */
+  private async fetchQuestion(
+    url: string,
+    timing: PerformanceTiming,
+    startTime: number
+  ): Promise<FetchResult> {
+    const fetchStart = this.now();
+
+    try {
+      const response = await this.network.request<string>({
+        url,
+        method: 'GET',
+        responseType: 'text',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K)',
+          Accept: 'text/html,application/xhtml+xml',
+        },
+      });
+
+      timing.apiRequest = this.now() - fetchStart;
+      const html = response.data;
+      const questionData = this.parser.extractQuestionData(html);
+
+      if (!questionData) {
+        return this.createErrorResult(url, '无法从页面提取题目数据', timing);
+      }
+
+      // 生成SGF
+      const sgfStart = this.now();
+      const sgfContent = this.sgfGenerator.generateQuestion(questionData);
+      timing.sgfGeneration = this.now() - sgfStart;
+
+      // 计算手数：主分支（第一个答案）的手数
+      const totalMoves = questionData.answers.length > 0 
+        ? questionData.answers[0]?.pts.length || 0 
+        : 0;
+
+      timing.total = this.now() - startTime;
+
+      return {
+        success: true,
+        source: this.name,
+        url,
+        sgfContent,
+        metadata: {
+          source: this.name,
+          gameId: String(questionData.qid),
+          blackName: questionData.name,
+          whiteName: questionData.levelname + ' ' + questionData.qtypename,
+          blackRank: questionData.levelname,
+          whiteRank: '',
+          width: questionData.lu,
+          height: questionData.lu,
+          komi: questionData.daotiemu || 0,
+          handicap: questionData.rangzi || 0,
+          rules: 'chinese',
+          date: '',
+          result: '',
+          movesCount: totalMoves,
+        },
+      };
+    } catch (error) {
+      return this.createErrorResult(
+        url,
+        '题目下载失败: ' + (error instanceof Error ? error.message : String(error)),
+        timing
+      );
+    }
+  }
+
+  /**
+   * 提取对局ID
+   */
+  private extractPlayId(url: string): string | null {
+    const patterns = [
+      /101weiqi\.com\/play\/p\/(\d+)/,
+      /101weiqi\.com\/play\/(\d+)/,
+      /101weiqi\.cn\/play\/p\/(\d+)/,
+      /101weiqi\.cn\/play\/(\d+)/,
+    ];
+
+    for (const pattern of patterns) {
+      const match = url.match(pattern);
+      if (match && match[1]) {
+        return match[1];
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * 提取题目ID（返回完整URL，因为每日八题需要完整路径）
+   */
+  private extractQuestionId(url: string): string | null {
+    const patterns = [
+      /101weiqi\.com\/qday\/\d+\/\d+\/\d+\/\d+/,
+      /101weiqi\.com\/q\/\d+/,
+      /101weiqi\.cn\/qday\/\d+\/\d+\/\d+\/\d+/,
+      /101weiqi\.cn\/q\/\d+/,
+    ];
+
+    for (const pattern of patterns) {
+      if (pattern.test(url)) {
+        return url; // 返回完整URL作为ID
+      }
+    }
+
+    return null;
   }
 
   /**
@@ -95,7 +230,9 @@ export class Weiqi101Provider extends BaseProvider implements IWeiqi101Provider 
     try {
       const wsStart = this.now();
       const wsData = await this.wsHelper.fetchViaWebSocket(
-        playInfo, { connect: (url: string, opts?: unknown) => this.network.connect(url, opts as any) } as any, { weiqi101BaseUrl: 'https://www.101weiqi.com' }
+        playInfo, 
+        { connect: (url: string, opts?: unknown) => this.network.connect(url, opts as any) } as any, 
+        { weiqi101BaseUrl: 'https://www.101weiqi.com' }
       );
       timing.sgfGeneration = this.now() - wsStart;
 
