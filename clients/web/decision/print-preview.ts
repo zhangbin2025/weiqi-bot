@@ -356,9 +356,9 @@ function bindEvents(): void {
         alert('打印失败，请尝试截图分享');
       }
     } else if (isWechat) {
-      // 微信浏览器：合成图片下载
+      // 微信浏览器：合成图片并显示预览
       try {
-        console.log('WeChat browser: generating image for download...');
+        console.log('WeChat browser: generating image for preview...');
         
         // 获取所有Canvas
         const canvases = document.querySelectorAll('.thumbnail-card canvas') as NodeListOf<HTMLCanvasElement>;
@@ -413,18 +413,73 @@ function bindEvents(): void {
           }
         });
         
-        // 生成下载链接
+        // 生成图片Data URL
         const dataUrl = mergedCanvas.toDataURL('image/jpeg', 0.9);
-        const link = document.createElement('a');
-        link.href = dataUrl;
-        link.download = `围棋题目_${new Date().toISOString().slice(0, 10)}.jpg`;
         
-        // 触发下载
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        // 创建图片预览弹窗
+        const overlay = document.createElement('div');
+        overlay.id = 'image-preview-overlay';
+        overlay.style.cssText = `
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.9);
+          z-index: 9999;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          padding: 20px;
+        `;
         
-        alert('图片已生成并开始下载\n\n您可以：\n1. 保存图片后打印\n2. 或直接分享图片');
+        // 创建图片元素
+        const img = document.createElement('img');
+        img.src = dataUrl;
+        img.style.cssText = `
+          max-width: 100%;
+          max-height: 80vh;
+          border-radius: 8px;
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        `;
+        
+        // 创建提示文字
+        const hint = document.createElement('div');
+        hint.textContent = '长按图片保存或分享';
+        hint.style.cssText = `
+          color: white;
+          margin-top: 20px;
+          font-size: 16px;
+          text-align: center;
+        `;
+        
+        // 创建关闭按钮
+        const closeBtn = document.createElement('button');
+        closeBtn.textContent = '关闭';
+        closeBtn.style.cssText = `
+          position: absolute;
+          top: 20px;
+          right: 20px;
+          background: rgba(255, 255, 255, 0.2);
+          color: white;
+          border: none;
+          padding: 10px 20px;
+          border-radius: 6px;
+          font-size: 16px;
+          cursor: pointer;
+        `;
+        closeBtn.onclick = () => {
+          document.body.removeChild(overlay);
+        };
+        
+        // 组装弹窗
+        overlay.appendChild(closeBtn);
+        overlay.appendChild(img);
+        overlay.appendChild(hint);
+        document.body.appendChild(overlay);
+        
+        console.log('Image preview displayed');
       } catch (error) {
         console.error('Generate image failed:', error);
         alert('生成图片失败，请稍后重试');
