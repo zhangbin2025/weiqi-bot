@@ -38,10 +38,9 @@ export class MoveNavigator {
   }
   goTo(index: number): void {
     const target = Math.max(0, Math.min(index, this.maxMoves));
-    if (target !== this.currentIndex) {
-      this.currentIndex = target;
-      this.onMoveChange(this.currentIndex);
-    }
+    // 始终触发回调，修复 move=0 时变化图面板不显示的问题
+    this.currentIndex = target;
+    this.onMoveChange(this.currentIndex);
   }
   togglePlay(speed?: number): void {
     if (this.maxMoves === 0) {
