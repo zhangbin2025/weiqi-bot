@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>打印预览 - 棋谱</title>
+  <style>
+    html, body {
+      width: 100% !important;
+      overflow-x: hidden !important;
+      zoom: 1 !important;
+      transform: scale(1) !important;
+      -webkit-text-size-adjust: 100% !important;
+      text-size-adjust: 100% !important;
+      min-zoom: 1 !important;
+      max-zoom: 1 !important;
+      user-zoom: fixed !important;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+      padding-top: env(safe-area-inset-top);
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    /* 顶部工具栏 */
+    .toolbar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      background: white;
+      padding: 20px;
+      padding-top: max(20px, env(safe-area-inset-top));
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 100;
+      min-height: 60px;
+    }
+    .toolbar h1 {
+      font-size: 16px;
+      color: #333;
+    }
+    .toolbar-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .config-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 14px;
+      color: #555;
+    }
+    .config-group input {
+      width: 48px;
+      height: 36px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      text-align: center;
+      font-size: 14px;
+    }
+    .config-group input:focus {
+      border-color: #667eea;
+      outline: none;
+    }
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s;
+      min-height: 44px;
+    }
+    .btn-primary {
+      background: #667eea;
+      color: white;
+    }
+    .btn-primary:hover { background: #5568d3; }
+    .btn-primary:active { transform: scale(0.95); }
+
+    /* 内容区域 */
+    .content {
+      padding: 80px 15px 15px;
+    }
+
+    /* 缩略图网格 */
+    .thumbnail-grid {
+      display: grid;
+      gap: 10px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .thumbnail-card {
+      background: white;
+      border-radius: 8px;
+      padding: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .thumbnail-card canvas {
+      width: 100% !important;
+      height: auto !important;
+      max-width: 300px;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+    }
+    .thumbnail-title {
+      margin-top: 6px;
+      font-size: 11px;
+      color: #333;
+      text-align: center;
+      line-height: 1.2;
+    }
+
+    .hint {
+      text-align: center;
+      padding: 15px;
+      background: #fff3e0;
+      border-radius: 8px;
+      margin-bottom: 15px;
+      color: #e65100;
+      font-size: 14px;
+    }
+    .hint.hidden { display: none; }
+
+    @media print {
+      .toolbar, .hint { display: none !important; }
+      .content { padding: 5mm; }
+      body { background: white; padding: 0; }
+      .thumbnail-card {
+        box-shadow: none;
+        page-break-inside: avoid;
+      }
+      .thumbnail-grid { gap: 10px; }
+      @page { margin: 0; size: A4; }
+    }
+
+    body.android-print .thumbnail-card canvas {
+      max-width: 85mm !important;
+      height: auto !important;
+    }
+    body.android-print .thumbnail-card { padding: 4mm; }
+    body.android-print .thumbnail-title { font-size: 10px; margin-top: 2mm; }
+    body.android-print .thumbnail-grid { gap: 3mm; }
+
+    @media (max-width: 768px) {
+      .thumbnail-grid { gap: 10px; }
+      .thumbnail-card { padding: 8px; }
+      .toolbar {
+        padding: 15px;
+        padding-top: max(15px, env(safe-area-inset-top));
+        min-height: 60px;
+      }
+      .toolbar h1 { font-size: 14px; }
+    }
+  </style>
+
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon-180x180.png">
+</head>
+<body>
+  <div class="toolbar no-print">
+    <h1>📋 打印预览</h1>
+    <div class="toolbar-actions">
+      <div class="config-group">
+        <span>行</span>
+        <input type="number" id="rowsInput" value="2" min="1" max="10">
+        <span>×</span>
+        <input type="number" id="colsInput" value="2" min="1" max="10">
+        <span>列</span>
+      </div>
+      <button class="btn btn-primary" id="printBtn">🖨️ 打印</button>
+    </div>
+  </div>
+
+  <div class="content">
+    <div class="hint hidden" id="appHint">
+      💡 提示：长按图片可保存，或截图分享
+    </div>
+    <div class="thumbnail-grid" id="thumbnails"></div>
+  </div>
+
+  <script src="../shared/error-catch.js"></script>
+  <script type="module" src="./print-preview.ts"></script>
+</body>
+</html>

@@ -361,6 +361,7 @@
             <div class="dropdown-divider"></div>
             <button class="dropdown-item" id="aiReviewMenuItem">🤖 AI分析</button>
             <button class="dropdown-item" id="downloadMenuItem">📥 下载SGF</button>
+            <button class="dropdown-item" id="printMenuItem">🖨️ 打印</button>
           </div>
         </div>
       </div>
@@ -469,6 +470,14 @@
       dropdownMenu?.classList.remove('visible');
       // 通知 TypeScript 代码
       window.dispatchEvent(new CustomEvent('downloadSGF'));
+    });
+
+    // 打印
+    const printMenuItem = document.getElementById('printMenuItem');
+    printMenuItem?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dropdownMenu?.classList.remove('visible');
+      window.dispatchEvent(new CustomEvent('printPosition'));
     });
     
     // AI分析

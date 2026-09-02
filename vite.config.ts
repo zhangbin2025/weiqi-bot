@@ -33,6 +33,7 @@ export default defineConfig({
         'fetcher/index': path.resolve(__dirname, 'clients/web/fetcher/index.html'),
         'replay/index': path.resolve(__dirname, 'clients/web/replay/index.html'),
         'replay/list': path.resolve(__dirname, 'clients/web/replay/list.html'),
+        'replay/print-preview': path.resolve(__dirname, 'clients/web/replay/print-preview.html'),
         'recorder/index': path.resolve(__dirname, 'clients/web/recorder/index.html'),
         'review/index': path.resolve(__dirname, 'clients/web/review/index.html'),
         'play/hh': path.resolve(__dirname, 'clients/web/play/hh.html'),

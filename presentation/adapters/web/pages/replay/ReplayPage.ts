@@ -6,6 +6,7 @@
 import { MoveNavigator, VariationController, TrialController, CapturedController } from '../../../../core/controllers';
 import { WebBoard } from '../../components/Board';
 import { Game } from '../../../../../domain/game';
+import { coordToPos } from '../../../../../domain/sgf';
 import { BoardRebuilder } from '../../../../core/helpers/BoardRebuilder';
 import { BoardSyncer } from '../../../../core/helpers/BoardSyncer';
 import { ReplayPageState } from './state';
@@ -233,6 +234,38 @@ export class ReplayPage implements IPage {
     const gameName = replayData?.game_name || 'game';
     await this.replayApp.downloadSGF(sgfContent, gameName);
   }
+  /**
+   * 获取当前局面数据（供打印使用）
+   */
+  getPrintData(): { stones: Array<{ x: number; y: number; color: 'black' | 'white' }>; lastMove: { x: number; y: number; color: 'black' | 'white' } | undefined; blackName: string; whiteName: string; moveNumber: number } {
+    const stones = this.game.getBoard().getAllStones().map(s => ({
+      x: s.x,
+      y: s.y,
+      color: s.color,
+    }));
+
+    const replayData = this.state.get('replayData');
+    const blackName = replayData?.black || '黑棋';
+    const whiteName = replayData?.white || '白棋';
+    const moveNumber = this.state.getCurrentMoveNumber();
+
+    // 获取最后一手
+    const currentNode = this.state.getCurrentNode();
+    let lastMove: { x: number; y: number; color: 'black' | 'white' } | undefined;
+    if (currentNode?.color && currentNode?.coord) {
+      const pos = coordToPos(currentNode.coord);
+      if (pos) {
+        lastMove = {
+          x: pos.x,
+          y: pos.y,
+          color: currentNode.color === 'B' ? 'black' : 'white',
+        };
+      }
+    }
+
+    return { stones, lastMove, blackName, whiteName, moveNumber };
+  }
+
   render(): void {
     this.board.render();
     this.ui.updateGameInfo();
