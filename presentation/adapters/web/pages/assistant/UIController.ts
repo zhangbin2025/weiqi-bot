@@ -6,6 +6,7 @@ import type { IAssistantUseCase } from '../../../../../application/assistant/IAs
 import type { ISessionService } from '../../../../../services/session/ISessionService';
 import type { IManagementService, ManagementCommand } from '../../../../../services/management/IManagementService';
 import { ClipboardHandler } from './ClipboardHandler';
+import { QRScanner } from './QRScanner';
 import { buildArchiveUrl } from '../../../../../domain/sgf/SGFUtils';
 /**
  * UI 控制器配置
@@ -24,6 +25,7 @@ export class UIController {
   private useCase: IAssistantUseCase;
   private onSendMessage: (text: string) => Promise<void>;
   private clipboardHandler: ClipboardHandler;
+  private qrScanner: QRScanner | null = null;
   private sessionService: ISessionService | undefined; // SessionService 实例（可选）
   private managementService: IManagementService; // 管理服务
   private availableCommands: ManagementCommand[] = []; // 可用命令列表
@@ -96,6 +98,45 @@ export class UIController {
     // 调用回调
     this.onSendMessage(text);
   }
+  /**
+   * 扫描二维码
+   */
+  scanQRCode(): void {
+    this.toggleCommandMenu(); // 关闭菜单
+    if (this.qrScanner) {
+      this.qrScanner.stop();
+      this.qrScanner = null;
+    }
+    this.qrScanner = new QRScanner({
+      onResult: (text: string) => {
+        this.qrScanner = null;
+        // 将扫描结果填入消息框并发送
+        const input = document.getElementById('userInput') as HTMLTextAreaElement;
+        if (input) {
+          input.value = text;
+          this.autoResizeTextarea(input);
+        }
+        // 自动发送
+        setTimeout(() => {
+          this.sendMessage();
+        }, 100);
+      },
+      onError: (message: string) => {
+        this.qrScanner = null;
+        // 在聊天区域显示错误提示
+        const chat = document.getElementById('chatContainer');
+        if (chat) {
+          const div = document.createElement('div');
+          div.className = 'message assistant';
+          div.innerHTML = '<div class="message-content">扫码失败：' + message + '</div>';
+          chat.appendChild(div);
+          chat.scrollTop = chat.scrollHeight;
+        }
+      },
+    });
+    this.qrScanner.start();
+  }
+
   /**
    * 自动调整 textarea 高度
    */
@@ -258,5 +299,6 @@ export class UIController {
     (window as any).showHistory = () => this.useCase.showHistory();
     (window as any).clearAllHistory = () => this.useCase.clearAllHistory();
     (window as any).exportHistory = () => this.useCase.exportHistory();
+    (window as any).scanQRCode = () => this.scanQRCode();
   }
 }
