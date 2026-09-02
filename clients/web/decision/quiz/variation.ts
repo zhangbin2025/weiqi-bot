@@ -51,7 +51,7 @@ export function startVariation(optionIndex: number): void {
       const pos = coordToPos(firstMove.coord);
       const game = getGame();
       if (pos && game) {
-        game.forcePlaceStone(pos.x, pos.y);
+        game.placeStone(pos.x, pos.y);
         syncBoard();
         setMoveNumber(pos, 1);
         playSound('stone');
@@ -95,7 +95,7 @@ export function variationPrev(): void {
     const move = state.currentVariation[i];
     if (!move) continue;
     const pos = coordToPos(move.coord);
-    if (pos && game) game.forcePlaceStone(pos.x, pos.y);
+    if (pos && game) game.placeStone(pos.x, pos.y);
   }
 
   syncBoard();
