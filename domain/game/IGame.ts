@@ -47,13 +47,6 @@ export interface IGame {
    */
   placeStone(x: number, y: number): IMoveResult;
   /**
-   * 强制落子（跳过 ko/suicide 检查）
-   * 用于棋谱重建：SGF 中的着法都是实际下出来的，不需要规则验证。
-   * @param x - X 坐标
-   * @param y - Y 坐标
-   */
-  forcePlaceStone(x: number, y: number): IMoveResult;
-  /**
    * 停一手
    */
   pass(): void;

@@ -66,7 +66,7 @@ export class BoardRebuilder {
       if (node.color) {
         const pos = node.coord ? coordToPos(node.coord) : null;
         if (pos) {
-          game.forcePlaceStone(pos.x, pos.y);
+          game.placeStone(pos.x, pos.y);
           moveCounter++;
           if (options.inVariation && i >= variationStartPathIndex) {
             moveNumbers.push({ x: pos.x, y: pos.y, number: i - variationStartPathIndex + 1 });
@@ -87,7 +87,7 @@ export class BoardRebuilder {
         if (node.color) {
           const pos = node.coord ? coordToPos(node.coord) : null;
           if (pos) {
-            game.forcePlaceStone(pos.x, pos.y);
+            game.placeStone(pos.x, pos.y);
             moveCounter++;
             moveNumbers.push({ x: pos.x, y: pos.y, number: moveNumbers.length + 1 });
           } else {
@@ -102,7 +102,7 @@ export class BoardRebuilder {
         if (node.color) {
           const pos = node.coord ? coordToPos(node.coord) : null;
           if (pos) {
-            game.forcePlaceStone(pos.x, pos.y);
+            game.placeStone(pos.x, pos.y);
             moveCounter++;
             moveNumbers.push({ x: pos.x, y: pos.y, number: moveCounter });
           } else {
