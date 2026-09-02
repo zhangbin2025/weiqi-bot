@@ -275,17 +275,8 @@ export class ReplayPage implements IPage {
       }
     }
 
-    // 计算当前该谁下
-    let turn: 'black' | 'white';
-    if (lastMove) {
-      turn = lastMove.color === 'black' ? 'white' : 'black';
-    } else if (replayData?.initial_player) {
-      turn = replayData.initial_player;
-    } else if (replayData?.handicap_stones && replayData.handicap_stones.length > 0) {
-      turn = 'white'; // 让子棋白先
-    } else {
-      turn = 'black'; // 默认黑先
-    }
+    // 当前该谁下，直接从 game 状态获取
+    const turn = this.game.getState().currentPlayer;
 
     return { stones, lastMove, blackName, whiteName, moveNumber, turn };
   }
