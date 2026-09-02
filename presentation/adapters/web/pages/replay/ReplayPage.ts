@@ -238,11 +238,23 @@ export class ReplayPage implements IPage {
    * 获取当前局面数据（供打印使用）
    */
   getPrintData(): { stones: Array<{ x: number; y: number; color: 'black' | 'white' }>; lastMove: { x: number; y: number; color: 'black' | 'white' } | undefined; blackName: string; whiteName: string; moveNumber: number } {
-    const stones = this.game.getBoard().getAllStones().map(s => ({
-      x: s.x,
-      y: s.y,
-      color: s.color,
-    }));
+    // 优先从 WebBoard 获取（显示层当前状态，包含 handicap stones）
+    const boardStones = this.board.getStones();
+    let stones: Array<{ x: number; y: number; color: 'black' | 'white' }>;
+    if (boardStones.size > 0) {
+      stones = [];
+      for (const [key, color] of boardStones) {
+        const [x, y] = key.split(',').map(Number);
+        stones.push({ x: x!, y: y!, color });
+      }
+    } else {
+      // fallback: 从 game 获取
+      stones = this.game.getBoard().getAllStones().map(s => ({
+        x: s.x,
+        y: s.y,
+        color: s.color,
+      }));
+    }
 
     const replayData = this.state.get('replayData');
     const blackName = replayData?.black || '黑棋';
