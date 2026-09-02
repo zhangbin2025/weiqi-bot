@@ -4,10 +4,11 @@
  */
 
 import { WebBootstrap } from '../shared/Bootstrap';
-import { BoardThumbnail } from '../../../presentation/adapters/web/components/BoardThumbnail';
 import { coordToPos } from '../../../domain/sgf';
 import { Game } from '../../../domain/game';
 import { showError } from './problems/utils';
+import { BoardCanvasRenderer } from '../shared/print/BoardCanvasRenderer';
+import { PrintManager } from '../shared/print/PrintManager';
 
 interface PrintProblem {
   gameId: string;
@@ -73,8 +74,12 @@ async function main() {
     }
 
     // 渲染缩略图
-    await renderThumbnails(problems, showOptions);
-    bindEvents();
+    renderThumbnails(problems, showOptions);
+
+    // 打印按钮
+    printBtn?.addEventListener('click', () => {
+      PrintManager.print();
+    });
 
   } catch (err) {
     console.error('加载失败:', err);
@@ -128,7 +133,7 @@ function loadProblems(allProblems: any[], indexes: number[]): PrintProblem[] {
 /**
  * 渲染缩略图网格
  */
-async function renderThumbnails(problems: PrintProblem[], showOptions: boolean): Promise<void> {
+function renderThumbnails(problems: PrintProblem[], showOptions: boolean): void {
   const container = document.getElementById('thumbnails');
   if (!container) return;
 
@@ -148,7 +153,6 @@ async function renderThumbnails(problems: PrintProblem[], showOptions: boolean):
     canvas.width = THUMBNAIL_SIZE;
     canvas.height = THUMBNAIL_SIZE;
     canvas.style.width = '300px';
-      canvas.style.height = '300px';
     canvas.style.height = 'auto';
 
     try {
@@ -177,320 +181,49 @@ async function renderThumbnails(problems: PrintProblem[], showOptions: boolean):
 }
 
 /**
- * 渲染单个缩略图（支持提子）
- */
-/**
- * 渲染单个缩略图（支持提子、无背景）
+ * 渲染单个缩略图（使用公共 BoardCanvasRenderer）
  */
 function renderThumbnail(
   canvas: HTMLCanvasElement,
   problem: PrintProblem,
   showOptions: boolean
 ): void {
-  try {
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+  // 使用 Game 类重建棋盘（自动处理提子）
+  const game = new Game({ size: 19 });
 
-    // 使用 Game 类重建棋盘（自动处理提子）
-    const game = new Game({ size: 19 });
-
-    for (const move of problem.position) {
-      const pos = coordToPos(move.coord);
-      if (pos) {
-        game.placeStone(pos.x, pos.y);
-      }
+  for (const move of problem.position) {
+    const pos = coordToPos(move.coord);
+    if (pos) {
+      game.placeStone(pos.x, pos.y);
     }
-
-    // 获取最终棋盘状态
-    const stones = game.getBoard().getAllStones();
-
-    const size = 19;
-    const padding = canvas.width * 0.05;
-    const gridSize = (canvas.width - padding * 2) / (size - 1);
-
-    // 清空画布（白色背景）
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // 绘制网格线
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = 1.0;
-    for (let i = 0; i < size; i++) {
-      const x = padding + i * gridSize;
-      const y = padding + i * gridSize;
-      ctx.beginPath();
-      ctx.moveTo(x, padding);
-      ctx.lineTo(x, canvas.width - padding);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(padding, y);
-      ctx.lineTo(canvas.width - padding, y);
-      ctx.stroke();
-    }
-
-    // 绘制星位
-    ctx.fillStyle = '#000';
-    const starPoints = [[3, 3], [3, 9], [3, 15], [9, 3], [9, 9], [9, 15], [15, 3], [15, 9], [15, 15]];
-    for (const [sx, sy] of starPoints) {
-      const x = padding + sx * gridSize;
-      const y = padding + sy * gridSize;
-      ctx.beginPath();
-      ctx.arc(x, y, 2, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // 绘制棋子
-    const r = gridSize * 0.45;
-    for (const stone of stones) {
-      const x = padding + stone.x * gridSize;
-      const y = padding + stone.y * gridSize;
-
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-
-      if (stone.color === 'black') {
-        // 黑棋
-        ctx.fillStyle = '#000';
-        ctx.fill();
-      } else {
-        // 白棋
-        ctx.fillStyle = '#fff';
-        ctx.strokeStyle = '#000';
-        ctx.lineWidth = 1;
-        ctx.fill();
-        ctx.stroke();
-      }
-    }
-
-    // 标记最后一手棋（中心点）
-    if (problem.position.length > 0) {
-      const lastMove = problem.position[problem.position.length - 1];
-      const lastPos = coordToPos(lastMove.coord);
-      if (lastPos) {
-        const x = padding + lastPos.x * gridSize;
-        const y = padding + lastPos.y * gridSize;
-
-        ctx.fillStyle = lastMove.color === 'B' ? '#fff' : '#000';
-        ctx.beginPath();
-        ctx.arc(x, y, gridSize * 0.1, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-
-    // 渲染选点标记（只显示字母，不画圈）
-    if (showOptions && problem.options.length > 0) {
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-
-      for (const opt of problem.options) {
-        const pos = coordToPos(opt.coord);
-        if (!pos) continue;
-
-        const x = padding + pos.x * gridSize;
-        const y = padding + pos.y * gridSize;
-
-        // 只绘制黑色字母
-        ctx.fillStyle = '#000';
-        ctx.font = `bold ${gridSize * 0.85}px Arial`;
-        ctx.fillText(opt.letter, x, y);
-      }
-    }
-  } catch (error) {
-    console.error('renderThumbnail 错误:', error);
-    throw error;
   }
-}
 
+  const stones = game.getBoard().getAllStones().map(s => ({
+    x: s.x,
+    y: s.y,
+    color: s.color,
+  }));
 
-/**
- * 绑定事件
- */
-function bindEvents(): void {
-  // 打印按钮
-  document.getElementById('printBtn')?.addEventListener('click', () => {
-    // 检测环境类型
-    const isDesktop = !!(window as any).electronAPI?.isDesktop;
-    const userAgent = navigator.userAgent;
-    const platform = navigator.platform;
-    
-    // 判断是否是Android环境
-    const isAndroid = /Android/i.test(userAgent) || /Linux arm/i.test(platform);
-    const isWeiqiApp = /WeiqiApp/i.test(userAgent);
-    const isAndroidApp = isWeiqiApp && isAndroid && !isDesktop;
-    
-    // 判断是否是微信浏览器
-    const isWechat = /MicroMessenger/i.test(userAgent);
-    
-    if (isDesktop) {
-      // Desktop环境：使用标准window.print()
-      window.print();
-    } else if (isAndroidApp) {
-      // Android环境：调整Canvas尺寸后再打印
-      try {
-        console.log('Android print: adjusting canvas size...');
-        
-        // 保存原始样式
-        const canvases = document.querySelectorAll('.thumbnail-card canvas') as NodeListOf<HTMLCanvasElement>;
-        const originalStyles: Array<{width: string; height: string}> = [];
-        canvases.forEach((canvas, i) => {
-          originalStyles[i] = {width: canvas.style.width, height: canvas.style.height};
-          // 设置打印尺寸：85mm ≈ 321px (1mm ≈ 3.78px at 96dpi)
-          canvas.style.width = '85mm';
-          canvas.style.height = '85mm';
-        });
-        
-        // 调用原生打印bridge
-        console.log('Calling native print bridge...');
-        const result = prompt('print:invoke');
-        console.log('Print bridge result:', result);
-        
-        // 打印完成后恢复原始样式
-        setTimeout(() => {
-          canvases.forEach((canvas, i) => {
-            canvas.style.width = originalStyles[i].width;
-            canvas.style.height = originalStyles[i].height;
-          });
-        }, 1000);
-      } catch (error) {
-        console.error('Print bridge failed:', error);
-        alert('打印失败，请尝试截图分享');
-      }
-    } else if (isWechat) {
-      // 微信浏览器：合成图片并显示预览
-      try {
-        console.log('WeChat browser: generating image for preview...');
-        
-        // 获取所有Canvas
-        const canvases = document.querySelectorAll('.thumbnail-card canvas') as NodeListOf<HTMLCanvasElement>;
-        if (canvases.length === 0) {
-          alert('没有可打印的内容');
-          return;
-        }
-        
-        // 计算合成图片的尺寸（A4比例，2列布局）
-        const cols = 2;
-        const rows = Math.ceil(canvases.length / cols);
-        const cardWidth = 600; // Canvas原始宽度
-        const cardHeight = 650; // Canvas高度 + 标题区域
-        const gap = 20;
-        
-        const totalWidth = cols * cardWidth + (cols - 1) * gap;
-        const totalHeight = rows * cardHeight + (rows - 1) * gap;
-        
-        // 创建合成Canvas
-        const mergedCanvas = document.createElement('canvas');
-        mergedCanvas.width = totalWidth;
-        mergedCanvas.height = totalHeight;
-        const ctx = mergedCanvas.getContext('2d');
-        
-        if (!ctx) {
-          alert('生成图片失败');
-          return;
-        }
-        
-        // 白色背景
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, totalWidth, totalHeight);
-        
-        // 绘制所有Canvas
-        canvases.forEach((canvas, i) => {
-          const col = i % cols;
-          const row = Math.floor(i / cols);
-          const x = col * (cardWidth + gap);
-          const y = row * (cardHeight + gap);
-          
-          // 绘制Canvas
-          ctx.drawImage(canvas, x, y, cardWidth, cardWidth);
-          
-          // 绘制标题
-          const titleEl = canvas.parentElement?.querySelector('.thumbnail-title');
-          if (titleEl) {
-            ctx.fillStyle = '#333333';
-            ctx.font = 'bold 24px Arial';
-            ctx.textAlign = 'center';
-            const titleText = titleEl.textContent || '';
-            ctx.fillText(titleText, x + cardWidth / 2, y + cardWidth + 30);
-          }
-        });
-        
-        // 生成图片Data URL
-        const dataUrl = mergedCanvas.toDataURL('image/jpeg', 0.9);
-        
-        // 创建图片预览弹窗
-        const overlay = document.createElement('div');
-        overlay.id = 'image-preview-overlay';
-        overlay.style.cssText = `
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background: rgba(0, 0, 0, 0.9);
-          z-index: 9999;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          padding: 20px;
-          overflow-y: auto;
-        `;
-        
-        // 创建图片元素
-        const img = document.createElement('img');
-        img.src = dataUrl;
-        img.style.cssText = `
-          width: 100%;
-          max-width: 600px;
-          height: auto;
-          border-radius: 8px;
-          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
-          margin-bottom: 20px;
-        `;
-        
-        // 创建提示文字
-        const hint = document.createElement('div');
-        hint.textContent = '长按图片保存或分享';
-        hint.style.cssText = `
-          color: white;
-          margin-top: 20px;
-          font-size: 16px;
-          text-align: center;
-        `;
-        
-        // 创建关闭按钮
-        const closeBtn = document.createElement('button');
-        closeBtn.textContent = '关闭';
-        closeBtn.style.cssText = `
-          position: absolute;
-          top: 20px;
-          right: 20px;
-          background: rgba(255, 255, 255, 0.2);
-          color: white;
-          border: none;
-          padding: 10px 20px;
-          border-radius: 6px;
-          font-size: 16px;
-          cursor: pointer;
-        `;
-        closeBtn.onclick = () => {
-          document.body.removeChild(overlay);
-        };
-        
-        // 组装弹窗
-        overlay.appendChild(closeBtn);
-        overlay.appendChild(img);
-        overlay.appendChild(hint);
-        document.body.appendChild(overlay);
-        
-        console.log('Image preview displayed');
-      } catch (error) {
-        console.error('Generate image failed:', error);
-        alert('生成图片失败，请稍后重试');
-      }
-    } else {
-      // Web环境：使用标准window.print()
-      window.print();
+  // 最后一手
+  let lastMove: { x: number; y: number; color: 'black' | 'white' } | undefined;
+  if (problem.position.length > 0) {
+    const last = problem.position[problem.position.length - 1];
+    const pos = coordToPos(last.coord);
+    if (pos) {
+      lastMove = { x: pos.x, y: pos.y, color: last.color === 'B' ? 'black' : 'white' };
     }
-  });
+  }
+
+  // 选点字母标记
+  let labels: Array<{ x: number; y: number; letter: string }> | undefined;
+  if (showOptions && problem.options.length > 0) {
+    labels = problem.options.map(opt => {
+      const pos = coordToPos(opt.coord);
+      return pos ? { x: pos.x, y: pos.y, letter: opt.letter } : null;
+    }).filter(Boolean) as Array<{ x: number; y: number; letter: string }>;
+  }
+
+  BoardCanvasRenderer.render(canvas, stones, { lastMove, labels });
 }
 
 main();
