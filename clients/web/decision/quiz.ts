@@ -298,11 +298,12 @@ async function saveToSGF() {
   if (!problem) return;
 
   try {
-    const sgf = state.exportService?.exportToSGF(problem);
-    if (!sgf) return;
+    // 从题目位置生成 SGF
+    const moves = problem.position.map(m => `;${m.color}[${m.coord}]`).join('');
+    const sgf = `(;SZ[19]${moves})`;
 
-    const filename = `problem_${problem.__originalIndex + 1}.sgf`;
-    await state.exportService?.save(sgf, filename);
+    const gameName = `problem_${(problem.__originalIndex ?? 0) + 1}`;
+    await state.exportService?.exportSGF(sgf, gameName);
   } catch (e) {
     console.error('导出 SGF 失败', e);
   }
