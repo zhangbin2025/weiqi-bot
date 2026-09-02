@@ -237,7 +237,7 @@ export class ReplayPage implements IPage {
   /**
    * 获取当前局面数据（供打印使用）
    */
-  getPrintData(): { stones: Array<{ x: number; y: number; color: 'black' | 'white' }>; lastMove: { x: number; y: number; color: 'black' | 'white' } | undefined; blackName: string; whiteName: string; moveNumber: number } {
+  getPrintData(): { stones: Array<{ x: number; y: number; color: 'black' | 'white' }>; lastMove: { x: number; y: number; color: 'black' | 'white' } | undefined; blackName: string; whiteName: string; moveNumber: number; turn: 'black' | 'white' } {
     // 优先从 WebBoard 获取（显示层当前状态，包含 handicap stones）
     const boardStones = this.board.getStones();
     let stones: Array<{ x: number; y: number; color: 'black' | 'white' }>;
@@ -275,7 +275,19 @@ export class ReplayPage implements IPage {
       }
     }
 
-    return { stones, lastMove, blackName, whiteName, moveNumber };
+    // 计算当前该谁下
+    let turn: 'black' | 'white';
+    if (lastMove) {
+      turn = lastMove.color === 'black' ? 'white' : 'black';
+    } else if (replayData?.initial_player) {
+      turn = replayData.initial_player;
+    } else if (replayData?.handicap_stones && replayData.handicap_stones.length > 0) {
+      turn = 'white'; // 让子棋白先
+    } else {
+      turn = 'black'; // 默认黑先
+    }
+
+    return { stones, lastMove, blackName, whiteName, moveNumber, turn };
   }
 
   render(): void {

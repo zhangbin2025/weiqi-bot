@@ -12,6 +12,7 @@ interface PrintPosition {
   blackName: string;
   whiteName: string;
   moveNumber: number;
+  turn: 'black' | 'white';
 }
 
 function loadData(): PrintPosition | null {
@@ -50,7 +51,9 @@ function renderGrid(data: PrintPosition, rows: number, cols: number): void {
 
     const title = document.createElement('div');
     title.className = 'thumbnail-title';
-    title.innerHTML = `<span style="color:#000">●</span>${data.blackName} vs <span style="color:#000">○</span>${data.whiteName} (第${data.moveNumber}手)`;
+    const turnText = data.turn === 'black' ? '黑先' : '白先';
+    const moveText = data.moveNumber > 0 ? ` (第${data.moveNumber}手)` : '';
+    title.innerHTML = `<span style="color:#000">●</span>${data.blackName} vs <span style="color:#000">○</span>${data.whiteName} (${turnText})${moveText}`;
 
     card.appendChild(canvas);
     card.appendChild(title);
