@@ -1,4 +1,4 @@
-import type { PlayerColor } from '../primitives';
+import { PlayerColor } from '../primitives';
 import type { IGameState, IMoveResult } from './IGameState';
 import type { IGame, IGameConfig } from './IGame';
 import { Board } from '../board';
@@ -74,6 +74,32 @@ export class Game implements IGame {
     } else {
       this.koPosition = null;
     }
+    
+    this.moveHistory.push(createMove(x, y, this.currentPlayer, this.moveHistory.length + 1));
+    this.consecutivePasses = 0;
+    this.currentPlayer = getOpponentColor(this.currentPlayer);
+    return { success: true, captured: captureResult.captured };
+  }
+
+  /**
+   * 强制落子（跳过 ko/suicide 检查）
+   * 用于棋谱重建：SGF 中的着法都是实际下出来的，不需要规则验证。
+   * 提子逻辑仍然执行（物理规则，不是可选规则）。
+   */
+  forcePlaceStone(x: number, y: number): IMoveResult {
+    if (this.phase === 'ended') return { success: false, captured: [], error: '对局已结束' };
+    if (this.board.getStone(x, y) !== null) return { success: false, captured: [], error: '该位置已有棋子' };
+    
+    this.board.setStone(x, y, this.currentPlayer);
+    const captureResult = this.captureRule.capture(this.board, x, y, this.currentPlayer);
+    
+    if (this.currentPlayer === 'black') this.capturedBlack += captureResult.count;
+    else this.capturedWhite += captureResult.count;
+    
+    for (const cap of captureResult.captured) this.board.setStone(cap.x, cap.y, null);
+    
+    // 跳过 ko 检测
+    this.koPosition = null;
     
     this.moveHistory.push(createMove(x, y, this.currentPlayer, this.moveHistory.length + 1));
     this.consecutivePasses = 0;
