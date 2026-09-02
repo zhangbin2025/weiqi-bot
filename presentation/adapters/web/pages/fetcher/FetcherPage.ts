@@ -174,7 +174,19 @@ export class FetcherPage implements IPage {
             reviewLink = `/review/index.html?archiveId=${result.archiveId}`;
           }
           
-          const message = `已抓取棋谱: ${result.metadata.black || '黑方'} vs ${result.metadata.white || '白方'}\n\n[打谱](/replay/index.html?archiveId=${result.archiveId}) [${reviewLabel}](${reviewLink})`;
+          // 题目棋谱链接加 move=0（从初始局面开始）
+          const questionPatterns = [
+            /101weiqi\.com\/qday\//,
+            /101weiqi\.com\/q\//,
+            /101weiqi\.cn\/qday\//,
+            /101weiqi\.cn\/q\//,
+          ];
+          const isQuestion = result.source === 'weiqi101' &&
+                             questionPatterns.some(p => p.test(result.url || ''));
+          const replayLink = isQuestion
+            ? `/replay/index.html?archiveId=${result.archiveId}&move=0`
+            : `/replay/index.html?archiveId=${result.archiveId}`;
+          const message = `已抓取棋谱: ${result.metadata.black || '黑方'} vs ${result.metadata.white || '白方'}\n\n[打谱](${replayLink}) [${reviewLabel}](${reviewLink})`;
           TaskHelper.notifyComplete(taskId, '抓取完成', message, detailUrl);
         }
       } else {
