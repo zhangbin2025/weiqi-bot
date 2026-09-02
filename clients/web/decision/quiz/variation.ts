@@ -104,12 +104,13 @@ export function variationPrev(): void {
   clearMarkers();
   clearHighlights();
 
-  // 标记手数
-  for (let i = 0; i < state.variationIndex; i++) {
-    const move = state.currentVariation[i];
-    if (!move) continue;
-    const pos = coordToPos(move.coord);
-    if (pos) setMoveNumber(pos, i + 1);
+  // 只标记最后一手（syncBoard 已清除所有手数标记）
+  if (state.variationIndex > 0) {
+    const lastMove = state.currentVariation[state.variationIndex - 1];
+    if (lastMove) {
+      const pos = coordToPos(lastMove.coord);
+      if (pos) setMoveNumber(pos, state.variationIndex);
+    }
   }
 }
 
