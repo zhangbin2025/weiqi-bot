@@ -242,11 +242,12 @@ export class FetcherPage implements IPage {
     if (!this._onNavigate) return;
     
     // 题目棋谱：从初始局面开始（move=0）
+    const srcUrl = this.currentResult?.url || '';
     if (isQuestion) {
-      this._onNavigate('replay', { archiveId: this.currentResult.archiveId, move: '0' });
+      this._onNavigate('replay', { archiveId: this.currentResult.archiveId, move: '0', src: srcUrl });
     } else {
       // 对局棋谱：默认显示最后一手
-      this._onNavigate('replay', { archiveId: this.currentResult.archiveId });
+      this._onNavigate('replay', { archiveId: this.currentResult.archiveId, src: srcUrl });
     }
   }
   private async generateShareUrl(): Promise<void> {

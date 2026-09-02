@@ -110,6 +110,13 @@ export interface IGameService {
   getByArchiveId(archiveId: string): Promise<string | null>;
 
   /**
+   * 按归档ID获取索引信息（含 metadata.url）
+   * @param archiveId - 归档ID
+   * @returns 索引信息，不存在返回 null
+   */
+  getArchiveIndex(archiveId: string): Promise<import('./IGameHistoryStorage').GameHistoryIndex | null>;
+
+  /**
    * 获取 KataGo Archive 棋谱（从 tar.bz2 解压）
    * @param date - 日期 YYYY-MM-DD
    * @param limit - 最多取多少盘棋

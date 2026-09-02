@@ -30,13 +30,32 @@ async function main() {
   await page.initialize();
 
   // 监听打印事件
-  window.addEventListener('printPosition', () => {
+  window.addEventListener('printPosition', async () => {
     const printData = page.getPrintData();
     if (printData.stones.length === 0) {
       alert('当前没有棋盘数据');
       return;
     }
     sessionStorage.setItem('replay-print-data', JSON.stringify(printData));
+
+    // 获取原始棋谱链接，供打印预览生成二维码
+    const params = new URLSearchParams(window.location.search);
+    // 优先从 URL 参数 src 读取（fetcher 跳转时传入）
+    let sourceUrl = params.get('src');
+    // 其次从归档 metadata 查询
+    if (!sourceUrl) {
+      const archiveId = params.get('archiveId');
+      if (archiveId) {
+        try {
+          sourceUrl = await replayApp.getArchiveUrl(archiveId);
+        } catch (e) {
+          console.warn('获取原始链接失败', e);
+        }
+      }
+    }
+    // fallback: 没有原始链接就用当前 replay 页面 URL
+    sessionStorage.setItem('replay-print-source-url', sourceUrl ?? window.location.href);
+
     window.location.href = './print-preview.html';
   });
 

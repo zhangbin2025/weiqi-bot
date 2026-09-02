@@ -1,6 +1,7 @@
 /**
  * Replay 打印预览页面
  * @description 从 sessionStorage 读取当前局面，渲染多份缩略图供打印
+ * 打印时标题显示一次在头部，右上角显示二维码方便扫码在线查看
  */
 
 import { BoardCanvasRenderer } from '../shared/print/BoardCanvasRenderer';
@@ -15,6 +16,17 @@ interface PrintPosition {
   turn: 'black' | 'white';
 }
 
+declare global {
+  interface Window {
+    QRCode?: new (container: HTMLElement, options: {
+      width: number;
+      height: number;
+      colorDark: string;
+      colorLight: string;
+    }) => { makeCode(content: string): void; clear(): void };
+  }
+}
+
 function loadData(): PrintPosition | null {
   try {
     const raw = sessionStorage.getItem('replay-print-data');
@@ -25,12 +37,57 @@ function loadData(): PrintPosition | null {
   }
 }
 
+function getSourceUrl(): string | null {
+  try {
+    return sessionStorage.getItem('replay-print-source-url');
+  } catch {
+    return null;
+  }
+}
+
+function renderPrintHeader(data: PrintPosition): void {
+  const titleEl = document.getElementById('printHeaderTitle');
+  if (!titleEl) return;
+
+  const turnText = data.turn === 'black' ? '黑先' : '白先';
+  const moveText = data.moveNumber > 0 ? '第' + data.moveNumber + '手' : '';
+  titleEl.innerHTML = '<div class="player-line">' +
+    '<span style="color:#000">●</span>' + data.blackName + ' vs ' +
+    '<span style="color:#000">○</span>' + data.whiteName + '</div>' +
+    '<div class="info-line">' + turnText + (moveText ? ' · ' + moveText : '') + '</div>';
+}
+
+function renderQRCode(url: string): void {
+  const container = document.getElementById('qrContainer');
+  if (!container) return;
+
+  if (!window.QRCode) {
+    console.error('QRCode library not loaded');
+    container.style.display = 'none';
+    return;
+  }
+
+  container.innerHTML = '';
+  try {
+    const qr = new window.QRCode(container, {
+      width: 300,
+      height: 300,
+      colorDark: '#000000',
+      colorLight: '#ffffff',
+    });
+    qr.makeCode(url);
+  } catch (e) {
+    console.error('QR code generation failed:', e);
+    container.style.display = 'none';
+  }
+}
+
 function renderGrid(data: PrintPosition, rows: number, cols: number): void {
   const container = document.getElementById('thumbnails');
   if (!container) return;
 
   container.innerHTML = '';
-  container.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+  container.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
 
   const total = rows * cols;
   const CANVAS_SIZE = 600;
@@ -49,14 +106,7 @@ function renderGrid(data: PrintPosition, rows: number, cols: number): void {
       lastMove: data.lastMove,
     });
 
-    const title = document.createElement('div');
-    title.className = 'thumbnail-title';
-    const turnText = data.turn === 'black' ? '黑先' : '白先';
-    const moveText = data.moveNumber > 0 ? ` (第${data.moveNumber}手)` : '';
-    title.innerHTML = `<span style="color:#000">●</span>${data.blackName} vs <span style="color:#000">○</span>${data.whiteName} (${turnText})${moveText}`;
-
     card.appendChild(canvas);
-    card.appendChild(title);
     container.appendChild(card);
   }
 }
@@ -69,6 +119,18 @@ function main(): void {
       container.innerHTML = '<div style="text-align:center;padding:40px;color:#999;">没有可打印的棋盘数据</div>';
     }
     return;
+  }
+
+  // 渲染打印头部（标题）
+  renderPrintHeader(data);
+
+  // 生成二维码（sourceUrl 已在 replay 页面异步查好存入 sessionStorage）
+  const sourceUrl = getSourceUrl();
+  if (sourceUrl) {
+    renderQRCode(sourceUrl);
+  } else {
+    const qrContainer = document.getElementById('qrContainer');
+    if (qrContainer) qrContainer.style.display = 'none';
   }
 
   // 检测是否支持打印

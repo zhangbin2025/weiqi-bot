@@ -7,7 +7,7 @@ import type { IGameProvider } from './providers/base/IProvider';
 import type { NetworkManager } from '../../infrastructure/network/core/NetworkManager';
 import type { ISnifferProvider } from '../../infrastructure/network/interfaces/ISnifferProvider';
 import type { IUserContext } from '../../infrastructure/network/interfaces/IUserContext';
-import type { IGameHistoryStorage } from './IGameHistoryStorage';
+import type { IGameHistoryStorage, GameHistoryIndex } from './IGameHistoryStorage';
 import type { IGameArchiveCache } from './IGameArchiveCache';
 import type { IConfigProvider } from '../../infrastructure/config/interfaces/IConfigProvider';
 import type { IGameConfig } from '../../infrastructure/config/schemas/GameConfigSchema';
@@ -122,6 +122,14 @@ export class GameService implements IGameService {
     
     const content = await this.historyStorage.readContent(index.path);
     return typeof content === 'string' ? content : null;
+  }
+
+  /**
+   * 按归档ID获取索引信息（含 metadata.url 等元数据）
+   */
+  async getArchiveIndex(archiveId: string): Promise<GameHistoryIndex | null> {
+    if (!this.historyStorage) return null;
+    return this.historyStorage.findById(archiveId);
   }
 
   /**

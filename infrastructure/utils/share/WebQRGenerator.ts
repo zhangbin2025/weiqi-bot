@@ -29,7 +29,7 @@ declare global {
  * Web端二维码生成器实现
  *
  * 特性：
- * - 自动动态加载 QRCode.js 库
+ * - 自动动态加载 QRCode.js 库（本地文件，避免 COEP 拦截）
  * - 使用 WeakMap 管理实例，避免内存泄漏
  * - 支持自定义样式选项
  */
@@ -75,16 +75,15 @@ export class WebQRGenerator implements IQRGenerator {
   }
 
   /**
-   * 动态加载 QRCode.js 库
+   * 动态加载 QRCode.js 库（本地文件）
    */
   private async loadQRCodeLib(): Promise<typeof window.QRCode | null> {
     if (typeof window === 'undefined') return null;
     if (window.QRCode) return window.QRCode;
 
-    // 动态加载 QRCode.js
     return new Promise((resolve) => {
       const script = document.createElement('script');
-      script.src = 'https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js';
+      script.src = '/qrcode.min.js';
       script.onload = () => resolve(window.QRCode || null);
       script.onerror = () => resolve(null);
       document.head.appendChild(script);

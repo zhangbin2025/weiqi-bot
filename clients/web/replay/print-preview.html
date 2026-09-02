@@ -88,6 +88,53 @@
       padding: 80px 15px 15px;
     }
 
+    /* 打印头部 - 标题 + 二维码（屏幕和打印都显示） */
+    .print-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      padding: 10px 15px;
+      background: white;
+      border-radius: 8px;
+      margin-bottom: 10px;
+      max-width: 900px;
+      margin-left: auto;
+      margin-right: auto;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+    .print-header-title {
+      flex: 1;
+      font-size: 14px;
+      color: #333;
+      line-height: 1.4;
+    }
+    .print-header-title .player-line {
+      font-weight: 600;
+      font-size: 15px;
+      margin-bottom: 2px;
+    }
+    .print-header-title .info-line {
+      font-size: 12px;
+      color: #666;
+    }
+    .print-header-qr {
+      flex-shrink: 0;
+      margin-left: 15px;
+      text-align: center;
+    }
+    .print-header-qr #qrContainer img,
+    .print-header-qr #qrContainer canvas {
+      display: block;
+      width: 80px !important;
+      height: 80px !important;
+    }
+    .print-header-qr .qr-label {
+      font-size: 9px;
+      color: #999;
+      text-align: center;
+      margin-top: 2px;
+    }
+
     /* 缩略图网格 */
     .thumbnail-grid {
       display: grid;
@@ -112,13 +159,6 @@
       border: 1px solid #e0e0e0;
       border-radius: 4px;
     }
-    .thumbnail-title {
-      margin-top: 6px;
-      font-size: 11px;
-      color: #333;
-      text-align: center;
-      line-height: 1.2;
-    }
 
     .hint {
       text-align: center;
@@ -133,14 +173,36 @@
 
     @media print {
       .toolbar, .hint { display: none !important; }
-      .content { padding: 5mm; }
-      body { background: white; padding: 0; }
+      .print-header {
+        box-shadow: none;
+        border-bottom: 0.5px solid #ccc;
+        border-radius: 0;
+        padding: 0 2mm 1mm;
+        margin: 0 0 1mm;
+      }
+      .print-header-title .player-line { font-size: 13px; }
+      .print-header-title .info-line { font-size: 11px; }
+      .print-header-qr #qrContainer img,
+      .print-header-qr #qrContainer canvas {
+        width: 20mm !important;
+        height: 20mm !important;
+      }
+      .print-header-qr .qr-label { font-size: 7px; margin-top: 0; }
+      .content { padding: 0; }
+      body { background: white; padding: 0; margin: 0; }
       .thumbnail-card {
         box-shadow: none;
+        border: none;
+        padding: 0;
         page-break-inside: avoid;
       }
-      .thumbnail-grid { gap: 10px; }
-      @page { margin: 0; size: A4; }
+      .thumbnail-card canvas {
+        max-width: 82mm !important;
+        border: none !important;
+        border-radius: 0 !important;
+      }
+      .thumbnail-grid { gap: 0; }
+      @page { margin: 4mm; size: A4; }
     }
 
     body.android-print .thumbnail-card canvas {
@@ -148,8 +210,11 @@
       height: auto !important;
     }
     body.android-print .thumbnail-card { padding: 4mm; }
-    body.android-print .thumbnail-title { font-size: 10px; margin-top: 2mm; }
     body.android-print .thumbnail-grid { gap: 3mm; }
+    body.android-print .print-header {
+      box-shadow: none;
+      padding: 2mm 3mm;
+    }
 
     @media (max-width: 768px) {
       .thumbnail-grid { gap: 10px; }
@@ -160,12 +225,19 @@
         min-height: 60px;
       }
       .toolbar h1 { font-size: 14px; }
+      .print-header-qr #qrContainer img,
+      .print-header-qr #qrContainer canvas {
+        width: 60px !important;
+        height: 60px !important;
+      }
     }
   </style>
 
   <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon-180x180.png">
+  <!-- 同步加载 QRCode.js，COEP 兼容（同源） -->
+  <script src="/qrcode.min.js"></script>
 </head>
 <body>
   <div class="toolbar no-print">
@@ -186,6 +258,16 @@
     <div class="hint hidden" id="appHint">
       💡 提示：长按图片可保存，或截图分享
     </div>
+
+    <!-- 打印头部：标题 + 二维码 -->
+    <div class="print-header" id="printHeader">
+      <div class="print-header-title" id="printHeaderTitle"></div>
+      <div class="print-header-qr">
+        <div id="qrContainer"></div>
+        <div class="qr-label">扫码在线查看</div>
+      </div>
+    </div>
+
     <div class="thumbnail-grid" id="thumbnails"></div>
   </div>
 

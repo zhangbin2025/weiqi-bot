@@ -173,7 +173,7 @@ export class GameFetchHelper {
         type: "sgf",
         content: result.sgfContent,
         source: result.source,
-        metadata: result.metadata as unknown as Record<string, unknown>,
+        metadata: { ...(result.metadata as unknown as Record<string, unknown>), url: result.url },
       });
       return archiveResult.id;
     } catch {

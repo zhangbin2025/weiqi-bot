@@ -35,6 +35,17 @@ export class ReplayApp {
     // console.info('从归档加载棋谱成功', { archiveId });
     return sgf;
   }
+
+  /**
+   * 获取归档的原始 URL（棋谱来源链接）
+   */
+  async getArchiveUrl(archiveId: string): Promise<string | null> {
+    if (!this.gameService) return null;
+    const index = await this.gameService.getArchiveIndex(archiveId);
+    if (!index) return null;
+    const url = (index.metadata as Record<string, unknown>)?.['url'] as string | undefined;
+    return url ?? null;
+  }
   /**
    * 从会话ID加载棋谱
    */
