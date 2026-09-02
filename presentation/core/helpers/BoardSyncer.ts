@@ -44,10 +44,13 @@ export class BoardSyncer {
     if (state.lastMove && !showMoveNumbers) {
       board.highlight(state.lastMove, 'last');
     }
-    // 显示手数
+    // 显示手数（过滤掉已被提掉的子，只标记棋盘上实际存在的棋子）
     if (showMoveNumbers && moveNumbers.length > 0) {
+      const stonesSet = new Set(stones.map(s => `${s.pos.x},${s.pos.y}`));
       board.setMoveNumbers(
-        moveNumbers.map(m => ({ pos: { x: m.x, y: m.y }, number: m.number }))
+        moveNumbers
+          .filter(m => stonesSet.has(`${m.x},${m.y}`))
+          .map(m => ({ pos: { x: m.x, y: m.y }, number: m.number }))
       );
     } else {
       board.setMoveNumbers([]);
