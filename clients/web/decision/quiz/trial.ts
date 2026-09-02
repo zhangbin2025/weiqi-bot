@@ -100,7 +100,7 @@ export function trialPrev(): void {
   for (let i = 0; i < state.trialIndex; i++) {
     const move = state.trialMoves[i];
     if (move && game) {
-      game.placeStone(move.x, move.y);
+      game.forcePlaceStone(move.x, move.y);
     }
   }
   

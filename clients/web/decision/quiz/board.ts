@@ -35,11 +35,11 @@ export function rebuildBoard(position: Move[]): void {
   // 重置棋盘
   state.game = new Game({ size: 19 });
   
-  // 按顺序落子
+  // 按顺序落子（使用 forcePlaceStone 跳过 ko/suicide 检查，因为这是重建已有局面）
   for (const move of position) {
     const pos = coordToPos(move.coord);
     if (pos) {
-      state.game.placeStone(pos.x, pos.y);
+      state.game.forcePlaceStone(pos.x, pos.y);
     }
   }
 }
