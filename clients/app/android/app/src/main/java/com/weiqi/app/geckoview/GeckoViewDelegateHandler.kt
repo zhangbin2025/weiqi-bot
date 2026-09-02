@@ -269,8 +269,14 @@ class GeckoViewDelegateHandler(
             ) {
                 // 扫码功能需要摄像头：授予视频源，拒绝音频
                 if (video != null && video.isNotEmpty()) {
-                    Logger.d(TAG, "Granting camera (video) permission for getUserMedia")
-                    callback.grant(video[0], null)
+                    // 优先选后置摄像头（name 包含 back/rear/environment）
+                    val backCamera = video.firstOrNull { v ->
+                        val name = (v.name ?: "").lowercase()
+                        name.contains("back") || name.contains("rear") || name.contains("environment")
+                    }
+                    val selected = backCamera ?: video[0]
+                    Logger.d(TAG, "Granting camera (video) permission: ${selected.name}")
+                    callback.grant(selected, null)
                 } else {
                     callback.reject()
                 }

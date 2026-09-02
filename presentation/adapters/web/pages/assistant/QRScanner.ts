@@ -142,7 +142,7 @@ export class QRScanner {
     // 请求摄像头
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
+        video: true,
         audio: false,
       });
       this.video.srcObject = this.stream;
