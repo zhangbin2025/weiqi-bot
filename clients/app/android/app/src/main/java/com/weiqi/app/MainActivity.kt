@@ -461,6 +461,15 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoView.
         promptHandler.onActivityResult(requestCode, resultCode, data)
     }
 
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        delegateHandler.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    }
+
     private suspend fun startServerAndLoadPage() {
         // ========== 阶段1：启动服务器 ==========
         uiHelper.showLoading("正在初始化", 0)

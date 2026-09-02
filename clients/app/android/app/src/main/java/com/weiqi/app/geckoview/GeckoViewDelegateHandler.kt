@@ -1,7 +1,11 @@
 package com.weiqi.app.geckoview
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.weiqi.app.console.ConsoleHook
@@ -31,6 +35,7 @@ class GeckoViewDelegateHandler(
 ) {
     companion object {
         private const val TAG = "GeckoViewDelegate"
+        private const val CAMERA_PERMISSION_REQUEST_CODE = 2001
     }
     
     /**
@@ -215,6 +220,27 @@ class GeckoViewDelegateHandler(
         }
     }
     
+    /** 摄像头权限回调，等系统权限对话框返回后调用 */
+    private var pendingCameraCallback: GeckoSession.PermissionDelegate.Callback? = null
+
+    /**
+     * 处理运行时权限请求结果（由 Activity 转发）
+     */
+    fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+        if (requestCode == CAMERA_PERMISSION_REQUEST_CODE) {
+            val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+            val cb = pendingCameraCallback
+            pendingCameraCallback = null
+            if (granted) {
+                Logger.d(TAG, "CAMERA permission granted by user")
+                cb?.grant()
+            } else {
+                Logger.w(TAG, "CAMERA permission denied by user")
+                cb?.reject()
+            }
+        }
+    }
+
     /**
      * 设置权限代理
      *
@@ -233,10 +259,19 @@ class GeckoViewDelegateHandler(
                     callback.grant()
                     return
                 }
-                // 允许摄像头权限（扫码功能）
+                // 摄像头权限：需要系统级运行时权限
                 if (permissions?.contains("android.permission.CAMERA") == true) {
-                    Logger.d(TAG, "Granting CAMERA permission")
-                    callback.grant()
+                    val activity = callbacks.getActivity()
+                    val granted = ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+                    if (granted) {
+                        Logger.d(TAG, "CAMERA permission already granted")
+                        callback.grant()
+                    } else {
+                        Logger.d(TAG, "Requesting CAMERA permission from system")
+                        // 先保存 callback，等权限回调后再 grant
+                        pendingCameraCallback = callback
+                        ActivityCompat.requestPermissions(activity, arrayOf(Manifest.permission.CAMERA), CAMERA_PERMISSION_REQUEST_CODE)
+                    }
                     return
                 }
                 // 其他权限默认拒绝
