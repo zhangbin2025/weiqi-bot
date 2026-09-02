@@ -233,6 +233,12 @@ class GeckoViewDelegateHandler(
                     callback.grant()
                     return
                 }
+                // 允许摄像头权限（扫码功能）
+                if (permissions?.contains("android.permission.CAMERA") == true) {
+                    Logger.d(TAG, "Granting CAMERA permission")
+                    callback.grant()
+                    return
+                }
                 // 其他权限默认拒绝
                 callback.reject()
             }
@@ -242,7 +248,7 @@ class GeckoViewDelegateHandler(
                 perm: GeckoSession.PermissionDelegate.ContentPermission
             ): GeckoResult<Int>? {
                 Logger.d(TAG, "Content permission request: ${perm.permission}")
-                // 敏感权限（地理位置等）默认拒绝，其他允许
+                // 敏感权限默认拒绝，其他（包括摄像头）允许
                 val denyPermissions = setOf(
                     org.mozilla.geckoview.GeckoSession.PermissionDelegate.PERMISSION_GEOLOCATION,
                     org.mozilla.geckoview.GeckoSession.PermissionDelegate.PERMISSION_MEDIA_KEY_SYSTEM_ACCESS,
@@ -261,7 +267,13 @@ class GeckoViewDelegateHandler(
                 audio: Array<GeckoSession.PermissionDelegate.MediaSource>?,
                 callback: GeckoSession.PermissionDelegate.MediaCallback
             ) {
-                callback.reject()
+                // 扫码功能需要摄像头：授予视频源，拒绝音频
+                if (video != null && video.isNotEmpty()) {
+                    Logger.d(TAG, "Granting camera (video) permission for getUserMedia")
+                    callback.grant(video[0], null)
+                } else {
+                    callback.reject()
+                }
             }
         }
     }

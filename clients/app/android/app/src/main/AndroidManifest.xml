@@ -9,6 +9,9 @@
     <!-- 剪贴板权限（GeckoView需要） -->
     <uses-permission android:name="android.permission.READ_CLIPBOARD" />
     
+    <!-- 摄像头权限（扫码功能） -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    
     <!-- 后台任务前台服务 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
