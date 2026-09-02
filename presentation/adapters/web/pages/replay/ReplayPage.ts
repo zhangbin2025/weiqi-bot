@@ -237,7 +237,7 @@ export class ReplayPage implements IPage {
   /**
    * 获取当前局面数据（供打印使用）
    */
-  getPrintData(): { stones: Array<{ x: number; y: number; color: 'black' | 'white' }>; lastMove: { x: number; y: number; color: 'black' | 'white' } | undefined; blackName: string; whiteName: string; moveNumber: number; turn: 'black' | 'white' } {
+  getPrintData(): { stones: Array<{ x: number; y: number; color: 'black' | 'white' }>; lastMove: { x: number; y: number; color: 'black' | 'white' } | undefined; blackName: string; whiteName: string; moveNumber: number; turn: 'black' | 'white'; size: number; viewBox?: { minX: number; minY: number; width: number; height: number } | undefined } {
     // 优先从 WebBoard 获取（显示层当前状态，包含 handicap stones）
     const boardStones = this.board.getStones();
     let stones: Array<{ x: number; y: number; color: 'black' | 'white' }>;
@@ -259,6 +259,7 @@ export class ReplayPage implements IPage {
     const replayData = this.state.get('replayData');
     const blackName = replayData?.black || '黑棋';
     const whiteName = replayData?.white || '白棋';
+    const boardSize = replayData?.board_size || 19;
     const moveNumber = this.state.getCurrentMoveNumber();
 
     // 获取最后一手
@@ -278,7 +279,31 @@ export class ReplayPage implements IPage {
     // 当前该谁下，直接从 game 状态获取
     const turn = this.game.getState().currentPlayer;
 
-    return { stones, lastMove, blackName, whiteName, moveNumber, turn };
+    // 计算棋子边界框（用于死活题局部打印）
+    let viewBox: { minX: number; minY: number; width: number; height: number } | undefined;
+    if (boardSize >= 13 && stones.length > 0) {
+      let minX = 19, maxX = 0, minY = 19, maxY = 0;
+      for (const s of stones) {
+        minX = Math.min(minX, s.x);
+        maxX = Math.max(maxX, s.x);
+        minY = Math.min(minY, s.y);
+        maxY = Math.max(maxY, s.y);
+      }
+      // 上下左右各留 1-2 行余量
+      const margin = 2;
+      minX = Math.max(0, minX - margin);
+      minY = Math.max(0, minY - margin);
+      maxX = Math.min(boardSize - 1, maxX + margin);
+      maxY = Math.min(boardSize - 1, maxY + margin);
+      // 只有当局部区域明显小于全盘时才裁剪
+      const w = maxX - minX + 1;
+      const h = maxY - minY + 1;
+      if (w < boardSize - 2 && h < boardSize - 2) {
+        viewBox = { minX, minY, width: w, height: h };
+      }
+    }
+
+    return { stones, lastMove, blackName, whiteName, moveNumber, turn, size: boardSize, viewBox };
   }
 
   render(): void {

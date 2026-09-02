@@ -14,6 +14,8 @@ interface PrintPosition {
   whiteName: string;
   moveNumber: number;
   turn: 'black' | 'white';
+  size?: number;
+  viewBox?: { minX: number; minY: number; width: number; height: number };
 }
 
 declare global {
@@ -104,6 +106,8 @@ function renderGrid(data: PrintPosition, rows: number, cols: number): void {
 
     BoardCanvasRenderer.render(canvas, data.stones, {
       lastMove: data.lastMove,
+      size: data.size,
+      viewBox: data.viewBox,
     });
 
     card.appendChild(canvas);
