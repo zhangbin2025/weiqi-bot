@@ -29,6 +29,17 @@ async function main() {
 
   await page.initialize();
 
+  // 监听打印事件
+  window.addEventListener('printPosition', () => {
+    const printData = page.getPrintData();
+    if (printData.stones.length === 0) {
+      alert('当前没有棋盘数据');
+      return;
+    }
+    sessionStorage.setItem('replay-print-data', JSON.stringify(printData));
+    window.location.href = './print-preview.html';
+  });
+
   // 从 URL 参数加载数据
   const params = new URLSearchParams(window.location.search);
   
@@ -73,16 +84,5 @@ async function main() {
     }
   }
 }
-
-// 监听打印事件
-window.addEventListener('printPosition', () => {
-  const printData = page.getPrintData();
-  if (printData.stones.length === 0) {
-    alert('当前没有棋盘数据');
-    return;
-  }
-  sessionStorage.setItem('replay-print-data', JSON.stringify(printData));
-  window.location.href = './print-preview.html';
-});
 
 main().catch(console.error);
