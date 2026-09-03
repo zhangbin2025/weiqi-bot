@@ -270,6 +270,7 @@ export class FetcherRenderer {
    */
   showLatestLoading(show: boolean): void {
     if (show) {
+      this.latestCard.setVisible(true);
       this.latestCard.setTitle('⏳ 加载中...');
       this.latestCard.setContent('<div style="text-align:center;padding:30px;"><div style="width:30px;height:30px;border:3px solid #e0e0e0;border-top-color:#667eea;border-radius:50%;margin:0 auto 8px;animation:fetcher-spin 1s linear infinite;"></div><p style="color:#888;font-size:0.9em;">正在获取棋谱列表...</p></div>');
       this.latestCard.render();
