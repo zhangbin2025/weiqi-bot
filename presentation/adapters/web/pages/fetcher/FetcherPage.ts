@@ -239,16 +239,16 @@ export class FetcherPage implements IPage {
     try {
       const items = await this.fetcherApp.fetchLatestGames(source, count);
       this.renderer.showLatestLoading(false);
+      // 先恢复选中状态，再渲染列表（渲染时根据选中URL高亮）
+      try {
+        const selectedUrl = sessionStorage.getItem('fetcher_latest_selected');
+        this.renderer.setSelectedLatestUrl(selectedUrl);
+      } catch { /* ignore */ }
       this.renderer.renderLatestGames(items);
       // 缓存到 sessionStorage，页面返回时恢复
       try {
         sessionStorage.setItem('fetcher_latest_items', JSON.stringify(items));
         sessionStorage.setItem('fetcher_latest_source', source);
-      } catch { /* ignore */ }
-      // 恢复选中状态
-      try {
-        const selectedUrl = sessionStorage.getItem('fetcher_latest_selected');
-        this.renderer.setSelectedLatestUrl(selectedUrl);
       } catch { /* ignore */ }
     } catch (error) {
       this.renderer.showLatestLoading(false);
