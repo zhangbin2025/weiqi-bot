@@ -265,7 +265,7 @@ export class ReplayPageUI {
     table.className = 'variation-table';
     // 表头
     const thead = document.createElement('thead');
-    thead.innerHTML = '<tr><th style="width:32px">色</th><th>名称</th><th>说明</th></tr>';
+    thead.innerHTML = '<tr><th style="width:48px">行棋方</th><th>名称</th><th>说明</th></tr>';
     table.appendChild(thead);
     // 表体
     const tbody = document.createElement('tbody');
