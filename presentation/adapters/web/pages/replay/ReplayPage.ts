@@ -243,17 +243,13 @@ export class ReplayPage implements IPage {
 
   /**
    * 生成精简 SGF（供二维码用）
-   * 只包含根节点属性 + initial stones + 到当前 move 的着法序列
+   * 只包含棋盘大小 + initial stones + 到当前move的着法序列
    */
   getCompactSgf(): string | null {
     const replayData = this.state.get('replayData');
     if (!replayData) return null;
 
-    const size = replayData.board_size;
-    // 根节点属性
-    let sgf = "(;FF[4]GM[1]SZ[" + size + "]";
-    if (replayData.black) sgf += "PB[" + replayData.black + "]";
-    if (replayData.white) sgf += "PW[" + replayData.white + "]";
+    let sgf = "(;SZ[" + replayData.board_size + "]";
 
     // initial stones (AB/AW)
     const handicapStones = replayData.handicap_stones;
@@ -281,7 +277,6 @@ export class ReplayPage implements IPage {
         moves.push((node.color === 'B' ? ';B[' : ';W[') + node.coord + ']');
       }
     }
-    // displayIndex 继续往下走第一个子节点
     for (let i = 0; i < displayIndex && node.children && node.children.length > 0; i++) {
       node = node.children[0]!;
       if (node.color && node.coord) {
