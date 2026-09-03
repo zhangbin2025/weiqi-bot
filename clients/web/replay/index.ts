@@ -38,10 +38,9 @@ async function main() {
     }
     sessionStorage.setItem('replay-print-data', JSON.stringify(printData));
 
-    // 获取二维码内容：优先原始URL，没有则直接编码SGF内容
+    // 获取二维码内容：优先原始URL，没有则用精简SGF
     const params = new URLSearchParams(window.location.search);
     let qrContent: string | null = params.get('src');
-    // 其次从归档 metadata 查询原始链接
     if (!qrContent) {
       const archiveId = params.get('archiveId');
       if (archiveId) {
@@ -52,13 +51,12 @@ async function main() {
         }
       }
     }
-    // archive: 是内部格式，不可访问，丢弃
     if (qrContent && qrContent.startsWith('archive:')) {
       qrContent = null;
     }
-    // 没有原始链接，直接将 SGF 内容作为二维码内容
+    // 没有原始链接，用精简SGF（仅含initial stones + 到当前move的着法）
     if (!qrContent) {
-      qrContent = page.getSgfContent();
+      qrContent = page.getCompactSgf();
     }
     sessionStorage.setItem('replay-print-source-url', qrContent ?? '');
 

@@ -6,7 +6,7 @@
 import { MoveNavigator, VariationController, TrialController, CapturedController } from '../../../../core/controllers';
 import { WebBoard } from '../../components/Board';
 import { Game } from '../../../../../domain/game';
-import { coordToPos } from '../../../../../domain/sgf';
+import { coordToPos, posToCoord } from '../../../../../domain/sgf';
 import { BoardRebuilder } from '../../../../core/helpers/BoardRebuilder';
 import { BoardSyncer } from '../../../../core/helpers/BoardSyncer';
 import { ReplayPageState } from './state';
@@ -235,10 +235,64 @@ export class ReplayPage implements IPage {
     await this.replayApp.downloadSGF(sgfContent, gameName);
   }
   /**
-   * 获取当前 SGF 内容（供打印预览生成二维码用）
+   * 获取当前 SGF 内容（完整）
    */
   getSgfContent(): string | null {
     return this.state.get('sgfContent');
+  }
+
+  /**
+   * 生成精简 SGF（供二维码用）
+   * 只包含根节点属性 + initial stones + 到当前 move 的着法序列
+   */
+  getCompactSgf(): string | null {
+    const replayData = this.state.get('replayData');
+    if (!replayData) return null;
+
+    const size = replayData.board_size;
+    // 根节点属性
+    let sgf = "(;FF[4]GM[1]SZ[" + size + "]";
+    if (replayData.black) sgf += "PB[" + replayData.black + "]";
+    if (replayData.white) sgf += "PW[" + replayData.white + "]";
+
+    // initial stones (AB/AW)
+    const handicapStones = replayData.handicap_stones;
+    if (handicapStones && handicapStones.length > 0) {
+      const blackStones = handicapStones.filter(s => s.color === 'B');
+      const whiteStones = handicapStones.filter(s => s.color === 'W');
+      if (blackStones.length > 0) {
+        sgf += "AB" + blackStones.map(s => "[" + posToCoord(s.x, s.y) + "]").join("");
+      }
+      if (whiteStones.length > 0) {
+        sgf += "AW" + whiteStones.map(s => "[" + posToCoord(s.x, s.y) + "]").join("");
+      }
+    }
+
+    // 沿 currentPath + displayIndex 收集着法
+    const path = this.state.get('currentPath');
+    const displayIndex = this.state.get('displayIndex');
+    let node = replayData.tree;
+    const moves: string[] = [];
+
+    for (const index of path) {
+      if (!node.children || node.children.length <= index) break;
+      node = node.children[index]!;
+      if (node.color && node.coord) {
+        moves.push((node.color === 'B' ? ';B[' : ';W[') + node.coord + ']');
+      }
+    }
+    // displayIndex 继续往下走第一个子节点
+    for (let i = 0; i < displayIndex && node.children && node.children.length > 0; i++) {
+      node = node.children[0]!;
+      if (node.color && node.coord) {
+        moves.push((node.color === 'B' ? ';B[' : ';W[') + node.coord + ']');
+      }
+    }
+
+    sgf += moves.join('');
+    sgf += ')';
+
+    return sgf;
   }
 
   /**
