@@ -261,6 +261,7 @@ export class FetcherPage implements IPage {
    */
   private selectLatestGame(url: string): void {
     this.renderer.setSelectedLatestUrl(url);
+    this.renderer.rerenderLatest();
     try { sessionStorage.setItem('fetcher_latest_selected', url); } catch { /* ignore */ }
     this.renderer.switchToQueryTab();
     this.renderer.setInputValue(url);

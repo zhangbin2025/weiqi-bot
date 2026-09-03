@@ -34,6 +34,7 @@ export class FetcherRenderer {
   private overlay: IOverlay;
   private qrDialog: WebQRCodeDialog;
   private hasResult = false;
+  private _latestItems: LatestGameItem[] = [];
   private _selectedLatestUrl: string | null = null;
   private _currentResult: FetcherResult | undefined;
   constructor(
@@ -200,6 +201,15 @@ export class FetcherRenderer {
   }
 
   /**
+   * 用缓存数据重新渲染列表（高亮选中项）
+   */
+  rerenderLatest(): void {
+    if (this._latestItems.length > 0) {
+      this.renderLatestGames(this._latestItems);
+    }
+  }
+
+  /**
    * 绑定最新标签页的刷新按钮
    */
   bindLatestActions(): void {
@@ -243,6 +253,7 @@ export class FetcherRenderer {
       return;
     }
     this.latestCard.setVisible(true);
+    this._latestItems = items;
     const html = items.map(item => {
       const sourceLabel = item.source === 'foxwq' ? '🏆 野狐' : '📝 101围棋';
       const subtitle = item.subtitle
