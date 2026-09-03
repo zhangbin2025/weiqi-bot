@@ -25,6 +25,7 @@ declare global {
       height: number;
       colorDark: string;
       colorLight: string;
+      correctLevel?: number;
     }) => { makeCode(content: string): void; clear(): void };
   }
 }
@@ -63,6 +64,7 @@ function renderQRCode(url: string): void {
   const container = document.getElementById('qrContainer');
   if (!container) return;
 
+
   if (!window.QRCode) {
     console.error('QRCode library not loaded');
     container.style.display = 'none';
@@ -71,11 +73,17 @@ function renderQRCode(url: string): void {
 
   container.innerHTML = '';
   try {
+    // 纠错级别 M（15%），比默认 H（30%）能用更小的 QR 版本
+    // QRCode.CorrectLevel: L=1, M=0, Q=3, H=2
+    const correctLevel = window.QRCode.CorrectLevel
+      ? window.QRCode.CorrectLevel.M
+      : 0;
     const qr = new window.QRCode(container, {
-      width: 300,
-      height: 300,
+      width: 400,
+      height: 400,
       colorDark: '#000000',
       colorLight: '#ffffff',
+      correctLevel,
     });
     qr.makeCode(url);
   } catch (e) {

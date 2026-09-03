@@ -163,6 +163,24 @@ export class GameFetchHelper {
     };
   }
 
+  /**
+   * 清洗 URL，移除不影响页面加载的冗余参数
+   * 如 foxwq 分享链接的 title 参数含大量中文 URL 编码，严重膨胀 QR 码
+   */
+  private sanitizeUrl(url: string): string {
+    try {
+      const urlObj = new URL(url);
+      // title 参数仅用于页面显示标题，扫码访问棋谱不需要
+      if (urlObj.searchParams.has("title")) {
+        urlObj.searchParams.delete("title");
+        return urlObj.toString();
+      }
+    } catch {
+      // 非 URL 格式，原样返回
+    }
+    return url;
+  }
+
   private async archive(result: FetchResult): Promise<string> {
     const { historyStorage } = this.options;
     if (!historyStorage || !result.sgfContent) return "";
@@ -173,7 +191,7 @@ export class GameFetchHelper {
         type: "sgf",
         content: result.sgfContent,
         source: result.source,
-        metadata: { ...(result.metadata as unknown as Record<string, unknown>), url: result.url },
+        metadata: { ...(result.metadata as unknown as Record<string, unknown>), url: this.sanitizeUrl(result.url) },
       });
       return archiveResult.id;
     } catch {

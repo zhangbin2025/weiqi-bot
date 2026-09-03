@@ -38,11 +38,11 @@ async function main() {
     }
     sessionStorage.setItem('replay-print-data', JSON.stringify(printData));
 
-    // 获取原始棋谱链接，供打印预览生成二维码
+    // 获取棋谱来源链接，供打印预览生成二维码
     const params = new URLSearchParams(window.location.search);
     // 优先从 URL 参数 src 读取（fetcher 跳转时传入）
     let sourceUrl = params.get('src');
-    // 其次从归档 metadata 查询
+    // 其次从归档 metadata 查询原始链接
     if (!sourceUrl) {
       const archiveId = params.get('archiveId');
       if (archiveId) {
@@ -53,8 +53,16 @@ async function main() {
         }
       }
     }
-    // fallback: 没有原始链接就用当前 replay 页面 URL
-    sessionStorage.setItem('replay-print-source-url', sourceUrl ?? window.location.href);
+    // archive: 是内部格式（含完整SGF的base64），浏览器无法直接访问
+    // 此时改用当前 replay 页面 URL 作为扫码链接，确保扫码可在线查看
+    if (sourceUrl && sourceUrl.startsWith('archive:')) {
+      sourceUrl = null;
+    }
+    // fallback: 没有可访问的原始链接，用当前 replay 页面 URL
+    if (!sourceUrl) {
+      sourceUrl = window.location.href.split('#')[0];
+    }
+    sessionStorage.setItem('replay-print-source-url', sourceUrl);
 
     window.location.href = './print-preview.html';
   });
