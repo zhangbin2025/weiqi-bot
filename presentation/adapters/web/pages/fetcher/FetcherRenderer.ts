@@ -74,6 +74,16 @@ export class FetcherRenderer {
       this.latestPanel.setVisible(id === 'latest');
       this.bookmarkPanel.setVisible(id === 'bookmarks');
       this.resultCard.setVisible(id === 'query' && this.hasResult);
+      // 切到最新标签页时，滚动到选中条目
+      if (id === 'latest' && this._selectedLatestUrl) {
+        setTimeout(() => {
+          const el = this.latestCard.getContainer?.() as HTMLElement | undefined;
+          if (!el) return;
+          const sel = '[data-url="' + (this._selectedLatestUrl || '').replace(/"/g, '\\"') + '"]';
+          const target = el.querySelector(sel) as HTMLElement | null;
+          target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 50);
+      }
     });
     this.queryPanel.setTitle('📋 分享链接');
     this.input.setConfig({ type: 'textarea', placeholder: '支持：野狐、弈城、OGS、101围棋、弈客、元萝卜、腾讯围棋等平台...', clearable: true });

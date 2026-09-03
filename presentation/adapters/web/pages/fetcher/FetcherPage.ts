@@ -64,12 +64,6 @@ export class FetcherPage implements IPage {
           this.renderer.setSelectedLatestUrl(selectedUrl);
           this.renderer.renderLatestGames(items);
           // 滚动到选中条目
-          if (selectedUrl) {
-            setTimeout(() => {
-              const el = document.querySelector(`[data-url="${CSS.escape(selectedUrl)}"]`) as HTMLElement | null;
-              el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }, 100);
-          }
         }
       }
     } catch { /* ignore */ }
