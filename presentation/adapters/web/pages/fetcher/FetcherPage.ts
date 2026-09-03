@@ -54,6 +54,16 @@ export class FetcherPage implements IPage {
     this.renderer.bindLatestActions();
     await this.loadBookmarks();
     await this.checkClipboardForUrl();
+    // 恢复缓存的最新棋谱列表
+    try {
+      const cached = sessionStorage.getItem('fetcher_latest_items');
+      if (cached) {
+        const items = JSON.parse(cached);
+        if (Array.isArray(items) && items.length > 0) {
+          this.renderer.renderLatestGames(items);
+        }
+      }
+    } catch { /* ignore */ }
     this.initialized = true;
     console.info('FetcherPage initialized');
   }
@@ -221,6 +231,11 @@ export class FetcherPage implements IPage {
       const items = await this.fetcherApp.fetchLatestGames(source, count);
       this.renderer.showLatestLoading(false);
       this.renderer.renderLatestGames(items);
+      // 缓存到 sessionStorage，页面返回时恢复
+      try {
+        sessionStorage.setItem('fetcher_latest_items', JSON.stringify(items));
+        sessionStorage.setItem('fetcher_latest_source', source);
+      } catch { /* ignore */ }
     } catch (error) {
       this.renderer.showLatestLoading(false);
       console.error('[FetcherPage] fetchLatestGames failed:', error);

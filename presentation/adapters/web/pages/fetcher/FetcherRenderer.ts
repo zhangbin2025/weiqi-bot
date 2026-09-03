@@ -229,10 +229,11 @@ export class FetcherRenderer {
    */
   renderLatestGames(items: LatestGameItem[]): void {
     if (items.length === 0) {
-      this.latestCard.setContent('<div style="text-align:center;padding:40px 20px;color:#888;"><div style="font-size:3em;opacity:0.5;">📭</div><div>暂无数据</div></div>');
+      this.latestCard.setVisible(false);
       this.latestCard.render();
       return;
     }
+    this.latestCard.setVisible(true);
     const html = items.map(item => {
       const sourceLabel = item.source === 'foxwq' ? '🏆 野狐' : '📝 101围棋';
       const subtitle = item.subtitle
