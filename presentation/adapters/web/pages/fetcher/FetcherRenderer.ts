@@ -34,6 +34,7 @@ export class FetcherRenderer {
   private overlay: IOverlay;
   private qrDialog: WebQRCodeDialog;
   private hasResult = false;
+  private _selectedLatestUrl: string | null = null;
   private _currentResult: FetcherResult | undefined;
   constructor(
     private readonly cb: FetcherRendererCallbacks,
@@ -101,6 +102,7 @@ export class FetcherRenderer {
     });
     this.bookmarkPanel.setVisible(false);
     this.latestPanel.setVisible(false);
+    this.latestCard.setVisible(false);
     this.resultCard.setVisible(false);
     this.overlay.hide();
   }
@@ -191,6 +193,13 @@ export class FetcherRenderer {
     this.resultCard.render();
   }
   /**
+   * 设置当前选中的最新棋谱URL（用于高亮）
+   */
+  setSelectedLatestUrl(url: string | null): void {
+    this._selectedLatestUrl = url;
+  }
+
+  /**
    * 绑定最新标签页的刷新按钮
    */
   bindLatestActions(): void {
@@ -229,8 +238,8 @@ export class FetcherRenderer {
    */
   renderLatestGames(items: LatestGameItem[]): void {
     if (items.length === 0) {
+      this.latestCard.setContent('');
       this.latestCard.setVisible(false);
-      this.latestCard.render();
       return;
     }
     this.latestCard.setVisible(true);
@@ -239,7 +248,11 @@ export class FetcherRenderer {
       const subtitle = item.subtitle
         ? `<div style="font-size:0.85em;color:#666;margin-top:4px;">${item.subtitle}</div>`
         : '';
-      return `<div data-action="selectLatest" data-url="${item.url}" style="padding:10px 0;border-top:1px solid #eee;cursor:pointer;" onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background=''">
+      const isSelected = this._selectedLatestUrl === item.url;
+      const bg = isSelected ? '#eef2ff' : '';
+      const border = isSelected ? 'border-left:3px solid #667eea;padding-left:8px;' : '';
+      const hoverScript = isSelected ? '' : 'onmouseover="this.style.background=\'#f8f9fa\'" onmouseout="this.style.background=\'\'"';
+      return `<div data-action="selectLatest" data-url="${item.url}" style="padding:10px 0;border-top:1px solid #eee;cursor:pointer;background:${bg};${border}" ${hoverScript}>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
           <span style="font-size:0.8em;font-weight:500;color:#667eea;">${sourceLabel}</span>
           <span style="font-size:0.8em;color:#888;">${item.date}</span>

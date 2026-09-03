@@ -60,7 +60,16 @@ export class FetcherPage implements IPage {
       if (cached) {
         const items = JSON.parse(cached);
         if (Array.isArray(items) && items.length > 0) {
+          const selectedUrl = sessionStorage.getItem('fetcher_latest_selected');
+          this.renderer.setSelectedLatestUrl(selectedUrl);
           this.renderer.renderLatestGames(items);
+          // 滚动到选中条目
+          if (selectedUrl) {
+            setTimeout(() => {
+              const el = document.querySelector(`[data-url="${CSS.escape(selectedUrl)}"]`) as HTMLElement | null;
+              el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 100);
+          }
         }
       }
     } catch { /* ignore */ }
@@ -236,6 +245,11 @@ export class FetcherPage implements IPage {
         sessionStorage.setItem('fetcher_latest_items', JSON.stringify(items));
         sessionStorage.setItem('fetcher_latest_source', source);
       } catch { /* ignore */ }
+      // 恢复选中状态
+      try {
+        const selectedUrl = sessionStorage.getItem('fetcher_latest_selected');
+        this.renderer.setSelectedLatestUrl(selectedUrl);
+      } catch { /* ignore */ }
     } catch (error) {
       this.renderer.showLatestLoading(false);
       console.error('[FetcherPage] fetchLatestGames failed:', error);
@@ -246,6 +260,8 @@ export class FetcherPage implements IPage {
    * 选择最新列表中的棋谱，切换到抓取标签页
    */
   private selectLatestGame(url: string): void {
+    this.renderer.setSelectedLatestUrl(url);
+    try { sessionStorage.setItem('fetcher_latest_selected', url); } catch { /* ignore */ }
     this.renderer.switchToQueryTab();
     this.renderer.setInputValue(url);
     this.fetchByUrl(url);
