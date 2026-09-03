@@ -279,9 +279,12 @@ export class ReplayPage implements IPage {
     // 当前该谁下，直接从 game 状态获取
     const turn = this.game.getState().currentPlayer;
 
-    // 计算棋子边界框（用于死活题局部打印）
+    // 计算棋子边界框（仅用于死活题局部打印）
+    // 死活题判断：move=0（初始局面）且 SGF 有 initial stones（AB/AW）
+    // 定式、对局等其它场景保留整个棋盘
     let viewBox: { minX: number; minY: number; width: number; height: number } | undefined;
-    if (boardSize >= 13 && stones.length > 0) {
+    const isTsumego = moveNumber === 0 && !!(replayData?.handicap_stones && replayData.handicap_stones.length > 0);
+    if (isTsumego && boardSize >= 13 && stones.length > 0) {
       let minX = 19, maxX = 0, minY = 19, maxY = 0;
       for (const s of stones) {
         minX = Math.min(minX, s.x);
