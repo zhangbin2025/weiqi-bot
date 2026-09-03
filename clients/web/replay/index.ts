@@ -38,35 +38,29 @@ async function main() {
     }
     sessionStorage.setItem('replay-print-data', JSON.stringify(printData));
 
-    // 获取棋谱来源链接，供打印预览生成二维码
+    // 获取二维码内容：优先原始URL，没有则直接编码SGF内容
     const params = new URLSearchParams(window.location.search);
-    // 优先从 URL 参数 src 读取（fetcher 跳转时传入）
-    let sourceUrl = params.get('src');
+    let qrContent: string | null = params.get('src');
     // 其次从归档 metadata 查询原始链接
-    if (!sourceUrl) {
+    if (!qrContent) {
       const archiveId = params.get('archiveId');
       if (archiveId) {
         try {
-          sourceUrl = await replayApp.getArchiveUrl(archiveId);
+          qrContent = await replayApp.getArchiveUrl(archiveId);
         } catch (e) {
           console.warn('获取原始链接失败', e);
         }
       }
     }
-    // archive: 是内部格式，浏览器无法直接访问
-    if (sourceUrl && sourceUrl.startsWith('archive:')) {
-      sourceUrl = null;
+    // archive: 是内部格式，不可访问，丢弃
+    if (qrContent && qrContent.startsWith('archive:')) {
+      qrContent = null;
     }
-    // 没有原始链接，直接编码 SGF 内容
-    if (!sourceUrl) {
-      const sgfContent = page.getSgfContent();
-      if (sgfContent) {
-        const base64 = btoa(unescape(encodeURIComponent(sgfContent)));
-        sourceUrl = window.location.origin + window.location.pathname + '?sgf=' + base64;
-      }
+    // 没有原始链接，直接将 SGF 内容作为二维码内容
+    if (!qrContent) {
+      qrContent = page.getSgfContent();
     }
-    // 编码失败就不显示二维码
-    sessionStorage.setItem('replay-print-source-url', sourceUrl ?? '');
+    sessionStorage.setItem('replay-print-source-url', qrContent ?? '');
 
     window.location.href = './print-preview.html';
   });
