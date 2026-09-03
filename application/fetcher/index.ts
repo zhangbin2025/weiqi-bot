@@ -3,4 +3,4 @@
  * @module application/fetcher
  */
 export { FetcherApp } from './FetcherApp';
-export type { FetcherResult, FetcherBookmark, ShareResult } from './types';
+export type { FetcherResult, FetcherBookmark, ShareResult, LatestGameItem } from './types';

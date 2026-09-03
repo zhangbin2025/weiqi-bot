@@ -66,3 +66,17 @@ export interface ShareResult {
   /** 错误信息 */
   error?: string;
 }
+
+/** 最新棋谱列表项 */
+export interface LatestGameItem {
+  /** 来源标识 */
+  source: string;
+  /** 显示标题（如赛事名或题目标题） */
+  title: string;
+  /** 副标题（如级别、比赛轮次等） */
+  subtitle?: string;
+/** 日期 */
+  date: string;
+  /** 抓取URL */
+  url: string;
+}

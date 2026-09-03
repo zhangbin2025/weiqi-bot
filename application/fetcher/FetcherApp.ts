@@ -6,7 +6,7 @@ import type { IGameService, GameServiceResult } from '../../services/game';
 import type { IFavoriteService, IFavoriteItem } from '../../services/favorite';
 import type { IExportService, ExportResult } from '../../services/export';
 import type { IShareService } from '../../services/share';
-import type { FetcherResult, FetcherBookmark, ShareResult, FetcherFetchOptions } from './types';
+import type { FetcherResult, FetcherBookmark, ShareResult, FetcherFetchOptions, LatestGameItem } from './types';
 import { parseSGF, coordToPos } from '../../domain/sgf';
 /**
  * 棋谱下载应用编排器
@@ -70,6 +70,52 @@ export class FetcherApp {
     if (!shareUrl) return { success: false, error: '分享链接生成失败' };
     return { success: true, shareUrl };
   }
+
+  /**
+   * 获取最新棋谱列表
+   * @param source - 来源 ('foxwq' | 'weiqi101')
+   * @param count - 数量
+   * @returns 最新棋谱列表
+   */
+  async fetchLatestGames(source: string, count: number = 20): Promise<LatestGameItem[]> {
+    try {
+      if (source === 'foxwq') {
+        const foxwq = this.gameService as any;
+        const registry = foxwq?.registry;
+        if (!registry) return [];
+        const provider = registry.getFoxwqProvider?.();
+        if (!provider) return [];
+        const qipus = await provider.fetchPublicQipuList();
+        return qipus.slice(0, count).map((q: any) => ({
+          source: 'foxwq',
+          title: q.title,
+          date: q.date,
+          url: q.url,
+        }));
+      } else if (source === 'weiqi101') {
+        const foxwq = this.gameService as any;
+        const registry = foxwq?.registry;
+        if (!registry) return [];
+        // Get weiqi101 provider from registry
+        const providers = registry.getProviders?.();
+        const provider = providers?.get('weiqi101');
+        if (!provider || typeof (provider as any).fetchQdayList !== 'function') return [];
+        const items = await (provider as any).fetchQdayList(count);
+        return items.map((item: any) => ({
+          source: 'weiqi101',
+          title: item.title,
+          subtitle: item.subtitle,
+          date: item.date,
+          url: item.url,
+        }));
+      }
+      return [];
+    } catch (error) {
+      console.error('[FetcherApp] fetchLatestGames failed:', error);
+      return [];
+    }
+  }
+
   private transformResult(r: GameServiceResult): FetcherResult {
     const result: FetcherResult = {
       success: r.success, archiveId: r.archiveId, source: r.source, url: r.url,

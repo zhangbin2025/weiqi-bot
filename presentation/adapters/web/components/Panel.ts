@@ -79,7 +79,7 @@ export class WebPanel implements IPanel {
   }
   render(): void {
     if (!this.mounted && document.body && !document.body.contains(this.element)) {
-      document.body.appendChild(this.element);
+      (document.getElementById('page-root') ?? document.body).appendChild(this.element);
       this.mounted = true;
     }
     for (const child of this.children) {

@@ -41,4 +41,17 @@ export interface IWeiqi101Provider {
    * @returns 下载结果
    */
   fetchById(playId: string): Promise<FetchResult>;
+
+  /**
+   * 获取每日八题列表
+   * @param count - 最大数量
+   * @returns 题目列表
+   */
+  fetchQdayList(count?: number): Promise<Array<{
+    title: string;
+    subtitle: string;
+    date: string;
+    url: string;
+  }>>;
+
 }

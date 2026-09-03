@@ -2,8 +2,8 @@
  * 棋谱下载页面渲染器
  * @module presentation/pages/fetcher/FetcherRenderer
  */
-import type { ITabs, ICard, IInput, IButton, IPanel, IToast, IOverlay, IAdapterFactory } from '../../../../core/interfaces';
-import type { FetcherResult, FetcherBookmark, ShareResult } from '../../../../../application/fetcher';
+import type { ITabs, ICard, IInput, IButton, IPanel, IToast, IOverlay, ISelect, IAdapterFactory } from '../../../../core/interfaces';
+import type { FetcherResult, FetcherBookmark, ShareResult, LatestGameItem } from '../../../../../application/fetcher';
 import type { FetcherFormatter } from './FetcherFormatter';
 import { WebOverlay } from '../../components/Overlay';
 import { WebQRCodeDialog } from '../../components/QRCodeDialog';
@@ -15,6 +15,8 @@ export interface FetcherRendererCallbacks {
   onDownload: () => Promise<void>;
   onViewSGF: () => Promise<void>;
   onGenerateShareUrl: () => Promise<void>;
+  onFetchLatest: (source: string, count: number) => Promise<void>;
+  onSelectLatest: (url: string) => void;
 }
 export class FetcherRenderer {
   readonly tabs: ITabs;
@@ -25,6 +27,10 @@ export class FetcherRenderer {
   readonly bookmarkCard: ICard;
   readonly resultCard: ICard;
   readonly toast: IToast;
+  readonly latestPanel: IPanel;
+  readonly sourceSelect: ISelect;
+  readonly countSelect: ISelect;
+  readonly latestCard: ICard;
   private overlay: IOverlay;
   private qrDialog: WebQRCodeDialog;
   private hasResult = false;
@@ -44,16 +50,26 @@ export class FetcherRenderer {
     this.bookmarkCard = factory.createCard(rc);
     this.resultCard = factory.createCard(qc);
     this.toast = factory.createToast();
+    this.latestPanel = factory.createPanel();
+    const lc = this.latestPanel.asContainer();
+    this.sourceSelect = factory.createSelect(lc);
+    this.countSelect = factory.createSelect(lc);
+    this.latestCard = factory.createCard(lc);
     this.overlay = new WebOverlay();
     this.qrDialog = new WebQRCodeDialog({ title: '扫码下载棋谱', hint: '截图或长按二维码识别后即可下载SGF文件' });
   }
   initialize(): void {
     this.tabs.setConfig({
-      items: [{ id: 'query', label: '🔍 抓取' }, { id: 'bookmarks', label: '⭐ 收藏' }],
+      items: [
+        { id: 'query', label: '🔍 抓取' },
+        { id: 'latest', label: '📰 最新' },
+        { id: 'bookmarks', label: '⭐ 收藏' },
+      ],
       activeId: 'query',
     });
     this.tabs.onChange((id) => {
       this.queryPanel.setVisible(id === 'query');
+      this.latestPanel.setVisible(id === 'latest');
       this.bookmarkPanel.setVisible(id === 'bookmarks');
       this.resultCard.setVisible(id === 'query' && this.hasResult);
     });
@@ -65,7 +81,26 @@ export class FetcherRenderer {
     this.bookmarkPanel.setTitle('⭐ 我的收藏');
     if (this.bookmarkPanel.addAction) this.bookmarkPanel.addAction('🗑️ 清空', 'clearBookmarks');
     this.bookmarkPanel.onAction((action) => { if (action === 'clearBookmarks') this.cb.onClearBookmarks(); });
+    // 最新标签页
+    this.latestPanel.setTitle('📰 最新棋谱');
+    this.sourceSelect.setConfig({
+      options: [
+        { value: 'foxwq', label: '野狐围棋' },
+        { value: 'weiqi101', label: '101围棋' },
+      ],
+      value: 'foxwq',
+    });
+    this.countSelect.setConfig({
+      options: [
+        { value: '10', label: '10 盘' },
+        { value: '20', label: '20 盘' },
+        { value: '30', label: '30 盘' },
+        { value: '50', label: '50 盘' },
+      ],
+      value: '20',
+    });
     this.bookmarkPanel.setVisible(false);
+    this.latestPanel.setVisible(false);
     this.resultCard.setVisible(false);
     this.overlay.hide();
   }
@@ -88,6 +123,7 @@ export class FetcherRenderer {
   switchToQueryTab(): void {
     this.tabs.setActiveId('query');
     this.queryPanel.setVisible(true);
+    this.latestPanel.setVisible(false);
     this.bookmarkPanel.setVisible(false);
     this.resultCard.setVisible(this.hasResult);
   }
@@ -150,12 +186,88 @@ export class FetcherRenderer {
   render(): void {
     this.tabs.render();
     this.queryPanel.render();
+    this.latestPanel.render();
     this.bookmarkPanel.render();
     this.resultCard.render();
   }
+  /**
+   * 绑定最新标签页的刷新按钮
+   */
+  bindLatestActions(): void {
+    // 刷新按钮
+    if (this.latestPanel.addAction) {
+      this.latestPanel.addAction('🔄 刷新', 'refreshLatest');
+    }
+    this.latestPanel.onAction((action) => {
+      if (action === 'refreshLatest') {
+        const source = this.sourceSelect.getValue() || 'foxwq';
+        const count = parseInt(this.countSelect.getValue() || '20', 10);
+        this.cb.onFetchLatest(source, count);
+      }
+    });
+    // 下拉框变化时自动刷新
+    this.sourceSelect.onChange(() => {
+      const source = this.sourceSelect.getValue() || 'foxwq';
+      const count = parseInt(this.countSelect.getValue() || '20', 10);
+      this.cb.onFetchLatest(source, count);
+    });
+    this.countSelect.onChange(() => {
+      const source = this.sourceSelect.getValue() || 'foxwq';
+      const count = parseInt(this.countSelect.getValue() || '20', 10);
+      this.cb.onFetchLatest(source, count);
+    });
+    // 卡片点击
+    this.latestCard.onAction((action, data) => {
+      if (action === 'selectLatest' && data?.['url']) {
+        this.cb.onSelectLatest(data['url'] as string);
+      }
+    });
+  }
+
+  /**
+   * 渲染最新棋谱列表
+   */
+  renderLatestGames(items: LatestGameItem[]): void {
+    if (items.length === 0) {
+      this.latestCard.setContent('<div style="text-align:center;padding:40px 20px;color:#888;"><div style="font-size:3em;opacity:0.5;">📭</div><div>暂无数据</div></div>');
+      this.latestCard.render();
+      return;
+    }
+    const html = items.map(item => {
+      const sourceLabel = item.source === 'foxwq' ? '🏆 野狐' : '📝 101围棋';
+      const subtitle = item.subtitle
+        ? `<div style="font-size:0.85em;color:#666;margin-top:4px;">${item.subtitle}</div>`
+        : '';
+      return `<div data-action="selectLatest" data-url="${item.url}" style="padding:10px 0;border-top:1px solid #eee;cursor:pointer;" onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background=''">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+          <span style="font-size:0.8em;font-weight:500;color:#667eea;">${sourceLabel}</span>
+          <span style="font-size:0.8em;color:#888;">${item.date}</span>
+        </div>
+        <div style="font-weight:500;color:#333;font-size:0.95em;">${item.title}</div>
+        ${subtitle}
+      </div>`;
+    }).join('');
+    this.latestCard.setContent(html);
+    this.latestCard.render();
+  }
+
+  /**
+   * 显示最新列表加载状态
+   */
+  showLatestLoading(show: boolean): void {
+    if (show) {
+      this.latestCard.setTitle('⏳ 加载中...');
+      this.latestCard.setContent('<div style="text-align:center;padding:30px;"><div style="width:30px;height:30px;border:3px solid #e0e0e0;border-top-color:#667eea;border-radius:50%;margin:0 auto 8px;animation:fetcher-spin 1s linear infinite;"></div><p style="color:#888;font-size:0.9em;">正在获取棋谱列表...</p></div>');
+      this.latestCard.render();
+    } else {
+      this.latestCard.setTitle('📰 最新棋谱');
+    }
+  }
+
   destroy(): void {
     this.tabs.destroy();
     this.queryPanel.destroy();
+    this.latestPanel.destroy();
     this.bookmarkPanel.destroy();
     this.resultCard.destroy();
     this.toast.destroy();

@@ -42,6 +42,8 @@ export class FetcherPage implements IPage {
       onDownload: () => this.downloadSGF(),
       onViewSGF: () => this.viewSGF(),
       onGenerateShareUrl: () => this.generateShareUrl(),
+      onFetchLatest: (source, count) => this.fetchLatestGames(source, count),
+      onSelectLatest: (url) => this.selectLatestGame(url),
     };
     this.renderer = new FetcherRenderer(callbacks, config.adapterFactory, this.formatter);
   }
@@ -49,6 +51,7 @@ export class FetcherPage implements IPage {
     if (this.initialized) return;
     this.renderer.initialize();
     this.renderer.bindActions();
+    this.renderer.bindLatestActions();
     await this.loadBookmarks();
     await this.checkClipboardForUrl();
     this.initialized = true;
@@ -209,6 +212,30 @@ export class FetcherPage implements IPage {
       }
     }
   }
+  /**
+   * 获取最新棋谱列表
+   */
+  private async fetchLatestGames(source: string, count: number): Promise<void> {
+    this.renderer.showLatestLoading(true);
+    try {
+      const items = await this.fetcherApp.fetchLatestGames(source, count);
+      this.renderer.showLatestLoading(false);
+      this.renderer.renderLatestGames(items);
+    } catch (error) {
+      this.renderer.showLatestLoading(false);
+      console.error('[FetcherPage] fetchLatestGames failed:', error);
+    }
+  }
+
+  /**
+   * 选择最新列表中的棋谱，切换到抓取标签页
+   */
+  private selectLatestGame(url: string): void {
+    this.renderer.switchToQueryTab();
+    this.renderer.setInputValue(url);
+    this.fetchByUrl(url);
+  }
+
   private async downloadSGF(): Promise<void> {
     if (!this.currentResult?.archiveId) return;
     try {

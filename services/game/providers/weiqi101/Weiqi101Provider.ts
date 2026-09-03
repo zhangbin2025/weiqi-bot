@@ -268,4 +268,70 @@ export class Weiqi101Provider extends BaseProvider implements IWeiqi101Provider 
       metadata,
     };
   }
+
+  /**
+   * 获取每日八题列表
+   * 抓取 https://www.101weiqi.com/qday/ 页面，解析题目列表
+   */
+  async fetchQdayList(count?: number): Promise<Array<{
+    title: string;
+    subtitle: string;
+    date: string;
+    url: string;
+  }>> {
+    const maxCount = count ?? 20;
+    const results: Array<{
+      title: string;
+      subtitle: string;
+      date: string;
+      url: string;
+    }> = [];
+
+    try {
+      const response = await this.network.request<string>({
+        url: WEIQI101_BASE_URL + '/qday/',
+        method: 'GET',
+        responseType: 'text',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K)',
+          Accept: 'text/html,application/xhtml+xml',
+        },
+      });
+
+      const html = response.data;
+
+      // 按日期分块提取
+      // 实际结构: <div class="card my-md"> <div class="time flex">日期</div> <div class="cc ..."> <div class="qipan-thum">...</div> ...
+      const parts = html.split('<div class="card my-md">');
+      for (let i = 1; i < parts.length; i++) {
+        if (results.length >= maxCount) break;
+        const block = parts[i]!;
+
+        // 提取日期
+        const dateMatch = block.match(/<div class="time[^"]*">\s*([^<]+?)\s*<\/div>/);
+        const dateStr = dateMatch ? dateMatch[1]!.trim() : '';
+        if (!dateStr) continue;
+
+        // 提取每道题
+        const thumRegex = /<div class="qipan-thum">[\s\S]*?<a href="(\/qday\/[^"]+)"[^>]*>[\s\S]*?<div>([^<]+)<\/div>\s*<div>(Q-[^<]+)<\/div>/g;
+        let thumMatch;
+        while ((thumMatch = thumRegex.exec(block)) !== null) {
+          if (results.length >= maxCount) break;
+          const path = thumMatch[1]!;
+          const level = thumMatch[2]!.trim();
+          const qid = thumMatch[3]!.trim();
+          results.push({
+            title: qid,
+            subtitle: level,
+            date: dateStr,
+            url: WEIQI101_BASE_URL + path,
+          });
+        }
+      }
+    } catch (error) {
+      console.error('[Weiqi101Provider] fetchQdayList failed:', error);
+    }
+
+    return results;
+  }
 }
