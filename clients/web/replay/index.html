@@ -245,8 +245,13 @@
     
     .variation-panel { margin: 8px 0; padding: 10px; background: #f8f9fa; border-radius: 8px; display: none; }
     .variation-panel.visible { display: block; }
-    .variation-list { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
-    .btn-variation { width: auto; min-width: 60px; padding: 6px 10px; height: 32px; font-size: 13px; border-radius: 6px; background: #667eea; color: white; white-space: nowrap; display: flex; align-items: center; gap: 6px; border: none; cursor: pointer; }
+    /* 变化图表格 */
+    .variation-table-container { max-height: 200px; overflow-y: auto; border-radius: 6px; border: 1px solid #e0e0e0; -webkit-overflow-scrolling: touch; }
+    .variation-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .variation-table th { position: sticky; top: 0; background: #f0f0f5; padding: 6px 8px; text-align: left; font-weight: 600; color: #555; border-bottom: 1px solid #ddd; z-index: 1; }
+    .variation-table td { padding: 6px 8px; border-bottom: 1px solid #eee; cursor: pointer; }
+    .variation-table tr:hover td { background: #f5f8ff; }
+    .variation-table tr:last-child td { border-bottom: none; }
     .stone-icon { width: 16px; height: 16px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
     .stone-icon.black { background: radial-gradient(circle at 30% 30%, #666, #000); }
     .stone-icon.white { background: radial-gradient(circle at 30% 30%, #fff, #ccc); border: 1px solid #999; }

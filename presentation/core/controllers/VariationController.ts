@@ -8,6 +8,7 @@ export interface Variation {
   index: number;
   label: string;
   color: 'B' | 'W' | null;
+  comment?: string | undefined;
   properties?: {
     N?: string | undefined;  // 标签
     C?: string | undefined;  // 注释
@@ -54,6 +55,7 @@ export class VariationController {
         index: i,
         label,
         color: child!.color,
+        comment: this.extractComment(child!.properties as Variation['properties']),
         properties: child!.properties as Variation['properties'],
       });
     }
@@ -80,6 +82,13 @@ export class VariationController {
       return match[1] + ' ' + match[2] + '%';
     }
     return null;
+  }
+
+  /** 提取分支注释（去掉胜率标记后的纯文本） */
+  private extractComment(properties: Variation['properties']): string | undefined {
+    if (!properties?.C) return undefined;
+    const comment = properties.C.replace(/jueyi(黑|白)\d+\.?\d*%/, '').trim();
+    return comment || undefined;
   }
   /** 选择分支 */
   select(index: number): void {

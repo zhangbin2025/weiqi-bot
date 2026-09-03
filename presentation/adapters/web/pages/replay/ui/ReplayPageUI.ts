@@ -232,10 +232,10 @@ export class ReplayPageUI {
     }
   }
   /**
-   * 更新分支面板
+   * 更新分支面板（表格形式）
    */
   updateVariationPanel(onEnterVariation: (index: number) => void): void {
-    if (!this.variationPanel || !this.variationList) return;
+    if (!this.variationPanel) return;
     const inVariation = this.state.get('inVariation');
     // 分支模式下，隐藏变化图面板
     if (inVariation) {
@@ -258,22 +258,44 @@ export class ReplayPageUI {
       this.variationPanel.classList.remove('visible');
       return;
     }
-    this.variationList.innerHTML = '';
+    // 构建表格
+    const container = document.createElement('div');
+    container.className = 'variation-table-container';
+    const table = document.createElement('table');
+    table.className = 'variation-table';
+    // 表头
+    const thead = document.createElement('thead');
+    thead.innerHTML = '<tr><th style="width:32px">色</th><th>名称</th><th>说明</th></tr>';
+    table.appendChild(thead);
+    // 表体
+    const tbody = document.createElement('tbody');
     for (const v of variations) {
-      const btn = document.createElement('button');
-      btn.className = 'btn-variation';
-      // 添加棋子图标
+      const tr = document.createElement('tr');
+      tr.addEventListener('click', () => onEnterVariation(v.index));
+      // 棋子颜色
+      const tdColor = document.createElement('td');
       if (v.color === 'B' || v.color === 'W') {
         const icon = document.createElement('span');
         icon.className = `stone-icon ${v.color === 'B' ? 'black' : 'white'}`;
-        btn.appendChild(icon);
+        tdColor.appendChild(icon);
       }
-      const label = document.createElement('span');
-      label.textContent = v.label;
-      btn.appendChild(label);
-      btn.addEventListener('click', () => onEnterVariation(v.index));
-      this.variationList!.appendChild(btn);
+      // 名称
+      const tdName = document.createElement('td');
+      tdName.textContent = v.label;
+      // 说明
+      const tdComment = document.createElement('td');
+      tdComment.textContent = v.comment || '';
+      tdComment.style.color = '#888';
+      tr.appendChild(tdColor);
+      tr.appendChild(tdName);
+      tr.appendChild(tdComment);
+      tbody.appendChild(tr);
     }
+    table.appendChild(tbody);
+    container.appendChild(table);
+    // 替换面板内容
+    this.variationPanel.innerHTML = '';
+    this.variationPanel.appendChild(container);
     this.variationPanel.classList.add('visible');
   }
   /**
