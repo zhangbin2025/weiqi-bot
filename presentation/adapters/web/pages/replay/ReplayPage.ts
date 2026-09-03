@@ -235,6 +235,13 @@ export class ReplayPage implements IPage {
     await this.replayApp.downloadSGF(sgfContent, gameName);
   }
   /**
+   * 获取当前 SGF 内容（供打印预览生成二维码用）
+   */
+  getSgfContent(): string | null {
+    return this.state.get('sgfContent');
+  }
+
+  /**
    * 获取当前局面数据（供打印使用）
    */
   getPrintData(): { stones: Array<{ x: number; y: number; color: 'black' | 'white' }>; lastMove: { x: number; y: number; color: 'black' | 'white' } | undefined; blackName: string; whiteName: string; moveNumber: number; turn: 'black' | 'white'; size: number; viewBox?: { minX: number; minY: number; width: number; height: number } | undefined } {

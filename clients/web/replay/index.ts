@@ -54,11 +54,25 @@ async function main() {
       }
     }
     // archive: 是内部格式（含完整SGF的base64），浏览器无法直接访问
-    // 此时改用当前 replay 页面 URL 作为扫码链接，确保扫码可在线查看
     if (sourceUrl && sourceUrl.startsWith('archive:')) {
       sourceUrl = null;
     }
-    // fallback: 没有可访问的原始链接，用当前 replay 页面 URL
+    // fallback: 没有原始链接，用 SGF 内容生成可扫码的 replay URL
+    if (!sourceUrl) {
+      const sgfContent = page.getSgfContent();
+      if (sgfContent) {
+        // base64 编码 SGF，拼成 replay 页面可加载的 URL
+        const base64 = btoa(unescape(encodeURIComponent(sgfContent)));
+        const replayUrl = window.location.origin + window.location.pathname + '?sgf=' + base64;
+        // QR 码容量有限，超长 URL 无法生成有效二维码
+        if (replayUrl.length <= 800) {
+          sourceUrl = replayUrl;
+        } else {
+          console.warn('SGF too long for QR code, base64 length:', base64.length);
+        }
+      }
+    }
+    // 最终 fallback: 没有可用的 URL，用当前 replay 页面 URL
     if (!sourceUrl) {
       sourceUrl = window.location.href.split('#')[0];
     }
