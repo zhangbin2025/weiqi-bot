@@ -262,30 +262,43 @@ function gzipReadSync(filePath: string): string {
 
 interface JosekiDB {
   version: string;
-  createdAt: string;
-  updatedAt: string;
-  total: number;
-  sequences_used: number;
-  joseki: JosekiItem[];
+  joseki_list: JosekiItem[];
+  last_updated: string;
 }
 
 function loadOrCreateDb(): JosekiDB {
   if (fs.existsSync(DB_PATH)) {
-    try { return JSON.parse(fs.readFileSync(DB_PATH, 'utf-8')); } catch {}
+    try {
+      const data = fs.readFileSync(DB_PATH);
+      let jsonStr: string;
+      try {
+        jsonStr = zlib.gunzipSync(data).toString('utf-8');
+      } catch {
+        jsonStr = data.toString('utf-8');
+      }
+      const parsed = JSON.parse(jsonStr);
+      // 迁移旧格式：只保留 Python 版字段
+      const db: JosekiDB = {
+        version: '2.0.0',
+        joseki_list: parsed.joseki_list ?? parsed.joseki ?? [],
+        last_updated: parsed.last_updated ?? parsed.updatedAt ?? new Date().toISOString(),
+      };
+      return db;
+    } catch {}
   }
   return {
-    version: '1.0.0',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    total: 0,
-    sequences_used: 0,
-    joseki: [],
+    version: '2.0.0',
+    joseki_list: [],
+    last_updated: new Date().toISOString(),
   };
 }
 
 function saveDb(db: JosekiDB): void {
-  db.updatedAt = new Date().toISOString();
-  fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), 'utf-8');
+  db.last_updated = new Date().toISOString();
+  // 与 Python 一致：gzip 压缩存储
+  const jsonStr = JSON.stringify(db, null, 2);
+  const compressed = zlib.gzipSync(jsonStr, { encoding: 'utf-8' });
+  fs.writeFileSync(DB_PATH, compressed);
 }
 
 export interface AutoBuildResult {
@@ -294,6 +307,7 @@ export interface AutoBuildResult {
   totalGames: number;
   totalSequences: number;
   josekiCount: number;
+  sequencesUsed: number;
 }
 
 /** 执行 auto 模式三步流程 */
@@ -439,9 +453,9 @@ export function executeAutoBuild(
   );
 
   const db = loadOrCreateDb();
-  db.joseki = josekiList;
-  db.total = josekiList.length;
-  db.sequences_used = tempSequences;
+  db.joseki_list = josekiList;
+  // total 和 sequences_used 不再作为顶层字段（与 Python 一致）
+  
   saveDb(db);
 
   process.stderr.write('[auto] 保存到 ' + DB_PATH + '\n');
@@ -453,5 +467,6 @@ export function executeAutoBuild(
     totalGames,
     totalSequences,
     josekiCount: josekiList.length,
+    sequencesUsed: Math.floor(tempSequences / 2),
   };
 }

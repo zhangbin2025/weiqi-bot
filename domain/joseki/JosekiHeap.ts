@@ -94,7 +94,9 @@ export class MinHeap {
   }
 
   toArray(): HeapItem[] {
-    return [...this.heap].sort(HeapItem.compare).reverse();
+    // 与 Python 一致：直接输出堆数组，不排序
+    // Python heap 是 min-heap，遍历顺序即堆数组顺序
+    return [...this.heap];
   }
 
   private bubbleUp(i: number): void {

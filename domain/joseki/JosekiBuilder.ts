@@ -28,8 +28,8 @@ export interface JosekiItem {
   moves: string[];
   frequency: number;
   probability: number;
-  winrateStats?: Record<string, unknown>;
-  createdAt: string;
+  winrate_stats?: Record<string, unknown>;
+  created_at: string;
 }
 
 /** 构建配置 */
@@ -158,7 +158,8 @@ export class JosekiBuilder {
 
     // Phase 4: 排序和入库
     const candidates = heap.toArray();
-    const totalSeq = Math.max(totalSequences || this.sequences.length, 1);
+    // 与 Python 一致：total_sequences = temp_lines // 2
+    const totalSeq = Math.max(Math.floor((totalSequences || this.sequences.length) / 2), 1);
     const josekiList: JosekiItem[] = [];
 
     for (let i = 0; i < candidates.length; i++) {
@@ -171,10 +172,10 @@ export class JosekiBuilder {
         moves,
         frequency: item.count,
         probability: Math.round((item.count / totalSeq) * 1e6) / 1e6,
-        createdAt: new Date().toISOString(),
+        created_at: new Date().toISOString(),
       };
       const wr = item.getWinrateStats();
-      if (wr) joseki.winrateStats = wr;
+      if (wr) joseki.winrate_stats = wr;
       josekiList.push(joseki);
     }
     return josekiList;
