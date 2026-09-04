@@ -109,6 +109,6 @@ export class JosekiBuildService {
     firstColor: string;
   }): string {
     const wrStr = data.winrates.map((w) => w.toFixed(4)).join(" ");
-    return `ruld|${data.stdCoords.join(" ")}|${wrStr}|${data.firstColor}`;
+    return `std|${data.stdCoords.join(" ")}|${wrStr}|${data.firstColor}`;
   }
 }

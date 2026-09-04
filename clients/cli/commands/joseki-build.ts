@@ -1,24 +1,24 @@
 /**
- * joseki build 子命令 — 从 KataGo 构建定式库（完整实现，支持增量）
+ * joseki build 子命令 — 从 KataGo 棋谱构建定式库
  * @module clients/cli/commands/joseki-build
- * 
- * 目录结构（对齐 Python 版本）：
- * ~/.weiqi-joseki/
- * ├── katago-cache/        # tar 文件缓存
- * ├── auto/                # 状态目录
- * │   ├── state.json      # 配置
- * │   └── cms.json        # 最后处理日期
- * └── joseki.json         # 定式数据库
+ *
+ * 支持两种模式：
+ *   custom — 指定日期范围构建
+ *   auto   — 增量构建（三步流程：temp 提取 → CMS 持久化 → 重建）
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync } from 'child_process';
 import type { CliContext } from '../bootstrap';
 import type { CliResult } from '../utils';
-import { JosekiBuilder } from '../../../domain/joseki/JosekiBuilder.js';
+import { KatagoArchiveProvider } from '../../../services/game/providers/katago/KatagoArchiveProvider.js';
 import { SGFParser } from '../../../domain/sgf/SGFParser.js';
 import { CornerExtractor } from '../../../domain/joseki/CornerExtractor.js';
+import { JosekiBuilder, type JosekiItem } from '../../../domain/joseki/JosekiBuilder.js';
+import { convertToTopRight, normalizeCornerSequence } from '../../../domain/coordinate/CornerConverter.js';
+import type { CornerKey } from '../../../domain/coordinate/index.js';
+import type { ICornerSequence } from '../../../domain/joseki/ICornerSequence.js';
+import { executeAutoBuild } from './joseki-auto.js';
 
 const BUILD_HELP = `
 usage: joseki build [options]
@@ -43,7 +43,6 @@ common options:
   --first-n <N>              提取前N手（默认80）
   --min-moves <N>            最少手数（默认4）
   --max-moves <N>            最多手数（默认50）
-  --output <PATH>            数据库路径（默认 ~/.weiqi-joseki/joseki.json）
 
 examples:
   joseki build --mode custom --start-date 2024-01-01 --end-date 2024-01-31
@@ -62,12 +61,17 @@ interface BuildOptions {
   maxMoves: number;
   forceRebuild: boolean;
   limit?: number;
-  outputPath: string;
 }
 
-const WEIQI_JOSEKI_DIR = path.join(process.env.HOME || '/root', '.weiqi-joseki');
+const HOME = process.env.HOME || '/root';
+const WEIQI_JOSEKI_DIR = path.join(HOME, '.weiqi-joseki');
 const CACHE_DIR = path.join(WEIQI_JOSEKI_DIR, 'katago-cache');
-const AUTO_DIR = path.join(WEIQI_JOSEKI_DIR, 'auto');
+const DB_PATH = path.join(WEIQI_JOSEKI_DIR, 'database.json');
+
+const CORNERS: CornerKey[] = ['tl', 'tr', 'bl', 'br'];
+const VALID_FIRST_MOVES = new Set([
+  'pd', 'qc', 'pc', 'oe', 'oc', 'nc', 'od', 'nd', 'ne', 'me',
+]);
 
 interface JosekiDB {
   version: string;
@@ -75,308 +79,104 @@ interface JosekiDB {
   updatedAt: string;
   total: number;
   sequences_used: number;
-  joseki: any[];
+  joseki: JosekiItem[];
 }
 
-function extractSgfFromTarBz2(tarPath: string): string[] {
+/** 从 tar 提取 SGF（跨平台纯 TS） */
+function extractSgfFromTar(tarPath: string): string[] {
   try {
-    const cmd = 'tar -tjf "' + tarPath + '" 2>/dev/null | head -100';
-    const fileList = execSync(cmd, { encoding: 'utf-8' }).trim().split('\n');
-    const tmpDir = '/tmp/katago-sgf-' + Date.now();
-    fs.mkdirSync(tmpDir, { recursive: true });
-    execSync('tar -xjf "' + tarPath + '" -C "' + tmpDir + '"', { stdio: 'pipe' });
-    const sgfContents: string[] = [];
-    for (const file of fileList) {
-      if (file.endsWith('.sgf')) {
-        const sgfPath = path.join(tmpDir, file);
-        if (fs.existsSync(sgfPath)) {
-          try {
-            sgfContents.push(fs.readFileSync(sgfPath, 'utf-8'));
-          } catch {}
-        }
-      }
-    }
-    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
-    return sgfContents;
+    const data = fs.readFileSync(tarPath);
+    const entries = KatagoArchiveProvider.extractSgfFromTarBz2(new Uint8Array(data));
+    return entries.map(e => e.sgfContent);
   } catch { return []; }
 }
 
-function extractSequencesFromSgf(sgfContent: string, firstN: number): any[] {
+/** 从 SGF 提取四角序列 */
+function extractSequencesFromSgf(sgfContent: string, firstN: number): { stdCoords: string[]; winrates: number[]; firstColor: string }[] {
   try {
     const parser = new SGFParser();
     const result = parser.parse(sgfContent);
     if (!result.moves || result.moves.length === 0) return [];
+
     const extractor = new CornerExtractor();
     const rawMoves = result.moves.map(m => [m.color, m.coord] as [string, string]);
     const fourCorners = extractor.extractFourCorners(rawMoves, firstN);
-    const sequences: any[] = [];
-    for (const cornerSeq of Object.values(fourCorners)) {
-      if (cornerSeq && (cornerSeq as any).moves && (cornerSeq as any).moves.length >= 4) {
-        sequences.push({
-          moves: (cornerSeq as any).moves.map((m: any) => m.coord),
-          winrates: new Array((cornerSeq as any).moves.length).fill(0.5),
-        });
-      }
+
+    const sequences: { stdCoords: string[]; winrates: number[]; firstColor: string }[] = [];
+    for (const ck of CORNERS) {
+      const cornerSeq: ICornerSequence | undefined = fourCorners[ck];
+      if (!cornerSeq || cornerSeq.moves.length < 4) continue;
+
+      const coords = cornerSeq.moves.map(m => m.coord);
+      const trMoves = convertToTopRight(coords, ck);
+      const { normalized } = normalizeCornerSequence(trMoves);
+      if (!normalized || normalized.length < 4) continue;
+      if (!VALID_FIRST_MOVES.has(normalized[0]!)) continue;
+
+      sequences.push({
+        stdCoords: normalized,
+        winrates: new Array(cornerSeq.moves.length).fill(0.5),
+        firstColor: cornerSeq.moves[0]?.color ?? 'B',
+      });
     }
     return sequences;
   } catch { return []; }
 }
 
-function loadOrCreateDb(dbPath: string): JosekiDB {
-  if (fs.existsSync(dbPath)) {
-    try { return JSON.parse(fs.readFileSync(dbPath, 'utf-8')); } catch {}
+function loadOrCreateDb(): JosekiDB {
+  if (fs.existsSync(DB_PATH)) {
+    try { return JSON.parse(fs.readFileSync(DB_PATH, 'utf-8')); } catch {}
   }
-  return {
-    version: '1.0.0',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    total: 0,
-    sequences_used: 0,
-    joseki: [],
-  };
+  return { version: '1.0.0', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), total: 0, sequences_used: 0, joseki: [] };
 }
 
-function saveDb(dbPath: string, db: JosekiDB): void {
-  const dir = path.dirname(dbPath);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+function saveDb(db: JosekiDB): void {
   db.updatedAt = new Date().toISOString();
-  fs.writeFileSync(dbPath, JSON.stringify(db, null, 2), 'utf-8');
+  fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), 'utf-8');
 }
 
-async function executeAutoBuild(options: BuildOptions, ctx: CliContext): Promise<CliResult> {
-  // 强制重建
-  if (options.forceRebuild) {
-    process.stderr.write('[build] 强制重建，清除现有状态...\n');
-    if (fs.existsSync(AUTO_DIR)) {
-      try { fs.rmSync(AUTO_DIR, { recursive: true, force: true }); } catch {}
-    }
-    if (fs.existsSync(options.outputPath)) {
-      try { fs.unlinkSync(options.outputPath); } catch {}
-    }
-  }
-
-  // 确保目录存在
-  if (!fs.existsSync(CACHE_DIR)) {
-    return {
-      ok: false,
-      command: 'joseki-build',
-      error: '缓存目录不存在: ' + CACHE_DIR + '\n请先下载 KataGo 棋谱',
-    };
-  }
-
-  if (!fs.existsSync(AUTO_DIR)) {
-    fs.mkdirSync(AUTO_DIR, { recursive: true });
-  }
-
-  // 查找所有 tar 文件（按日期升序）
-  const allTarFiles = fs.readdirSync(CACHE_DIR)
-    .filter(f => f.endsWith('rating.tar.bz2'))
-    .sort();
-
-  if (allTarFiles.length === 0) {
-    return {
-      ok: false,
-      command: 'joseki-build',
-      error: '缓存目录中没有棋谱文件',
-    };
-  }
-
-  // 检查断点
-  const cmsPath = path.join(AUTO_DIR, 'cms.json');
-  let lastProcessedDate: string | null = null;
-  
-  if (fs.existsSync(cmsPath)) {
-    try {
-      const cmsData = JSON.parse(fs.readFileSync(cmsPath, 'utf-8'));
-      lastProcessedDate = cmsData.lastDate;
-      process.stderr.write('[build] 断点恢复：最后处理到 ' + lastProcessedDate + '\n');
-    } catch {}
-  } else {
-    process.stderr.write('[build] 全新构建\n');
-  }
-
-  // 过滤新文件
-  let filesToProcess = allTarFiles;
-  if (lastProcessedDate) {
-    filesToProcess = allTarFiles.filter(f => {
-      const date = f.replace('rating.tar.bz2', '');
-      return date > lastProcessedDate!;
-    });
-  }
-  
-  if (options.limit) {
-    filesToProcess = filesToProcess.slice(0, options.limit);
-  }
-
-  if (filesToProcess.length === 0) {
-    process.stderr.write('[build] 没有新棋谱需要处理\n');
-    return {
-      ok: true,
-      command: 'joseki-build',
-      data: {
-        message: '没有新棋谱需要处理',
-        totalFiles: allTarFiles.length,
-        processedFiles: 0,
-      },
-    };
-  }
-
-  process.stderr.write('[build] 需要处理 ' + filesToProcess.length + ' 个新文件\n');
-
-  const db = loadOrCreateDb(options.outputPath);
-  const builder = new JosekiBuilder({ cmsWidth: 10000, cmsDepth: 5 });
-
-  let totalGames = 0;
-  let totalSequences = 0;
-  const processedDates: string[] = [];
-
-  for (const tarFile of filesToProcess) {
-    const tarPath = path.join(CACHE_DIR, tarFile);
-    const date = tarFile.replace('rating.tar.bz2', '');
-    
-    process.stderr.write('[build] 处理 ' + date + '...\n');
-    
-    const sgfContents = extractSgfFromTarBz2(tarPath);
-    totalGames += sgfContents.length;
-    
-    for (const sgf of sgfContents) {
-      const sequences = extractSequencesFromSgf(sgf, options.firstN);
-      totalSequences += sequences.length;
-      for (const seq of sequences) {
-        builder.addSequence({
-          stdCoords: seq.moves,
-          winrates: seq.winrates,
-          firstColor: 'B',
-          direction: 'ruld',
-        });
-      }
-    }
-    
-    processedDates.push(date);
-    
-    // 批量保存
-    if (processedDates.length % 30 === 0) {
-      process.stderr.write('[build] 批量保存（每30天）...\n');
-      fs.writeFileSync(cmsPath, JSON.stringify({ lastDate: date }), 'utf-8');
-      const result = builder.build({
-        minFreq: options.minFreq,
-        topK: options.topK,
-        minMoves: options.minMoves,
-        maxMoves: options.maxMoves,
-      });
-      db.joseki = result;
-      db.total = result.length;
-      saveDb(options.outputPath, db);
-    }
-    
-    process.stderr.write('  ✅ ' + sgfContents.length + ' 谱, ' + totalSequences + ' 序列\n');
-  }
-
-  process.stderr.write('[build] 构建定式库...\n');
-  const finalResult = builder.build({
-    minFreq: options.minFreq,
-    topK: options.topK,
-    minMoves: options.minMoves,
-    maxMoves: options.maxMoves,
-  });
-
-  db.joseki = finalResult;
-  db.total = finalResult.length;
-  db.sequences_used = builder.getStats().sequenceCount;
-  saveDb(options.outputPath, db);
-  
-  fs.writeFileSync(cmsPath, JSON.stringify({ lastDate: processedDates[processedDates.length - 1] }), 'utf-8');
-  
-  process.stderr.write('[build] 保存到 ' + options.outputPath + '\n');
-
-  return {
-    ok: true,
-    command: 'joseki-build',
-    data: {
-      mode: 'auto',
-      totalFiles: allTarFiles.length,
-      processedFiles: filesToProcess.length,
-      totalGames,
-      totalSequences,
-      result: {
-        total: finalResult.length,
-        topJoseki: finalResult.slice(0, 10).map(j => ({
-          moves: j.moves,
-          frequency: j.frequency,
-        })),
-      },
-    },
-  };
-}
-
-async function executeCustomBuild(options: BuildOptions, ctx: CliContext): Promise<CliResult> {
+/** custom 模式 */
+function executeCustomBuild(options: BuildOptions): CliResult {
   if (!options.startDate || !options.endDate) {
-    return {
-      ok: false,
-      command: 'joseki-build',
-      error: 'custom 模式需要指定 --start-date 和 --end-date',
-    };
+    return { ok: false, command: 'joseki-build', error: 'custom 模式需要指定 --start-date 和 --end-date' };
   }
-
   if (!fs.existsSync(CACHE_DIR)) {
-    return {
-      ok: false,
-      command: 'joseki-build',
-      error: '缓存目录不存在: ' + CACHE_DIR,
-    };
+    return { ok: false, command: 'joseki-build', error: '缓存目录不存在: ' + CACHE_DIR };
   }
 
-  const allTarFiles = fs.readdirSync(CACHE_DIR)
-    .filter(f => f.endsWith('rating.tar.bz2'))
-    .sort();
-
+  const allTarFiles = fs.readdirSync(CACHE_DIR).filter(f => f.endsWith('rating.tar.bz2')).sort();
   const start = options.startDate.replace(/-/g, '');
   const end = options.endDate.replace(/-/g, '');
-  
   const selectedFiles = allTarFiles.filter(f => {
     const date = f.replace('rating.tar.bz2', '').replace(/-/g, '');
     return date >= start && date <= end;
   });
 
   if (selectedFiles.length === 0) {
-    return {
-      ok: true,
-      command: 'joseki-build',
-      data: {
-        message: '没有符合条件的棋谱文件',
-        totalFiles: allTarFiles.length,
-        selectedFiles: 0,
-      },
-    };
+    return { ok: true, command: 'joseki-build', data: { message: '没有符合条件的棋谱文件', totalFiles: allTarFiles.length, selectedFiles: 0 } };
   }
 
-  const builder = new JosekiBuilder({ cmsWidth: 10000, cmsDepth: 5 });
+  const builder = new JosekiBuilder({ cmsWidth: 4194304, cmsDepth: 4 });
   let totalGames = 0;
   let totalSequences = 0;
 
   for (const tarFile of selectedFiles) {
     const tarPath = path.join(CACHE_DIR, tarFile);
     const date = tarFile.replace('rating.tar.bz2', '');
-    
-    process.stderr.write('[build] 处理 ' + date + '...\n');
-    
-    const sgfContents = extractSgfFromTarBz2(tarPath);
+    process.stderr.write('[build] ' + date + '...');
+
+    const sgfContents = extractSgfFromTar(tarPath);
+    if (sgfContents.length === 0) { process.stderr.write(' 跳过(空)\n'); continue; }
     totalGames += sgfContents.length;
-    
+
     for (const sgf of sgfContents) {
       const sequences = extractSequencesFromSgf(sgf, options.firstN);
       totalSequences += sequences.length;
       for (const seq of sequences) {
-        builder.addSequence({
-          stdCoords: seq.moves,
-          winrates: seq.winrates,
-          firstColor: 'B',
-          direction: 'ruld',
-        });
+        builder.addSequence(seq);
       }
     }
-    
-    process.stderr.write('  ✅ ' + sgfContents.length + ' 谱, ' + totalSequences + ' 序列\n');
+    process.stderr.write(' ✅ ' + sgfContents.length + ' 谱\n');
   }
 
   process.stderr.write('[build] 构建定式库...\n');
@@ -387,14 +187,13 @@ async function executeCustomBuild(options: BuildOptions, ctx: CliContext): Promi
     maxMoves: options.maxMoves,
   });
 
-  const db = loadOrCreateDb(options.outputPath);
+  const db = loadOrCreateDb();
   db.joseki = result;
   db.total = result.length;
-  db.sequences_used = builder.getStats().sequenceCount;
-  saveDb(options.outputPath, db);
-  
-  process.stderr.write('[build] 保存到 ' + options.outputPath + '\n');
+  db.sequences_used = totalSequences;
+  saveDb(db);
 
+  process.stderr.write('[build] 保存到 ' + DB_PATH + '\n');
   return {
     ok: true,
     command: 'joseki-build',
@@ -404,23 +203,15 @@ async function executeCustomBuild(options: BuildOptions, ctx: CliContext): Promi
       selectedFiles: selectedFiles.length,
       totalGames,
       totalSequences,
-      result: {
-        total: result.length,
-        topJoseki: result.slice(0, 10).map(j => ({
-          moves: j.moves,
-          frequency: j.frequency,
-        })),
-      },
+      result: { total: result.length, topJoseki: result.slice(0, 10).map(j => ({ moves: j.moves, frequency: j.frequency })) },
     },
   };
 }
 
-export async function runJosekiBuildCommand(args: string[], ctx: CliContext): Promise<CliResult> {
+export async function runJosekiBuildCommand(args: string[], _ctx: CliContext): Promise<CliResult> {
   if (args.includes('--help') || args.includes('-h')) {
     return { ok: true, command: 'joseki-build-help', data: BUILD_HELP };
   }
-
-  const defaultOutputPath = path.join(WEIQI_JOSEKI_DIR, 'joseki.json');
 
   const options: BuildOptions = {
     mode: 'custom',
@@ -430,7 +221,6 @@ export async function runJosekiBuildCommand(args: string[], ctx: CliContext): Pr
     minMoves: 4,
     maxMoves: 50,
     forceRebuild: false,
-    outputPath: defaultOutputPath,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -456,14 +246,25 @@ export async function runJosekiBuildCommand(args: string[], ctx: CliContext): Pr
       options.forceRebuild = true;
     } else if (arg === '--limit' && args[i + 1]) {
       options.limit = parseInt(args[++i], 10);
-    } else if (arg === '--output' && args[i + 1]) {
-      options.outputPath = args[++i];
     }
   }
 
   if (options.mode === 'auto') {
-    return executeAutoBuild(options, ctx);
+    try {
+      const result = executeAutoBuild(options.forceRebuild, options.limit);
+      return {
+        ok: true,
+        command: 'joseki-build',
+        data: {
+          mode: 'auto',
+          ...result,
+          topJoseki: [],
+        },
+      };
+    } catch (e) {
+      return { ok: false, command: 'joseki-build', error: e instanceof Error ? e.message : String(e) };
+    }
   } else {
-    return executeCustomBuild(options, ctx);
+    return executeCustomBuild(options);
   }
 }
