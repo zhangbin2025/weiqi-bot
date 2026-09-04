@@ -1,5 +1,5 @@
 /**
- * joseki 命令 — 定式发现（从野狐公开棋谱）
+ * joseki 命令 — 定式发现与构建
  * @module clients/cli/commands/joseki
  */
 
@@ -10,26 +10,36 @@ import type { CliResult } from '../utils';
 import { TextBoardThumbnail } from '../../../presentation/adapters/cli/components/TextBoardThumbnail';
 import { Board } from '../../../domain/board/Board';
 import { SGFParser, coordToPos } from '../../../domain/sgf/SGFParser';
+import { runJosekiBuildCommand } from './joseki-build.js';
 
 const JOSEKI_HELP = `
-usage: joseki [options]
+usage: joseki <subcommand> [options]
+
+围棋定式工具集
+
+subcommands:
+  discover          从野狐公开棋谱发现定式
+  build             从 KataGo 棋谱构建定式库
+
+examples:
+  joseki discover --date 2026-07-28 --limit 20
+  joseki build --mode auto
+  joseki build --help
+`;
+
+const DISCOVER_HELP = `
+usage: joseki discover [options]
 
 从野狐公开棋谱发现定式
 
 options:
   --date <YYYY-MM-DD>  指定日期（默认昨天）
   --limit <N>          最多下载 N 盘棋（默认 50）
-  --format FORMAT      输出格式: json | text (default: json)
-  --debug              显示网络请求调试日志
-
-examples:
-  joseki
-  joseki --date 2026-07-28 --limit 20
 `;
 
-export async function runJosekiCommand(args: string[], ctx: CliContext): Promise<CliResult> {
+async function runJosekiDiscoverCommand(args: string[], ctx: CliContext): Promise<CliResult> {
   if (args.includes('--help') || args.includes('-h')) {
-    return { ok: true, command: 'joseki-help', data: JOSEKI_HELP };
+    return { ok: true, command: 'joseki-discover-help', data: DISCOVER_HELP };
   }
 
   let date: string | undefined;
@@ -40,7 +50,6 @@ export async function runJosekiCommand(args: string[], ctx: CliContext): Promise
     else if (args[i] === '--limit' && args[i + 1]) limit = parseInt(args[++i], 10);
   }
 
-  // date 参数暂未使用（listPublicGames 无日期过滤）
   if (!date) {
     const d = new Date();
     d.setDate(d.getDate() - 1);
@@ -52,11 +61,10 @@ export async function runJosekiCommand(args: string[], ctx: CliContext): Promise
       'foxwq',
       limit,
       (percent, status) => {
-        process.stderr.write(`[joseki] ${percent}% ${status}\n`);
+        process.stderr.write(`[joseki discover] ${percent}% ${status}\n`);
       },
     );
 
-    // 输出定式 SGF 到文件
     const josekiDir = path.join(ctx.dataDir, 'joseki');
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const outputPatterns: any[] = [];
@@ -76,7 +84,6 @@ export async function runJosekiCommand(args: string[], ctx: CliContext): Promise
         fs.writeFileSync(sgfPath, sgf, 'utf-8');
       }
 
-      // 生成缩略图
       let thumbnail = '';
       if (p.prefix) {
         try {
@@ -121,6 +128,28 @@ export async function runJosekiCommand(args: string[], ctx: CliContext): Promise
       },
     };
   } catch (e) {
-    return { ok: false, command: 'joseki', error: `定式发现失败: ${e instanceof Error ? e.message : String(e)}` };
+    return { ok: false, command: 'joseki-discover', error: '定式发现失败: ' + (e instanceof Error ? e.message : String(e)) };
   }
+}
+
+export async function runJosekiCommand(args: string[], ctx: CliContext): Promise<CliResult> {
+  // ✅ 修复：先检查是否有子命令，再处理 --help
+  const subcommand = args[0];
+  
+  // 如果第一个参数是已知子命令，则路由到子命令
+  if (subcommand === 'discover') {
+    return runJosekiDiscoverCommand(args.slice(1), ctx);
+  }
+  
+  if (subcommand === 'build') {
+    return runJosekiBuildCommand(args.slice(1), ctx);
+  }
+  
+  // 其他情况（--help, -h, 无参数）返回主帮助
+  if (args.includes('--help') || args.includes('-h') || args.length === 0) {
+    return { ok: true, command: 'joseki-help', data: JOSEKI_HELP };
+  }
+  
+  // 未知子命令
+  return { ok: false, command: 'joseki', error: '未知子命令: ' + subcommand + '\n' + JOSEKI_HELP };
 }
