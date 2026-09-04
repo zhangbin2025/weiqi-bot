@@ -74,6 +74,26 @@ const VALID_FIRST_MOVES = new Set([
   'pd', 'qc', 'pc', 'oe', 'oc', 'nc', 'od', 'nd', 'ne', 'me',
 ]);
 
+/** 检查指定角的9路范围内是否有棋子 */
+const CORNER_9LU_RANGES: Record<string, [number, number, number, number]> = {
+  tl: [0, 8, 0, 8],
+  tr: [10, 18, 0, 8],
+  bl: [0, 8, 10, 18],
+  br: [10, 18, 10, 18],
+};
+function hasStoneInCorner9lu(coords: string[], cornerKey: string): boolean {
+  const range = CORNER_9LU_RANGES[cornerKey];
+  if (!range) return false;
+  const [cmin, cmax, rmin, rmax] = range;
+  for (const c of coords) {
+    if (!c || c === 'tt' || c === 'pass' || c.length !== 2) continue;
+    const col = c.charCodeAt(0) - 97;
+    const row = c.charCodeAt(1) - 97;
+    if (col >= cmin && col <= cmax && row >= rmin && row <= rmax) return true;
+  }
+  return false;
+}
+
 /** 从主分支提取带胜率的着法 */
 interface MoveWithWinrate {
   color: string;
@@ -139,9 +159,10 @@ function extractSequencesFromSgf(sgfContent: string, firstN: number): { stdCoord
     const rawMoves = movesWithWr.map(m => [m.color, m.coord] as [string, string]);
     const fourCorners = extractor.extractFourCorners(rawMoves, firstN);
 
-    // 建立 (color, coord) → winrate 队列映射
+    // 建立 (color, coord) → winrate 队列映射（仅含有胜率的着法）
     const coordToWinrates = new Map<string, { blackWr?: number; whiteWr?: number }[]>();
     for (const m of movesWithWr) {
+      if (m.blackWr === undefined && m.whiteWr === undefined) continue;
       const key = m.color + '|' + m.coord;
       let list = coordToWinrates.get(key);
       if (!list) { list = []; coordToWinrates.set(key, list); }
@@ -154,6 +175,9 @@ function extractSequencesFromSgf(sgfContent: string, firstN: number): { stdCoord
       if (!cornerSeq || cornerSeq.moves.length < 4) continue;
 
       const coords = cornerSeq.moves.map(m => m.coord);
+      // 检查该角9路范围内是否有棋子
+      if (!hasStoneInCorner9lu(coords, ck)) continue;
+
       const trMoves = convertToTopRight(coords, ck);
       const { normalized } = normalizeCornerSequence(trMoves);
       if (!normalized || normalized.length < 4) continue;
@@ -161,7 +185,8 @@ function extractSequencesFromSgf(sgfContent: string, firstN: number): { stdCoord
 
       const firstColor = cornerSeq.moves[0]?.color ?? 'B';
 
-      // 关联胜率
+      // 关联胜率（统一为先手方视角）
+      // 对齐 Python: wr 为 None 时用 0.5 并更新 lastWr；tt 用 lastWr
       const winrates: number[] = [];
       let lastWr = 0.5;
       for (const move of cornerSeq.moves) {
@@ -172,13 +197,14 @@ function extractSequencesFromSgf(sgfContent: string, firstN: number): { stdCoord
         const key = move.color + '|' + move.coord;
         const wrList = coordToWinrates.get(key);
         const wr = wrList?.shift();
-        if (wr) {
-          const wrVal = firstColor === 'B' ? (wr.blackWr ?? 0.5) : (wr.whiteWr ?? 0.5);
-          lastWr = wrVal;
-          winrates.push(wrVal);
+        let wrVal: number;
+        if (wr && (wr.blackWr !== undefined || wr.whiteWr !== undefined)) {
+          wrVal = firstColor === 'B' ? (wr.blackWr ?? 0.5) : (wr.whiteWr ?? 0.5);
         } else {
-          winrates.push(lastWr);
+          wrVal = 0.5;
         }
+        lastWr = wrVal;
+        winrates.push(wrVal);
       }
 
       sequences.push({ stdCoords: normalized, winrates, firstColor });

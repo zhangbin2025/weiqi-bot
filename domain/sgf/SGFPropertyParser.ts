@@ -45,7 +45,8 @@ export function parsePropertiesAt(
         } else {
           // 首次出现该属性
           const val = values.length > 1 ? values : values[0];
-          if (val) props[name] = val;
+          // B/W 属性空值表示 Pass，需要保留
+          if (val || name === "B" || name === "W") props[name] = val ?? "";
         }
       } else {
         props[name] = '';

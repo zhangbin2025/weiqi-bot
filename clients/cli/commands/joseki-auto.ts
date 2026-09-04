@@ -158,21 +158,26 @@ function extractTempLines(sgfContent: string, firstN: number): string[] {
     const rawMoves = movesWithWr.map(m => [m.color, m.coord] as [string, string]);
     const fourCorners = extractor.extractFourCorners(rawMoves, firstN);
 
-    // 建立 (color, coord) → winrate 队列映射
+    // 建立 (color, coord) → winrate 队列映射（仅含有胜率的着法）
     const coordToWinrates = new Map<string, { blackWr?: number; whiteWr?: number }[]>();
     for (const m of movesWithWr) {
+      if (m.blackWr === undefined && m.whiteWr === undefined) continue;
       const key = m.color + '|' + m.coord;
       let list = coordToWinrates.get(key);
       if (!list) { list = []; coordToWinrates.set(key, list); }
       list.push({ blackWr: m.blackWr, whiteWr: m.whiteWr });
     }
 
+    const seenSequences = new Set<string>();
     const lines: string[] = [];
     for (const ck of CORNERS) {
       const cornerSeq: ICornerSequence | undefined = fourCorners[ck];
       if (!cornerSeq || cornerSeq.moves.length < 4) continue;
 
       const coords = cornerSeq.moves.map(m => m.coord);
+      // 检查该角9路范围内是否有棋子（对齐 Python has_stone_in_corner_9lu）
+      if (!hasStoneInCorner9lu(coords, ck)) continue;
+
       const trMoves = convertToTopRight(coords, ck);
       const { normalized } = normalizeCornerSequence(trMoves);
       if (!normalized || normalized.length < 4) continue;
@@ -181,6 +186,7 @@ function extractTempLines(sgfContent: string, firstN: number): string[] {
       const firstColor = cornerSeq.moves[0]?.color ?? 'B';
 
       // 关联胜率（统一为先手方视角）
+      // 对齐 Python: wr 为 None 时用 0.5 并更新 lastWr；tt 用 lastWr
       const winrates: number[] = [];
       let lastWr = 0.5;
       for (const move of cornerSeq.moves) {
@@ -192,13 +198,15 @@ function extractTempLines(sgfContent: string, firstN: number): string[] {
         const key = move.color + '|' + move.coord;
         const wrList = coordToWinrates.get(key);
         const wr = wrList?.shift();
-        if (wr) {
-          const wrVal = firstColor === 'B' ? (wr.blackWr ?? 0.5) : (wr.whiteWr ?? 0.5);
-          lastWr = wrVal;
-          winrates.push(wrVal);
+        let wrVal: number;
+        if (wr && (wr.blackWr !== undefined || wr.whiteWr !== undefined)) {
+          wrVal = firstColor === 'B' ? (wr.blackWr ?? 0.5) : (wr.whiteWr ?? 0.5);
         } else {
-          winrates.push(lastWr);
+          // 胜率数据不存在：用默认值 0.5
+          wrVal = 0.5;
         }
+        lastWr = wrVal; // 无论是否找到，都更新 lastWr
+        winrates.push(wrVal);
       }
 
       const line = JosekiBuildService.toTempLine({
@@ -206,6 +214,10 @@ function extractTempLines(sgfContent: string, firstN: number): string[] {
         winrates,
         firstColor,
       });
+      // 同一 SGF 内去重（按坐标序列，对齐 Python seen_sequences）
+      const seqKey = normalized.join(' ');
+      if (seenSequences.has(seqKey)) continue;
+      seenSequences.add(seqKey);
       lines.push(line);
     }
     return lines;
@@ -215,6 +227,26 @@ function extractTempLines(sgfContent: string, firstN: number): string[] {
 const VALID_FIRST_MOVES = new Set([
   'pd', 'qc', 'pc', 'oe', 'oc', 'nc', 'od', 'nd', 'ne', 'me',
 ]);
+
+/** 检查指定角的9路范围内是否有棋子（对齐 Python has_stone_in_corner_9lu） */
+const CORNER_9LU_RANGES: Record<string, [number, number, number, number]> = {
+  tl: [0, 8, 0, 8],
+  tr: [10, 18, 0, 8],
+  bl: [0, 8, 10, 18],
+  br: [10, 18, 10, 18],
+};
+function hasStoneInCorner9lu(coords: string[], cornerKey: string): boolean {
+  const range = CORNER_9LU_RANGES[cornerKey];
+  if (!range) return false;
+  const [cmin, cmax, rmin, rmax] = range;
+  for (const c of coords) {
+    if (!c || c === 'tt' || c === 'pass' || c.length !== 2) continue;
+    const col = c.charCodeAt(0) - 97;
+    const row = c.charCodeAt(1) - 97;
+    if (col >= cmin && col <= cmax && row >= rmin && row <= rmax) return true;
+  }
+  return false;
+}
 
 /** gzip 写入 */
 function gzipWriteSync(filePath: string, text: string): void {

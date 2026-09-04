@@ -192,7 +192,6 @@ export function shouldFallback(
     corePoints.push([Number(parts[0]), Number(parts[1])]);
   }
   const hull = convexHull(corePoints);
-  if (hull.length < 3) return false;
   for (const discPos of discardedPositions) {
     const parts = discPos.split(",");
     if (pointInPolygon([Number(parts[0]), Number(parts[1])], hull)) return true;
