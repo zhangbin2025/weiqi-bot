@@ -51,8 +51,9 @@ export class HeapItem {
       std = Math.sqrt(Math.max(0, variance));
     }
     return {
-      delta: Math.round(avg * 10000) / 10000,
-      stddev: Math.round(std * 10000) / 10000,
+      // 与 Python round(x, 4) 一致：银行家舍入（四舍六入五成双）
+      delta: Number(avg.toFixed(4)),
+      stddev: Number(std.toFixed(4)),
       samples: this.wrSamples,
       positive: this.wrPositiveCount,
       negative: this.wrNegativeCount,

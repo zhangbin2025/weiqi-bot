@@ -88,10 +88,10 @@ export class KatagoArchiveProvider {
     // 2. 解析 tar → 文件列表
     const files = parseTar(tarData);
 
-    // 3. 过滤 .sgf 文件，按文件名排序
+    // 3. 过滤 .sgf 文件（保持 tar 内原始顺序，与 Python 一致）
     const sgfFiles = files
       .filter(f => f.name.toLowerCase().endsWith('.sgf'))
-      .sort((a, b) => a.name.localeCompare(b.name));
+      
 
     // 4. 截取 limit
     const selected = limit ? sgfFiles.slice(0, limit) : sgfFiles;
