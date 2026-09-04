@@ -1,30 +1,56 @@
 /**
- * 定式发现器（纯逻辑）
- * @description 实现四角定式发现算法，支持动态加载子树
+ * 定式发现器
+ * 对应 Python: weiqi-joseki/src/discover/discoverer.py
+ *
+ * 实现四角定式发现算法，支持动态加载子树
  */
 
-import type { IJosekiTrie } from './JosekiTrie';
-import type { IDiscoveredPattern } from '../../services/joseki/discover/types';
-import type { RawMove } from './ICornerExtractor';
-import type { IJosekiLoader } from './IJosekiLoader';
-import { SGFParser } from '../sgf/SGFParser';
-import { CornerExtractor } from './CornerExtractor';
-import { JosekiMatcher } from './JosekiMatcher';
-import { convertToTopRight, normalizeCornerSequence } from '../coordinate/CornerConverter';
-import { exportTreeFromEndpoints } from './JosekiExporter';
+import type { IJosekiTrie } from "./JosekiTrie";
+import type { IDiscoveredPattern } from "../../services/joseki/discover/types";
+import type { RawMove } from "./ICornerExtractor";
+import type { IJosekiLoader } from "./IJosekiLoader";
+import { SGFParser } from "../sgf/SGFParser";
+import { CornerExtractor } from "./CornerExtractor";
+import { JosekiMatcher } from "./JosekiMatcher";
+import { convertToTopRight, normalizeCornerSequence } from "../coordinate/CornerConverter";
+import { exportTreeFromEndpoints } from "./JosekiExporter";
 
-/**
- * 发现选项
- */
+/** 发现选项 */
 export interface DiscoverOptions {
-  /** 前 N 手，默认 80 */
-  firstN: number;
-  /** 最小匹配长度，默认 4 */
-  minMatchLen: number;
-  /** 导出深度，默认 5 */
-  exportDepth: number;
-  /** 进度回调 */
-  onProgress?: ((percent: number, status: string, detail?: string) => void) | undefined;
+  firstN: number | undefined;
+  minMatchLen: number | undefined;
+  exportDepth: number | undefined;
+  onProgress: ((percent: number, status: string, detail?: string) => void) | undefined;
+}
+
+/** 默认选项 */
+const DEFAULT_OPTS: DiscoverOptions = {
+  firstN: 80,
+  minMatchLen: 4,
+  exportDepth: 5,
+  onProgress: undefined,
+};
+
+/** 9路范围配置 */
+const CORNER_9LU: Record<string, { colMin: number; colMax: number; rowMin: number; rowMax: number }> = {
+  tl: { colMin: 0, colMax: 8, rowMin: 0, rowMax: 8 },
+  tr: { colMin: 10, colMax: 18, rowMin: 0, rowMax: 8 },
+  bl: { colMin: 0, colMax: 8, rowMin: 10, rowMax: 18 },
+  br: { colMin: 10, colMax: 18, rowMin: 10, rowMax: 18 },
+};
+
+/** 检查指定角的9路范围内是否有棋子 */
+function hasStoneInCorner9lu(moves: string[], cornerKey: string): boolean {
+  const range = CORNER_9LU[cornerKey];
+  if (!range) return false;
+  for (const coord of moves) {
+    if (!coord || coord === "tt" || coord.length !== 2) continue;
+    const col = coord.charCodeAt(0) - 97;
+    const row = coord.charCodeAt(1) - 97;
+    if (col >= range.colMin && col <= range.colMax && row >= range.rowMin && row <= range.rowMax)
+      return true;
+  }
+  return false;
 }
 
 /**
@@ -37,11 +63,14 @@ export async function discover(
   options?: Partial<DiscoverOptions>
 ): Promise<IDiscoveredPattern[]> {
   const opts: DiscoverOptions = {
-    firstN: options?.firstN ?? 80,
-    minMatchLen: options?.minMatchLen ?? 4,
-    exportDepth: options?.exportDepth ?? 5,
-    onProgress: options?.onProgress,
+    firstN: options?.firstN ?? DEFAULT_OPTS.firstN!,
+    minMatchLen: options?.minMatchLen ?? DEFAULT_OPTS.minMatchLen!,
+    exportDepth: options?.exportDepth ?? DEFAULT_OPTS.exportDepth!,
+    onProgress: options?.onProgress ?? DEFAULT_OPTS.onProgress,
   };
+
+  const minMatchLen = opts.minMatchLen!;
+  const firstN = opts.firstN!;
 
   const parser = new SGFParser();
   const extractor = new CornerExtractor();
@@ -49,122 +78,95 @@ export async function discover(
   const allPatterns: IDiscoveredPattern[] = [];
 
   for (let i = 0; i < sgfList.length; i++) {
-    opts.onProgress?.(
-      Math.round((i / sgfList.length) * 100),
-      '分析棋谱',
-      `${i + 1}/${sgfList.length}`
-    );
+    opts.onProgress?.(Math.round((i / sgfList.length) * 100), "分析棋谱", `${i + 1}/${sgfList.length}`);
 
     const sgf = sgfList[i]!;
     const parsed = parser.parse(sgf);
-    const moves: RawMove[] = parsed.moves.slice(0, opts.firstN).map((m) => [m.color, m.coord]);
-    const gameInfo = extractGameInfo(parsed);
+    const moves: RawMove[] = parsed.moves.slice(0, firstN).map((m) => [m.color, m.coord] as RawMove);
+    const gameInfo = extractGameInfo(parsed, i);
 
-    // 提取四角
-    const corners = extractor.extractFourCorners(moves, opts.firstN);
+    const corners = extractor.extractFourCorners(moves, firstN);
 
-    // 对每个角进行匹配
-    for (const cornerKey of ['tl', 'tr', 'bl', 'br'] as const) {
+    for (const cornerKey of ["tl", "tr", "bl", "br"] as const) {
       const cornerMoves = corners[cornerKey];
-      if (!cornerMoves || cornerMoves.moves.length < opts.minMatchLen) continue;
+      if (!cornerMoves || cornerMoves.moves.length < minMatchLen) continue;
 
-      // 1. 转换到右上角
-      const trMoves = convertToTopRight(
-        cornerMoves.moves.map((m) => m.coord),
-        cornerKey
-      );
+      const coords = cornerMoves.moves.map((m) => m.coord);
 
-      // 2. 归一化
+      // 9路范围检查
+      if (!hasStoneInCorner9lu(coords, cornerKey)) continue;
+
+      // 转换到右上角 + 归一化
+      const trMoves = convertToTopRight(coords, cornerKey);
       const { normalized } = normalizeCornerSequence(trMoves);
 
-      // 3. 匹配定式（异步，支持动态加载）
+      // 匹配定式
       const result = await matcher.match(
-        normalized.map((c, i) => [i % 2 === 0 ? 'B' : 'W', c] as ['B' | 'W', string]),
+        normalized.map((c, idx) => [idx % 2 === 0 ? "B" : "W", c] as RawMove),
         trie
       );
 
-      if (result.matchedPath.length >= opts.minMatchLen) {
-        // 4. 收集所有定式终点（多分支）
-        const endpoints = await matcher.collectJosekiEndpoints(result.matchedPath, trie);
-        
-        // 如果没有找到任何定式终点，跳过
-        if (endpoints.length === 0) {
-          continue;
-        }
-        
-        // 5. 导出定式树 SGF（多分支，主分支使用整个角的着法序列）
-        const prefixStr = result.matchedPath.join(' ');
-        const treeSgf = exportTreeFromEndpoints(endpoints, normalized, prefixStr);
+      if (result.matchedPath.length < minMatchLen) continue;
 
-        // 使用 endpoints 的统计数据（频率、概率、胜率）
-        const totalFreq = endpoints.reduce((sum, e) => sum + e.freq, 0);
-        const avgProb = endpoints.reduce((sum, e) => sum + e.prob, 0) / endpoints.length;
-        
-        // 收集所有胜率数据
-        const winrateData = endpoints
-          .filter(e => e.winrate)
-          .map(e => e.winrate!);
-        
-        const pattern: IDiscoveredPattern = {
-          prefix: result.matchedPath.join(' '),
-          frequency: totalFreq,
-          prefixLen: result.matchedPath.length,
-          totalMoves: cornerMoves.moves.length,
-          sourceCorner: cornerKey,
-          probability: avgProb,
-          extractedMoves: treeSgf,
-          gameInfo: {
-            ...gameInfo,
-            sgfIndex: i,
-          },
-        };
+      // 收集定式终点
+      const endpoints = await matcher.collectJosekiEndpoints(result.matchedPath, trie);
+      if (endpoints.length === 0) continue;
 
-        // 计算平均胜率统计
-        if (winrateData.length > 0) {
-          const avgDelta = winrateData.reduce((sum, w) => sum + w.delta, 0) / winrateData.length;
-          const avgStddev = winrateData.filter(w => w.stddev !== undefined).length > 0
-            ? winrateData.filter(w => w.stddev !== undefined).reduce((sum, w) => sum + (w.stddev || 0), 0) / winrateData.filter(w => w.stddev !== undefined).length
-            : undefined;
-          const totalSamples = winrateData.reduce((sum, w) => sum + (w.samples || 0), 0);
-          const totalPositive = winrateData.reduce((sum, w) => sum + (w.positive || 0), 0);
-          const totalNegative = winrateData.reduce((sum, w) => sum + (w.negative || 0), 0);
-          const totalNeutral = winrateData.reduce((sum, w) => sum + (w.neutral || 0), 0);
-          
+      // 导出定式树 SGF
+      const prefixStr = result.matchedPath.join(" ");
+      const treeSgf = exportTreeFromEndpoints(endpoints, normalized, prefixStr);
+
+      // 统计数据
+      const totalFreq = endpoints.reduce((s, e) => s + e.freq, 0);
+      const avgProb = endpoints.reduce((s, e) => s + e.prob, 0) / endpoints.length;
+
+      const pattern: IDiscoveredPattern = {
+        prefix: result.matchedPath.join(" "),
+        frequency: totalFreq,
+        prefixLen: result.matchedPath.length,
+        totalMoves: cornerMoves.moves.length,
+        sourceCorner: cornerKey,
+        probability: avgProb,
+        extractedMoves: treeSgf,
+        gameInfo,
+      };
+
+      // 胜率统计
+      const wrData = endpoints.filter((e) => e.winrate).map((e) => e.winrate!);
+      if (wrData.length > 0) {
+        const avgDelta = wrData.reduce((s, w) => s + w.delta, 0) / wrData.length;
+        pattern.winrateDelta = avgDelta;
+        const totalSamples = wrData.reduce((s, w) => s + (w.samples ?? 0), 0);
+        if (totalSamples > 0) {
           pattern.winrateStats = {
             delta: avgDelta,
-            ...(avgStddev !== undefined && { stddev: avgStddev }),
-            ...(totalSamples > 0 && { samples: totalSamples, positive: totalPositive, negative: totalNegative, neutral: totalNeutral }),
+            stddev: wrData.reduce((s, w) => s + (w.stddev ?? 0), 0) / wrData.length,
+            samples: totalSamples,
+            positive: wrData.reduce((s, w) => s + (w.positive ?? 0), 0),
+            negative: wrData.reduce((s, w) => s + (w.negative ?? 0), 0),
+            neutral: wrData.reduce((s, w) => s + (w.neutral ?? 0), 0),
           };
-          pattern.winrateDelta = avgDelta;
         }
-
-        allPatterns.push(pattern);
       }
+      allPatterns.push(pattern);
     }
   }
 
-  opts.onProgress?.(100, '分析完成');
-
+  opts.onProgress?.(100, "分析完成");
   return allPatterns.sort((a, b) => {
-    // 首先按匹配长度降序
-    if (b.prefixLen !== a.prefixLen) {
-      return b.prefixLen - a.prefixLen;
-    }
-    // 相同长度，按频率降序
+    if (b.prefixLen !== a.prefixLen) return b.prefixLen - a.prefixLen;
     return b.frequency - a.frequency;
   });
 }
 
-/**
- * 从解析结果提取棋谱信息
- */
 function extractGameInfo(parsed: {
   gameInfo?: { black?: string; white?: string; date?: string };
-}): { black: string; white: string; date: string } {
+}, sgfIndex: number): { black: string; white: string; date: string; sgfIndex: number } {
   const info = parsed.gameInfo ?? {};
   return {
-    black: info.black ?? 'Unknown',
-    white: info.white ?? 'Unknown',
-    date: info.date ?? 'Unknown',
+    black: info.black ?? "Unknown",
+    white: info.white ?? "Unknown",
+    date: info.date ?? "Unknown",
+    sgfIndex,
   };
 }
