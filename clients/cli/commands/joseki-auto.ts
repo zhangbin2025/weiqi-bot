@@ -32,6 +32,7 @@ import { CountMinSketch } from '../../../utils/CMS.js';
 import { convertToTopRight, normalizeCornerSequence } from '../../../domain/coordinate/CornerConverter.js';
 import type { CornerKey } from '../../../domain/coordinate/index.js';
 import type { ICornerSequence } from '../../../domain/joseki/ICornerSequence.js';
+import type { ISGFNode } from '../../../domain/sgf/types.js';
 
 const HOME = process.env.HOME || '/root';
 const WEIQI_JOSEKI_DIR = path.join(HOME, '.weiqi-joseki');
@@ -98,6 +99,41 @@ function initState(forceRebuild: boolean): StateData {
   return state;
 }
 
+/** 从主分支提取带胜率的着法（对齐 Python extract_main_branch_with_winrate） */
+interface MoveWithWinrate {
+  color: string;
+  coord: string;
+  blackWr?: number;
+  whiteWr?: number;
+}
+
+function extractMainBranchWithWinrate(root: ISGFNode, firstN: number): MoveWithWinrate[] {
+  const moves: MoveWithWinrate[] = [];
+  let node: ISGFNode | undefined = root;
+
+  while (node && node.children.length > 0 && moves.length < firstN) {
+    node = node.children[0];
+    if (node && node.color) {
+      const coord = node.coord || 'tt';
+      // 从 C 属性解析胜率
+      let blackWr: number | undefined;
+      let whiteWr: number | undefined;
+      const cProp = node.properties['C'];
+      if (cProp !== undefined) {
+        const comment = Array.isArray(cProp) ? (cProp[0] ?? '') : String(cProp);
+        // KataGo Archive 格式: "0.51 0.49 0.00 0.6 v=600"
+        const m = comment.match(/^(\d+\.?\d*)\s+(\d+\.?\d*)/);
+        if (m && m[1] && m[2]) {
+          blackWr = parseFloat(m[1]);
+          whiteWr = parseFloat(m[2]);
+        }
+      }
+      moves.push({ color: node.color, coord, blackWr, whiteWr });
+    }
+  }
+  return moves;
+}
+
 /** 从 tar 文件提取 SGF（跨平台，纯 TS） */
 function extractSgfFromTar(tarPath: string): string[] {
   try {
@@ -107,16 +143,29 @@ function extractSgfFromTar(tarPath: string): string[] {
   } catch { return []; }
 }
 
-/** 从 SGF 提取四角序列并归一化，写入 temp 行 */
+/** 从 SGF 提取四角序列并归一化，写入 temp 行（含胜率） */
 function extractTempLines(sgfContent: string, firstN: number): string[] {
   try {
     const parser = new SGFParser();
     const result = parser.parse(sgfContent);
     if (!result.moves || result.moves.length === 0) return [];
 
+    // 从主分支提取带胜率的着法
+    const movesWithWr = extractMainBranchWithWinrate(result.tree, firstN);
+    if (movesWithWr.length === 0) return [];
+
     const extractor = new CornerExtractor();
-    const rawMoves = result.moves.map(m => [m.color, m.coord] as [string, string]);
+    const rawMoves = movesWithWr.map(m => [m.color, m.coord] as [string, string]);
     const fourCorners = extractor.extractFourCorners(rawMoves, firstN);
+
+    // 建立 (color, coord) → winrate 队列映射
+    const coordToWinrates = new Map<string, { blackWr?: number; whiteWr?: number }[]>();
+    for (const m of movesWithWr) {
+      const key = m.color + '|' + m.coord;
+      let list = coordToWinrates.get(key);
+      if (!list) { list = []; coordToWinrates.set(key, list); }
+      list.push({ blackWr: m.blackWr, whiteWr: m.whiteWr });
+    }
 
     const lines: string[] = [];
     for (const ck of CORNERS) {
@@ -130,7 +179,27 @@ function extractTempLines(sgfContent: string, firstN: number): string[] {
       if (!VALID_FIRST_MOVES.has(normalized[0]!)) continue;
 
       const firstColor = cornerSeq.moves[0]?.color ?? 'B';
-      const winrates = new Array(cornerSeq.moves.length).fill(0.5);
+
+      // 关联胜率（统一为先手方视角）
+      const winrates: number[] = [];
+      let lastWr = 0.5;
+      for (const move of cornerSeq.moves) {
+        if (move.coord === 'tt' || move.isPass) {
+          // 脱先：用前一手的胜率
+          winrates.push(lastWr);
+          continue;
+        }
+        const key = move.color + '|' + move.coord;
+        const wrList = coordToWinrates.get(key);
+        const wr = wrList?.shift();
+        if (wr) {
+          const wrVal = firstColor === 'B' ? (wr.blackWr ?? 0.5) : (wr.whiteWr ?? 0.5);
+          lastWr = wrVal;
+          winrates.push(wrVal);
+        } else {
+          winrates.push(lastWr);
+        }
+      }
 
       const line = JosekiBuildService.toTempLine({
         stdCoords: normalized,

@@ -39,4 +39,12 @@ export interface WinratePoint {
   winrate: number;
   /** 原始注释 */
   comment?: string;
+  /** 黑方胜率（0-1，KataGo Archive 格式） */
+  blackWr?: number;
+  /** 白方胜率（0-1，KataGo Archive 格式） */
+  whiteWr?: number;
+  /** 分差（KataGo Archive 格式） */
+  scoreMean?: number;
+  /** 访问量（KataGo Archive 格式） */
+  visits?: number;
 }

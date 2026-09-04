@@ -81,9 +81,30 @@ export function extractWinrates(tree: ISGFNode): WinratePoint[] {
 }
 
 /**
- * 解析胜率注释（野狐/KataGo/星阵格式）
+ * 解析胜率注释（野狐/KataGo/星阵/KataGo Archive 格式）
  */
 function parseWinrateComment(comment: string, moveNumber: number): WinratePoint | null {
+  // KataGo Archive 格式: "0.51 0.49 0.00 0.6 v=600"
+  // 格式: <black_wr> <white_wr> <scoreMean> <scoreStdev> v=<visits>
+  const katagoArchiveMatch = comment.match(/^(\d+\.?\d*)\s+(\d+\.?\d*)\s+([\-\d.]+)\s+([\-\d.]+)\s+v=(\d+)/);
+  if (katagoArchiveMatch && katagoArchiveMatch[1] && katagoArchiveMatch[2]) {
+    const blackWr = parseFloat(katagoArchiveMatch[1]);
+    const whiteWr = parseFloat(katagoArchiveMatch[2]);
+    const scoreMean = parseFloat(katagoArchiveMatch[3] ?? '0');
+    const visits = parseInt(katagoArchiveMatch[5] ?? '0', 10);
+    // winrate 字段存储黑方胜率（0-100 制，与现有约定一致）
+    return {
+      moveNumber,
+      color: 'black',
+      winrate: blackWr * 100,
+      comment,
+      blackWr,
+      whiteWr,
+      scoreMean,
+      visits,
+    };
+  }
+
   // 野狐格式: "黑65.3%" 或 "白48.2%"
   const foxwqMatch = comment.match(/([黑白])(\d+\.?\d*)%/);
   if (foxwqMatch && foxwqMatch[1] && foxwqMatch[2]) {
