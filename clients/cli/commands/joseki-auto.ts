@@ -383,7 +383,7 @@ export function executeAutoBuild(
       for (const line of lines) {
         const tempData = JosekiBuildService.parseTempLine(line);
         if (tempData) {
-          for (let len = 2; len <= tempData.coords.length; len++) {
+          for (let len = 4; len <= tempData.coords.length; len++) {
             cms.update(tempData.coords.slice(0, len).join(' '), 1);
           }
           totalSequences++;

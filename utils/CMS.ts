@@ -5,6 +5,8 @@
  * 使用 FNV-1a 哈希，支持序列化/反序列化
  */
 
+import * as crypto from "crypto";
+
 export interface CMSConfig {
   width: number;
   depth: number;
@@ -27,14 +29,11 @@ export class CountMinSketch {
     this.table = new Uint32Array(this.width * this.depth);
   }
 
-  /** FNV-1a 哈希（与 Python 版一致） */
+  /** MD5 哈希（与 Python 版 hashlib.md5 一致） */
   private hash(item: string, seed: number): number {
-    let h = 2166136261 ^ seed;
-    for (let i = 0; i < item.length; i++) {
-      h ^= item.charCodeAt(i);
-      h = Math.imul(h, 16777619) >>> 0;
-    }
-    return h % this.width;
+    const data = seed + ":" + item;
+    const buf = crypto.createHash("md5").update(data, "utf8").digest();
+    return buf.readUInt32LE(0) % this.width;
   }
 
   /** 更新元素计数 */
