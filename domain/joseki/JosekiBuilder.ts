@@ -130,10 +130,11 @@ export class JosekiBuilder {
         lastCount = estCount;
 
         if (seenHashes.has(prefixHash)) {
+          // 与 Python 一致：已入堆的项累积胜率后 break（不继续检查更短前缀）
           const item = seenHashes.get(prefixHash)!;
           if (winrates.length >= end)
             item.addWinrate(winrates[0] ?? 0.5, winrates[end - 1] ?? 0.5);
-          continue;
+          break;
         }
 
         if (heap.size < topK) {

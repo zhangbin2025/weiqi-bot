@@ -122,10 +122,14 @@ function extractMainBranchWithWinrate(root: ISGFNode, firstN: number): MoveWithW
       if (cProp !== undefined) {
         const comment = Array.isArray(cProp) ? (cProp[0] ?? '') : String(cProp);
         // KataGo Archive 格式: "0.51 0.49 0.00 0.6 v=600"
-        const m = comment.match(/^(\d+\.?\d*)\s+(\d+\.?\d*)/);
-        if (m && m[1] && m[2]) {
-          blackWr = parseFloat(m[1]);
-          whiteWr = parseFloat(m[2]);
+        const parts = comment.trim().split(/\s+/);
+        if (parts.length >= 5) {
+          blackWr = parseFloat(parts[0]);
+          whiteWr = parseFloat(parts[1]);
+          if (isNaN(blackWr) || isNaN(whiteWr)) {
+            blackWr = undefined;
+            whiteWr = undefined;
+          }
         }
       }
       moves.push({ color: node.color, coord, blackWr, whiteWr });
