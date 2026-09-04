@@ -21,7 +21,9 @@ export interface Weiqi101QuestionData {
   content: [string[], string[]]; // [黑子, 白子]
   answers: Array<{
     pts: Array<{ p: string }>;
-    st: number; // 0=失败, 1=变招, 2=正解
+    st: number; // 0=失败, 1=变招, 2=正解（答案结果状态）
+    ty: number; // 1=正解图, 2=变化图, 3=失败图（图的分类）
+    nu?: number; // 序号（全局排序）
     username?: string;
   }>;
   lu: number;
@@ -108,7 +110,14 @@ class Weiqi101Parser extends HtmlParserBase {
         qtypename: qqdata.qtypename || '死活题',
         blackfirst: qqdata.blackfirst ?? true,
         content: qqdata.content,
-        answers: qqdata.answers || [],
+        answers: (qqdata.answers || []).map((a: any) => ({
+          ...a,
+          st: a.st ?? 0,
+          ty: a.ty ?? 1,
+          nu: a.nu,
+          username: a.username,
+          pts: a.pts || [],
+        })),
         lu: qqdata.lu || 19,
         daotiemu: qqdata.daotiemu,
         rangzi: qqdata.rangzi,

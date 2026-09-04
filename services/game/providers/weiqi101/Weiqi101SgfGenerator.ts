@@ -87,14 +87,26 @@ export class Weiqi101SgfGenerator {
     whiteStones.forEach(pos => parts.push('AW[' + pos + ']'));
 
     // 答案分支（每个答案是一个分支）
-    const statusMap: Record<number, string> = { 0: '失败', 1: '变招', 2: '正解' };
+    // ty: 1=正解图, 2=变化图, 3=失败图（图的分类，决定分支名称）
+    // st: 0=失败, 1=变招, 2=正解（答案结果状态）
+    const typeMap: Record<number, string> = { 1: '正解图', 2: '变化图', 3: '失败图' };
 
-    // 按正解优先排序
-    const sortedAnswers = [...data.answers].sort((a, b) => b.st - a.st);
+    // 过滤待审核答案（st=1），只保留正式答案（st=2）
+    const filteredAnswers = data.answers.filter(a => a.st !== 1);
+
+    // 按类型排序：正解图 -> 变化图 -> 失败图，同类型按 nu 排序
+    const sortedAnswers = [...filteredAnswers].sort((a, b) => {
+      const typeOrder: Record<number, number> = { 1: 0, 2: 1, 3: 2 };
+      const ta = typeOrder[a.ty] ?? 99;
+      const tb = typeOrder[b.ty] ?? 99;
+      if (ta !== tb) return ta - tb;
+      return (a.nu ?? 0) - (b.nu ?? 0);
+    });
 
     sortedAnswers.forEach(answer => {
       parts.push('\n('); // 开始分支
-      parts.push('C[' + (statusMap[answer.st] || '未知') + (answer.username ? ' - ' + answer.username : '') + ']');
+      const typeName = typeMap[answer.ty] || '未知';
+      parts.push('C[' + typeName + (answer.username ? ' - ' + answer.username : '') + ']');
 
       // 着法序列
       answer.pts.forEach((move, i) => {
