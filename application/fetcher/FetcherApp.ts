@@ -77,15 +77,16 @@ export class FetcherApp {
    * @param count - 数量
    * @returns 最新棋谱列表
    */
-  async fetchLatestGames(source: string, count: number = 20): Promise<LatestGameItem[]> {
+  async fetchLatestGames(source: string, count: number = 20, keyword?: string): Promise<LatestGameItem[]> {
     try {
+      const kw = keyword?.trim() || '';
       if (source === 'foxwq') {
         const foxwq = this.gameService as any;
         const registry = foxwq?.registry;
         if (!registry) return [];
         const provider = registry.getFoxwqProvider?.();
         if (!provider) return [];
-        const qipus = await provider.fetchPublicQipuList();
+        const qipus = await provider.fetchPublicQipuList(undefined, kw || undefined, count);
         return qipus.slice(0, count).map((q: any) => ({
           source: 'foxwq',
           title: q.title,
@@ -100,7 +101,7 @@ export class FetcherApp {
         const providers = registry.getProviders?.();
         const provider = providers?.get('weiqi101');
         if (!provider || typeof (provider as any).fetchQdayList !== 'function') return [];
-        const items = await (provider as any).fetchQdayList(count);
+        const items = await (provider as any).fetchQdayList(count, kw || undefined);
         return items.map((item: any) => ({
           source: 'weiqi101',
           title: item.title,

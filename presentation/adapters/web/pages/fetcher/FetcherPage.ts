@@ -42,7 +42,7 @@ export class FetcherPage implements IPage {
       onDownload: () => this.downloadSGF(),
       onViewSGF: () => this.viewSGF(),
       onGenerateShareUrl: () => this.generateShareUrl(),
-      onFetchLatest: (source, count) => this.fetchLatestGames(source, count),
+      onFetchLatest: (source, count, keyword) => this.fetchLatestGames(source, count, keyword),
       onSelectLatest: (url) => this.selectLatestGame(url),
     };
     this.renderer = new FetcherRenderer(callbacks, config.adapterFactory, this.formatter);
@@ -228,10 +228,10 @@ export class FetcherPage implements IPage {
   /**
    * 获取最新棋谱列表
    */
-  private async fetchLatestGames(source: string, count: number): Promise<void> {
+  private async fetchLatestGames(source: string, count: number, keyword?: string): Promise<void> {
     this.renderer.showLatestLoading(true);
     try {
-      const items = await this.fetcherApp.fetchLatestGames(source, count);
+      const items = await this.fetcherApp.fetchLatestGames(source, count, keyword);
       this.renderer.showLatestLoading(false);
       // 先恢复选中状态，再渲染列表（渲染时根据选中URL高亮）
       try {

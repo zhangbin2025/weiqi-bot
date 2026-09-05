@@ -270,16 +270,20 @@ export class Weiqi101Provider extends BaseProvider implements IWeiqi101Provider 
   }
 
   /**
-   * 获取每日八题列表
+   * 获取每日八题列表（支持关键字过滤和翻页）
    * 抓取 https://www.101weiqi.com/qday/ 页面，解析题目列表
+   * 当指定关键字时，过滤匹配的题目（如难度级别），不足 count 时自动翻页
+   * @param count - 最大数量
+   * @param keyword - 可选关键字（如难度 "12K", "5D" 等）
    */
-  async fetchQdayList(count?: number): Promise<Array<{
+  async fetchQdayList(count?: number, keyword?: string): Promise<Array<{
     title: string;
     subtitle: string;
     date: string;
     url: string;
   }>> {
     const maxCount = count ?? 20;
+    const kw = keyword?.trim().toLowerCase() || '';
     const results: Array<{
       title: string;
       subtitle: string;
@@ -287,46 +291,72 @@ export class Weiqi101Provider extends BaseProvider implements IWeiqi101Provider 
       url: string;
     }> = [];
 
+    // 无关键字时只需抓第一页（通常一页有足够数量）
+    // 有关键字时需要翻页直到凑够 count
+    const maxPages = kw ? 50 : 1;
+
     try {
-      const response = await this.network.request<string>({
-        url: WEIQI101_BASE_URL + '/qday/',
-        method: 'GET',
-        responseType: 'text',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K)',
-          Accept: 'text/html,application/xhtml+xml',
-        },
-      });
-
-      const html = response.data;
-
-      // 按日期分块提取
-      // 实际结构: <div class="card my-md"> <div class="time flex">日期</div> <div class="cc ..."> <div class="qipan-thum">...</div> ...
-      const parts = html.split('<div class="card my-md">');
-      for (let i = 1; i < parts.length; i++) {
+      for (let page = 1; page <= maxPages; page++) {
         if (results.length >= maxCount) break;
-        const block = parts[i]!;
 
-        // 提取日期
-        const dateMatch = block.match(/<div class="time[^"]*">\s*([^<]+?)\s*<\/div>/);
-        const dateStr = dateMatch ? dateMatch[1]!.trim() : '';
-        if (!dateStr) continue;
+        const pageUrl = page === 1
+          ? WEIQI101_BASE_URL + '/qday/'
+          : WEIQI101_BASE_URL + '/qday/?page=' + page;
 
-        // 提取每道题
-        const thumRegex = /<div class="qipan-thum">[\s\S]*?<a href="(\/qday\/[^"]+)"[^>]*>[\s\S]*?<div>([^<]+)<\/div>\s*<div>(Q-[^<]+)<\/div>/g;
-        let thumMatch;
-        while ((thumMatch = thumRegex.exec(block)) !== null) {
+        const response = await this.network.request<string>({
+          url: pageUrl,
+          method: 'GET',
+          responseType: 'text',
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K)',
+            Accept: 'text/html,application/xhtml+xml',
+          },
+        });
+
+        const html = response.data;
+
+        // 按日期分块提取
+        const parts = html.split('<div class="card my-md">');
+        for (let i = 1; i < parts.length; i++) {
           if (results.length >= maxCount) break;
-          const path = thumMatch[1]!;
-          const level = thumMatch[2]!.trim();
-          const qid = thumMatch[3]!.trim();
-          results.push({
-            title: qid,
-            subtitle: level,
-            date: dateStr,
-            url: WEIQI101_BASE_URL + path,
-          });
+          const block = parts[i]!;
+
+          // 提取日期
+          const dateMatch = block.match(/<div class="time[^"]*">\s*([^<]+?)\s*<\/div>/);
+          const dateStr = dateMatch ? dateMatch[1]!.trim() : '';
+          if (!dateStr) continue;
+
+          // 提取每道题
+          const thumRegex = /<div class="qipan-thum">[\s\S]*?<a href="(\/qday\/[^"]+)"[^>]*>[\s\S]*?<div>([^<]+)<\/div>\s*<div>(Q-[^<]+)<\/div>/g;
+          let thumMatch;
+          while ((thumMatch = thumRegex.exec(block)) !== null) {
+            if (results.length >= maxCount) break;
+            const path = thumMatch[1]!;
+            const level = thumMatch[2]!.trim();
+            const qid = thumMatch[3]!.trim();
+
+            // 关键字过滤：匹配难度级别、题目ID或日期
+            if (kw) {
+              const matchLevel = level.toLowerCase().includes(kw);
+              const matchQid = qid.toLowerCase().includes(kw);
+              const matchDate = dateStr.toLowerCase().includes(kw);
+              if (!matchLevel && !matchQid && !matchDate) continue;
+            }
+
+            results.push({
+              title: qid,
+              subtitle: level,
+              date: dateStr,
+              url: WEIQI101_BASE_URL + path,
+            });
+          }
         }
+
+        // 检查是否有下一页
+        const pageMatch = html.match(/<div class="pagination"[^>]*x-data="Pagination\((\d+),\s*(\d+)\)"/);
+        const totalPages = pageMatch ? parseInt(pageMatch[1]!, 10) : 1;
+        const curPage = pageMatch ? parseInt(pageMatch[2]!, 10) : 1;
+        if (curPage >= totalPages) break;
       }
     } catch (error) {
       console.error('[Weiqi101Provider] fetchQdayList failed:', error);

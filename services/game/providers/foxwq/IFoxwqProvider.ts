@@ -53,11 +53,13 @@ export interface IFoxwqProvider {
   /**
    * 获取公开棋谱列表
    * @param date - 日期过滤（格式 'YYYY-MM-DD'，可选）
+   * @param keyword - 可选关键字过滤（棋手名、赛事名等）
+   * @param maxCount - 可选，最大获取数量
    * @returns 公开棋谱列表
    * @ai-example
    * const qipus = await provider.fetchPublicQipuList('2024-01-15');
    */
-  fetchPublicQipuList(date?: string): Promise<PublicQipu[]>;
+  fetchPublicQipuList(date?: string, keyword?: string, maxCount?: number): Promise<PublicQipu[]>;
 
   /**
    * 下载公开棋谱 SGF

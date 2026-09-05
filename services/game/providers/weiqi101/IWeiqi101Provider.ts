@@ -43,11 +43,12 @@ export interface IWeiqi101Provider {
   fetchById(playId: string): Promise<FetchResult>;
 
   /**
-   * 获取每日八题列表
+   * 获取每日八题列表（支持关键字过滤和翻页）
    * @param count - 最大数量
+   * @param keyword - 可选关键字过滤（如难度级别）
    * @returns 题目列表
    */
-  fetchQdayList(count?: number): Promise<Array<{
+  fetchQdayList(count?: number, keyword?: string): Promise<Array<{
     title: string;
     subtitle: string;
     date: string;

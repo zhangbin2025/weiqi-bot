@@ -23,16 +23,23 @@ export class FoxwqPublicProvider {
   }
 
   /**
-   * 获取公开棋谱列表（支持翻页）
+   * 获取公开棋谱列表（支持翻页和关键字过滤）
    * @param date - 可选，指定日期 'YYYY-MM-DD'，找到该日期最后一盘即停止
+   * @param keyword - 可选关键字过滤（棋手名、赛事名等）
+   * @param maxCount - 可选，最大获取数量（有关键字时控制翻页上限）
    */
-  async fetchPublicQipuList(date?: string): Promise<PublicQipu[]> {
+  async fetchPublicQipuList(date?: string, keyword?: string, maxCount?: number): Promise<PublicQipu[]> {
+    const kw = keyword?.trim().toLowerCase() || "";
+    const limit = maxCount ?? 0;
     const links: PublicQipu[] = [];
     let page = 1;
     let foundDate = false;
     let dateDisappeared = false;
 
     while (page <= MAX_PAGES) {
+      // 关键字过滤模式下，达到数量上限就停
+      if (kw && limit > 0 && links.length >= limit) break;
+
       const url =
         page === 1
           ? `${FOXWQ_PUBLIC_BASE}/qipu.html`
@@ -54,8 +61,8 @@ export class FoxwqPublicProvider {
         break;
       }
 
-      // 从当前页提取棋谱
-      const pageLinks = this.extractQipuFromHtml(html, date);
+      // 从当前页提取棋谱（带关键字过滤）
+      const pageLinks = this.extractQipuFromHtml(html, date, kw);
       links.push(...pageLinks);
 
       if (pageLinks.length > 0 && date) {
@@ -77,15 +84,11 @@ export class FoxwqPublicProvider {
    * 从 HTML 中提取棋谱链接
    * @param html - 页面 HTML
    * @param date - 可选，只保留该日期的棋谱
+   * @param keyword - 可选关键字（小写），过滤标题中包含该关键字的棋谱
    */
-  private extractQipuFromHtml(html: string, date?: string): PublicQipu[] {
+  private extractQipuFromHtml(html: string, date?: string, keyword?: string): PublicQipu[] {
     const links: PublicQipu[] = [];
-
-    // 新版H5分享链接格式：
-    // <h4 class="qipu-title">
-    //   <a href="https://h5.foxwq.com/yehunewshare/?chessid=xxx&title=xxx">标题</a>
-    // </h4>
-    // <td class="qipu-time text-right">2026-07-20 12:55</td>
+    const kw = keyword || "";
 
     // 匹配每个棋谱行的标题和链接
     const rowRegex = /<tr[^>]*>[\s\S]*?<\/tr>/gi;
@@ -102,14 +105,21 @@ export class FoxwqPublicProvider {
       if (!titleLinkMatch) continue;
 
       const linkUrl = titleLinkMatch[1]!;
-      const title = titleLinkMatch[2]!.trim();
+      const title = titleLinkMatch[2]!.trim()
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&amp;/g, "&")
+        .replace(/&quot;/g, '"');
 
-      // 提取日期（支持多个class，如 class="qipu-time text-right"）
+      // 提取日期
       const dateMatch = rowHtml.match(/<td[^>]*class="[^"]*qipu-time[^"]*"[^>]*>([^<]+)<\/td>/i);
       const qipuDate = dateMatch ? dateMatch[1]!.trim().substring(0, 10) : "";
 
       // 日期过滤
       if (date && qipuDate !== date) continue;
+
+      // 关键字过滤：标题中包含关键字（不区分大小写）
+      if (kw && !title.toLowerCase().includes(kw)) continue;
 
       links.push({
         title,

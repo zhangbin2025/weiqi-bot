@@ -15,7 +15,7 @@ export interface FetcherRendererCallbacks {
   onDownload: () => Promise<void>;
   onViewSGF: () => Promise<void>;
   onGenerateShareUrl: () => Promise<void>;
-  onFetchLatest: (source: string, count: number) => Promise<void>;
+  onFetchLatest: (source: string, count: number, keyword?: string) => Promise<void>;
   onSelectLatest: (url: string) => void;
 }
 export class FetcherRenderer {
@@ -30,6 +30,7 @@ export class FetcherRenderer {
   readonly latestPanel: IPanel;
   readonly sourceSelect: ISelect;
   readonly countSelect: ISelect;
+  readonly keywordInput: IInput;
   readonly latestCard: ICard;
   private overlay: IOverlay;
   private qrDialog: WebQRCodeDialog;
@@ -56,6 +57,7 @@ export class FetcherRenderer {
     const lc = this.latestPanel.asContainer();
     this.sourceSelect = factory.createSelect(lc);
     this.countSelect = factory.createSelect(lc);
+    this.keywordInput = factory.createInput(lc);
     this.latestCard = factory.createCard(lc);
     this.overlay = new WebOverlay();
     this.qrDialog = new WebQRCodeDialog({ title: '扫码下载棋谱', hint: '截图或长按二维码识别后即可下载SGF文件' });
@@ -110,6 +112,11 @@ export class FetcherRenderer {
         { value: '50', label: '50 盘' },
       ],
       value: '20',
+    });
+    this.keywordInput.setConfig({
+      type: 'text',
+      placeholder: '关键字过滤（棋手/赛事/难度等）',
+      clearable: true,
     });
     this.bookmarkPanel.setVisible(false);
     this.latestPanel.setVisible(false);
@@ -231,19 +238,29 @@ export class FetcherRenderer {
       if (action === 'refreshLatest') {
         const source = this.sourceSelect.getValue() || 'foxwq';
         const count = parseInt(this.countSelect.getValue() || '20', 10);
-        this.cb.onFetchLatest(source, count);
+        const keyword = this.keywordInput.getValue().trim();
+        this.cb.onFetchLatest(source, count, keyword || undefined);
       }
     });
     // 下拉框变化时自动刷新
     this.sourceSelect.onChange(() => {
       const source = this.sourceSelect.getValue() || 'foxwq';
       const count = parseInt(this.countSelect.getValue() || '20', 10);
-      this.cb.onFetchLatest(source, count);
+      const keyword = this.keywordInput.getValue().trim();
+      this.cb.onFetchLatest(source, count, keyword || undefined);
     });
     this.countSelect.onChange(() => {
       const source = this.sourceSelect.getValue() || 'foxwq';
       const count = parseInt(this.countSelect.getValue() || '20', 10);
-      this.cb.onFetchLatest(source, count);
+      const keyword = this.keywordInput.getValue().trim();
+      this.cb.onFetchLatest(source, count, keyword || undefined);
+    });
+    // 关键字输入框回车触发搜索
+    this.keywordInput.onEnter((value) => {
+      const source = this.sourceSelect.getValue() || 'foxwq';
+      const count = parseInt(this.countSelect.getValue() || '20', 10);
+      const keyword = value.trim();
+      this.cb.onFetchLatest(source, count, keyword || undefined);
     });
     // 卡片点击
     this.latestCard.onAction((action, data) => {
