@@ -145,9 +145,51 @@ function renderThumbnails(problems: PrintProblem[], showOptions: boolean): void 
 
   const gameIndexMap = new Map<string, number>();
 
+  let selectedCount = 0;
+  const totalCount = problems.length;
+  const selectInfo = document.getElementById('selectInfo');
+  const selectAllBtn = document.getElementById('selectAllBtn');
+
+  function updateSelectInfo() {
+    if (selectInfo) {
+      selectInfo.textContent = `已选 ${selectedCount}/${totalCount}`;
+    }
+  }
+
+  function toggleSelect(card: HTMLElement) {
+    card.classList.toggle('selected');
+    if (card.classList.contains('selected')) {
+      selectedCount++;
+    } else {
+      selectedCount--;
+    }
+    updateSelectInfo();
+  }
+
+  function selectAll() {
+    const cards = document.querySelectorAll('.thumbnail-card');
+    const allSelected = selectedCount === totalCount;
+    cards.forEach(card => {
+      if (allSelected) {
+        card.classList.remove('selected');
+      } else {
+        card.classList.add('selected');
+      }
+    });
+    selectedCount = allSelected ? 0 : totalCount;
+    updateSelectInfo();
+    if (selectAllBtn) {
+      selectAllBtn.textContent = allSelected ? '☐ 全选' : '☑ 取消全选';
+    }
+  }
+
+  if (selectAllBtn) {
+    selectAllBtn.addEventListener('click', selectAll);
+  }
+
   for (const problem of problems) {
     const card = document.createElement('div');
-    card.className = 'thumbnail-card';
+    card.className = 'thumbnail-card selected';
 
     const canvas = document.createElement('canvas');
     canvas.width = THUMBNAIL_SIZE;
@@ -174,9 +216,22 @@ function renderThumbnails(problems: PrintProblem[], showOptions: boolean): void 
       title.innerHTML = `<span style="color:#000">●</span>${problem.blackName} vs <span style="color:#000">○</span>${problem.whiteName} (${turnText}) - 第${gameIdx + 1}题`;
     }
 
+    const checkbox = document.createElement('div');
+    checkbox.className = 'select-checkbox';
+    card.appendChild(checkbox);
+
+    card.addEventListener('click', () => toggleSelect(card));
+
     card.appendChild(canvas);
     card.appendChild(title);
     container.appendChild(card);
+  }
+
+  // 初始化：全部选中
+  selectedCount = totalCount;
+  updateSelectInfo();
+  if (selectAllBtn) {
+    selectAllBtn.textContent = '☑ 取消全选';
   }
 }
 

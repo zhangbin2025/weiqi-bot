@@ -69,6 +69,82 @@
       transform: scale(0.95);
     }
 
+    /* 选中状态样式 */
+    .thumbnail-card.selected {
+      outline: 3px solid #667eea;
+      outline-offset: -1px;
+    }
+    .thumbnail-card .select-checkbox {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      border: 2px solid #ccc;
+      background: rgba(255,255,255,0.9);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 10;
+      transition: all 0.2s;
+      user-select: none;
+    }
+    .thumbnail-card.selected .select-checkbox {
+      background: #667eea;
+      border-color: #667eea;
+    }
+    .thumbnail-card.selected .select-checkbox::after {
+      content: "✓";
+      color: white;
+      font-size: 14px;
+      font-weight: bold;
+    }
+    .thumbnail-card {
+      position: relative;
+      cursor: pointer;
+      transition: outline 0.15s;
+    }
+      .thumbnail-card.selected {
+        outline: none !important;
+      }
+    .btn-secondary {
+      background: #e0e0e0;
+      color: #333;
+    }
+    .btn-secondary:hover {
+      background: #d0d0d0;
+    }
+    .toolbar-actions {
+      gap: 8px;
+    }
+    .select-info {
+      font-size: 13px;
+      color: #666;
+      margin-right: 4px;
+      display: flex;
+      align-items: center;
+    }
+    /* 打印时隐藏未选中和复选框 */
+    @media print {
+      .thumbnail-card:not(.selected) {
+        display: none !important;
+      }
+      .select-checkbox {
+        display: none !important;
+      }
+      .select-info {
+        display: none !important;
+      }
+      .thumbnail-card.selected {
+        outline: none !important;
+      }
+      .btn-secondary {
+        display: none !important;
+      }
+    }
+
     /* 内容区域 */
     .content {
       padding: 80px 15px 15px;
@@ -194,6 +270,8 @@
   <div class="toolbar no-print">
     <h1>📋 打印预览</h1>
     <div class="toolbar-actions">
+      <span class="select-info" id="selectInfo">已选 0/0</span>
+      <button class="btn btn-secondary" id="selectAllBtn">☐ 全选</button>
       <button class="btn btn-primary" id="printBtn">🖨️ 打印</button>
     </div>
   </div>
