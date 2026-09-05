@@ -341,7 +341,7 @@ export async function runJosekiBuildCommand(args: string[], _ctx: CliContext): P
 
   if (options.mode === 'auto') {
     try {
-      const result = executeAutoBuild(options.forceRebuild, options.limit);
+      const result = await executeAutoBuild(options.forceRebuild, options.limit);
       return {
         ok: true,
         command: 'joseki-build',

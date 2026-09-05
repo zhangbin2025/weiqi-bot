@@ -39,7 +39,7 @@ const WEIQI_JOSEKI_DIR = path.join(HOME, '.weiqi-joseki');
 const CACHE_DIR = path.join(WEIQI_JOSEKI_DIR, 'katago-cache');
 const AUTO_DIR = path.join(WEIQI_JOSEKI_DIR, 'auto');
 const TEMP_DIR = path.join(AUTO_DIR, 'temp');
-const CMS_PATH = path.join(AUTO_DIR, 'cms.json');
+const CMS_PATH = path.join(AUTO_DIR, 'cms.bin');
 const STATE_PATH = path.join(AUTO_DIR, 'state.json');
 const DB_PATH = path.join(WEIQI_JOSEKI_DIR, 'database.json');
 
@@ -305,6 +305,26 @@ function saveDb(db: JosekiDB): void {
   fs.writeFileSync(DB_PATH, compressed);
 }
 
+/** 流式迭代 temp 文件（对齐 Python _iter_temp_files）
+ *
+ * 逐文件读取、逐行解析，不将所有数据加载到内存。
+ * 每次只持有当前文件的内容，避免 OOM。
+ */
+function* iterTempLines(tempDir: string): Iterable<TempLine> {
+  const tempFiles = fs.readdirSync(tempDir)
+    .filter(f => f.endsWith(".txt.gz"))
+    .sort();
+
+  for (const tf of tempFiles) {
+    const content = gzipReadSync(path.join(tempDir, tf));
+    for (const line of content.split("\n")) {
+      if (!line.trim()) continue;
+      const parsed = JosekiBuildService.parseTempLine(line);
+      if (parsed) yield parsed;
+    }
+  }
+}
+
 export interface AutoBuildResult {
   totalFiles: number;
   processedFiles: number;
@@ -314,8 +334,191 @@ export interface AutoBuildResult {
   sequencesUsed: number;
 }
 
+/**
+ * 下载缺失的 KataGo 棋谱（对齐 Python download_auto）
+ *
+ * 1. 抓取 katagoarchive.org index.html → 解析可用日期
+ * 2. 对比本地缓存目录 → 找出缺失日期
+ * 3. 逐个下载（带重试和延迟）
+ */
+
+/** KataGo Archive 基础 URL */
+const KATAGO_ARCHIVE_INDEX = 'https://katagoarchive.org/kata1/ratinggames/index.html';
+const KATAGO_ARCHIVE_DIR = 'https://katagoarchive.org/kata1/ratinggames/';
+
+/** 从官网 index.html 解析所有可用日期（对齐 Python fetch_available_dates） */
+async function fetchAvailableDates(): Promise<string[]> {
+  const https = await import('https');
+
+  return new Promise<string[]>((resolve, reject) => {
+    const req = https.request(KATAGO_ARCHIVE_INDEX, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://katagoarchive.org/',
+        'Connection': 'keep-alive',
+      },
+    }, (res) => {
+      if (res.statusCode !== 200) {
+        reject(new Error(`HTTP ${res.statusCode}`));
+        return;
+      }
+      const chunks: Buffer[] = [];
+      res.on('data', (chunk: Buffer) => chunks.push(chunk));
+      res.on('end', () => {
+        const html = Buffer.concat(chunks).toString('utf-8');
+        // 匹配 YYYY-MM-DDrating.tar.bz2
+        const regex = /(\d{4}-\d{2}-\d{2})rating\.tar\.bz2/g;
+        const dates = new Set<string>();
+        let match: RegExpExecArray | null;
+        while ((match = regex.exec(html)) !== null) {
+          dates.add(match[1]!);
+        }
+        resolve([...dates].sort());
+      });
+      res.on('error', reject);
+    });
+    req.on('error', reject);
+    req.setTimeout(30000, () => {
+      req.destroy(new Error('timeout'));
+    });
+    req.end();
+  });
+}
+
+/** 下载单个文件（对齐 Python download_single，带重试和延迟） */
+function downloadFile(url: string, outputPath: string, maxRetries: number = 3, delaySec: number = 10): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const https = require('https');
+    const attempt = (retry: number) => {
+      const req = https.request(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': '*/*',
+          'Referer': 'https://katagoarchive.org/kata1/ratinggames/',
+          'Connection': 'keep-alive',
+        },
+      }, (res: any) => {
+        if (res.statusCode === 404) {
+          // 文件不存在，不算错误
+          resolve(false);
+          return;
+        }
+        if (res.statusCode !== 200) {
+          if (retry < maxRetries) {
+            setTimeout(() => attempt(retry + 1), 5000 * (2 ** retry));
+            return;
+          }
+          resolve(false);
+          return;
+        }
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => {
+          const buf = Buffer.concat(chunks);
+          // 检查是否为有效的 bz2 文件（magic bytes: BZh）
+          if (buf.length > 1000 && buf[0] === 0x42 && buf[1] === 0x5a && buf[2] === 0x68) {
+            fs.writeFileSync(outputPath, buf);
+            setTimeout(() => resolve(true), delaySec * 1000);
+          } else {
+            // 不是有效 tar.bz2（可能是 HTML 错误页面），写空文件标记已尝试
+            fs.writeFileSync(outputPath, Buffer.alloc(0));
+            resolve(false);
+          }
+        });
+        res.on('error', () => {
+          if (retry < maxRetries) {
+            setTimeout(() => attempt(retry + 1), 5000 * (2 ** retry));
+          } else {
+            resolve(false);
+          }
+        });
+      });
+      req.on('error', () => {
+        if (retry < maxRetries) {
+          setTimeout(() => attempt(retry + 1), 5000 * (2 ** retry));
+        } else {
+          resolve(false);
+        }
+      });
+      req.setTimeout(120000, () => {
+        req.destroy();
+        if (retry < maxRetries) {
+          setTimeout(() => attempt(retry + 1), 5000 * (2 ** retry));
+        } else {
+          resolve(false);
+        }
+      });
+      req.end();
+    };
+    attempt(0);
+  });
+}
+
+/** 自动下载缺失的棋谱（对齐 Python download_auto） */
+async function downloadAuto(cacheDir: string, maxRetries: number = 3, delaySec: number = 10): Promise<string[]> {
+  process.stderr.write('📋 正在获取可用日期列表...\n');
+
+  let availableDates: string[];
+  try {
+    availableDates = await fetchAvailableDates();
+  } catch (e) {
+    process.stderr.write('⚠️  获取可用日期列表失败: ' + (e as Error).message + '\n');
+    return [];
+  }
+
+  if (availableDates.length === 0) {
+    process.stderr.write('⚠️  未获取到可用日期\n');
+    return [];
+  }
+
+  process.stderr.write('✅ 服务器共有 ' + availableDates.length + ' 个日期的棋谱\n');
+
+  // 对比本地缓存，找出缺失日期
+  const pendingDates: string[] = [];
+  for (const date of availableDates) {
+    const tarPath = path.join(cacheDir, date + 'rating.tar.bz2');
+    if (!fs.existsSync(tarPath) || (fs.statSync(tarPath).size > 0 && fs.statSync(tarPath).size < 1000)) {
+      pendingDates.push(date);
+    }
+  }
+
+  if (pendingDates.length === 0) {
+    process.stderr.write('✅ 所有可用日期已下载，无需增量下载\n');
+    return [];
+  }
+
+  process.stderr.write('📥 需要下载 ' + pendingDates.length + ' 个新日期: ' +
+    pendingDates[0] + ' ~ ' + pendingDates[pendingDates.length - 1] + '\n');
+
+  const newDownloaded: string[] = [];
+  let failed = 0;
+
+  for (let i = 0; i < pendingDates.length; i++) {
+    const date = pendingDates[i]!;
+    const url = KATAGO_ARCHIVE_DIR + date + 'rating.tar.bz2';
+    const outputPath = path.join(cacheDir, date + 'rating.tar.bz2');
+
+    process.stderr.write('  [' + (i + 1) + '/' + pendingDates.length + '] ' + date + '... ');
+
+    const ok = await downloadFile(url, outputPath, maxRetries, delaySec);
+    if (ok) {
+      newDownloaded.push(date);
+      const sizeMB = (fs.statSync(outputPath).size / 1024 / 1024).toFixed(1);
+      process.stderr.write('✅ ' + sizeMB + 'MB\n');
+    } else {
+      failed++;
+      process.stderr.write('❌\n');
+    }
+  }
+
+  process.stderr.write('📊 下载统计: 成功 ' + newDownloaded.length + ', 失败 ' + failed + '\n');
+  return newDownloaded;
+}
+
 /** 执行 auto 模式三步流程 */
-export function executeAutoBuild(
+export async function executeAutoBuild(
   forceRebuild: boolean,
   limit?: number
 ): AutoBuildResult {
@@ -328,7 +531,17 @@ export function executeAutoBuild(
     throw new Error('缓存目录不存在: ' + CACHE_DIR + '\n请先下载 KataGo 棋谱');
   }
 
-  const allTarFiles = fs.readdirSync(CACHE_DIR)
+  let allTarFiles = fs.readdirSync(CACHE_DIR)
+    .filter(f => f.endsWith('rating.tar.bz2'))
+    .sort();
+
+  // 下载缺失的棋谱（对齐 Python download_auto）
+  await downloadAuto(CACHE_DIR).catch(e => {
+    process.stderr.write('⚠️  下载失败: ' + e + '\n');
+  });
+
+  // 重新扫描缓存目录（下载后可能有新文件）
+  allTarFiles = fs.readdirSync(CACHE_DIR)
     .filter(f => f.endsWith('rating.tar.bz2'))
     .sort();
 
@@ -342,8 +555,8 @@ export function executeAutoBuild(
   // 加载或创建 CMS
   let cms: CountMinSketch;
   if (fs.existsSync(CMS_PATH)) {
-    const cmsData = JSON.parse(fs.readFileSync(CMS_PATH, 'utf-8'));
-    cms = CountMinSketch.fromJSON(cmsData);
+    // 二进制格式加载（对齐 Python pickle，零额外内存）
+    cms = CountMinSketch.loadFromFile(CMS_PATH);
     process.stderr.write('[auto] 加载已有 CMS\n');
   } else {
     cms = new CountMinSketch(cfg.cms_width, cfg.cms_depth);
@@ -402,7 +615,7 @@ export function executeAutoBuild(
 
     // 每30天保存一次 CMS
     if (processedCount % BATCH_SIZE === 0) {
-      fs.writeFileSync(CMS_PATH, JSON.stringify(cms.toJSON()), 'utf-8');
+      cms.saveToFile(CMS_PATH);
       batchCount++;
       process.stderr.write('  💾 批次 ' + batchCount + ' CMS 保存完成\n');
     }
@@ -410,42 +623,37 @@ export function executeAutoBuild(
 
   // 最终保存 CMS
   if (processedCount > 0) {
-    fs.writeFileSync(CMS_PATH, JSON.stringify(cms.toJSON()), 'utf-8');
+    cms.saveToFile(CMS_PATH);
     process.stderr.write('[auto] CMS 保存完成（' + processedCount + ' 个新文件）\n');
   } else {
     process.stderr.write('[auto] 没有新文件需要处理\n');
   }
 
-  // 步骤2: 读取所有 temp 文件
-  process.stderr.write('\n[auto] 步骤2/3: 读取 temp 文件...\n');
+  // 步骤2: 流式读取 temp 文件（对齐 Python _iter_temp_files，避免 OOM）
+  process.stderr.write('\n[auto] 步骤2/3: 统计 temp 序列数...\n');
   const tempFiles = fs.readdirSync(TEMP_DIR)
     .filter(f => f.endsWith('.txt.gz'))
     .sort();
 
   process.stderr.write('[auto] 共 ' + tempFiles.length + ' 个 temp 文件\n');
 
-  const allTempLines: TempLine[] = [];
+  // 统计序列总数（一次快速遍历，对齐 Python: sum(1 for _ in self._iter_temp_files)）
   let tempSequences = 0;
   for (const tf of tempFiles) {
     const content = gzipReadSync(path.join(TEMP_DIR, tf));
     for (const line of content.split('\n')) {
-      if (!line.trim()) continue;
-      const parsed = JosekiBuildService.parseTempLine(line);
-      if (parsed) {
-        allTempLines.push(parsed);
-        tempSequences++;
-      }
+      if (line.trim()) tempSequences++;
     }
   }
   process.stderr.write('[auto] 共 ' + tempSequences + ' 条序列\n');
 
-  // 步骤3: 重建定式库
+  // 步骤3: 重建定式库（使用生成器流式迭代，不全部加载到内存）
   process.stderr.write('\n[auto] 步骤3/3: 重建定式库...\n');
   const builder = new JosekiBuilder({ cmsWidth: cfg.cms_width, cmsDepth: cfg.cms_depth });
   builder.setCMS(cms);
 
   const josekiList = builder.buildFromTempData(
-    allTempLines,
+    iterTempLines(TEMP_DIR),
     cms,
     {
       minFreq: cfg.min_freq,
@@ -455,6 +663,7 @@ export function executeAutoBuild(
     },
     tempSequences
   );
+
 
   const db = loadOrCreateDb();
   db.joseki_list = josekiList;
