@@ -26,6 +26,8 @@ export type { ISGFNode } from './types';
  */
 export function coordToPos(coord: string): { x: number; y: number } | null {
   if (!coord || coord.length < 2) return null;
+  // SGF 规范: tt/TT 在 19x19 及以下棋盘表示 Pass (脱先)
+  if (coord === "tt" || coord === "TT") return null;
   const x = coord.charCodeAt(0) - 97;
   const y = coord.charCodeAt(1) - 97;
   return { x, y };

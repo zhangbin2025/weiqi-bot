@@ -72,6 +72,10 @@ describe('SGFParser', () => {
       expect(coordToPos('')).toBe(null);
       expect(coordToPos('d')).toBe(null);
     });
+    it('coordToPos: tt/TT 返回null (SGF Pass)', () => {
+      expect(coordToPos('tt')).toBe(null);
+      expect(coordToPos('TT')).toBe(null);
+    });
     it('posToCoord: {x:3, y:3} → dd', () => {
       expect(posToCoord(3, 3)).toBe('dd');
     });
