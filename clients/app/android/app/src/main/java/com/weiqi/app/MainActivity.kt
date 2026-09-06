@@ -560,8 +560,11 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoView.
         
         AppStateManager.setForeground(true)
         
-        // 检查所有调度，看是否需要立即执行
-        taskManager.checkAllAndExecute()
+        // 延迟 5 秒检查所有调度，等待 GeckoView 和页面完全初始化
+        // 否则前台服务启动时页面可能还没就绪，导致任务调度了但没真正执行
+        Handler(Looper.getMainLooper()).postDelayed({
+            taskManager.checkAllAndExecute()
+        }, 5000)
         
         if (geckoSession != null && geckoRuntime != null) {
             if (geckoSession?.isOpen == false) {

@@ -375,11 +375,9 @@ class TaskManager(private val context: Context) {
         val params = config.optJSONObject("params") ?: JSONObject()
         
         // 立即执行
+        // 注意：不在这里更新 lastRunDate，等任务真正完成/失败时由 TaskForegroundService 更新
+        // 否则任务可能还没跑完就标记为已执行，导致当天不再重试
         executeNow(scheduleId, pageUrl, params)
-        
-        // 更新 lastRunDate
-        config.put("lastRunDate", formatDate(Calendar.getInstance()))
-        scheduleManager.update(scheduleId, config)
     }
     
     /**
