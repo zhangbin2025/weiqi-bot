@@ -162,7 +162,10 @@ class TaskManager(private val context: Context) {
         val params = config.optJSONObject("params") ?: JSONObject()
         
         // 入队 WorkManager 任务
+        // 设置初始延迟 = intervalMinutes，避免创建后立即执行第一次
+        // WorkManager 周期任务默认入队后尽快执行，这里延迟到第一个周期后再触发
         val work = PeriodicWorkRequestBuilder<TaskWorker>(intervalMinutes.toLong(), TimeUnit.MINUTES)
+            .setInitialDelay(intervalMinutes.toLong(), TimeUnit.MINUTES)
             .setInputData(
                 androidx.work.workDataOf(
                     TaskWorker.KEY_TASK_ID to scheduleId,
@@ -356,12 +359,6 @@ class TaskManager(private val context: Context) {
             return
         }
 
-        // 从未执行过的 schedule 不在 App 启动时立即执行
-        // 让它等 WorkManager 15 分钟后正常调度
-        if (config.optString("lastRunDate", "").isEmpty()) {
-            Logger.d(TAG, "Schedule $scheduleId: never executed, skip on app startup")
-            return
-        }
         
         // 需要执行，立即启动
         Logger.i(TAG, "Schedule $scheduleId: due now, executing immediately")
