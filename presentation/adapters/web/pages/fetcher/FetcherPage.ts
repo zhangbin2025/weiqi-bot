@@ -54,16 +54,25 @@ export class FetcherPage implements IPage {
     this.renderer.bindLatestActions();
     await this.loadBookmarks();
     await this.checkClipboardForUrl();
-    // 恢复缓存的最新棋谱列表
+    // 恢复缓存的最新棋谱列表及查询条件
     try {
       const cached = sessionStorage.getItem('fetcher_latest_items');
       if (cached) {
         const items = JSON.parse(cached);
         if (Array.isArray(items) && items.length > 0) {
+          // 恢复查询条件
+          const cachedSource = sessionStorage.getItem('fetcher_latest_source');
+          const cachedCount = sessionStorage.getItem('fetcher_latest_count');
+          const cachedKeyword = sessionStorage.getItem('fetcher_latest_keyword');
+          if (cachedSource) this.renderer.setLatestSource(cachedSource);
+          if (cachedCount) this.renderer.setLatestCount(cachedCount);
+          if (cachedKeyword) this.renderer.setLatestKeyword(cachedKeyword);
+          // 恢复选中状态
           const selectedUrl = sessionStorage.getItem('fetcher_latest_selected');
           this.renderer.setSelectedLatestUrl(selectedUrl);
           this.renderer.renderLatestGames(items);
-          // 滚动到选中条目
+          // 切换到最新标签页
+          this.renderer.switchToLatestTab();
         }
       }
     } catch { /* ignore */ }
@@ -233,16 +242,16 @@ export class FetcherPage implements IPage {
     try {
       const items = await this.fetcherApp.fetchLatestGames(source, count, keyword);
       this.renderer.showLatestLoading(false);
-      // 先恢复选中状态，再渲染列表（渲染时根据选中URL高亮）
-      try {
-        const selectedUrl = sessionStorage.getItem('fetcher_latest_selected');
-        this.renderer.setSelectedLatestUrl(selectedUrl);
-      } catch { /* ignore */ }
+      // 新查询：清除旧选中状态
+      try { sessionStorage.removeItem('fetcher_latest_selected'); } catch { /* ignore */ }
+      this.renderer.setSelectedLatestUrl(null);
       this.renderer.renderLatestGames(items);
       // 缓存到 sessionStorage，页面返回时恢复
       try {
         sessionStorage.setItem('fetcher_latest_items', JSON.stringify(items));
         sessionStorage.setItem('fetcher_latest_source', source);
+        sessionStorage.setItem('fetcher_latest_count', String(count));
+        sessionStorage.setItem('fetcher_latest_keyword', keyword || '');
       } catch { /* ignore */ }
     } catch (error) {
       this.renderer.showLatestLoading(false);
@@ -251,15 +260,50 @@ export class FetcherPage implements IPage {
   }
 
   /**
-   * 选择最新列表中的棋谱，切换到抓取标签页
+   * 选择最新列表中的棋谱，后台抓取后直接跳转 replay 页面
    */
-  private selectLatestGame(url: string): void {
+  private async selectLatestGame(url: string): Promise<void> {
     this.renderer.setSelectedLatestUrl(url);
     this.renderer.rerenderLatest();
     try { sessionStorage.setItem('fetcher_latest_selected', url); } catch { /* ignore */ }
-    this.renderer.switchToQueryTab();
-    this.renderer.setInputValue(url);
-    this.fetchByUrl(url);
+    // 在条目上显示加载状态
+    this.renderer.showLatestItemLoading(url);
+    try {
+      const result = await this.fetcherApp.fetch(url);
+      this.renderer.showLatestItemLoading(url, false);
+      if (result.success) {
+        this.currentResult = result;
+        this.isLiveMode = !!result.metadata?.isLive;
+        if (this.isLiveMode) this.liveUrl = url;
+        await this.loadBookmarks();
+        // 直播模式跳 review 页面
+        if (this.isLiveMode && this.liveUrl) {
+          window.location.href = "../review/index.html?live=true&url=" + encodeURIComponent(this.liveUrl);
+          return;
+        }
+        // 判断是否是题目
+        const questionPatterns = [
+          /101weiqi\.com\/qday\//,
+          /101weiqi\.com\/q\//,
+          /101weiqi\.cn\/qday\//,
+          /101weiqi\.cn\/q\//,
+        ];
+        const isQuestion = result.source === 'weiqi101' &&
+                           questionPatterns.some(p => p.test(result.url || ''));
+        const srcUrl = result.url || '';
+        if (!result.archiveId) return;
+        if (isQuestion) {
+          this._onNavigate?.('replay', { archiveId: result.archiveId, move: '0', src: srcUrl });
+        } else {
+          this._onNavigate?.('replay', { archiveId: result.archiveId, src: srcUrl });
+        }
+      } else {
+        this.toast.show(result.error || '抓取失败');
+      }
+    } catch (error) {
+      this.renderer.showLatestItemLoading(url, false);
+      this.toast.show(error instanceof Error ? error.message : '网络错误');
+    }
   }
 
   private async downloadSGF(): Promise<void> {

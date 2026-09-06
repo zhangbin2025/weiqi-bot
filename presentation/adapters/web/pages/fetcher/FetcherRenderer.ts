@@ -81,7 +81,7 @@ export class FetcherRenderer {
         setTimeout(() => {
           const el = this.latestCard.getContainer?.() as HTMLElement | undefined;
           if (!el) return;
-          const sel = '[data-url="' + (this._selectedLatestUrl || '').replace(/"/g, '\\"') + '"]';
+        const sel = '[data-url="' + (this._selectedLatestUrl || '').replace(/"/g, '\\"') + '"]';
           const target = el.querySelector(sel) as HTMLElement | null;
           target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }, 50);
@@ -123,6 +123,13 @@ export class FetcherRenderer {
     this.latestCard.setVisible(false);
     this.resultCard.setVisible(false);
     this.overlay.hide();
+    // 注入 fetcher-spin keyframes（确保最新标签页的 spinner 动画生效）
+    if (!document.getElementById('fetcher-spin-keyframes')) {
+      const style = document.createElement('style');
+      style.id = 'fetcher-spin-keyframes';
+      style.textContent = '@keyframes fetcher-spin{to{transform:rotate(360deg)}}';
+      document.head.appendChild(style);
+    }
   }
   bindActions(): void {
     this.bookmarkCard.onAction((action, data) => { if (action === 'viewBookmark' && data?.['id']) this.cb.onViewBookmark(data['id']); });
@@ -148,6 +155,34 @@ export class FetcherRenderer {
     this.resultCard.setVisible(this.hasResult);
   }
   setInputValue(value: string): void { this.input.setValue(value); }
+
+  /** 设置最新标签页的来源 */
+  setLatestSource(source: string): void { this.sourceSelect.setValue(source); }
+
+  /** 设置最新标签页的棋谱数 */
+  setLatestCount(count: string): void { this.countSelect.setValue(count); }
+
+  /** 设置最新标签页的关键字 */
+  setLatestKeyword(keyword: string): void { this.keywordInput.setValue(keyword); }
+
+  /** 切换到最新标签页 */
+  switchToLatestTab(): void {
+    this.tabs.setActiveId('latest');
+    this.queryPanel.setVisible(false);
+    this.latestPanel.setVisible(true);
+    this.bookmarkPanel.setVisible(false);
+    this.resultCard.setVisible(false);
+    // 滚动到选中条目
+    if (this._selectedLatestUrl) {
+      setTimeout(() => {
+        const el = this.latestCard.getContainer?.() as HTMLElement | undefined;
+        if (!el) return;
+        const sel = '[data-url="' + (this._selectedLatestUrl || '').replace(/"/g, '\\"') + '"]';
+        const target = el.querySelector(sel) as HTMLElement | null;
+        target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 50);
+    }
+  }
   showClipboardHint(): void {
     const container = this.queryPanel.asContainer() as HTMLElement;
     const existing = container.querySelector('.clipboard-hint');
@@ -310,10 +345,38 @@ export class FetcherRenderer {
     if (show) {
       this.latestCard.setVisible(true);
       this.latestCard.setTitle('⏳ 加载中...');
-      this.latestCard.setContent('<div style="text-align:center;padding:30px;"><div style="width:30px;height:30px;border:3px solid #e0e0e0;border-top-color:#667eea;border-radius:50%;margin:0 auto 8px;animation:fetcher-spin 1s linear infinite;"></div><p style="color:#888;font-size:0.9em;">正在获取棋谱列表...</p></div>');
+      this.latestCard.setContent('<div style="text-align:center;padding:30px;"><div style="width:30px;height:30px;border:3px solid #e0e0e0;border-top-color:#667eea;border-radius:50%;margin:0 auto 8px;animation:fetcher-spin 1s linear infinite;"></div><p style="color:#888;font-size:0.9em;">正在获取棋谱列表...</p></div><style>@keyframes fetcher-spin{to{transform:rotate(360deg)}}</style>');
       this.latestCard.render();
     } else {
       this.latestCard.setTitle('📰 最新棋谱');
+    }
+  }
+
+  /**
+   * 在最新列表条目上显示/隐藏加载状态
+   */
+  showLatestItemLoading(url: string, show: boolean = true): void {
+    const el = this.latestCard.getContainer?.() as HTMLElement | undefined;
+    if (!el) return;
+    const sel = '[data-url="' + url.replace(/"/g, '\\\"') + '"]';
+    const item = el.querySelector(sel) as HTMLElement | null;
+    if (!item) return;
+    if (show) {
+      item.style.opacity = '0.6';
+      item.style.pointerEvents = 'none';
+      // 在条目右侧添加 spinner
+      const existing = item.querySelector('.item-spinner');
+      if (existing) return;
+      const spinner = document.createElement('span');
+      spinner.className = 'item-spinner';
+      spinner.style.cssText = 'float:right;width:16px;height:16px;border:2px solid #ddd;border-top-color:#667eea;border-radius:50%;animation:fetcher-spin 0.8s linear infinite;margin-top:2px;';
+      const titleDiv = item.querySelector('div:nth-child(2)') as HTMLElement | null;
+      if (titleDiv) titleDiv.appendChild(spinner);
+    } else {
+      item.style.opacity = '';
+      item.style.pointerEvents = '';
+      const spinner = item.querySelector('.item-spinner');
+      if (spinner) spinner.remove();
     }
   }
 
