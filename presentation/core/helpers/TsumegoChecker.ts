@@ -27,7 +27,8 @@ export interface BranchInfo {
  * 死活题检查器
  * 
  * 判断逻辑：
- * 1. 检测是否为死活题：有初始棋子(AB/AW) + 主分支无着法(max_moves===0) + 有多个子分支
+ * 1. 检测是否为死活题：有初始棋子(AB/AW) + 至少一个子分支 + 分支有死活题注释
+ *    备用：有初始棋子 + 有分支 + 主分支无着法
  * 2. 每个分支的着法序列是答案
  * 3. 分支注释 C[正解图]/C[变化图]/C[失败图] 标识分支类型
  * 4. 用户试下时，逐手匹配分支着法
@@ -47,18 +48,18 @@ export class TsumegoChecker {
 
     // 判断是否为死活题：
     // 1. 有初始棋子 (AB/AW)
-    // 2. 有多个子分支（答案分支）
+    // 2. 至少一个子分支（答案分支）
     // 3. 至少一个分支有死活题类型注释（正解/变化/失败）
     const hasInitialStones = !!(replayData.handicap_stones && replayData.handicap_stones.length > 0);
-    const hasBranches = !!(replayData.tree.children && replayData.tree.children.length > 1);
+    const hasBranches = !!(replayData.tree.children && replayData.tree.children.length >= 1);
     const hasTsumegoComment = this.hasTsumegoBranchComment(replayData.tree);
 
     if (hasInitialStones && hasBranches && hasTsumegoComment) {
       this.isTsumego = true;
       this.branches = this.extractBranches(replayData.tree);
-    } else if (hasInitialStones && hasBranches) {
-      // 备用检测：有初始棋子 + 多分支，但没有标准注释
-      // 也可能是死活题（非101来源）
+    } else if (hasInitialStones && hasBranches && replayData.max_moves === 0) {
+      // 备用检测：有初始棋子 + 有分支 + 主分支无着法
+      // 无标准注释但可能是死活题（非101来源）
       this.isTsumego = true;
       this.branches = this.extractBranches(replayData.tree);
     }
