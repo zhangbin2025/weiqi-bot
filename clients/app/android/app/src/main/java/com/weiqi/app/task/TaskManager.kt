@@ -355,6 +355,13 @@ class TaskManager(private val context: Context) {
             Logger.d(TAG, "Schedule $scheduleId: not due yet, skipping")
             return
         }
+
+        // 从未执行过的 schedule 不在 App 启动时立即执行
+        // 让它等 WorkManager 15 分钟后正常调度
+        if (config.optString("lastRunDate", "").isEmpty()) {
+            Logger.d(TAG, "Schedule $scheduleId: never executed, skip on app startup")
+            return
+        }
         
         // 需要执行，立即启动
         Logger.i(TAG, "Schedule $scheduleId: due now, executing immediately")
