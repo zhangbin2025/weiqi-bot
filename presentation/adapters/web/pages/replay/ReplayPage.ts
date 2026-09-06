@@ -173,6 +173,8 @@ export class ReplayPage implements IPage {
    */
   loadFromSGF(sgf: string, options?: { defaultMove?: number }): void {
     this.dataManager.loadFromSGF(sgf, options);
+    // 初始化死活题检查器
+    this.trialHandler.initTsumegoChecker(this.state.get('replayData'));
     // 加载数据后立即更新 UI（包括滑块的最大值）
     this.ui.updateGameInfo();
     // 触发事件通知HTML更新游戏信息
@@ -196,6 +198,8 @@ export class ReplayPage implements IPage {
    */
   setData(data: ReplayData): void {
     this.dataManager.setData(data);
+    // 初始化死活题检查器
+    this.trialHandler.initTsumegoChecker(this.state.get('replayData'));
     // 设置数据后立即更新 UI
     this.ui.updateGameInfo();
   }

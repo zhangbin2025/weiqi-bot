@@ -314,6 +314,34 @@
     .trial-panel.visible {
       display: flex;
     }
+
+    /* 死活题试下提示 */
+    .trial-hint {
+      display: none;
+      padding: 8px 16px;
+      font-size: 14px;
+      text-align: center;
+      border-top: 1px solid #e8e8e8;
+      transition: all 0.3s ease;
+    }
+    .trial-hint.correct {
+      background: #e8f5e9;
+      color: #2e7d32;
+      font-weight: 600;
+    }
+    .trial-hint.wrong {
+      background: #ffebee;
+      color: #c62828;
+      font-weight: 600;
+    }
+    .trial-hint.partial {
+      background: #e3f2fd;
+      color: #1565c0;
+    }
+    .trial-hint:not(.correct):not(.wrong):not(.partial) {
+      background: #f5f5f5;
+      color: #666;
+    }
     
     /* 分支模式样式 */
     .variation-mode .controls-row { justify-content: center; }
@@ -410,6 +438,8 @@
         <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
       </button>
     </div>
+    <!-- 死活题试下提示 -->
+    <div class="trial-hint" id="trialHint"></div>
     
     <!-- 变化图面板 -->
     <div class="variation-panel" id="variationPanel">

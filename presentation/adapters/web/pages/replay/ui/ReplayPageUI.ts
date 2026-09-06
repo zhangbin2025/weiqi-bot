@@ -339,6 +339,35 @@ export class ReplayPageUI {
     }
   }
   /**
+   * 更新死活题试下提示
+   */
+  updateTrialHint(hint: string): void {
+    const hintEl = document.getElementById('trialHint');
+    if (!hintEl) return;
+    
+    if (!hint) {
+      hintEl.style.display = 'none';
+      hintEl.textContent = '';
+      hintEl.className = 'trial-hint';
+      return;
+    }
+    
+    hintEl.style.display = 'block';
+    hintEl.textContent = hint;
+    
+    // 根据内容设置样式类
+    if (hint.startsWith('✓')) {
+      hintEl.className = 'trial-hint correct';
+    } else if (hint.startsWith('✗')) {
+      hintEl.className = 'trial-hint wrong';
+    } else if (hint.startsWith('~')) {
+      hintEl.className = 'trial-hint partial';
+    } else {
+      hintEl.className = 'trial-hint';
+    }
+  }
+
+  /**
    * 更新音效按钮状态
    */
   updateSoundButton(soundEnabled: boolean): void {

@@ -5,3 +5,4 @@
 export { BoardRebuilder, type MoveNumber, type RebuildOptions } from './BoardRebuilder';
 export { BoardSyncer } from './BoardSyncer';
 export { ReplayHelper } from './ReplayHelper';
+export { TsumegoChecker, type TsumegoMatchResult, type BranchInfo } from './TsumegoChecker';

@@ -7,9 +7,13 @@ import type { ReplayPageState } from '../state/ReplayPageState';
 import type { ReplayPageUI } from '../ui/ReplayPageUI';
 import type { ReplayApp } from '../../../../../../application/replay';
 import type { Game } from '../../../../../../domain/game';
+import type { ReplayData } from '../../../../../../domain/sgf';
 import { BoardRebuilder } from '../../../../../core/helpers/BoardRebuilder';
 import { BoardSyncer } from '../../../../../core/helpers/BoardSyncer';
+import { TsumegoChecker } from '../../../../../core/helpers/TsumegoChecker';
 export class TrialHandler {
+  private tsumegoChecker: TsumegoChecker;
+
   constructor(
     private state: ReplayPageState,
     private ui: ReplayPageUI,
@@ -19,7 +23,25 @@ export class TrialHandler {
     private board: any,
     private boardRebuilderClass: typeof BoardRebuilder,
     private boardSyncerClass: typeof BoardSyncer
-  ) {}
+  ) {
+    this.tsumegoChecker = new TsumegoChecker();
+  }
+
+  /**
+   * 初始化死活题检查器（加载数据后调用）
+   */
+  initTsumegoChecker(replayData: ReplayData | null): void {
+    this.tsumegoChecker.init(replayData);
+    this.state.set('isTsumego', this.tsumegoChecker.getIsTsumego());
+  }
+
+  /**
+   * 是否为死活题模式
+   */
+  isTsumego(): boolean {
+    return this.tsumegoChecker.getIsTsumego();
+  }
+
   /**
    * 处理棋盘点击
    * 如果不在试下模式，点击交叉点进入试下模式
@@ -42,6 +64,12 @@ export class TrialHandler {
       this.updateTrialModeUI();
       // 进入试下模式后，需要重建棋盘状态
       this.rebuildBoardWithTrial();
+      // 死活题模式：清除之前的提示
+      if (this.isTsumego()) {
+        this.state.set('trialHint', '开始解题');
+        this.state.set('trialMatchResult', null);
+        this.ui.updateTrialHint('');
+      }
     }
     // 试下落子
     const state = this.game.getState();
@@ -60,22 +88,49 @@ export class TrialHandler {
         this.replayApp.playSound('stone');
       }
       this.syncBoardToDisplay();
+      // 死活题模式：检查匹配
+      if (this.isTsumego()) {
+        this.checkTsumegoMatch();
+      }
     }
   }
+
+  /**
+   * 检查死活题匹配
+   */
+  private checkTsumegoMatch(): void {
+    const trialMoves = this.trialController.getVisibleMoves();
+    const result = this.tsumegoChecker.checkMatch(trialMoves);
+    const hint = this.tsumegoChecker.formatHint(result);
+    this.state.set('trialMatchResult', result);
+    this.state.set('trialHint', hint);
+    this.ui.updateTrialHint(hint);
+  }
+
   /**
    * 试下后退
    */
   trialPrev(): void {
     this.trialController.undo();
     this.rebuildBoardWithTrial();
+    // 死活题模式：更新匹配提示
+    if (this.isTsumego()) {
+      this.checkTsumegoMatch();
+    }
   }
+
   /**
    * 试下前进
    */
   trialNext(): void {
     this.trialController.redo();
     this.rebuildBoardWithTrial();
+    // 死活题模式：更新匹配提示
+    if (this.isTsumego()) {
+      this.checkTsumegoMatch();
+    }
   }
+
   /**
    * 退出试下模式
    */
@@ -89,13 +144,21 @@ export class TrialHandler {
       this.state.get('displayIndex')
     );
     this.syncBoardToDisplay();
+    // 清除死活题提示
+    if (this.isTsumego()) {
+      this.state.set('trialHint', '');
+      this.state.set('trialMatchResult', null);
+      this.ui.updateTrialHint('');
+    }
   }
+
   /**
    * 更新试下模式 UI
    */
   private updateTrialModeUI(): void {
     // UI 更新由 ui.showTrialPanel 处理
   }
+
   /**
    * 重建试下棋盘状态
    */
@@ -111,6 +174,7 @@ export class TrialHandler {
     }
     this.syncBoardToDisplay();
   }
+
   /**
    * 重建棋盘状态
    */
@@ -132,6 +196,7 @@ export class TrialHandler {
     );
     this.state.set('moveNumbersList', moveNumbersList);
   }
+
   /**
    * 同步棋盘显示
    */

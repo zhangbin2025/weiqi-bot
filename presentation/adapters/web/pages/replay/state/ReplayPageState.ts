@@ -5,6 +5,7 @@
 import { Game } from '../../../../../../domain/game';
 import type { ReplayData, ReplayNode } from '../../../../../../domain/sgf';
 import type { MoveNumber } from '../../../../../core/helpers/BoardRebuilder';
+import type { TsumegoMatchResult } from '../../../../../core/helpers/TsumegoChecker';
 export interface ReplayPageStateData {
   // 核心数据
   replayData: ReplayData | null;
@@ -25,6 +26,10 @@ export interface ReplayPageStateData {
   // UI 状态
   initialized: boolean;
   moveNumbersList: MoveNumber[];
+  // 死活题试下状态
+  isTsumego: boolean;
+  trialHint: string;
+  trialMatchResult: TsumegoMatchResult | null;
 }
 /**
  * ReplayPage 状态管理类
@@ -47,6 +52,9 @@ export class ReplayPageState {
       variationStartMove: 0,
       initialized: false,
       moveNumbersList: [],
+      isTsumego: false,
+      trialHint: '',
+      trialMatchResult: null,
     };
   }
   // 获取状态
@@ -74,6 +82,9 @@ export class ReplayPageState {
     this.state.variationStartMove = 0;
     this.state.moveNumbersList = [];
     this.state.initialized = false;
+    this.state.isTsumego = false;
+    this.state.trialHint = '';
+    this.state.trialMatchResult = null;
   }
   // 保存路径（进入分支前）
   savePath(): void {
