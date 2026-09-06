@@ -116,12 +116,16 @@ export class ReplayPageUI {
     if (whiteNameInHeader) {
       whiteNameInHeader.textContent = replayData.white || '白棋';
     }
-    // 新增：胜负信息（header中）
+    // 新增：胜负信息/先行方（header中）
     const resultInfoEl = document.getElementById('resultInfo');
     const resultTextEl = document.getElementById('resultText');
     if (resultInfoEl && resultTextEl) {
       if (replayData.result) {
         resultTextEl.textContent = this.translateResult(replayData.result);
+        resultInfoEl.style.display = 'flex';
+      } else if (replayData.initial_player) {
+        // 死活题等无结果的棋谱：显示先行方
+        resultTextEl.textContent = replayData.initial_player === 'white' ? '白先' : '黑先';
         resultInfoEl.style.display = 'flex';
       } else {
         resultInfoEl.style.display = 'none';

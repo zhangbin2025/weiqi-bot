@@ -188,7 +188,8 @@ export class ReplayPage implements IPage {
           result: resultText,
           game_name: replayData.game_name,
           max_moves: replayData.max_moves,
-          handicap_stones: replayData.handicap_stones
+          handicap_stones: replayData.handicap_stones,
+          initial_player: replayData.initial_player
         }
       }));
     }

@@ -607,12 +607,15 @@
         whiteNameEl.textContent = data.white;
       }
       
-      // 更新胜负信息
+      // 更新胜负信息/先行方
       const resultInfoEl = document.getElementById('resultInfo');
       const resultTextEl = document.getElementById('resultText');
       if (resultInfoEl && resultTextEl) {
         if (data.result) {
           resultTextEl.textContent = data.result;
+          resultInfoEl.style.display = 'flex';
+        } else if (data.initial_player) {
+          resultTextEl.textContent = data.initial_player === 'white' ? '白先' : '黑先';
           resultInfoEl.style.display = 'flex';
         } else {
           resultInfoEl.style.display = 'none';
