@@ -189,6 +189,11 @@ class TaskBridgeHandler(
             // ========== 调度操作 ==========
             "schedule:add" -> {
                 val config = JSONObject(jsonStr)
+                // 设置初始 lastRunDate 为今天，避免创建后立即被 WorkManager 触发执行
+                // 任务应从下一个周期才开始
+                val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                    .format(java.util.Date())
+                config.put("lastRunDate", today)
                 val id = scheduleManager.add(config)
                 // 入队 WorkManager 15分钟周期任务
                 taskManager!!.schedulePeriodic(id, 15)
