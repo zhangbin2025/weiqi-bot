@@ -394,6 +394,7 @@
             <button class="dropdown-item" id="playMenuItem">▶️ 自动播放</button>
             <div class="dropdown-divider"></div>
             <button class="dropdown-item" id="aiReviewMenuItem">🤖 AI分析</button>
+            <button class="dropdown-item" id="discoverMenuItem">🔍 发现定式</button>
             <button class="dropdown-item" id="downloadMenuItem">📥 下载SGF</button>
             <button class="dropdown-item" id="printMenuItem">🖨️ 打印</button>
           </div>
@@ -532,6 +533,22 @@
     const archiveId = urlParams.get('archiveId');
     const sessionId = urlParams.get('sessionId');
     const moveParam = urlParams.get('move');
+
+    // 发现定式 - 仅 archiveId 场景支持
+    const discoverMenuItem = document.getElementById('discoverMenuItem');
+    if (discoverMenuItem) {
+      if (sessionId || !archiveId) {
+        discoverMenuItem.disabled = true;
+        discoverMenuItem.style.opacity = '0.5';
+        discoverMenuItem.style.cursor = 'not-allowed';
+      } else {
+        discoverMenuItem.addEventListener('click', (e) => {
+          e.stopPropagation();
+          dropdownMenu?.classList.remove('visible');
+          window.location.href = '../joseki/discover.html?from=replay&archiveId=' + encodeURIComponent(archiveId);
+        });
+      }
+    }
     
     // 判断棋谱数据类型的函数
     function getReplayDataType() {

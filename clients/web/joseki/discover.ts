@@ -103,6 +103,21 @@ async function main() {
   });
   page.handleParams(params);
 
+  // 处理 replay 页面跳转：从 archiveId 加载 SGF 并自动分析
+  if (urlParams.get('from') === 'replay' && urlParams.get('archiveId')) {
+    const archiveId = urlParams.get('archiveId')!;
+    try {
+      const sgfContent = await gameService.getByArchiveId(archiveId);
+      if (sgfContent) {
+        const index = await gameService.getArchiveIndex(archiveId);
+        const label = index?.metadata?.title || archiveId;
+        await page.discoverFromArchive(sgfContent, label);
+      }
+    } catch (e) {
+      console.error('加载归档棋谱失败', e);
+    }
+  }
+
   // 处理 auto=true 参数（自动执行）
   const auto = urlParams.get('auto');
   if (auto === 'true') {

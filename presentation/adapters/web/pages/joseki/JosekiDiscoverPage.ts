@@ -216,6 +216,40 @@ export class JosekiDiscoverPage implements IPage {
     this.analyzing = false;
   }
 
+  /**
+   * 从归档棋谱发现定式（由 replay 页面跳转触发）
+   */
+  async discoverFromArchive(sgfContent: string, label: string): Promise<void> {
+    if (this.analyzing) return;
+    this.analyzing = true;
+
+    try {
+      this.uiHelper.showProgress(true);
+      this.uiHelper.updateProgress(0, '正在分析棋谱...');
+      this.currentResult = await this.discoverApp.discoverFromSGF(
+        sgfContent,
+        label,
+        (percent, status) => this.uiHelper.updateProgress(percent, status)
+      );
+      this.currentGames = this.currentResult.games.map(g => ({
+        title: `${g.black} vs ${g.white}`,
+        date: g.date || '',
+        archiveId: g.archiveId || ''
+      }));
+      this.uiHelper.updateProgress(100, `分析完成，发现 ${this.currentResult.totalPatterns} 个定式`);
+      await this.historyManager.loadHistory();
+      setTimeout(() => {
+        this.uiHelper.showProgress(false);
+        this.displayStats();
+      }, 500);
+    } catch (error) {
+      console.error('归档棋谱分析失败', error as Error);
+      this.uiHelper.updateProgress(100, '分析失败: ' + (error as Error).message);
+      setTimeout(() => this.uiHelper.showProgress(false), 2000);
+    }
+    this.analyzing = false;
+  }
+
   private readFileAsText(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
