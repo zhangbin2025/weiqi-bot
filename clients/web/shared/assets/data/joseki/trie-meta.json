@@ -1,12 +1,12 @@
 {
   "version": "2.0",
   "threshold": 1000,
-  "total": 99711,
+  "total": 99713,
   "subtrees": 61,
   "difficulty": {
-    "easy": 38574,
+    "easy": 38642,
     "medium": 46055,
-    "hard": 15122
+    "hard": 15056
   },
-  "indexSize": 37479
+  "indexSize": 37632
 }
