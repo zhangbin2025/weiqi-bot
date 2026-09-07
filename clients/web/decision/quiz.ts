@@ -132,10 +132,7 @@ function bindEvents(): void {
     }
   }) as EventListener);
   
-  window.addEventListener('downloadSGF', saveToSGF);
-  
-  // AI分析事件
-  window.addEventListener('aiAnalysis', handleAiAnalysis);
+  window.addEventListener('viewReplay', viewReplay);
   
   document.getElementById('backToParentBtn')?.addEventListener('click', handleBackToParent);
 
@@ -293,42 +290,25 @@ function handleBackToParent() {
   }
 }
 
-async function saveToSGF() {
-  const problem = state.problems[state.currentIndex];
-  if (!problem) return;
-
-  try {
-    // 从题目位置生成 SGF
-    const moves = problem.position.map(m => `;${m.color}[${m.coord}]`).join('');
-    const sgf = `(;SZ[19]${moves})`;
-
-    const gameName = `problem_${(problem.__originalIndex ?? 0) + 1}`;
-    await state.exportService?.exportSGF(sgf, gameName);
-  } catch (e) {
-    console.error('导出 SGF 失败', e);
-  }
-}
-
 /**
- * 跳转到复盘页面进行AI分析
+ * 跳转到 replay 页面查看完整棋谱
  */
-function handleAiAnalysis() {
+function viewReplay() {
   const problem = state.problems[state.currentIndex];
   if (!problem) {
     console.error('没有当前题目');
     return;
   }
-  
+
   const archiveId = problem.metadata?.archiveId;
-  const moveTo = problem.metadata?.moveNumber;
-  
   if (!archiveId) {
     alert('该题目没有关联棋谱');
     return;
   }
-  
-  // 跳转到复盘页面的分析局面模式
-  const url = `../review/index.html?analyzePosition=true&archiveId=${encodeURIComponent(archiveId)}&moveTo=${moveTo}`;
+
+  const moveNumber = problem.metadata?.moveNumber;
+  const moveParam = moveNumber ? `&move=${moveNumber}` : '';
+  const url = `../replay/index.html?archiveId=${encodeURIComponent(archiveId)}${moveParam}`;
   window.location.href = url;
 }
 

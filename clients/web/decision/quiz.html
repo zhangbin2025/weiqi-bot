@@ -522,9 +522,8 @@
           <div class="dropdown-menu" id="dropdownMenu">
             <button class="dropdown-item" id="showOptionsMenuItem">✓ 显示选点</button>
             <button class="dropdown-item" id="soundMenuItem">✓ 落子音效</button>
-            <button class="dropdown-item" id="downloadMenuItem">📥 下载SGF</button>
             <div class="dropdown-divider"></div>
-            <button class="dropdown-item" id="aiAnalysisMenuItem">🤖 AI分析</button>
+            <button class="dropdown-item" id="viewReplayMenuItem">📖 查看棋谱</button>
           </div>
         </div>
       </div>
@@ -648,20 +647,12 @@
       window.dispatchEvent(new CustomEvent('toggleSound', { detail: soundEnabled }));
     });
 
-    // 下载SGF菜单项
-    const downloadMenuItem = document.getElementById('downloadMenuItem');
-    downloadMenuItem?.addEventListener('click', (e) => {
+    // 查看棋谱菜单项
+    const viewReplayMenuItem = document.getElementById('viewReplayMenuItem');
+    viewReplayMenuItem?.addEventListener('click', (e) => {
       e.stopPropagation();
       dropdownMenu?.classList.remove('visible');
-      window.dispatchEvent(new CustomEvent('downloadSGF'));
-    });
-    
-    // AI分析菜单项
-    const aiAnalysisMenuItem = document.getElementById('aiAnalysisMenuItem');
-    aiAnalysisMenuItem?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      dropdownMenu?.classList.remove('visible');
-      window.dispatchEvent(new CustomEvent('aiAnalysis'));
+      window.dispatchEvent(new CustomEvent('viewReplay'));
     });
     
     // 原有的 moreBtn 展开/收起逻辑（保留，以防有其他地方用到）
