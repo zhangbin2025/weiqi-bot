@@ -58,6 +58,19 @@ async function main() {
     if (!qrContent) {
       qrContent = page.getCompactSgf();
     }
+    // 在二维码 URL 后追加 wqmove 参数，让 fetcher 扫码后能跳到当前手数
+    if (qrContent && !qrContent.startsWith('(')) {  // SGF 内容以 ( 开头，不追加
+      const moveNumber = printData.moveNumber;
+      if (moveNumber > 0) {
+        try {
+          const url = new URL(qrContent);
+          url.searchParams.set('wqmove', String(moveNumber));
+          qrContent = url.toString();
+        } catch {
+          // 不是合法 URL，跳过
+        }
+      }
+    }
     sessionStorage.setItem('replay-print-source-url', qrContent ?? '');
 
     window.location.href = './print-preview.html';

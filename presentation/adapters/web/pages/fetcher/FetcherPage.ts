@@ -140,6 +140,20 @@ export class FetcherPage implements IPage {
       console.error('清除收藏失败', error as Error);
     }
   }
+  /**
+   * 从棋谱 URL 中提取 wqmove 参数（打印二维码时追加的手数标记）
+   */
+  private extractWqMove(url?: string): string | undefined {
+    if (!url) return undefined;
+    try {
+      const u = new URL(url);
+      const wqmove = u.searchParams.get('wqmove');
+      return wqmove || undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   private async viewBookmark(id: string): Promise<void> {
     const entry = this.bookmarks.find(h => h.id === id);
     if (!entry) return;
@@ -210,7 +224,11 @@ export class FetcherPage implements IPage {
                              questionPatterns.some(p => p.test(result.url || ''));
           const replayLink = isQuestion
             ? `/replay/index.html?archiveId=${result.archiveId}&move=0`
-            : `/replay/index.html?archiveId=${result.archiveId}`;
+            : (() => {
+                const wqmove = this.extractWqMove(result.url);
+                const moveParam = wqmove ? `&move=${wqmove}` : '';
+                return `/replay/index.html?archiveId=${result.archiveId}${moveParam}`;
+              })();
           const message = `已抓取棋谱: ${result.metadata.black || '黑方'} vs ${result.metadata.white || '白方'}\n\n[打谱](${replayLink}) [${reviewLabel}](${reviewLink})`;
           TaskHelper.notifyComplete(taskId, '抓取完成', message, detailUrl);
         }
@@ -295,7 +313,10 @@ export class FetcherPage implements IPage {
         if (isQuestion) {
           this._onNavigate?.('replay', { archiveId: result.archiveId, move: '0', src: srcUrl });
         } else {
-          this._onNavigate?.('replay', { archiveId: result.archiveId, src: srcUrl });
+          const wqmove = this.extractWqMove(result.url);
+          const navParams: Record<string, string> = { archiveId: result.archiveId, src: srcUrl };
+          if (wqmove) navParams['move'] = wqmove;
+          this._onNavigate?.('replay', navParams);
         }
       } else {
         this.toast.show(result.error || '抓取失败');
@@ -343,8 +364,11 @@ export class FetcherPage implements IPage {
     if (isQuestion) {
       this._onNavigate('replay', { archiveId: this.currentResult.archiveId, move: '0', src: srcUrl });
     } else {
-      // 对局棋谱：默认显示最后一手
-      this._onNavigate('replay', { archiveId: this.currentResult.archiveId, src: srcUrl });
+      // 对局棋谱：如果有 wqmove 参数则跳到指定手数，否则默认显示最后一手
+      const wqmove = this.extractWqMove(this.currentResult?.url);
+      const navParams: Record<string, string> = { archiveId: this.currentResult.archiveId, src: srcUrl };
+      if (wqmove) navParams['move'] = wqmove;
+      this._onNavigate('replay', navParams);
     }
   }
   private async generateShareUrl(): Promise<void> {
