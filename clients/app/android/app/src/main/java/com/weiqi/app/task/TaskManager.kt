@@ -30,6 +30,7 @@ class TaskManager(private val context: Context) {
     
     companion object {
         private const val TAG = "TaskManager"
+        const val SCHEDULER_WORK_NAME = "weiqi_unified_scheduler"
     }
     
     private val store = TaskStore.getInstance(context)
@@ -123,65 +124,47 @@ class TaskManager(private val context: Context) {
     }
     
     /**
-     * 调度周期任务（公开接口）
-     * 
-     * @param scheduleId 调度 ID
-     * @param intervalMinutes 间隔分钟数，默认 15 分钟
+     * Register or update the unified scheduler Worker.
+     * All schedules share one Worker that ticks every intervalMinutes.
      */
-    fun schedulePeriodic(scheduleId: String, intervalMinutes: Int = 15) {
-        val scheduleManager = ScheduleManager.getInstance(context)
-        val config = scheduleManager.get(scheduleId)
-        
-        if (config == null) {
-            Logger.w(TAG, "Schedule not found: $scheduleId")
-            return
+    fun schedulePeriodic(scheduleId: String = "", intervalMinutes: Int = 15, immediateFirstRun: Boolean = false) {
+        val workBuilder = PeriodicWorkRequestBuilder<TaskWorker>(intervalMinutes.toLong(), TimeUnit.MINUTES)
+
+        if (!immediateFirstRun) {
+            workBuilder.setInitialDelay(intervalMinutes.toLong(), TimeUnit.MINUTES)
         }
-        
-        // 构造 pageUrl
+
+        val work = workBuilder.build()
+
+        workManager.enqueueUniquePeriodicWork(
+            SCHEDULER_WORK_NAME,
+            ExistingPeriodicWorkPolicy.UPDATE,
+            work
+        )
+
+        Logger.i(TAG, "Unified scheduler: interval=${intervalMinutes}min, immediateFirstRun=$immediateFirstRun")
+    }
+
+    /**
+     * Build pageUrl for a schedule (used by TaskWorker)
+     */
+    fun buildPageUrl(scheduleId: String, config: JSONObject): String {
         var pageUrl = config.optString("pageUrl", AppConfig.localPageUrl("index.html"))
-        
-        // 替换所有占位符
+
         val encodedId = java.net.URLEncoder.encode(scheduleId, "UTF-8")
         pageUrl = pageUrl.replace("__SCHEDULE_ID__".toRegex(), encodedId)
-        
+
         if (!pageUrl.contains("://")) {
             pageUrl = AppConfig.localPageUrl(pageUrl)
         }
-        
-        // 确保 taskId 参数是真实的 scheduleId（替换可能存在的占位符）
+
         if (pageUrl.contains("taskId=")) {
-            // 移除旧的 taskId 参数，后面重新添加
             pageUrl = pageUrl.replace("taskId=[^&]*".toRegex(), "")
             pageUrl = pageUrl.replace("[?&]$".toRegex(), "")
         }
-        
-        // 添加 taskId 参数
+
         val separator = if (pageUrl.contains("?")) "&" else "?"
-        pageUrl = "$pageUrl${separator}taskId=${encodedId}"
-        
-        val params = config.optJSONObject("params") ?: JSONObject()
-        
-        // 入队 WorkManager 任务
-        // 设置初始延迟 = intervalMinutes，避免创建后立即执行第一次
-        // WorkManager 周期任务默认入队后尽快执行，这里延迟到第一个周期后再触发
-        val work = PeriodicWorkRequestBuilder<TaskWorker>(intervalMinutes.toLong(), TimeUnit.MINUTES)
-            .setInitialDelay(intervalMinutes.toLong(), TimeUnit.MINUTES)
-            .setInputData(
-                androidx.work.workDataOf(
-                    TaskWorker.KEY_TASK_ID to scheduleId,
-                    TaskWorker.KEY_PAGE_URL to pageUrl,
-                    TaskWorker.KEY_PARAMS to params.toString()
-                )
-            )
-            .build()
-        
-        workManager.enqueueUniquePeriodicWork(
-            scheduleId,
-            ExistingPeriodicWorkPolicy.KEEP,
-            work
-        )
-        
-        Logger.i(TAG, "Scheduled periodic task $scheduleId: interval=${intervalMinutes}min")
+        return "$pageUrl${separator}taskId=${encodedId}"
     }
     
     /**
@@ -295,10 +278,10 @@ class TaskManager(private val context: Context) {
      * 删除调度
      */
     suspend fun deleteSchedule(id: String) {
-        // 1. 取消 WorkManager 任务
-        workManager.cancelUniqueWork(id)
+        // Note: unified Worker is not cancelled per-schedule;
+        // it will skip this schedule on next tick since it's removed from ScheduleManager
         
-        // 2. 删除 TaskStore 中的 task 记录
+        // 1. 删除 TaskStore 中的 task 记录
         store.delete(id)
         
         // 3. 停止正在运行的前台服务（如果有）

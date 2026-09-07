@@ -86,8 +86,10 @@ class WeiqiApp : Application() {
         super.onCreate()
         Logger.i(TAG, "Application onCreate")
         
-        // 恢复所有定时计划调度
-        restoreAllSchedules()
+        // 延迟 5 秒恢复调度，等待 AssetServer、GeckoRuntime 等服务初始化完成
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            restoreAllSchedules()
+        }, 5000)
     }
     
     /**
@@ -103,11 +105,9 @@ class WeiqiApp : Application() {
             val schedules = scheduleManager.list()
             Logger.i(TAG, "Restoring ${schedules.size} schedules")
             
-            for (config in schedules) {
-                val id = config.optString("id")
-                if (id.isNotEmpty()) {
-                    taskManager.schedulePeriodic(id, 15)
-                }
+            // Register unified scheduler once (not per-schedule)
+            if (schedules.isNotEmpty()) {
+                taskManager.schedulePeriodic(immediateFirstRun = true)
             }
             
             Logger.i(TAG, "All schedules restored")
@@ -115,4 +115,12 @@ class WeiqiApp : Application() {
             Logger.e(TAG, "Failed to restore schedules", e)
         }
     }
+    
+    /**
+     * 注意：App 启动时不执行 checkAllAndExecute
+     * 
+     * 定时任务完全由 WorkManager 调度，App 启动只负责恢复 WorkManager 任务
+     * 如果跨天未执行过，WorkManager 的周期触发会在下次回调时通过 shouldExecute 判断
+     * onResume 中的 checkAllAndExecute 也已移除，避免 App 打开就触发任务
+     */
 }

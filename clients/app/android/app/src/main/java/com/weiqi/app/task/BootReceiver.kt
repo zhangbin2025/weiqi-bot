@@ -28,11 +28,8 @@ class BootReceiver : BroadcastReceiver() {
                 val schedules = scheduleManager.list()
                 Logger.i(TAG, "Restoring ${schedules.size} schedules")
                 
-                for (config in schedules) {
-                    val id = config.optString("id")
-                    if (id.isNotEmpty()) {
-                        taskManager.schedulePeriodic(id, 15)
-                    }
+                if (schedules.isNotEmpty()) {
+                    taskManager.schedulePeriodic(immediateFirstRun = true)
                 }
                 
                 Logger.i(TAG, "All schedules restored after boot")

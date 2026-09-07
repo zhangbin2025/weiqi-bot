@@ -8,79 +8,136 @@ import com.weiqi.app.util.Logger
 import org.json.JSONObject
 
 /**
- * TaskWorker - WorkManager Worker
+ * TaskWorker - unified scheduler Worker
  *
- * 用于周期任务的触发
- * 只负责触发任务，实际执行由 TaskForegroundService 完成
+ * Single WorkManager periodic task that:
+ * 1. Iterates all schedules
+ * 2. Executes due ones serially (one at a time)
  */
 class TaskWorker(
     context: Context,
     params: WorkerParameters
 ) : CoroutineWorker(context, params) {
-    
+
     companion object {
         private const val TAG = "TaskWorker"
-        const val KEY_TASK_ID = "taskId"
-        const val KEY_PAGE_URL = "pageUrl"
-        const val KEY_PARAMS = "params"
     }
-    
+
     override suspend fun doWork(): Result {
-        val taskId = inputData.getString(KEY_TASK_ID)
-        val pageUrl = inputData.getString(KEY_PAGE_URL)
-        val paramsStr = inputData.getString(KEY_PARAMS)
-        
-        Logger.i(TAG, "Worker triggered for task: $taskId")
-        
-        // 检查 taskId 和 schedule 是否存在
-        if (taskId == null) {
-            Logger.w(TAG, "taskId is null, skipping execution")
-            return Result.success()
-        }
-        
+        Logger.i(TAG, "Scheduler tick started")
+
         val scheduleManager = ScheduleManager.getInstance(applicationContext)
-        val config = scheduleManager.get(taskId)
-        
-        if (config == null) {
-            Logger.w(TAG, "Schedule not found: $taskId, skipping execution")
-            return Result.success()  // 不执行，直接返回成功
-        }
-        
-        // ✅ 使用 TaskManager 的判断逻辑（避免代码重复）
         val taskManager = TaskManager(applicationContext)
-        if (!taskManager.shouldExecute(config)) {
-            Logger.i(TAG, "Schedule $taskId: not due yet, skipping")
+        val schedules = scheduleManager.list()
+
+        if (schedules.isEmpty()) {
+            Logger.i(TAG, "No schedules found")
             return Result.success()
         }
-        
-        // 启动前台服务执行任务
-        if (pageUrl != null) {
-            try {
-                val params = if (paramsStr != null) JSONObject(paramsStr) else JSONObject()
-                
-                val intent = Intent(applicationContext, TaskForegroundService::class.java).apply {
-                    action = TaskForegroundService.ACTION_EXECUTE_TASK
-                    putExtra(TaskForegroundService.EXTRA_TASK_ID, taskId)
-                    putExtra(TaskForegroundService.EXTRA_PAGE_URL, pageUrl)
-                    putExtra(TaskForegroundService.EXTRA_PARAMS, params.toString())
-                }
-                
-                // Android 8.0+ 需要使用 startForegroundService
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                    applicationContext.startForegroundService(intent)
-                } else {
-                    applicationContext.startService(intent)
-                }
-                
-                Logger.i(TAG, "Started foreground service for task: $taskId")
-                return Result.success()
-            } catch (e: Exception) {
-                Logger.e(TAG, "Failed to start foreground service for task: $taskId", e)
-                return Result.failure()
+
+        // Find all due schedules
+        val dueSchedules = schedules.filter { config ->
+            val id = config.optString("id")
+            if (id.isEmpty()) return@filter false
+            taskManager.shouldExecute(config).also { due ->
+                if (!due) Logger.d(TAG, "Schedule $id: not due, skipping")
             }
         }
-        
-        Logger.w(TAG, "Invalid task data: taskId=$taskId, pageUrl=$pageUrl")
-        return Result.failure()
+
+        if (dueSchedules.isEmpty()) {
+            Logger.i(TAG, "No schedules due, tick complete")
+            return Result.success()
+        }
+
+        Logger.i(TAG, "${dueSchedules.size} schedules due, executing serially")
+
+        // Execute each schedule serially
+        for (config in dueSchedules) {
+            val scheduleId = config.optString("id")
+            val pageUrl = taskManager.buildPageUrl(scheduleId, config)
+            val params = config.optJSONObject("params") ?: JSONObject()
+
+            Logger.i(TAG, "Executing schedule: $scheduleId")
+
+            val success = executeAndWait(scheduleId, pageUrl, params.toString())
+            if (!success) {
+                Logger.w(TAG, "Schedule $scheduleId did not complete successfully, continuing to next")
+            }
+        }
+
+        Logger.i(TAG, "Scheduler tick complete")
+        return Result.success()
+    }
+
+    /**
+     * Start foreground service and wait for task completion
+     */
+    private suspend fun executeAndWait(
+        scheduleId: String,
+        pageUrl: String,
+        paramsStr: String
+    ): Boolean {
+        val store = TaskStore.getInstance(applicationContext)
+
+        // Create task record
+        store.create(
+            id = scheduleId,
+            type = "periodic",
+            params = JSONObject(paramsStr),
+            pageUrl = pageUrl,
+            scheduleType = "periodic",
+            scheduleInterval = 15 * 60L
+        )
+
+        // Start foreground service
+        val intent = Intent(applicationContext, TaskForegroundService::class.java).apply {
+            action = TaskForegroundService.ACTION_EXECUTE_TASK
+            putExtra(TaskForegroundService.EXTRA_TASK_ID, scheduleId)
+            putExtra(TaskForegroundService.EXTRA_PAGE_URL, pageUrl)
+            putExtra(TaskForegroundService.EXTRA_PARAMS, paramsStr)
+        }
+
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                applicationContext.startForegroundService(intent)
+            } else {
+                applicationContext.startService(intent)
+            }
+        } catch (e: Exception) {
+            Logger.e(TAG, "Failed to start service for $scheduleId", e)
+            store.markFailed(scheduleId, "Failed to start service: ${e.message}")
+            return false
+        }
+
+        // Wait for completion (poll every 2s, max 10 min)
+        val maxWaitMs = 10 * 60 * 1000L
+        val pollIntervalMs = 2000L
+        val startTime = System.currentTimeMillis()
+
+        while (System.currentTimeMillis() - startTime < maxWaitMs) {
+            kotlinx.coroutines.delay(pollIntervalMs)
+            val task = store.get(scheduleId)
+            if (task == null) {
+                Logger.w(TAG, "Task $scheduleId disappeared from store")
+                return false
+            }
+            when (task.status) {
+                "completed" -> {
+                    Logger.i(TAG, "Task $scheduleId completed")
+                    return true
+                }
+                "failed" -> {
+                    Logger.w(TAG, "Task $scheduleId failed: ${task.error}")
+                    return false
+                }
+                "cancelled" -> {
+                    Logger.i(TAG, "Task $scheduleId cancelled")
+                    return false
+                }
+            }
+        }
+
+        Logger.w(TAG, "Task $scheduleId timed out after ${maxWaitMs / 1000}s")
+        return false
     }
 }

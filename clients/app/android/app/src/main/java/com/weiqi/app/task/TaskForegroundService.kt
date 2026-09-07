@@ -134,9 +134,6 @@ class TaskForegroundService : Service() {
                 // 检查是否已有任务在执行
                 if (currentSession != null) {
                     Logger.w(TAG, "Another task is running, skipping $taskId")
-                    store.markFailed(taskId, "Another task is running")
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                    stopSelf()
                     return@launch
                 }
                 
