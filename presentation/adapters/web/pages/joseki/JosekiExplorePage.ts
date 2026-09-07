@@ -34,6 +34,11 @@ export class JosekiExplorePage implements IPage {
   private currentTab: JosekiTab = 'explore';
   private currentPath: string[] = [];
   private currentResult?: ExploreResult;
+  // moves 参考着法串
+  private movesRef: string[] | null = null;
+  private movesIndex: number = 0;
+  private branchStack: string[] = [];
+  private branchPoint: number = -1;
   private initialized = false;
   // 子模块
   private favoritesManager: ExploreFavoritesManager;
@@ -103,6 +108,10 @@ export class JosekiExplorePage implements IPage {
     const favBtn = document.getElementById('fav-btn');
     const resetBtn = document.getElementById('reset-btn');
     if (undoBtn) undoBtn.addEventListener('click', () => this.undo());
+    const movesPrevBtn = document.getElementById('moves-prev-btn');
+    const movesNextBtn = document.getElementById('moves-next-btn');
+    if (movesPrevBtn) movesPrevBtn.addEventListener('click', () => this.movesPrev());
+    if (movesNextBtn) movesNextBtn.addEventListener('click', () => this.movesNext());
     if (favBtn) favBtn.addEventListener('click', () => this.addFavorite());
     if (resetBtn) resetBtn.addEventListener('click', () => this.reset());
     const aiBtn = document.getElementById('ai-btn');
@@ -117,7 +126,9 @@ export class JosekiExplorePage implements IPage {
     if (movesParam) {
       // 支持 '-' 和 ',' 两种分隔符
       const movesArray = movesParam.split(/[-,]/).filter(Boolean);
-      this.currentPath = movesArray;
+      this.movesRef = movesArray;
+      this.movesIndex = movesArray.length;
+      this.currentPath = [...movesArray];
       this.explore();
     }
   }
@@ -147,15 +158,29 @@ export class JosekiExplorePage implements IPage {
     }
   }
   private async handleStoneClick(pos: { x: number; y: number }): Promise<void> {
-    if (pos.x === -1 && pos.y === -1) {
-      this.currentPath.push('tt');
-      const nextColor = this.currentPath.length % 2 === 1 ? '黑' : '白';
-      this.uiHelper.showPassOverlay(`${nextColor}方脱先`);
-      await this.explore();
-      return;
+    const isPass = pos.x === -1 && pos.y === -1;
+    const coord = isPass ? 'tt' : String.fromCharCode(97 + pos.x, 97 + pos.y);
+
+    // 在 moves 主线上
+    if (this.movesRef !== null && this.branchPoint === -1) {
+      if (coord === this.movesRef[this.movesIndex]) {
+        // 匹配 moves 下一步，正常推进
+        this.currentPath.push(coord);
+        this.movesIndex++;
+        await this.explore();
+        return;
+      }
+      // 不匹配，进入探索分支
+      this.branchPoint = this.currentPath.length;
     }
-    const sgf = String.fromCharCode(97 + pos.x, 97 + pos.y);
-    this.currentPath.push(sgf);
+
+    // 分支中或刚进入分支
+    if (isPass) {
+      const nextColor = this.currentPath.length % 2 === 0 ? '黑' : '白';
+      this.uiHelper.showPassOverlay(`${nextColor}方脱先`);
+    }
+    this.branchStack.push(coord);
+    this.currentPath.push(coord);
     await this.explore();
   }
   private async explore(): Promise<void> {
@@ -217,14 +242,61 @@ export class JosekiExplorePage implements IPage {
   private updateControls(): void {
     const undoBtn = document.getElementById('undo-btn') as HTMLButtonElement | null;
     const favBtn = document.getElementById('fav-btn') as HTMLButtonElement | null;
-    if (undoBtn) undoBtn.disabled = this.currentPath.length <= 0;
+    const movesPrevBtn = document.getElementById('moves-prev-btn') as HTMLButtonElement | null;
+    const movesNextBtn = document.getElementById('moves-next-btn') as HTMLButtonElement | null;
+
+    const onTrack = this.movesRef !== null && this.branchPoint === -1;
+
+    if (undoBtn) {
+      undoBtn.style.display = onTrack ? 'none' : '';
+      undoBtn.disabled = this.currentPath.length <= 0;
+    }
+    if (movesPrevBtn) {
+      movesPrevBtn.style.display = onTrack ? '' : 'none';
+      movesPrevBtn.disabled = this.movesIndex <= 0;
+    }
+    if (movesNextBtn) {
+      movesNextBtn.style.display = onTrack ? '' : 'none';
+      movesNextBtn.disabled = this.movesRef === null || this.movesIndex >= this.movesRef.length;
+    }
     if (favBtn) favBtn.disabled = !this.currentResult?.stats.freq;
   }
   private async undo(): Promise<void> {
     if (this.currentPath.length <= 0) return;
+
+    // 在探索分支中
+    if (this.branchStack.length > 0) {
+      this.branchStack.pop();
+      this.currentPath.pop();
+      if (this.branchStack.length === 0) {
+        // 回到 moves 主线
+        this.branchPoint = -1;
+      }
+      await this.explore();
+      return;
+    }
+
+    // 无 moves 参数的普通回撤
     this.currentPath.pop();
+    if (this.movesRef !== null && this.movesIndex > 0) {
+      this.movesIndex--;
+    }
     await this.explore();
   }
+  private async movesPrev(): Promise<void> {
+    if (this.movesRef === null || this.movesIndex <= 0) return;
+    this.movesIndex--;
+    this.currentPath = this.movesRef.slice(0, this.movesIndex);
+    await this.explore();
+  }
+
+  private async movesNext(): Promise<void> {
+    if (this.movesRef === null || this.movesIndex >= this.movesRef.length) return;
+    this.movesIndex++;
+    this.currentPath = this.movesRef.slice(0, this.movesIndex);
+    await this.explore();
+  }
+
   private async addFavorite(): Promise<void> {
     if (!this.currentPath.length) return;
     try {
@@ -268,6 +340,10 @@ export class JosekiExplorePage implements IPage {
   private async reset(): Promise<void> {
     this.currentPath = [];
     delete this.currentResult;
+    this.movesRef = null;
+    this.movesIndex = 0;
+    this.branchStack = [];
+    this.branchPoint = -1;
     await this.showFirstMoveBranches();
   }
   // ========== 收藏管理方法 ==========
@@ -395,6 +471,10 @@ export class JosekiExplorePage implements IPage {
     this.toast.destroy();
     this.dialog.destroy();
     this.currentPath = [];
+    this.movesRef = null;
+    this.movesIndex = 0;
+    this.branchStack = [];
+    this.branchPoint = -1;
     this.favoritesManager.reset();
     this.initialized = false;
   }

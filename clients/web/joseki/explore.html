@@ -93,6 +93,7 @@
       display: flex;
       gap: 12px;
       justify-content: center;
+      align-items: center;
     }
     .joseki-btn {
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -121,6 +122,9 @@
       cursor: not-allowed;
       opacity: 0.6;
     }
+
+
+
 
     /* 收藏条目 */
     .joseki-grid {
@@ -446,6 +450,8 @@
         <!-- 功能按钮 -->
         <div class="joseki-controls">
           <button class="joseki-btn" id="undo-btn" disabled title="撤销">↩</button>
+          <button class="joseki-btn secondary" id="moves-prev-btn" style="display:none;" title="上一步">◀</button>
+          <button class="joseki-btn secondary" id="moves-next-btn" style="display:none;" title="下一步">▶</button>
           <button class="joseki-btn secondary" id="fav-btn" title="收藏" data-faved="false">☆</button>
           <button class="joseki-btn secondary" id="reset-btn" title="重置">⟳</button>
           <button class="joseki-btn" id="ai-btn" title="AI分析" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">AI</button>
