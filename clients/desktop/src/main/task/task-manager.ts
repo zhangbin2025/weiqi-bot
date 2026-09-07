@@ -18,6 +18,7 @@ export class TaskManager {
   private scheduleManager: ScheduleManager;
   private workers: Map<string, BrowserWindow> = new Map();
   private periodicTimers: Map<string, NodeJS.Timeout> = new Map();
+  private notifications: Map<string, Notification> = new Map();
 
   constructor() {
     this.store = new TaskStore();
@@ -548,14 +549,20 @@ export class TaskManager {
     }
     
     // 发送系统通知
+    // ⚠️ 必须保持 Notification 引用，否则 GC 会导致 click 事件丢失
+    // https://github.com/electron/electron/issues/23657
     const notification = new Notification({
       title: title || '任务完成',
       body: displayMessage,
     });
     
+    // 保存引用，防止被 GC 回收
+    this.notifications.set(taskId, notification);
+    
     // 点击通知 -> 聚焦窗口并导航到结果页面
     notification.on('click', () => {
-      const window = BrowserWindow.getAllWindows()[0];
+      // 查找主窗口（可见的、非 worker 的窗口）
+      const window = BrowserWindow.getAllWindows().find(w => w.isVisible() && !w.isDestroyed());
       if (window) {
         window.focus();
         if (linkUrl) {
@@ -587,6 +594,11 @@ export class TaskManager {
     
     notification.show();
 
+    // 通知关闭时清理引用
+    notification.on('close', () => {
+      this.notifications.delete(taskId);
+    });
+
     // 任务完成后延迟关闭隐藏窗口
     // IndexedDB 写入是异步的，需要给足够时间 flush 到磁盘
     // 否则后台任务保存的数据可能丢失
@@ -617,10 +629,17 @@ export class TaskManager {
       log.info(`Task ${taskId} schedule lastResult updated (failed)`);
     }
     
-    new Notification({
+    // ⚠️ 保持 Notification 引用，防止 GC 导致事件丢失
+    const failNotification = new Notification({
       title: '任务失败',
       body: error,
-    }).show();
+    });
+    const failNotifId = taskId + '_fail';
+    this.notifications.set(failNotifId, failNotification);
+    failNotification.on('close', () => {
+      this.notifications.delete(failNotifId);
+    });
+    failNotification.show();
 
     // 任务失败后关闭隐藏窗口（延迟到下一个 tick）
     setImmediate(() => this.cleanupWindow(taskId));
