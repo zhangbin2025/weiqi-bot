@@ -17,6 +17,7 @@ export interface ReplayPageStateData {
   // 功能开关
   showMoveNumbers: boolean;
   soundEnabled: boolean;
+  showBranchMarks: boolean;
   // 分支状态
   savedPath: number[];
   savedDisplayIndex: number;
@@ -45,6 +46,7 @@ export class ReplayPageState {
       displayIndex: 0,
       showMoveNumbers: false,
       soundEnabled: true,
+      showBranchMarks: false,
       savedPath: [],
       savedDisplayIndex: 0,
       savedShowMoveNumbers: false,

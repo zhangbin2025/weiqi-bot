@@ -5,6 +5,7 @@
 import type { WebBoard } from '../../../components/Board';
 import type { ReplayPageState } from '../state/ReplayPageState';
 import type { VariationController } from '../../../../../core/controllers';
+import { coordToPos } from '../../../../../../domain/sgf';
 export class ReplayPageUI {
   // DOM 元素引用
   private moveSlider: HTMLInputElement | null = null;
@@ -236,6 +237,73 @@ export class ReplayPageUI {
     }
   }
   /**
+   * 更新分支选点标记（在棋盘上用字母标出各分支第一手）
+   * 包括主分支在内的所有 children，字母打乱分配
+   */
+  updateBranchMarks(): void {
+    const showBranchMarks = this.state.get('showBranchMarks');
+    const inVariation = this.state.get('inVariation');
+    const inTrial = document.querySelector('.container')?.classList.contains('trial-mode');
+
+    if (!showBranchMarks || inVariation || inTrial) {
+      this.board.clearMarkers();
+      return;
+    }
+
+    const node = this.state.getCurrentNode();
+    if (!node?.children || node.children.length <= 1) {
+      this.board.clearMarkers();
+      return;
+    }
+
+    // 收集所有有有效坐标的 children，按位置去重
+    const posMap = new Map<string, { x: number; y: number }>();
+    for (const child of node.children) {
+      if (child.coord && child.coord !== 'tt' && child.coord !== 'TT') {
+        const pos = coordToPos(child.coord);
+        if (pos) {
+          const key = `${pos.x},${pos.y}`;
+          if (!posMap.has(key)) {
+            posMap.set(key, { x: pos.x, y: pos.y });
+          }
+        }
+      }
+    }
+
+    const validChildren = [...posMap.values()];
+
+    if (validChildren.length <= 1) {
+      this.board.clearMarkers();
+      return;
+    }
+
+    // 先打乱 children 顺序，再按新顺序分配 A, B, C...（字母始终连续）
+    const shuffled = [...validChildren];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i]!, shuffled[j]!] = [shuffled[j]!, shuffled[i]!];
+    }
+
+    // 按打乱后的顺序依次分配 A, B, C, ...
+    const markers = shuffled.map((pos, i) => ({
+      pos: { x: pos.x, y: pos.y },
+      marker: String.fromCharCode(65 + i),
+    }));
+
+    this.board.setMarkers(markers);
+  }
+
+  /**
+   * 更新分支选点按钮状态
+   */
+  updateBranchMarksButton(showBranchMarks: boolean): void {
+    const menuItem = document.getElementById('branchMarksMenuItem');
+    if (menuItem) {
+      menuItem.textContent = showBranchMarks ? '🔀 分支选点 ✓' : '🔀 分支选点';
+    }
+  }
+
+  /**
    * 更新分支面板（表格形式）
    */
   updateVariationPanel(onEnterVariation: (index: number) => void): void {
@@ -244,6 +312,7 @@ export class ReplayPageUI {
     // 分支模式下，隐藏变化图面板
     if (inVariation) {
       this.variationPanel.classList.remove('visible');
+      this.updateBranchMarks();
       return;
     }
     const node = this.state.getCurrentNode();
@@ -254,12 +323,14 @@ export class ReplayPageUI {
     }
     if (!node?.children || node.children.length <= 1) {
       this.variationPanel.classList.remove('visible');
+      this.updateBranchMarks();
       return;
     }
     this.variationController.buildFromChildren(node.children as any);
     const variations = this.variationController.getVariations();
     if (variations.length === 0) {
       this.variationPanel.classList.remove('visible');
+      this.updateBranchMarks();
       return;
     }
     // 构建表格
@@ -301,6 +372,9 @@ export class ReplayPageUI {
     this.variationPanel.innerHTML = '';
     this.variationPanel.appendChild(container);
     this.variationPanel.classList.add('visible');
+
+    // 更新分支选点标记
+    this.updateBranchMarks();
   }
   /**
    * 更新试下模式 UI

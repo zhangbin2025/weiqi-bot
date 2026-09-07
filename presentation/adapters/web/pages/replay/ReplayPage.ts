@@ -149,6 +149,9 @@ export class ReplayPage implements IPage {
     window.addEventListener('toggleMoveNumbers', () => {
       this.toggleMoveNumbers();
     });
+    window.addEventListener('toggleBranchMarks', () => {
+      this.toggleBranchMarks();
+    });
     window.addEventListener('togglePlay', () => {
       this.navigationHandler.togglePlay();
     });
@@ -216,6 +219,17 @@ export class ReplayPage implements IPage {
       this.replayApp.initializeAudio();
     }
   }
+  /**
+   * 切换分支选点显示
+   */
+  private toggleBranchMarks(): void {
+    const showBranchMarks = !this.state.get('showBranchMarks');
+    this.state.set('showBranchMarks', showBranchMarks);
+    this.ui.updateBranchMarksButton(showBranchMarks);
+    // 立即刷新当前局面
+    this.ui.updateVariationPanel((index) => this.variationHandler.enterVariation(index));
+  }
+
   /**
    * 切换手数显示
    */
@@ -298,7 +312,7 @@ export class ReplayPage implements IPage {
   /**
    * 获取当前局面数据（供打印使用）
    */
-  getPrintData(): { stones: Array<{ x: number; y: number; color: 'black' | 'white' }>; lastMove: { x: number; y: number; color: 'black' | 'white' } | undefined; blackName: string; whiteName: string; moveNumber: number; turn: 'black' | 'white'; size: number; viewBox?: { minX: number; minY: number; width: number; height: number } | undefined } {
+  getPrintData(): { stones: Array<{ x: number; y: number; color: 'black' | 'white' }>; lastMove: { x: number; y: number; color: 'black' | 'white' } | undefined; blackName: string; whiteName: string; moveNumber: number; turn: 'black' | 'white'; size: number; viewBox?: { minX: number; minY: number; width: number; height: number } | undefined; labels?: Array<{ x: number; y: number; letter: string }> | undefined } {
     // 优先从 WebBoard 获取（显示层当前状态，包含 handicap stones）
     const boardStones = this.board.getStones();
     let stones: Array<{ x: number; y: number; color: 'black' | 'white' }>;
@@ -367,7 +381,36 @@ export class ReplayPage implements IPage {
       }
     }
 
-    return { stones, lastMove, blackName, whiteName, moveNumber, turn, size: boardSize, viewBox };
+    // 分支选点标记（仅当开启时）
+    let labels: Array<{ x: number; y: number; letter: string }> | undefined;
+    if (this.state.get('showBranchMarks')) {
+      const node = this.state.getCurrentNode();
+      if (node?.children && node.children.length > 1) {
+        const posMap = new Map<string, { x: number; y: number }>();
+        for (const child of node.children) {
+          if (child.coord && child.coord !== 'tt' && child.coord !== 'TT') {
+            const pos = coordToPos(child.coord);
+            if (pos) {
+              const key = `${pos.x},${pos.y}`;
+              if (!posMap.has(key)) {
+                posMap.set(key, { x: pos.x, y: pos.y });
+              }
+            }
+          }
+        }
+        const valid = [...posMap.values()];
+        if (valid.length > 1) {
+          // shuffle
+          for (let i = valid.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [valid[i]!, valid[j]!] = [valid[j]!, valid[i]!];
+          }
+          labels = valid.map((pos, i) => ({ x: pos.x, y: pos.y, letter: String.fromCharCode(65 + i) }));
+        }
+      }
+    }
+
+    return { stones, lastMove, blackName, whiteName, moveNumber, turn, size: boardSize, viewBox, labels };
   }
 
   render(): void {

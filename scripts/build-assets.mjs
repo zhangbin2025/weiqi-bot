@@ -7,7 +7,7 @@
  * 并生成 web-resources.zip 供客户端预下载使用
  */
 
-import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync, readdirSync, statSync } from 'fs';
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync, readFileSync, readdirSync, statSync } from 'fs';
 import { resolve, dirname, join, relative } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
@@ -131,6 +131,64 @@ function generateVersionJson() {
 }
 
 /**
+ * 给 HTML 中的 JS/CSS 引用添加 cache-busting query string
+ * 解决 vite hash 不变但内容变了的问题
+ */
+function addCacheBusting(version) {
+  console.log('\n🔄 添加 cache-busting...\n');
+  
+  const distDir = resolve(ROOT, 'dist-web');
+  
+  // 递归查找所有 HTML 文件
+  function findHtmlFiles(dir, baseDir = dir) {
+    const files = [];
+    if (!existsSync(dir)) return files;
+    for (const entry of readdirSync(dir)) {
+      const fullPath = join(dir, entry);
+      const relPath = relative(baseDir, fullPath);
+      if (statSync(fullPath).isDirectory()) {
+        files.push(...findHtmlFiles(fullPath, baseDir));
+      } else if (entry.endsWith('.html')) {
+        files.push(fullPath);
+      }
+    }
+    return files;
+  }
+  
+  const htmlFiles = findHtmlFiles(distDir);
+  let count = 0;
+  
+  for (const htmlFile of htmlFiles) {
+    let content = readFileSync(htmlFile, 'utf-8');
+    let modified = false;
+    
+    // 给 script src 加 ?v=version（已有 ? 的不加）
+    content = content.replace(/src="([^"]+\.js)(\?[^"]*)?"/g, (match, jsPath, existingQuery) => {
+      if (jsPath.startsWith('http') || jsPath.startsWith('//')) return match; // 跳过外部 URL
+      modified = true;
+      count++;
+      return `src="${jsPath}?v=${version}"`;
+    });
+    
+    // 给 link href 加 ?v=version
+    content = content.replace(/href="([^"]+\.css)(\?[^"]*)?"/g, (match, cssPath, existingQuery) => {
+      if (cssPath.startsWith('http') || cssPath.startsWith('//')) return match;
+      modified = true;
+      return `href="${cssPath}?v=${version}"`;
+    });
+    
+    if (modified) {
+      writeFileSync(htmlFile, content);
+    }
+  }
+  
+  console.log(`✅ Cache-busting 已添加`);
+  console.log(`   版本: ${version}`);
+  console.log(`   修改文件: ${htmlFiles.length} 个 HTML`);
+  console.log(`   修改引用: ${count} 处`);
+}
+
+/**
  * 递归列出目录下所有文件的相对路径
  */
 function listFilesRecursively(dir, baseDir = dir) {
@@ -217,4 +275,5 @@ function generateWebResourcesZip() {
 // 执行
 copyResources();
 const version = generateVersionJson();
+addCacheBusting(version);
 generateWebResourcesZip();

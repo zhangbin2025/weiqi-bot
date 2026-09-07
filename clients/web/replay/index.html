@@ -390,6 +390,7 @@
           <div class="dropdown-menu" id="dropdownMenu">
             <button class="dropdown-item" id="soundMenuItem">🔊 音效开关</button>
             <button class="dropdown-item" id="numMenuItem">⭕ 显示手数</button>
+            <button class="dropdown-item" id="branchMarksMenuItem">🔀 分支选点</button>
             <button class="dropdown-item" id="playMenuItem">▶️ 自动播放</button>
             <div class="dropdown-divider"></div>
             <button class="dropdown-item" id="aiReviewMenuItem">🤖 AI分析</button>
@@ -486,6 +487,14 @@
       dropdownMenu?.classList.remove('visible');
       // 通知 TypeScript 代码（toggle 逻辑在 TypeScript 中处理）
       window.dispatchEvent(new CustomEvent('toggleMoveNumbers'));
+    });
+
+    // 分支选点显示 - 只发送事件，让 TypeScript 控制状态
+    const branchMarksMenuItem = document.getElementById('branchMarksMenuItem');
+    branchMarksMenuItem?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dropdownMenu?.classList.remove('visible');
+      window.dispatchEvent(new CustomEvent('toggleBranchMarks'));
     });
 
     // 自动播放 - 只发送事件，由 TypeScript 处理

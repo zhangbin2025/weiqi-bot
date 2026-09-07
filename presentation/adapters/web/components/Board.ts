@@ -194,6 +194,30 @@ export class WebBoard implements IBoard {
     this.highlights.clear();
     this.render();
   }
+  /**
+   * 批量设置标记（字母等），不触发多次 render
+   */
+  setMarkers(markers: Array<{ pos: Position; marker: string }>): void {
+    this.markers.clear();
+    this.transparentMarkers.clear();
+    for (const { pos, marker } of markers) {
+      const key = `${pos.x},${pos.y}`;
+      this.markers.set(key, marker);
+      // 空交叉点上的标记用 transparent 模式（只画纯文字，不画圆圈）
+      if (!this.stones.has(key)) {
+        this.transparentMarkers.add(key);
+      }
+    }
+    this.render();
+  }
+
+  /** 清除所有标记 */
+  clearMarkers(): void {
+    this.markers.clear();
+    this.transparentMarkers.clear();
+    this.render();
+  }
+
   setMarker(pos: Position, marker: string, transparent?: boolean): void {
     this.markers.set(`${pos.x},${pos.y}`, marker);
     this.transparentMarkers = this.transparentMarkers || new Set();
@@ -222,11 +246,6 @@ export class WebBoard implements IBoard {
   }
   clearMoveNumbers(): void {
     this.moveNumbers.clear();
-    this.render();
-  }
-  clearMarkers(): void {
-    this.markers.clear();
-    this.transparentMarkers.clear();
     this.render();
   }
   setMoveNumbers(moves: Array<{ pos: Position; number: number }>): void {

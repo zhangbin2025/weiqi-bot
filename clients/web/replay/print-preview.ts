@@ -16,6 +16,7 @@ interface PrintPosition {
   turn: 'black' | 'white';
   size?: number;
   viewBox?: { minX: number; minY: number; width: number; height: number };
+  labels?: Array<{ x: number; y: number; letter: string }>;
 }
 
 declare global {
@@ -116,6 +117,7 @@ function renderGrid(data: PrintPosition, rows: number, cols: number): void {
       lastMove: data.lastMove,
       size: data.size,
       viewBox: data.viewBox,
+      labels: data.labels,
     });
 
     card.appendChild(canvas);
