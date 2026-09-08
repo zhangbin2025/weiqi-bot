@@ -25,6 +25,11 @@ export class KataGoProcess {
   private onExitCallback?: (code: number) => void;
   private onReadyCallback?: () => void;
 
+  /** 心跳计时器 */
+  private heartbeatTimer: NodeJS.Timeout | null = null;
+  /** 上次收到 stderr 的时间戳 */
+  private lastStderrTime = 0;
+
   isRunning = false;
 
   /**
@@ -145,8 +150,10 @@ export class KataGoProcess {
       });
 
       // 读取 stderr（日志）
+      this.lastStderrTime = Date.now();
       this.process.stderr?.on('data', (data) => {
         const text = data.toString();
+        this.lastStderrTime = Date.now();
         console.log('[KataGo stderr]', text.substring(0, 200));
 
         // 检测 Tuning 进度，发送进度通知让前端重置超时计时器
@@ -166,9 +173,13 @@ export class KataGoProcess {
         }
       });
 
+      // 启动心跳线程
+      this.startHeartbeat();
+
       // 进程退出
       this.process.on('exit', (code) => {
         console.log(`[KataGo] Process exited with code ${code}`);
+        this.stopHeartbeat();
         this.isRunning = false;
         this.process = null;
         this.onExitCallback?.(code || 0);
@@ -177,6 +188,7 @@ export class KataGoProcess {
       // 进程错误
       this.process.on('error', (err) => {
         console.error(`[KataGo] Process error:`, err);
+        this.stopHeartbeat();
         this.isRunning = false;
         this.process = null;
         this.onExitCallback?.(-1);
@@ -208,6 +220,7 @@ export class KataGoProcess {
   shutdown() {
     if (!this.process || !this.isRunning) return;
 
+    this.stopHeartbeat();
     console.log('[KataGo] Shutting down...');
 
     // 关闭 stdin，KataGo 会完成队列后退出
@@ -271,6 +284,40 @@ export class KataGoProcess {
       }
     } catch (error: any) {
       console.error('[KataGo] Failed to push to TS:', error);
+    }
+  }
+
+  /**
+   * 启动心跳：进程活着但长时间无 stderr 输出时，
+   * 主动推送 katago:heartbeat 给前端，防止启动超时。
+   *
+   * 场景：KataGo tuning 某些步骤很慢，可能 30-60 秒无输出。
+   */
+  private startHeartbeat() {
+    this.lastStderrTime = Date.now();
+    this.heartbeatTimer = setInterval(() => {
+      if (!this.process || !this.isRunning) {
+        this.stopHeartbeat();
+        return;
+      }
+      const elapsed = Date.now() - this.lastStderrTime;
+      if (elapsed > 20000) { // 20 秒无 stderr 输出
+        console.log(`[KataGo] Heartbeat: no stderr for ${elapsed}ms`);
+        this.pushToTS({
+          type: 'katago:heartbeat',
+          elapsed,
+        });
+      }
+    }, 10000); // 每 10 秒检查一次
+  }
+
+  /**
+   * 停止心跳
+   */
+  private stopHeartbeat() {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
     }
   }
 

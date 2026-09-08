@@ -4,7 +4,7 @@
 
 set -e
 
-KATAGO_VERSION="v1.16.5"
+KATAGO_VERSION="v1.18.0"
 KATAGO_BASE_URL="https://github.com/lightvector/KataGo/releases/download/${KATAGO_VERSION}"
 KATAGO_FILE="katago-${KATAGO_VERSION}-opencl-windows-x64.zip"
 KATAGO_URL="${KATAGO_BASE_URL}/${KATAGO_FILE}"

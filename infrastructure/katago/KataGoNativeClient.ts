@@ -217,7 +217,7 @@ export class KataGoNativeClient {
     }
     this.startTimeoutId = setTimeout(() => {
       if (this.startReject) {
-        this.startReject(new Error('KataGo start timeout (30s)'));
+        this.startReject(new Error('KataGo start timeout (120s)'));
         this.clearStartTimeout();
       }
     }, this.startTimeoutMs);
