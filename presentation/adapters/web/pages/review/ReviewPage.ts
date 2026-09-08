@@ -467,7 +467,7 @@ export class ReviewPage implements IPage {
       if (!isInGameMode) {
         const allMoves = this.interaction.getCurrentMoves();
         const roi = this.interaction.getRegionOfInterest();
-                moveReview = await this.reviewApp.analyzeMoves(allMoves, 0, { visits, regionOfInterest: roi }, this.handicapStones);
+                moveReview = await this.reviewApp.analyzeMoves(allMoves, 7.5, { visits, regionOfInterest: roi }, this.handicapStones);
       } else {
         const roi = this.interaction.getRegionOfInterest();
                 moveReview = await this.reviewApp.analyzePosition(this.analysis.getReviewId()!, moveIndex, { visits, includePv: true, regionOfInterest: roi });
