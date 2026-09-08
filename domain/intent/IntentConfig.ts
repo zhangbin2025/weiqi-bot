@@ -75,7 +75,7 @@ export const INTENT_KEYWORDS: IntentConfig[] = [
   {
     intent: 'generate_decision',
     page: '../decision/index.html',
-    coreKeywords: ['恶手题', '实战选点', '选点题', '决策题', '生成题目', '答题', '出题', '做题', '练习', '训练', '刷题'],
+    coreKeywords: ['恶手题', '实战选点', '选点题', '决策题', '生成题目'],
     variantKeywords: ['恶手', '选点', '决策', '最新'],
     isLongRunning: true,
     description: '生成实战选点题',

@@ -553,7 +553,7 @@ export class AssistantUseCase implements IAssistantUseCase {
 
 - 🎯 **[实战选点](../decision/index.html)**
   - 决策训练
-  - 示例: <a href="#" onclick="quickSend('做题'); return false;">做题</a>
+  - 示例: <a href="#" onclick="quickSend('选点'); return false;">选点</a>
 
 - 📋 **[记录棋谱](../recorder/index.html)**
   - 记录对局
@@ -564,8 +564,8 @@ export class AssistantUseCase implements IAssistantUseCase {
   - 示例: <a href="#" onclick="quickSend('比赛'); return false;">比赛</a>
 
 - 📥 **[抓取棋谱](../fetcher/index.html)**
-  - 从分享链接抓取棋谱
-  - 示例: <a href="../fetcher/index.html">抓取棋谱</a>
+  - 从分享链接抓取棋谱、死活题
+  - 示例: <a href="../fetcher/index.html">抓取棋谱</a> <a href="#" onclick="quickSend('死活'); return false;">死活</a>
 
 ---
 
