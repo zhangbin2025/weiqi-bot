@@ -410,7 +410,12 @@ export class AssistantPage {
         hint.onclick = () => {
           this.handleSendMessage('/version upgrade web');
         };
-        header.appendChild(hint);
+        const title = header.querySelector('h1');
+        if (title) {
+          title.appendChild(hint);
+        } else {
+          header.appendChild(hint);
+        }
       }
     } catch (error) {
       // 静默失败，不影响正常使用
