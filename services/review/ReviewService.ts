@@ -200,7 +200,11 @@ export class ReviewService implements IReviewService {
       y: s.y,
     }));
     
-    const analysis = await this.ai!.analyze(board, previousBoard, currentPlayer, moveHistory as any, komi, visits, undefined, includePv ? 15 : 0, initialStones, undefined, undefined, regionOfInterest);
+    // 局部分析（死活题）：komi=0 消除贴目干扰，关闭随机性确保精确搜索
+    const effectiveKomi = regionOfInterest ? 0 : komi;
+    const effectiveNoise = regionOfInterest ? 0 : undefined;
+    const effectiveRandomize = regionOfInterest ? false : undefined;
+    const analysis = await this.ai!.analyze(board, previousBoard, currentPlayer, moveHistory as any, effectiveKomi, visits, undefined, includePv ? 15 : 0, initialStones, effectiveNoise, effectiveRandomize, regionOfInterest);
     
     // 返回结果（没有胜率变化，因为没有实际着法可以比较）
     return {
@@ -448,7 +452,11 @@ export class ReviewService implements IReviewService {
       y: s.y,
     }));
     
-    const analysis = await this.ai!.analyze(board, previousBoard, currentPlayer, moveHistory as any, komi, visits, undefined, includePv ? 15 : 0, initialStones, undefined, undefined, regionOfInterest);
+    // 局部分析（死活题）：komi=0 消除贴目干扰，关闭随机性确保精确搜索
+    const effectiveKomi = regionOfInterest ? 0 : komi;
+    const effectiveNoise = regionOfInterest ? 0 : undefined;
+    const effectiveRandomize = regionOfInterest ? false : undefined;
+    const analysis = await this.ai!.analyze(board, previousBoard, currentPlayer, moveHistory as any, effectiveKomi, visits, undefined, includePv ? 15 : 0, initialStones, effectiveNoise, effectiveRandomize, regionOfInterest);
     
     // 返回结果
     return {
@@ -637,7 +645,11 @@ export class ReviewService implements IReviewService {
     
     let analysis;
     try {
-      analysis = await this.ai!.analyze(board, previousBoard, move.color, moveHistory, komi, visits, undefined, includePv ? 15 : 0, initialStones, undefined, undefined, regionOfInterest);
+      // 局部分析（死活题）：komi=0 消除贴目干扰，关闭随机性确保精确搜索
+      const effectiveKomi = regionOfInterest ? 0 : komi;
+      const effectiveNoise = regionOfInterest ? 0 : undefined;
+      const effectiveRandomize = regionOfInterest ? false : undefined;
+      analysis = await this.ai!.analyze(board, previousBoard, move.color, moveHistory, effectiveKomi, visits, undefined, includePv ? 15 : 0, initialStones, effectiveNoise, effectiveRandomize, regionOfInterest);
     } catch (error) {
       console.error(`[ReviewService] KataGo 分析失败 (第${index + 1}手):`, error);
       throw error;
