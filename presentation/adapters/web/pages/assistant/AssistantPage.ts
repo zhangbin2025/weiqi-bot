@@ -400,16 +400,17 @@ export class AssistantPage {
       if (remoteVersion.version === '未知' || localVersion.version === '未知') return;
       if (remoteVersion.version <= localVersion.version) return;
 
-      // 有新版本 → 在状态栏提示文字后追加更新提示
-      const loadingText = document.getElementById('loadingText');
-      if (loadingText) {
+      // 有新版本 → 在标题栏追加更新提示（固定在顶部，不会被聊天滚动隐藏）
+      const header = document.querySelector('.wechat-header');
+      if (header) {
         const hint = document.createElement('span');
         hint.className = 'update-hint';
+        hint.style.cssText = 'color: rgba(255,255,255,0.9); font-size: 12px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px;';
         hint.textContent = ' · 有新版本，点击更新';
         hint.onclick = () => {
           this.handleSendMessage('/version upgrade web');
         };
-        loadingText.appendChild(hint);
+        header.appendChild(hint);
       }
     } catch (error) {
       // 静默失败，不影响正常使用
