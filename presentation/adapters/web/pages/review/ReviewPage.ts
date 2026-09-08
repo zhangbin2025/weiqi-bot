@@ -788,7 +788,7 @@ export class ReviewPage implements IPage {
         this.liveModeManager?.start();
       }
     } else {
-      this.ui.updateStatus('点击推荐选点查看变化图');
+      this.ui.updateStatus(this.currentModelName);
     }
     // 启用所有功能按钮（有棋谱时）
     // 分析局面模式：不启用导航控件
