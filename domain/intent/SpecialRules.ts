@@ -79,6 +79,18 @@ export const SPECIAL_RULES: SpecialRule[] = [
     description: '野狐昵称自动识别为对手分析',
   },
   {
+    name: 'quiz_candidates',
+    priority: 82,
+    match: (text: string): boolean => {
+      return ['做题', '答题', '出题', '练习', '训练', '刷题'].includes(text.trim());
+    },
+    intent: 'help',
+    extractParams: (): Record<string, any> => ({
+      candidates: ['实战选点', '死活题', '定式挑战'],
+    }),
+    description: '泛化做题词产生候选',
+  },
+  {
     name: 'tsumego_download',
     priority: 80,
     match: (text: string): boolean => {

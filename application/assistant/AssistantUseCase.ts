@@ -187,6 +187,23 @@ export class AssistantUseCase implements IAssistantUseCase {
     // 保存原始文本(用于周期性任务解析时间表达式)
     entities['text'] = text;
 
+    // 泛化词候选：显示精确关键词供用户选择
+    this.messageRenderer.hideTyping();
+    if (params['candidates']) {
+      const linksHtml = (params['candidates'] as string[])
+        .map((kw, i) => `<a href="#" onclick="quickSend('${kw}'); return false;" class="intent-option-link" data-keyword="${kw}" style="display: inline-block; margin: 8px 12px 8px 0; color: #667eea; text-decoration: none; font-size: 15px; font-weight: 500;">${i + 1}. ${kw}</a>`)
+        .join('');
+      const responseText = `我识别到多个可能的意图,请选择:
+
+${linksHtml}`;
+      await this.messageRenderer.renderMessage(responseText, false);
+      await this.chatHistoryManager.addMessage({
+        role: 'assistant',
+        content: responseText,
+      });
+      console.info('泛化词候选已显示:', params['candidates']);
+      return;
+    }
     // 处理查询任务进度
     if (intent === 'query_task_progress') {
       await this.handleQueryTaskProgress(entities);
