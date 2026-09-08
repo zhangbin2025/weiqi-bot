@@ -676,7 +676,7 @@ export class ReviewService implements IReviewService {
         winRate: m.winRate, 
         scoreLead: m.scoreLead, 
         visits: m.visits,
-        ...(m.pv ? { pv: m.pv } : {}),  // 保留 PV line
+        ...(m.pv && !regionOfInterest ? { pv: m.pv } : {}),
       })),
     };
     if (better) {
