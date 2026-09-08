@@ -79,6 +79,17 @@ export const SPECIAL_RULES: SpecialRule[] = [
     description: '野狐昵称自动识别为对手分析',
   },
   {
+    name: 'tsumego_download',
+    priority: 80,
+    match: (text: string): boolean => {
+      const trimmed = text.trim();
+      return trimmed === '死活' || trimmed.includes('死活题');
+    },
+    intent: 'download_game',
+    extractParams: (): Record<string, any> => ({ source: 'weiqi101' }),
+    description: '死活/死活题关键词识别为下载101围棋棋谱',
+  },
+  {
     name: 'event_search',
     priority: 75,
     match: (text: string): boolean => {

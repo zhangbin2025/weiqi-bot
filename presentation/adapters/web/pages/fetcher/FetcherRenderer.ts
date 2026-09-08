@@ -162,6 +162,11 @@ export class FetcherRenderer {
   /** 设置最新标签页的棋谱数 */
   setLatestCount(count: string): void { this.countSelect.setValue(count); }
 
+  /** 获取最新标签页的棋谱数 */
+  getLatestCount(): number {
+    return parseInt(this.countSelect.getValue() || '20', 10);
+  }
+
   /** 设置最新标签页的关键字 */
   setLatestKeyword(keyword: string): void { this.keywordInput.setValue(keyword); }
 

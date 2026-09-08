@@ -104,6 +104,13 @@ export class FetcherPage implements IPage {
       this.renderer.setInputValue(params['url'] as string);
       this.fetchByUrl(params['url'] as string, params['taskId'] as string);
     }
+    // 来源参数（从助手跳转，指定来源但无 URL → 切到最新标签页并自动查询）
+    if (params['source'] && !params['url']) {
+      this.renderer.switchToLatestTab();
+      this.renderer.setLatestSource(params['source'] as string);
+      const count = this.renderer.getLatestCount();
+      this.fetchLatestGames(params['source'] as string, count);
+    }
   }
   render(): void { this.renderer.render(); }
   destroy(): void {
