@@ -259,7 +259,7 @@ export class ReviewPage implements IPage {
       // 从会话加载棋谱
       this.loadFromSessionId(sessionId, undefined, true).then((success) => {
         if (success) {
-          if (moveTo > 0) this.goToMove(moveTo);
+          this.goToMove(moveTo);
         } else {
           this.ui.updateStatus('加载棋谱失败');
         }
@@ -282,7 +282,7 @@ export class ReviewPage implements IPage {
       // 加载棋谱并跳转到指定局面
       this.loadFromArchiveId(archiveId, undefined, undefined, true).then((success) => {
         if (success) {
-          if (moveTo > 0) this.goToMove(moveTo);
+          this.goToMove(moveTo);
         } else {
           this.ui.updateStatus('加载棋谱失败');
         }
@@ -770,7 +770,9 @@ export class ReviewPage implements IPage {
     this.moveNavigator.setMaxMoves(this.totalMoves);
     this.ui.setSliderMax(this.totalMoves);
     this.winrateChart?.update(this.winrateTrend, this.totalMoves);
-    this.goToMove(this.totalMoves);
+    if (!this.analyzePositionMode) {
+      this.goToMove(this.totalMoves);
+    }
     
     // 直播模式：等AI选点分析完成，再启动定时刷新
     if (this.liveModeManager?.isActive()) {
