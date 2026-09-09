@@ -69,6 +69,9 @@ export class KataGoNativeClient {
   /** 进程退出回调 */
   private exitCallbacks: Array<(exitCode: number) => void> = [];
 
+  /** 标志：shutdown() 已调用，预期会收到旧进程的 exit 通知 */
+  private expectingExit = false;
+
   // ========== 公开 API ==========
 
   /**
@@ -79,6 +82,9 @@ export class KataGoNativeClient {
       console.warn('[KataGoNativeClient] Process already running');
       return;
     }
+
+    // 清除 expectingExit 标志（新一轮启动不再预期旧进程退出）
+    this.expectingExit = false;
 
     // 设置就绪 Promise（支持进度反馈重置超时）
     this.readyPromise = new Promise<void>((resolve, reject) => {
@@ -165,6 +171,8 @@ export class KataGoNativeClient {
   async shutdown(): Promise<void> {
     prompt('katago:shutdown');
     this.running = false;
+    // 标记：预期会收到旧进程的 exit 通知，不要误判为新进程启动失败
+    this.expectingExit = true;
     // reject 所有 pending
     for (const [id, entry] of this.pending) {
       entry.reject(new Error('KataGo process shutdown'));
@@ -317,7 +325,17 @@ export class KataGoNativeClient {
         this.running = false;
         const exitCode = obj.exitCode ?? -1;
 
-        // 如果是启动阶段的退出，reject ready promise
+        if (this.expectingExit) {
+          // shutdown() 触发的旧进程退出，不是新进程启动失败
+          console.log('[KataGoNativeClient] Expected exit (from shutdown), code:', exitCode);
+          this.expectingExit = false;
+          // 仍然通知 exitCallbacks 和清理 pending（虽然 shutdown 已经清理过）
+          for (const cb of this.exitCallbacks) cb(exitCode);
+          this.pending.clear();
+          return;
+        }
+
+        // 非预期的进程退出：如果是启动阶段的退出，reject ready promise
         if (this.startReject) {
           this.startReject(new Error(`KataGo process exited during startup with code ${exitCode}`));
           this.startReject = null;
