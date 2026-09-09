@@ -257,14 +257,52 @@ function createMainWindow() {
     return { action: 'deny' };
   });
 
-  mainWindow.webContents.on('before-input-event', (event, input) => {
-    if ((input.alt && input.key === 'ArrowLeft') || (input.key === 'Backspace' && !input.alt && !input.control && !input.meta)) {
+  mainWindow.webContents.on('before-input-event', async (event, input) => {
+    // Alt+Left always navigates back
+    if (input.alt && input.key === 'ArrowLeft') {
       if (mainWindow?.webContents.canGoBack()) {
         mainWindow.webContents.goBack();
       }
+      return;
     }
-    if ((input.alt && input.key === 'ArrowRight') || (input.key === 'Backspace' && input.shift)) {
+    // Alt+Right always navigates forward
+    if (input.alt && input.key === 'ArrowRight') {
       if (mainWindow?.webContents.canGoForward()) {
+        mainWindow.webContents.goForward();
+      }
+      return;
+    }
+    // Backspace: navigate back ONLY if not focused in an input/textarea/contenteditable
+    if (input.key === 'Backspace' && !input.alt && !input.control && !input.meta && !input.shift) {
+      const isEditing = await mainWindow?.webContents.executeJavaScript(
+        `(() => {
+          const el = document.activeElement;
+          if (!el) return false;
+          const tag = el.tagName.toLowerCase();
+          if (tag === 'input' || tag === 'textarea') return true;
+          if (el.isContentEditable) return true;
+          return false;
+        })()`
+      );
+      if (!isEditing && mainWindow?.webContents.canGoBack()) {
+        event.preventDefault();
+        mainWindow.webContents.goBack();
+      }
+    }
+    // Shift+Backspace: navigate forward (same input check)
+    if (input.key === 'Backspace' && input.shift && !input.alt && !input.control && !input.meta) {
+      const isEditing = await mainWindow?.webContents.executeJavaScript(
+        `(() => {
+          const el = document.activeElement;
+          if (!el) return false;
+          const tag = el.tagName.toLowerCase();
+          if (tag === 'input' || tag === 'textarea') return true;
+          if (el.isContentEditable) return true;
+          return false;
+        })()`
+      );
+      if (!isEditing && mainWindow?.webContents.canGoForward()) {
+        event.preventDefault();
         mainWindow.webContents.goForward();
       }
     }
