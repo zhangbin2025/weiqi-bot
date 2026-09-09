@@ -70,3 +70,6 @@ export type { IActivityConfig } from './ActivityConfigSchema';
 
 export { ManagementConfigSchema } from './ManagementConfigSchema';
 export type { IManagementConfig } from './ManagementConfigSchema';
+
+export { TunnelConfigSchema } from './TunnelConfigSchema';
+export type { ITunnelConfig, TunnelMode } from './TunnelConfigSchema';

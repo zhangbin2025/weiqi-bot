@@ -7,6 +7,7 @@ import type { ISessionService } from '../../../../../services/session/ISessionSe
 import type { IManagementService, ManagementCommand } from '../../../../../services/management/IManagementService';
 import { ClipboardHandler } from './ClipboardHandler';
 import { QRScanner } from './QRScanner';
+import { TunnelPanel } from './TunnelPanel';
 import { buildArchiveUrl } from '../../../../../domain/sgf/SGFUtils';
 /**
  * UI 控制器配置
@@ -29,6 +30,7 @@ export class UIController {
   private sessionService: ISessionService | undefined; // SessionService 实例（可选）
   private managementService: IManagementService; // 管理服务
   private availableCommands: ManagementCommand[] = []; // 可用命令列表
+  private tunnelPanel: TunnelPanel; // 远程隧道面板
   
   constructor(config: UIControllerConfig) {
     this.useCase = config.useCase;
@@ -36,6 +38,7 @@ export class UIController {
     this.sessionService = config.sessionService; // 接收 SessionService
     this.managementService = config.managementService; // 接收管理服务
     this.clipboardHandler = new ClipboardHandler();
+    this.tunnelPanel = new TunnelPanel();
     
     // 初始化可用命令列表
     this.availableCommands = this.managementService.getAvailableCommands();
@@ -46,7 +49,16 @@ export class UIController {
   init(): void {
     this.bindInputEvents();
     this.bindGlobalFunctions();
+    // 初始化隧道面板（读取已保存的配置并自动启动）
+    this.tunnelPanel.init();
   }
+  /**
+   * 设置引擎实例（供隧道服务端模式使用）
+   */
+  setEngine(engine: import('../../../../../infrastructure/ai/IAIEngine').IAIEngine): void {
+    this.tunnelPanel.setEngine(engine);
+  }
+
   /**
    * 启用输入
    */
@@ -300,5 +312,10 @@ export class UIController {
     (window as any).clearAllHistory = () => this.useCase.clearAllHistory();
     (window as any).exportHistory = () => this.useCase.exportHistory();
     (window as any).scanQRCode = () => this.scanQRCode();
+    // 远程隧道面板
+    (window as any).showTunnelPanel = () => {
+      this.toggleCommandMenu(); // 关闭菜单
+      this.tunnelPanel.show();
+    };
   }
 }

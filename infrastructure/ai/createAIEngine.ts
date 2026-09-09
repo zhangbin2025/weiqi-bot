@@ -2,16 +2,20 @@
  * @fileoverview AI 引擎工厂
  * @description 根据运行环境自动选择 KataGo 适配器
  *
- * App 环境（userAgent 包含 WeiqiApp）→ KataGoAppAdapter（原生进程，批量分析）
- * Web 环境（浏览器）                → KataGoWebAdapter（Worker，逐手分析）
- * 
+ * 优先级（从高到低）：
+ * 1. 远程隧道客户端模式 → KataGoRemoteAdapter（通过 WebRTC 远程调用服务端 KataGo）
+ * 2. App 环境（userAgent 包含 WeiqiApp）→ KataGoAppAdapter（原生进程，批量分析）
+ * 3. Web 环境（浏览器）→ KataGoWebAdapter（Worker，逐手分析）
+ *
  * Fallback 机制：
  * App 环境 init() 失败时，可调用 forceUseWebAdapter() 强制使用 WebAdapter
  */
 
 import type { IAIEngine } from './IAIEngine';
 import { createKataGoWebAdapter } from './adapters/KataGoWebAdapter';
+import { createKataGoRemoteAdapter } from './adapters/KataGoRemoteAdapter';
 import type { NetworkManager } from '../network/core/NetworkManager';
+import { TunnelManager } from '../tunnel/TunnelManager';
 
 let cachedEngine: IAIEngine | null = null;
 
@@ -29,6 +33,7 @@ export function isAppEnvironment(): boolean {
  * 创建 AI 引擎
  *
  * 自动根据环境选择适配器：
+ * - 远程隧道客户端模式 → KataGoRemoteAdapter（懒连接，init() 时才连）
  * - App 环境 → KataGoAppAdapter（原生进程 + 批量分析）
  * - Web 环境 → KataGoWebAdapter（Worker + 逐手分析）
  *
@@ -39,7 +44,15 @@ export function isAppEnvironment(): boolean {
 export function createAIEngine(networkManager?: NetworkManager): IAIEngine {
   if (cachedEngine) return cachedEngine;
 
+  // 优先：远程隧道客户端模式（检查 localStorage 配置）
+  if (TunnelManager.getInstance().isClientMode()) {
+    console.log('[AIEngineFactory] Tunnel client mode detected, using KataGoRemoteAdapter');
+    cachedEngine = createKataGoRemoteAdapter();
+    return cachedEngine!;
+  }
+
   if (isAppEnvironment()) {
+    // 动态 import App 适配器（仅 App 环境需要，避免 Web 端打包原生桥接代码）
     const { createKataGoAppAdapter } = require('./adapters/KataGoAppAdapter');
     console.log('[AIEngineFactory] App environment detected, using KataGoAppAdapter');
     cachedEngine = createKataGoAppAdapter(networkManager);

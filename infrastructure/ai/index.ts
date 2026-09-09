@@ -29,6 +29,12 @@ export {
   createKataGoAppAdapter,
 } from './adapters/KataGoAppAdapter';
 
+// 导出远程适配器
+export {
+  KataGoRemoteAdapter,
+  createKataGoRemoteAdapter,
+} from './adapters/KataGoRemoteAdapter';
+
 // 导出引擎工厂
 export {
   createAIEngine,
