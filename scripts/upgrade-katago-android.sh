@@ -194,75 +194,7 @@ else
   else
     # 补丁 1: 字节序宏 — 在 project(katago) 的 endif() 后插入
     # 找到第一个 endif() 之后的位置
-    python3 - "$CMAKELISTS" << 'PYEOF'
-import sys, re
-
-path = sys.argv[1]
-with open(path, 'r') as f:
-    content = f.read()
-
-# 补丁 1: 字节序宏
-# 在 "endif()" (project 之后的第一个) 后面插入 ANDROID 字节序宏
-# 查找模式: project(katago) ... endif()
-if "if(ANDROID)" not in content:
-    # 找到 project() 后的第一个 endif()
-    match = re.search(r'(project\(katago[^)]*\).*?endif\(\))', content, re.DOTALL)
-    if match:
-        insert_after = match.end()
-        patch1 = '\n\nif(ANDROID)\n  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DBYTE_ORDER=1234 -DLITTLE_ENDIAN=1234 -DBIG_ENDIAN=4321")\nendif()\n'
-        content = content[:insert_after] + patch1 + content[insert_after:]
-        print("  ✅ 补丁1: 字节序宏已应用")
-    else:
-        print("  ⚠️ 补丁1: 未找到插入位置，请手动添加字节序宏")
-        sys.exit(1)
-
-# 补丁 2: OpenCL Android 动态链接
-# 在 OPENCL 分支的 target_compile_definitions 后插入 ANDROID 判断
-if "dynamic linking libOpenCL.so" not in content:
-    # 找 OPENCL 分支
-    pattern = r'(elseif\(USE_BACKEND STREQUAL "OPENCL"\)\s*\n\s*target_compile_definitions\(katago PRIVATE USE_OPENCL_BACKEND\)\s*\n)'
-    match = re.search(pattern, content)
-    if match:
-        insert_after = match.end()
-        patch2 = '''  
-  if(ANDROID)
-    # Android: 动态链接，运行时加载 libOpenCL.so
-    message(STATUS "Android: dynamic linking libOpenCL.so")
-    include_directories(SYSTEM ${OpenCL_INCLUDE_DIR})
-  else()
-'''
-        # 找到这个分支的结尾 endif()，需要在之前加 end of else
-        # 我们需要在 OpenCL 分支的 endif() 之前插入 end of if(ANDROID)
-        # 更简单的方法：直接在 target_compile_definitions 后加 if(ANDROID)，在 elseif 前加 endif
-
-        # 找到下一个 elseif 或 endif（OpenCL 分支结束）
-        rest = content[insert_after:]
-        # OpenCL 分支的结构: find_package ... if/else/endif ... include_directories ... target_link_libraries
-        # 结束于下一个 elseif 或 endif（同层级）
-
-        # 简化方案：直接替换整个 OpenCL 分支内容
-        old_opencl = match.group(1)
-        new_opencl = old_opencl + patch2
-        content = content[:match.start()] + new_opencl + content[match.end():]
-
-        # 现在需要在 OpenCL 分支结束前加 endif() (关闭 if(ANDROID))
-        # 找下一个 "elseif(USE_BACKEND" 或 "endif()"
-        pattern2 = r'(\s*)(elseif\(USE_BACKEND STREQUAL "EIGEN"\))'
-        match2 = re.search(pattern2, content)
-        if match2:
-            content = content[:match2.start()] + '\n  endif()\n' + content[match2.start():]
-            print("  ✅ 补丁2: OpenCL 动态链接已应用")
-        else:
-            print("  ⚠️ 补丁2: 未找到 EIGEN 分支位置，请手动检查")
-            sys.exit(1)
-    else:
-        print("  ⚠️ 补丁2: 未找到 OpenCL 分支，请手动修改")
-        sys.exit(1)
-
-with open(path, 'w') as f:
-    f.write(content)
-print("  ✅ CMakeLists.txt 补丁完成")
-PYEOF
+    python3 "$PROJECT_ROOT/scripts/patch_cmake_android.py" "$CMAKELISTS"
   fi
 fi
 
