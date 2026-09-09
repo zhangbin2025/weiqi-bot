@@ -154,18 +154,25 @@ export class TsumegoChecker {
   /**
    * 检查用户试下着法是否匹配某个分支
    * @param trialMoves - 用户试下的着法列表 [{x, y, color}]
+   * @param preMoves - 进入试下前主线已走的着法（可选，用于 move>0 时试下）
    * @returns 匹配结果
    */
-  checkMatch(trialMoves: Array<{ x: number; y: number; color: string }>): TsumegoMatchResult {
+  checkMatch(
+    trialMoves: Array<{ x: number; y: number; color: string }>,
+    preMoves?: Array<{ x: number; y: number; color: string }>
+  ): TsumegoMatchResult {
     if (!this.isTsumego) return { type: 'not_tsumego' };
 
-    if (trialMoves.length === 0) {
+    if (trialMoves.length === 0 && (!preMoves || preMoves.length === 0)) {
       return { type: 'no_match', message: '请落子开始解题' };
     }
 
+    // 拼合前导着法 + 试下着法，形成完整序列与分支比对
+    const fullMoves = [...(preMoves ?? []), ...trialMoves];
+
     // 遍历所有分支，寻找匹配
     for (const branch of this.branches) {
-      const matchResult = this.matchBranch(trialMoves, branch);
+      const matchResult = this.matchBranch(fullMoves, branch);
       if (matchResult) {
         return matchResult;
       }

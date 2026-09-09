@@ -8,6 +8,7 @@ import type { ReplayPageUI } from '../ui/ReplayPageUI';
 import type { ReplayApp } from '../../../../../../application/replay';
 import type { Game } from '../../../../../../domain/game';
 import type { ReplayData } from '../../../../../../domain/sgf';
+import { coordToPos } from '../../../../../../domain/sgf';
 import { BoardRebuilder } from '../../../../../core/helpers/BoardRebuilder';
 import { BoardSyncer } from '../../../../../core/helpers/BoardSyncer';
 import { TsumegoChecker } from '../../../../../core/helpers/TsumegoChecker';
@@ -100,11 +101,62 @@ export class TrialHandler {
    */
   private checkTsumegoMatch(): void {
     const trialMoves = this.trialController.getVisibleMoves();
-    const result = this.tsumegoChecker.checkMatch(trialMoves);
+    const preMoves = this.collectPreTrialMoves();
+    const result = this.tsumegoChecker.checkMatch(trialMoves, preMoves);
     const hint = this.tsumegoChecker.formatHint(result);
     this.state.set('trialMatchResult', result);
     this.state.set('trialHint', hint);
     this.ui.updateTrialHint(hint);
+  }
+
+  /**
+   * 收集进入试下前主线已走的着法
+   * 用于 move>0 时试下匹配：将前导着法拼到试下着法前面再与分支比对
+   */
+  private collectPreTrialMoves(): Array<{ x: number; y: number; color: string }> {
+    const replayData = this.state.get('replayData');
+    if (!replayData) return [];
+
+    const startPath = this.trialController.getStartPath();
+    const startIndex = this.trialController.getStartIndex();
+
+    if (startPath.length === 0 && startIndex === 0) return [];
+
+    const moves: Array<{ x: number; y: number; color: string }> = [];
+    let node = replayData.tree;
+
+    // 沿 startPath 遍历
+    for (const index of startPath) {
+      if (!node.children || node.children.length <= index) break;
+      node = node.children[index]!;
+      if (node.color && node.coord) {
+        const pos = coordToPos(node.coord);
+        if (pos) {
+          moves.push({
+            x: pos.x,
+            y: pos.y,
+            color: node.color === 'B' ? 'black' : 'white',
+          });
+        }
+      }
+    }
+
+    // 沿主分支走 startIndex 步
+    for (let i = 0; i < startIndex && node.children && node.children.length > 0; i++) {
+      node = node.children[0]!;
+      if (node.color && node.coord) {
+        const pos = coordToPos(node.coord);
+        if (pos) {
+          moves.push({
+            x: pos.x,
+            y: pos.y,
+            color: node.color === 'B' ? 'black' : 'white',
+          });
+        }
+      }
+    }
+
+    return moves;
   }
 
   /**
