@@ -10,12 +10,20 @@
 
 ### generate-joseki-tree.mjs
 
-定式 Trie 树数据生成。从 `~/.weiqi-joseki/database.json` 读取定式，构建 Trie 树，按前缀裁剪导出索引、子树和做题数据到 `clients/web/shared/assets/data/joseki/`。
-
-```bash
-node scripts/generate-joseki-tree.mjs [--threshold 1000] [--db <path>] [--output <path>]
-```
+定式 Trie 树数据生成。从 ~/.weiqi-joseki/database.json 读取定式，构建 Trie 树，按前缀裁剪导出索引、子树和做题数据到 clients/web/shared/assets/data/joseki/。
 
 ### update-rankings.js
 
 更新月度榜单数据。
+
+### upgrade-katago-android.sh
+
+升级 Android 端 KataGo 版本。自动下载源码、应用 Android 补丁、交叉编译 arm64-v8a、strip、验证产物并集成到 jniLibs。
+
+Usage:
+
+  npm run upgrade:katago -- 1.18.0
+  ./scripts/upgrade-katago-android.sh 1.18.0
+  ./scripts/upgrade-katago-android.sh 1.18.0 --skip-clvk
+  ./scripts/upgrade-katago-android.sh 1.18.0 --dry-run
+  ./scripts/upgrade-katago-android.sh 1.18.0 --keep-source

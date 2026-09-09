@@ -2,7 +2,7 @@
   "name": "weiqi-bot",
   "version": "0.2.0",
   "type": "module",
-  "description": "围棋AI助手 - AI-powered Go game assistant",
+  "description": "\u56f4\u68cbAI\u52a9\u624b - AI-powered Go game assistant",
   "scripts": {
     "build": "tsc",
     "build:watch": "tsc --watch",
@@ -23,7 +23,8 @@
     "dev:desktop": "cd clients/desktop && npm run dev",
     "build:desktop": "npm run build:web && cd clients/desktop && npm install && npm run download-katago && npm run build",
     "dist:desktop": "npm run build:desktop && cd clients/desktop && npx electron-builder --win zip --x64 ",
-    "build:cli": "bash scripts/build-cli.sh"
+    "build:cli": "bash scripts/build-cli.sh",
+    "upgrade:katago": "bash scripts/upgrade-katago-android.sh"
   },
   "keywords": [
     "weiqi",
