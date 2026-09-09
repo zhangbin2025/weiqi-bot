@@ -195,6 +195,7 @@ else
     # 补丁 1: 字节序宏 — 在 project(katago) 的 endif() 后插入
     # 找到第一个 endif() 之后的位置
     python3 "$PROJECT_ROOT/scripts/patch_cmake_android.py" "$CMAKELISTS"
+    python3 "$PROJECT_ROOT/scripts/patch_wmma_skip.py" "$SOURCE_DIR/cpp/neuralnet/opencltuner.cpp"
   fi
 fi
 
