@@ -85,14 +85,11 @@ async function main() {
   });
   
   if (auto === 'true' && Object.keys(params).length > 0) {
-    // 执行后立即移除 auto 参数，避免返回时重复触发
-    const newUrl = Object.keys(params).length > 0
-      ? `${window.location.pathname}?${new URLSearchParams(params).toString()}`
-      : window.location.pathname;
-    window.history.replaceState({}, '', newUrl);
-    
     // 自动触发抓谱
     await page.handleParams(params);
+    // 查询完成后清除所有 URL 参数，避免返回时重复触发查询
+    // initialize() 会从 sessionStorage 恢复列表和浏览位置
+    window.history.replaceState({}, '', window.location.pathname);
   } else if (Object.keys(params).length > 0) {
     // 只填充参数，不自动抓谱
     await page.handleParams(params);
