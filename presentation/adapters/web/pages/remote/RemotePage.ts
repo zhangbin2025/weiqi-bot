@@ -382,8 +382,6 @@ export class RemotePage {
   }
 
   private async doRefresh(): Promise<void> {
-    this.toggleCommandMenu();
-
     let stats: TunnelServerStats | TunnelClientStats | null = null;
 
     if (this.server) {
@@ -618,7 +616,7 @@ export class RemotePage {
   private bindGlobalEvents(): void {
     (window as any).toggleCommandMenu = () => this.toggleCommandMenu();
     (window as any).showConfigDialog = () => this.showConfigDialog();
-    (window as any).manualRefresh = () => this.doRefresh();
+    (window as any).manualRefresh = () => { this.toggleCommandMenu(); this.doRefresh(); };
     (window as any).switchTab = (tab: string) => this.switchTab(tab);
   }
 
