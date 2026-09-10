@@ -7,7 +7,6 @@ import type { IUserContext, Environment } from '../../infrastructure/network/int
 import type { PlatformCapabilities } from '../../infrastructure/platform/interfaces';
 import { PlatformDetector } from '../../infrastructure/platform';
 import { TunnelManager } from '../../infrastructure/tunnel/TunnelManager';
-import type { TunnelClient } from '../../infrastructure/tunnel/TunnelClient';
 
 /**
  * Game 策略配置
@@ -37,9 +36,6 @@ export interface IGameStrategy {
   ): Promise<IGameProvider | null>;
 }
 
-/** 隧道连接等待超时（毫秒） */
-const TUNNEL_WAIT_TIMEOUT = 10_000;
-
 /**
  * 默认 Game 策略
  * @description 根据平台能力和隧道连接状态选择最佳提供者
@@ -47,6 +43,9 @@ const TUNNEL_WAIT_TIMEOUT = 10_000;
  * Provider 遍历顺序（由 GameProviderRegistry.getProviders() 决定）：
  * 1. remote（隧道已连接时优先选中，所有网络请求走远程）
  * 2. 本地 provider（隧道未连接时回退到本地）
+ *
+ * 隧道连接在页面初始化时由 createGameDeps 后台启动，
+ * fetch 时只做同步检查：已连接走 remote，没连上走本地，不等。
  */
 export class DefaultGameStrategy implements IGameStrategy {
   private snifferProvider?: import('../../infrastructure/network/interfaces').ISnifferProvider | undefined;
@@ -90,16 +89,9 @@ export class DefaultGameStrategy implements IGameStrategy {
   ): Promise<boolean> {
     const providerName = provider.name;
 
-    // Remote Provider：等待隧道连接（有超时）
+    // Remote Provider：同步检查隧道连接状态（不等连接）
     if (providerName === 'remote') {
-      const manager = TunnelManager.getInstance();
-      // 非客户端模式，直接跳过
-      if (!manager.isClientMode()) return false;
-      // 已连接，直接可用
-      const syncClient = manager.getClientSync();
-      if (syncClient?.isConnected) return true;
-      // 未连接但配置了客户端模式，等待连接完成（带超时）
-      const client = await this.waitForTunnel(manager);
+      const client = TunnelManager.getInstance().getClientSync();
       return client?.isConnected ?? false;
     }
 
@@ -126,18 +118,5 @@ export class DefaultGameStrategy implements IGameStrategy {
 
     // REST API Providers（无需特殊能力）
     return true;
-  }
-
-  /**
-   * 等待隧道连接（带超时）
-   * 如果隧道正在连接中，等待最多 TUNNEL_WAIT_TIMEOUT 毫秒
-   */
-  private async waitForTunnel(manager: TunnelManager): Promise<TunnelClient | null> {
-    return Promise.race([
-      manager.getClient(),
-      new Promise<null>((resolve) => {
-        setTimeout(() => resolve(null), TUNNEL_WAIT_TIMEOUT);
-      }),
-    ]);
   }
 }
