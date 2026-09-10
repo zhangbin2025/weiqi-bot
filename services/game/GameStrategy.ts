@@ -36,16 +36,22 @@ export interface IGameStrategy {
   ): Promise<IGameProvider | null>;
 }
 
+/** 隧道连接等待超时（毫秒） */
+const TUNNEL_WAIT_TIMEOUT = 15_000;
+
 /**
  * 默认 Game 策略
  * @description 根据平台能力和隧道连接状态选择最佳提供者
  *
  * Provider 遍历顺序（由 GameProviderRegistry.getProviders() 决定）：
- * 1. remote（隧道已连接时优先选中，所有网络请求走远程）
- * 2. 本地 provider（隧道未连接时回退到本地）
+ * 1. remote（隧道已连接或正在连接时优先选中，所有网络请求走远程）
+ * 2. 本地 provider（隧道未配置或连接失败时回退到本地）
  *
- * 隧道连接在页面初始化时由 createGameDeps 后台启动，
- * fetch 时只做同步检查：已连接走 remote，没连上走本地，不等。
+ * 隧道连接在页面初始化时由 createGameDeps 后台启动。
+ * fetch 时：
+ * - 已连接 → 立刻走 remote
+ * - 正在连接 → 等待连接完成（最多 15 秒），连上走 remote，超时走本地
+ * - 未配置客户端模式 → 跳过 remote，走本地
  */
 export class DefaultGameStrategy implements IGameStrategy {
   private snifferProvider?: import('../../infrastructure/network/interfaces').ISnifferProvider | undefined;
@@ -89,9 +95,19 @@ export class DefaultGameStrategy implements IGameStrategy {
   ): Promise<boolean> {
     const providerName = provider.name;
 
-    // Remote Provider：同步检查隧道连接状态（不等连接）
+    // Remote Provider：检查隧道连接状态
     if (providerName === 'remote') {
-      const client = TunnelManager.getInstance().getClientSync();
+      const manager = TunnelManager.getInstance();
+      // 非客户端模式，直接跳过
+      if (!manager.isClientMode()) return false;
+      // 已连接，直接可用
+      const syncClient = manager.getClientSync();
+      if (syncClient?.isConnected) return true;
+      // 正在连接中，等待完成（带超时）
+      const client = await Promise.race([
+        manager.getClient(),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), TUNNEL_WAIT_TIMEOUT)),
+      ]);
       return client?.isConnected ?? false;
     }
 
