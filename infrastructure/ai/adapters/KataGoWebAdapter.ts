@@ -22,6 +22,7 @@ import { getWebRoot, toAbsoluteUrl } from '../../utils/web/pathUtils';
  */
 export class KataGoWebAdapter implements IAIEngine {
   private client = getKataGoEngineClient();
+  private currentModelFileName: string | null = null;
 
   /**
    * 初始化引擎
@@ -32,6 +33,7 @@ export class KataGoWebAdapter implements IAIEngine {
     setWorkerUrl(workerUrl);
     
     const baseUrl = toAbsoluteUrl('');
+    this.currentModelFileName = options.modelUrl.split('/').pop() ?? null;
     // 默认执行 warm up
     return this.client.init(options.modelUrl, options.onProgress, baseUrl, true);
   }
@@ -111,12 +113,10 @@ export class KataGoWebAdapter implements IAIEngine {
       if (response.ok) {
         const config = await response.json();
         const models = config.models || [];
-        // 获取当前引擎信息用于标记 isCurrent
-        const currentInfo = this.client.getEngineInfo();
-        const currentModelName = currentInfo.modelName;
+        const currentName = this.currentModelFileName;
         return models.map((m: any) => {
           const modelFileName = m.url ? m.url.split('/').pop() : null;
-          const isCurrent = !!(currentModelName && modelFileName && currentModelName === modelFileName);
+          const isCurrent = !!(currentName && modelFileName && currentName === modelFileName);
           return {
             id: m.id,
             name: m.name,
