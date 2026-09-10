@@ -10,8 +10,6 @@
 
 import { TunnelServer } from '../../../../../infrastructure/tunnel/TunnelServer';
 import { TunnelClient } from '../../../../../infrastructure/tunnel/TunnelClient';
-import { KatagoRpcHandler } from '../../../../../infrastructure/tunnel/KatagoRpcHandler';
-import { TunnelManager } from '../../../../../infrastructure/tunnel/TunnelManager';
 import type {
   ITunnelConfig,
   TunnelMode,
@@ -264,15 +262,9 @@ export class RemotePage {
     this.bindGlobalEvents();
   }
 
-  /** 页面 HTML */
+  /** 页面内容 HTML（注入到 #page-root） */
   private getPageHTML(): string {
     return [
-      '<div class="page-container">',
-      '  <div class="wechat-header">',
-      '    <span class="wechat-title">🔗 远程隧道</span>',
-      '    <div class="header-menu-btn" onclick="toggleCommandMenu()">☰</div>',
-      '  </div>',
-      '  <div class="remote-content" id="remoteContent">',
       '    <!-- 状态卡片 -->',
       '    <div class="remote-section" id="statusSection">',
       '      <div class="section-title">连接状态</div>',
@@ -286,39 +278,37 @@ export class RemotePage {
       '    </div>',
       '    <!-- 接入记录 -->',
       '    <div class="remote-section" id="clientSection">',
-      '      <div class="section-title">接入记录</div>',
+      '      <div class="section-title">接入记录<span class="count-badge" id="clientCount"></span></div>',
       '      <div class="scroll-list" id="clientList">',
       '        <div class="empty-hint">暂无记录</div>',
       '      </div>',
       '    </div>',
       '    <!-- RPC 统计 -->',
       '    <div class="remote-section" id="rpcSection">',
-      '      <div class="section-title">RPC 调用统计</div>',
+      '      <div class="section-title">RPC 调用统计<span class="count-badge" id="rpcCount"></span></div>',
       '      <div class="scroll-list" id="rpcList">',
       '        <div class="empty-hint">暂无调用</div>',
       '      </div>',
       '    </div>',
       '    <!-- 实时日志 -->',
       '    <div class="remote-section" id="logSection">',
-      '      <div class="section-title">实时日志</div>',
+      '      <div class="section-title">实时日志<span class="count-badge" id="logCount"></span></div>',
       '      <div class="scroll-list log-list" id="logList">',
       '        <div class="empty-hint">暂无日志</div>',
       '      </div>',
       '    </div>',
-      '  </div>',
-      '  <!-- 扩展菜单 -->',
-      '  <div class="command-menu" id="commandMenu">',
-      '    <div class="command-item" onclick="showConfigDialog()">',
-      '      <div class="command-icon">🔧</div>',
-      '      <div class="command-title">配置</div>',
+      '    <!-- 扩展菜单 -->',
+      '    <div class="command-menu" id="commandMenu">',
+      '      <div class="command-item" onclick="showConfigDialog()">',
+      '        <div class="command-icon">🔧</div>',
+      '        <div class="command-title">配置</div>',
+      '      </div>',
+      '      <div class="command-item" onclick="manualRefresh()">',
+      '        <div class="command-icon">🔄</div>',
+      '        <div class="command-title">刷新</div>',
+      '      </div>',
       '    </div>',
-      '    <div class="command-item" onclick="manualRefresh()">',
-      '      <div class="command-icon">🔄</div>',
-      '      <div class="command-title">刷新</div>',
-      '    </div>',
-      '  </div>',
-      '  <div class="command-menu-overlay" id="commandMenuOverlay" onclick="toggleCommandMenu()"></div>',
-      '</div>',
+      '    <div class="command-menu-overlay" id="commandMenuOverlay" onclick="toggleCommandMenu()"></div>',
     ].join('\n');
   }
 
@@ -363,6 +353,11 @@ export class RemotePage {
         clientList.innerHTML = '<div class="empty-hint">暂无记录</div>';
       }
     }
+      const clientCount = document.getElementById('clientCount');
+      if (clientCount) {
+        const cnt = 'clientHistory' in stats ? stats.clientHistory.length : 0;
+        clientCount.textContent = cnt > 0 ? cnt + '条' : '';
+      }
 
     // RPC 统计
     const rpcList = document.getElementById('rpcList');
@@ -379,6 +374,10 @@ export class RemotePage {
         rpcList.innerHTML = '<div class="empty-hint">暂无调用</div>';
       }
     }
+      const rpcCountEl = document.getElementById('rpcCount');
+      if (rpcCountEl) {
+        rpcCountEl.textContent = stats.rpcStats.length > 0 ? stats.rpcStats.length + '条' : '';
+      }
 
     // 日志
     const logList = document.getElementById('logList');
@@ -398,6 +397,10 @@ export class RemotePage {
         logList.innerHTML = '<div class="empty-hint">暂无日志</div>';
       }
     }
+      const logCountEl = document.getElementById('logCount');
+      if (logCountEl) {
+        logCountEl.textContent = stats.recentLogs.length > 0 ? stats.recentLogs.length + '条' : '';
+      }
   }
 
   // ─── 定时刷新 ───
