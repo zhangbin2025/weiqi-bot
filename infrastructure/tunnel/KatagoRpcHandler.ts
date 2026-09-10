@@ -84,19 +84,35 @@ export class KatagoRpcHandler implements IRpcHandler {
 
       case 'listModels': {
         const models = await this.engine.listModels?.() ?? [];
-        // 从 localStorage 读取服务端当前选中的模型
+        // 从 localStorage 读取服务端当前选中的模型和自定义模型 URL
         // LocalStorageAdapter 用 JSON.stringify 存储，需要 JSON.parse
-        const rawModelId = localStorage.getItem('weiqi-model:current-model');
-        const currentModelId = rawModelId ? JSON.parse(rawModelId) : null;
-        const rawFileName = localStorage.getItem('weiqi-model:current-model-filename');
-        const currentFileName = rawFileName ? JSON.parse(rawFileName) : null;
+        const readLS = (key: string): string | null => {
+          const raw = localStorage.getItem(`weiqi-model:${key}`);
+          if (!raw) return null;
+          try { return JSON.parse(raw) as string; } catch { return raw; }
+        };
+        const currentModelId = readLS('current-model');
+        const currentFileName = readLS('current-model-filename');
+        const customUrl = readLS('custom-model-url');
+
+        // 如果有自定义模型 URL，追加到列表
+        if (customUrl && !models.some(m => m.id === 'custom')) {
+          const filename = customUrl.split('/').pop() || 'custom';
+          models.push({
+            id: 'custom',
+            name: `自定义模型 (${filename})`,
+            size: '',
+            isDefault: false,
+            url: customUrl,
+          });
+        }
+
+        // 标记当前选中的模型
         if (currentModelId) {
           for (const m of models) {
-            // 优先用 modelId 匹配
             if (m.id === currentModelId) {
               m.isCurrent = true;
             } else if (currentFileName) {
-              // fallback: 用文件名匹配
               const fileName = m.url?.split('/').pop() ?? ``;
               if (fileName && fileName === currentFileName) {
                 m.isCurrent = true;
