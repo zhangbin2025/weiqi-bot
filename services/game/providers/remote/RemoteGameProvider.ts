@@ -1,5 +1,12 @@
 /**
  * @fileoverview 远程棋谱抓取提供者
+ * @description 通过 P2P 隧道委托远程服务端抓取棋谱
+ *
+ * 仅匹配 Sniffer 依赖型 URL（纯 Web 环境下本地无法抓取的平台）。
+ * REST API 型 URL 不匹配，走本地代理。
+ *
+ * fetch 时通过 ensureConnected() 等待隧道连接就绪（与 KataGoRemoteAdapter 一致），
+ * 连上后发 RPC 请求到远程服务端执行抓取。
  */
 
 import type { IGameProvider } from '../base/IProvider';
@@ -8,18 +15,35 @@ import type { RemoteFetchResponse } from './types';
 import { TunnelManager } from '../../../../infrastructure/tunnel/TunnelManager';
 import type { TunnelClient } from '../../../../infrastructure/tunnel/TunnelClient';
 
+/**
+ * Sniffer 依赖型 URL 模式
+ * 纯 Web 环境下本地无法抓取的平台，走远程服务端
+ */
 const SNIFFER_URL_PATTERNS = [
+  // txwq
   /txwq\.qq\.com/i,
   /h5\.txwq\.qq\.com/i,
+  // yike 直播 (room)
   /yikeweiqi\.com.*room\//i,
+  // yike online-game
   /yikeweiqi\.com.*online-game\//i,
+  // weiqi1919 / golaxy
   /19x19\.com/i,
   /golaxy/i,
+  // xinboduiyi
   /xinboduiyi\.com/i,
+  // yike-shaoer
   /shaoer\.yikeweiqi\.com/i,
+  // foxwq 直播（含 svrid= 参数的分享链接）
   /foxwq\.com.*svrid=/i,
 ];
 
+/**
+ * 远程棋谱抓取提供者
+ *
+ * 仅匹配 Sniffer 依赖型 URL，注册顺序最后（兜底）。
+ * fetch 时等待隧道连接就绪后发 RPC 请求。
+ */
 export class RemoteGameProvider implements IGameProvider {
   readonly name = 'remote';
   readonly displayName = '远程服务';
@@ -38,21 +62,21 @@ export class RemoteGameProvider implements IGameProvider {
     }
   }
 
+  /**
+   * 等待隧道连接就绪
+   * 与 KataGoRemoteAdapter.ensureConnected() 模式一致
+   */
   private async ensureConnected(): Promise<TunnelClient> {
     const manager = TunnelManager.getInstance();
 
     if (!manager.isClientMode()) {
-      console.warn('[RemoteGameProvider] not in client mode');
       throw new Error('未配置客户端模式，请在设置中开启远程隧道');
     }
-
-    console.info('[RemoteGameProvider] waiting for tunnel connection...');
 
     // 先触发连接（如果还没开始）
     const client = await manager.getClient();
 
     if (client && client.isConnected) {
-      console.info('[RemoteGameProvider] tunnel already connected');
       return client;
     }
 
@@ -62,12 +86,10 @@ export class RemoteGameProvider implements IGameProvider {
       await new Promise(resolve => setTimeout(resolve, 500));
       const c = manager.getClientSync();
       if (c?.isConnected) {
-        console.info('[RemoteGameProvider] tunnel connected after', (i + 1) * 0.5, 's');
         return c;
       }
     }
 
-    console.warn('[RemoteGameProvider] tunnel connection timeout');
     throw new Error('远程隧道连接超时，请检查网络和远程服务端');
   }
 
@@ -75,18 +97,13 @@ export class RemoteGameProvider implements IGameProvider {
     const timing: PerformanceTiming = {};
     const startTime = Date.now();
 
-    console.info('[RemoteGameProvider] fetch started:', url.substring(0, 80));
-
     let client: TunnelClient;
     try {
       client = await this.ensureConnected();
     } catch (error) {
       const msg = error instanceof Error ? error.message : '隧道连接失败';
-      console.warn('[RemoteGameProvider] tunnel not connected:', msg);
       return this.createErrorResult(url, msg);
     }
-
-    console.info('[RemoteGameProvider] tunnel connected, sending RPC...');
 
     try {
       const result = await client.call('fetcher', 'fetch', { url }) as RemoteFetchResponse;

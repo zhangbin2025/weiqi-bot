@@ -61,7 +61,7 @@ export class GameFetchHelper {
       }
     }
 
-    // 2. 选择 Provider 并下载
+    // 3. 选择 Provider 并下载
     const provider = await strategy.selectProvider(url, registry.getProviders(), userContext);
     if (!provider) {
       const unsupported = createUnsupportedResult(url);
@@ -80,10 +80,10 @@ export class GameFetchHelper {
       return this.createFailedResult(url, result);
     }
 
-    // 3. 归档
+    // 4. 归档
     const archiveId = await this.archive(result);
 
-    // 4. 更新缓存
+    // 5. 更新缓存
     if (archiveId) {
       const cacheKey = this.computeCacheKey(url);
       await archiveCache?.set(cacheKey, archiveId);
@@ -102,14 +102,9 @@ export class GameFetchHelper {
 
   /**
    * 批量获取棋谱（限制并发数）
-   * 
-   * @param urls - URL 列表
-   * @returns 结果列表（顺序与输入一致）
    */
   async fetchMany(urls: string[]): Promise<GameServiceResult[]> {
     const results: GameServiceResult[] = new Array(urls.length);
-
-    // 使用信号量控制并发
     let currentIndex = 0;
     const activeTasks: Promise<void>[] = [];
 
@@ -117,28 +112,19 @@ export class GameFetchHelper {
       while (currentIndex < urls.length) {
         const index = currentIndex++;
         const url = urls[index];
-
-        // 跳过 undefined（类型安全）
         if (!url) continue;
-
-        // 添加请求间隔（避免过快请求）
         if (index > 0 && this.requestDelay > 0) {
           await this.delay(this.requestDelay);
         }
-
-        // 直接调用 fetch，让 fetch 处理所有错误
         results[index] = await this.fetch(url);
       }
     };
 
-    // 启动 maxConcurrency 个 worker
     for (let i = 0; i < Math.min(this.maxConcurrency, urls.length); i++) {
       activeTasks.push(worker());
     }
 
-    // 等待所有 worker 完成
     await Promise.all(activeTasks);
-
     return results;
   }
 
@@ -163,20 +149,14 @@ export class GameFetchHelper {
     };
   }
 
-  /**
-   * 清洗 URL，移除不影响页面加载的冗余参数
-   * 如 foxwq 分享链接的 title 参数含大量中文 URL 编码，严重膨胀 QR 码
-   */
   private sanitizeUrl(url: string): string {
     try {
       const urlObj = new URL(url);
-      // title 参数仅用于页面显示标题，扫码访问棋谱不需要
       if (urlObj.searchParams.has("title")) {
         urlObj.searchParams.delete("title");
         return urlObj.toString();
       }
     } catch {
-      // 非 URL 格式，原样返回
     }
     return url;
   }
@@ -184,7 +164,6 @@ export class GameFetchHelper {
   private async archive(result: FetchResult): Promise<string> {
     const { historyStorage } = this.options;
     if (!historyStorage || !result.sgfContent) return "";
-
     try {
       const archiveResult = await historyStorage.archive({
         gameId: result.metadata.gameId,
@@ -199,10 +178,6 @@ export class GameFetchHelper {
     }
   }
 
-
-  /**
-   * 检测是否为直播 URL
-   */
   private isLiveUrl(url: string): boolean {
     const livePatterns = [
       /izis\.cn.*gameId=/i,

@@ -39,6 +39,19 @@ export interface IGameStrategy {
 const FOXWQ_LIVE_PATTERN = /foxwq\.com.*(svrtype=20010|roomid=|golive)/i;
 
 /**
+ * 需要 Sniffer 支持的 Provider 名称列表
+ * 纯 Web 环境下 Sniffer 不可用时，这些 provider 会被跳过，让 remote 兜底
+ */
+const SNIFFER_DEPENDENT_PROVIDERS = [
+  'txwq',
+  'yike',
+  'yike-online',
+  'weiqi1919',
+  'xinboduiyi',
+  'yike-shaoer',
+];
+
+/**
  * 默认 Game 策略
  * @description 根据平台能力和付费状态选择最佳提供者
  *
@@ -73,7 +86,6 @@ export class DefaultGameStrategy implements IGameStrategy {
     // 查找支持该 URL 的提供者
     for (const provider of providers.values()) {
       if (provider.canHandle(url)) {
-        // 检查提供者是否可用（考虑平台能力）
         if (await this.checkProviderAvailability(provider, url, capabilities, userType)) {
           return provider;
         }
@@ -101,17 +113,11 @@ export class DefaultGameStrategy implements IGameStrategy {
 
     // 付费用户可能有特殊权限
     if (userType === 'paid' || userType === 'premium') {
-      // 付费用户可以访问所有提供者（假设服务器端代理）
       return true;
     }
 
-    // Sniffer Providers（需要 Sniffer 支持）
-    const snifferProviders = [
-      'txwq', 'yike', 'weiqi1919', 'xinboduiyi', 'yike-shaoer'
-    ];
-
-    if (snifferProviders.includes(providerName)) {
-      // 检查 Sniffer 是否可用
+    // Sniffer 依赖型 Provider：检查 Sniffer 是否可用
+    if (SNIFFER_DEPENDENT_PROVIDERS.includes(providerName)) {
       return this.snifferProvider?.isAvailable() ?? false;
     }
 
