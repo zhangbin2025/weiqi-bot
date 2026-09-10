@@ -6,6 +6,7 @@
 import type { IModelManagementService } from './IModelManagementService';
 import type { ModelConfig, DownloadProgressCallback } from './types';
 import type { ModelInfo } from '../../infrastructure/ai/IAIEngine';
+import { TunnelManager } from '../../infrastructure/tunnel/TunnelManager';
 import type { ModelService } from './ModelService';
 import type { IAIController } from '../ai/IAIController';
 import type { IKeyValueStorage } from '../../infrastructure/storage/interfaces/IKeyValueStorage';
@@ -42,8 +43,9 @@ export class ModelManagementService implements IModelManagementService {
    * 本地模式下从 model-config.json 加载。
    */
   async getModels(): Promise<ModelConfig[]> {
-    // 尝试从 AI 控制器获取远程模型列表
-    if (typeof this.aiController.listModels === 'function') {
+    // 仅在远程隧道客户端模式下从服务端获取模型列表
+    // 服务端模式/本地模式使用本地 model-config.json
+    if (TunnelManager.getInstance().isClientMode() && typeof this.aiController.listModels === 'function') {
       try {
         const remoteModels = await this.aiController.listModels();
         if (remoteModels.length > 0) {
