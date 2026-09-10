@@ -259,76 +259,51 @@ export class RemotePage {
 
   // ─── 渲染 ───
 
-  /** 渲染页面骨架 */
+  /** 初始化页面骨架 */
   private renderSkeleton(): void {
-    this.rootContainer.innerHTML = this.getPageHTML();
+    this.rootContainer.innerHTML =
+      '<div class="tab-panel active" id="panel-status" data-tab="status"></div>' +
+      '<div class="tab-panel" id="panel-clients" data-tab="clients"></div>' +
+      '<div class="tab-panel" id="panel-rpc" data-tab="rpc"></div>' +
+      '<div class="tab-panel" id="panel-logs" data-tab="logs"></div>';
     this.bindGlobalEvents();
   }
 
-  /** 页面内容 HTML（注入到 #page-root） */
-  private getPageHTML(): string {
-    return [
-      '    <!-- 状态卡片 -->',
-      '    <div class="remote-section" id="statusSection">',
-      '      <div class="section-title">连接状态</div>',
-      '      <div class="status-card" id="statusCard">',
-      '        <div class="status-dot" id="statusDot"></div>',
-      '        <div class="status-info">',
-      '          <div class="status-label" id="statusLabel">未连接</div>',
-      '          <div class="status-detail" id="statusDetail"></div>',
-      '        </div>',
-      '      </div>',
-      '    </div>',
-      '    <!-- 接入记录 -->',
-      '    <div class="remote-section" id="clientSection">',
-      '      <div class="section-title">接入记录<span class="count-badge" id="clientCount"></span></div>',
-      '      <div class="scroll-list" id="clientList">',
-      '        <div class="empty-hint">暂无记录</div>',
-      '      </div>',
-      '    </div>',
-      '    <!-- RPC 统计 -->',
-      '    <div class="remote-section" id="rpcSection">',
-      '      <div class="section-title">RPC 调用统计<span class="count-badge" id="rpcCount"></span></div>',
-      '      <div class="scroll-list" id="rpcList">',
-      '        <div class="empty-hint">暂无调用</div>',
-      '      </div>',
-      '    </div>',
-      '    <!-- 实时日志 -->',
-      '    <div class="remote-section" id="logSection">',
-      '      <div class="section-title">实时日志<span class="count-badge" id="logCount"></span></div>',
-      '      <div class="scroll-list log-list" id="logList">',
-      '        <div class="empty-hint">暂无日志</div>',
-      '      </div>',
-      '    </div>',
-    ].join('\n');
-  }
 
-  /** 渲染状态栏 */
+  /** 渲染状态面板 */
   private renderStatusBar(state: TunnelConnectionState, info?: string): void {
-    const dot = document.getElementById('statusDot');
-    const label = document.getElementById('statusLabel');
-    const detail = document.getElementById('statusDetail');
-    if (dot) dot.style.background = STATE_COLORS[state] || '#999';
-    if (label) label.textContent = STATE_LABELS[state] || state;
-    if (detail) {
-      const parts = [];
-      parts.push('模式: ' + this.getModeLabel(this.editConfig.mode));
-      if (this.editConfig.password) parts.push('密码: ' + this.maskPassword(this.editConfig.password));
-      if (info) parts.push(info);
-      detail.textContent = parts.join('  ');
-    }
+    const panel = document.getElementById('panel-status');
+    if (!panel) return;
+    const color = STATE_COLORS[state] || '#999';
+    const connected = state === 'connected';
+    const parts = [];
+    parts.push('模式: ' + this.getModeLabel(this.editConfig.mode));
+    if (this.editConfig.password) parts.push('密码: ' + this.maskPassword(this.editConfig.password));
+    if (info) parts.push(info);
+    panel.innerHTML =
+      '<div class="status-card">' +
+        '<div class="status-dot' + (connected ? ' connected' : '') + '" style="background:' + color + '"></div>' +
+        '<div class="status-info">' +
+          '<div class="status-label">' + (STATE_LABELS[state] || state) + '</div>' +
+          '<div class="status-detail">' + parts.join('  ') + '</div>' +
+        '</div>' +
+      '</div>';
   }
 
   /** 渲染监控区 */
+  /** 渲染监控区（写入各标签面板） */
   private renderMonitorArea(stats: TunnelServerStats | TunnelClientStats): void {
-    // 状态
+    // 状态面板
     this.renderStatusBar(stats.state);
 
-    // 接入记录（仅服务端有）
-    const clientList = document.getElementById('clientList');
-    if (clientList) {
-      if ('clientHistory' in stats && stats.clientHistory.length > 0) {
-        clientList.innerHTML = stats.clientHistory.map((c) => {
+    // 接入记录
+    const clientPanel = document.getElementById('panel-clients');
+    if (clientPanel) {
+      const clients = 'clientHistory' in stats ? stats.clientHistory : [];
+      const badgeClients = document.getElementById('badgeClients');
+      if (badgeClients) badgeClients.textContent = String(clients.length);
+      if (clients.length > 0) {
+        clientPanel.innerHTML = clients.map((c) => {
           const connectTime = this.formatTime(c.connectedAt);
           const duration = c.disconnectedAt
             ? this.formatDuration(c.disconnectedAt - c.connectedAt)
@@ -341,20 +316,17 @@ export class RemotePage {
             '</div>';
         }).join('');
       } else {
-        clientList.innerHTML = '<div class="empty-hint">暂无记录</div>';
+        clientPanel.innerHTML = '<div class="empty-hint">暂无记录</div>';
       }
     }
-      const clientCount = document.getElementById('clientCount');
-      if (clientCount) {
-        const cnt = 'clientHistory' in stats ? stats.clientHistory.length : 0;
-        clientCount.textContent = cnt > 0 ? cnt + '条' : '';
-      }
 
     // RPC 统计
-    const rpcList = document.getElementById('rpcList');
-    if (rpcList) {
+    const rpcPanel = document.getElementById('panel-rpc');
+    if (rpcPanel) {
+      const badgeRpc = document.getElementById('badgeRpc');
+      if (badgeRpc) badgeRpc.textContent = String(stats.rpcStats.length);
       if (stats.rpcStats.length > 0) {
-        rpcList.innerHTML = stats.rpcStats.map((r) => {
+        rpcPanel.innerHTML = stats.rpcStats.map((r) => {
           const lastCall = this.formatTime(r.lastCallAt);
           return '<div class="list-item">' +
             '<span class="item-main">' + r.service + '.' + r.method + '</span>' +
@@ -362,19 +334,17 @@ export class RemotePage {
             '</div>';
         }).join('');
       } else {
-        rpcList.innerHTML = '<div class="empty-hint">暂无调用</div>';
+        rpcPanel.innerHTML = '<div class="empty-hint">暂无调用</div>';
       }
     }
-      const rpcCountEl = document.getElementById('rpcCount');
-      if (rpcCountEl) {
-        rpcCountEl.textContent = stats.rpcStats.length > 0 ? stats.rpcStats.length + '条' : '';
-      }
 
     // 日志
-    const logList = document.getElementById('logList');
-    if (logList) {
+    const logPanel = document.getElementById('panel-logs');
+    if (logPanel) {
+      const badgeLogs = document.getElementById('badgeLogs');
+      if (badgeLogs) badgeLogs.textContent = String(stats.recentLogs.length);
       if (stats.recentLogs.length > 0) {
-        logList.innerHTML = stats.recentLogs.map((log) => {
+        logPanel.innerHTML = stats.recentLogs.map((log) => {
           const time = this.formatTime(log.timestamp);
           const color = LOG_COLORS[log.level] || '#333';
           return '<div class="log-entry" style="border-left-color:' + color + '">' +
@@ -382,18 +352,12 @@ export class RemotePage {
             '<span class="log-msg" style="color:' + color + '">' + this.escapeHtml(log.message) + '</span>' +
             '</div>';
         }).join('');
-        // 自动滚动到底部
-        logList.scrollTop = logList.scrollHeight;
+        logPanel.scrollTop = logPanel.scrollHeight;
       } else {
-        logList.innerHTML = '<div class="empty-hint">暂无日志</div>';
+        logPanel.innerHTML = '<div class="empty-hint">暂无日志</div>';
       }
     }
-      const logCountEl = document.getElementById('logCount');
-      if (logCountEl) {
-        logCountEl.textContent = stats.recentLogs.length > 0 ? stats.recentLogs.length + '条' : '';
-      }
   }
-
   // ─── 定时刷新 ───
 
   private startRefresh(): void {
@@ -630,11 +594,22 @@ export class RemotePage {
     }
   }
 
+  /** 切换标签页 */
+  private switchTab(tab: string): void {
+    document.querySelectorAll('.tab-item').forEach(el => {
+      el.classList.toggle('active', el.getAttribute('data-tab') === tab);
+    });
+    document.querySelectorAll('.tab-panel').forEach(el => {
+      el.classList.toggle('active', el.getAttribute('data-tab') === tab);
+    });
+  }
+
   /** 绑定全局事件 */
   private bindGlobalEvents(): void {
     (window as any).toggleCommandMenu = () => this.toggleCommandMenu();
     (window as any).showConfigDialog = () => this.showConfigDialog();
     (window as any).manualRefresh = () => this.doRefresh();
+    (window as any).switchTab = (tab: string) => this.switchTab(tab);
   }
 
   /** 销毁 */
