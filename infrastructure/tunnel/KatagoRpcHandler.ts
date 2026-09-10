@@ -85,9 +85,11 @@ export class KatagoRpcHandler implements IRpcHandler {
       case 'listModels': {
         const models = await this.engine.listModels?.() ?? [];
         // 从 localStorage 读取服务端当前选中的模型
-        // ModelManagementService.savePreference 存储在 'weiqi-model:current-model'
-        const currentModelId = localStorage.getItem('weiqi-model:current-model');
-        const currentFileName = localStorage.getItem('weiqi-model:current-model-filename');
+        // LocalStorageAdapter 用 JSON.stringify 存储，需要 JSON.parse
+        const rawModelId = localStorage.getItem('weiqi-model:current-model');
+        const currentModelId = rawModelId ? JSON.parse(rawModelId) : null;
+        const rawFileName = localStorage.getItem('weiqi-model:current-model-filename');
+        const currentFileName = rawFileName ? JSON.parse(rawFileName) : null;
         console.info('[KatagoRpcHandler] listModels: currentModelId=%s, currentFileName=%s', currentModelId, currentFileName);
         if (currentModelId) {
           for (const m of models) {
