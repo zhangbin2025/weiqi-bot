@@ -90,6 +90,9 @@ export class RemotePage {
       console.warn('[RemotePage] Cache init failed:', e);
     }
 
+    // 先挂载全局函数（HTML onclick 依赖）
+    this.bindGlobalEvents();
+
     // 加载配置
     this.editConfig = this.loadConfig();
     this.currentMode = this.editConfig.mode;
@@ -267,9 +270,7 @@ export class RemotePage {
       '<div class="tab-panel" id="panel-clients" data-tab="clients"></div>' +
       '<div class="tab-panel" id="panel-rpc" data-tab="rpc"></div>' +
       '<div class="tab-panel" id="panel-logs" data-tab="logs"></div>';
-    this.bindGlobalEvents();
   }
-
 
   /** 渲染状态面板 */
   private renderStatusBar(state: TunnelConnectionState, info?: string): void {
