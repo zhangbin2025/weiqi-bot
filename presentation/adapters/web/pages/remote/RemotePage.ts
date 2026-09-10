@@ -310,7 +310,7 @@ export class RemotePage {
     if (detail) {
       const parts = [];
       parts.push('模式: ' + this.getModeLabel(this.editConfig.mode));
-      if (this.editConfig.password) parts.push('密码: ' + this.editConfig.password);
+      if (this.editConfig.password) parts.push('密码: ' + this.maskPassword(this.editConfig.password));
       if (info) parts.push(info);
       detail.textContent = parts.join('  ');
     }
@@ -591,6 +591,13 @@ export class RemotePage {
       case 'server': return '本机作为服务端，提供计算能力，等待远程客户端接入';
       case 'client': return '本机作为客户端，请求转发到远程服务端执行';
     }
+  }
+
+  /** 脱敏密码：只显示前1后1 */
+  private maskPassword(pwd: string): string {
+    if (!pwd) return '';
+    if (pwd.length <= 2) return '*'.repeat(pwd.length);
+    return pwd[0] + '*'.repeat(Math.min(pwd.length - 2, 6)) + pwd[pwd.length - 1];
   }
 
   private formatTime(timestamp: number): string {

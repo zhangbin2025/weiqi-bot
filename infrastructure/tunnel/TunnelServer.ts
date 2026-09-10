@@ -103,8 +103,8 @@ export class TunnelServer {
   async start(): Promise<void> {
     this.destroyed = false;
     this.startedAt = Date.now();
-    this.log('info', '服务端启动，密码: ' + this.config.password);
-    console.log('[TunnelServer] Starting with password:', this.config.password);
+    this.log('info', '服务端启动，密码: ' + this.config.password[0] + '***' + this.config.password.slice(-1));
+    console.log('[TunnelServer] Starting with password:', this.config.password[0] + '***' + this.config.password.slice(-1));
     await this.connectSignaling();
   }
 

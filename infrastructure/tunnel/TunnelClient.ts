@@ -101,8 +101,8 @@ export class TunnelClient {
   async connect(): Promise<void> {
     this.destroyed = false;
     this.startedAt = Date.now();
-    this.log('info', '客户端启动，密码: ' + this.config.password);
-    console.log('[TunnelClient] Connecting with password:', this.config.password);
+    this.log('info', '客户端启动，密码: ' + this.config.password[0] + '***' + this.config.password.slice(-1));
+    console.log('[TunnelClient] Connecting with password:', this.config.password[0] + '***' + this.config.password.slice(-1));
     await this.connectSignaling();
   }
 
