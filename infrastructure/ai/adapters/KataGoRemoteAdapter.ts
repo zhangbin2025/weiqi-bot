@@ -107,8 +107,19 @@ export class KataGoRemoteAdapter implements IAIEngine {
   }
 
   async listModels(): Promise<ModelInfo[]> {
-    const client = await this.ensureConnected();
-    return client.call('katago', 'listModels', undefined) as Promise<ModelInfo[]>;
+    // 快速尝试连接（5 秒超时），连不上就返回空让调用方 fallback
+    if (!this.tunnelClient || !this.tunnelClient.isConnected) {
+      const client = await Promise.race([
+        TunnelManager.getInstance().waitForConnection(),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 5_000)),
+      ]);
+      if (!client || !client.isConnected) {
+        console.warn('[KataGoRemoteAdapter] listModels: tunnel not connected, returning empty');
+        return [];
+      }
+      this.tunnelClient = client;
+    }
+    return this.tunnelClient.call('katago', 'listModels', undefined) as Promise<ModelInfo[]>;
   }
 
   getEngineInfo(): EngineInfo {
