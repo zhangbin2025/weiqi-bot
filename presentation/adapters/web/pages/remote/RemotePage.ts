@@ -12,7 +12,6 @@ import { TunnelServer } from '../../../../../infrastructure/tunnel/TunnelServer'
 import { KatagoRpcHandler } from '../../../../../infrastructure/tunnel/KatagoRpcHandler';
 import { createAIEngine } from '../../../../../infrastructure/ai';
 import { TunnelClient } from '../../../../../infrastructure/tunnel/TunnelClient';
-import { TunnelManager } from '../../../../../infrastructure/tunnel/TunnelManager';
 import type {
   ITunnelConfig,
   TunnelMode,
@@ -180,18 +179,16 @@ export class RemotePage {
     this.currentMode = 'server';
   }
 
-  /** 启动客户端监控（复用 TunnelManager 的单例客户端） */
+  /** 启动客户端监控 */
   private startClientMonitor(config: ITunnelConfig): void {
     this.stopTunnel();
-    const tm = TunnelManager.getInstance();
-    const client = tm.getClientSync();
-    if (client) {
-      this.client = client;
-      this.client.onStateChange((state, info) => {
-        this.renderStatusBar(state, info);
-      });
-      // TunnelManager 已在后台连接，不重复 connect
-    }
+    this.client = new TunnelClient(config);
+    this.client.onStateChange((state, info) => {
+      this.renderStatusBar(state, info);
+    });
+    this.client.connect().catch((err) => {
+      console.error('[RemotePage] Failed to connect client:', err);
+    });
     this.currentMode = 'client';
   }
 
@@ -201,8 +198,10 @@ export class RemotePage {
       this.server.stop();
       this.server = null;
     }
-    // 客户端模式：不 disconnect（TunnelManager 管理生命周期）
-    this.client = null;
+    if (this.client) {
+      this.client.disconnect();
+      this.client = null;
+    }
     this.aiEngine = null;
   }
 
