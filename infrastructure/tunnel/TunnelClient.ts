@@ -65,7 +65,7 @@ export class TunnelClient {
   private iceServers: IIceServer[];
 
   private state: TunnelConnectionState = 'disconnected';
-  private stateCallback: TunnelStateCallback | null = null;
+  private stateCallbacks: TunnelStateCallback[] = [];
 
   private pendingRequests = new Map<string, PendingRequest>();
   private requestIdCounter = 0;
@@ -94,7 +94,7 @@ export class TunnelClient {
 
   /** 设置状态变更回调 */
   onStateChange(callback: TunnelStateCallback): void {
-    this.stateCallback = callback;
+    this.stateCallbacks.push(callback);
   }
 
   /** 连接服务端 */
@@ -433,6 +433,8 @@ export class TunnelClient {
 
   private setState(state: TunnelConnectionState, info?: string): void {
     this.state = state;
-    this.stateCallback?.(state, info);
+    for (const cb of this.stateCallbacks) {
+      try { cb(state, info); } catch (e) { console.error('[TunnelClient] State callback error:', e); }
+    }
   }
 }
