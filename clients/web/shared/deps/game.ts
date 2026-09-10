@@ -7,7 +7,6 @@ import { GameService, GameHistoryStorage } from '../../../../services/game';
 import { createGameArchiveCache, createGameHistoryIndex, createGameFileStorage } from '../storage';
 import { AppSnifferProvider } from '../../../../infrastructure/network/adapters/app/AppSnifferProvider';
 import { UnsupportedSnifferProvider } from '../../../../infrastructure/network/adapters/common/UnsupportedSnifferProvider';
-import { TunnelManager } from '../../../../infrastructure/tunnel/TunnelManager';
 import type { WebShellContext } from '../Context';
 import type { ISnifferProvider } from '../../../../infrastructure/network/interfaces/ISnifferProvider';
 
@@ -38,15 +37,6 @@ export async function createGameDeps(ctx: WebShellContext): Promise<GameDeps> {
     snifferProvider,
     proxyUrl: ctx.proxyUrl,
   });
-
-  // 客户端模式下后台启动隧道连接（不阻塞页面渲染）
-  // 隧道连上后 RemoteGameProvider 自动可用，连不上走本地 provider
-  const tunnelManager = TunnelManager.getInstance();
-  if (tunnelManager.isClientMode()) {
-    tunnelManager.getClient().catch((e) => {
-      console.warn('[createGameDeps] 隧道连接失败:', e);
-    });
-  }
 
   return { gameService };
 }

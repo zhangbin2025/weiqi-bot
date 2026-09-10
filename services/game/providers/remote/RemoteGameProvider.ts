@@ -1,35 +1,62 @@
 /**
  * @fileoverview 远程棋谱抓取提供者
- * @description 通过 P2P 隧道委托远程服务端抓取棋谱，适用于纯 Web 环境
+ * @description 通过 P2P 隧道委托远程服务端抓取棋谱
  *
- * 当隧道已连接时，Strategy 优先选中此 Provider，所有网络请求型 URL
- * 都走远程服务端执行（服务端有完整 Sniffer + 无 CORS 限制）。
- * 隧道未连接时，此 Provider 不可用，Strategy 跳过走本地 Provider。
+ * 仅匹配 Sniffer 依赖型 URL（纯 Web 环境下本地无法抓取的平台）。
+ * REST API 型 URL 不匹配，走本地代理。
+ *
+ * fetch 时通过 ensureConnected() 等待隧道连接就绪（与 KataGoRemoteAdapter 一致），
+ * 连上后发 RPC 请求到远程服务端执行抓取。
  */
 
 import type { IGameProvider } from '../base/IProvider';
 import type { FetchResult, GameMetadata, PerformanceTiming } from '../base/types';
 import type { RemoteFetchResponse } from './types';
 import { TunnelManager } from '../../../../infrastructure/tunnel/TunnelManager';
+import type { TunnelClient } from '../../../../infrastructure/tunnel/TunnelClient';
+
+/** 隧道连接超时（毫秒） */
+const TUNNEL_CONNECT_TIMEOUT = 30_000;
+
+/**
+ * Sniffer 依赖型 URL 模式
+ * 纯 Web 环境下本地无法抓取的平台，走远程服务端
+ */
+const SNIFFER_URL_PATTERNS = [
+  // txwq
+  /txwq\.qq\.com/i,
+  /h5\.txwq\.qq\.com/i,
+  // yike 直播 (room)
+  /yikeweiqi\.com.*room\//i,
+  // yike online-game
+  /yikeweiqi\.com.*online-game\//i,
+  // weiqi1919 / golaxy
+  /19x19\.com/i,
+  /golaxy/i,
+  // xinboduiyi
+  /xinboduiyi\.com/i,
+  // yike-shaoer
+  /shaoer\.yikeweiqi\.com/i,
+  // foxwq 直播（含 svrid= 参数的分享链接）
+  /foxwq\.com.*svrid=/i,
+];
 
 /**
  * 远程棋谱抓取提供者
  *
- * 匹配所有 http(s):// URL（排除 archive: 等本地协议）。
- * 注册顺序最先，隧道连接时优先使用。
+ * 仅匹配 Sniffer 依赖型 URL，注册顺序最后（兜底）。
+ * fetch 时等待隧道连接就绪后发 RPC 请求。
  */
 export class RemoteGameProvider implements IGameProvider {
   readonly name = 'remote';
   readonly displayName = '远程服务';
-  readonly urlPatterns = [/^https?:\/\//i];
+  readonly urlPatterns = SNIFFER_URL_PATTERNS;
 
   canHandle(url: string): boolean {
-    // 匹配 http/https URL，排除 archive: 等本地协议
-    return /^https?:\/\//i.test(url);
+    return SNIFFER_URL_PATTERNS.some(p => p.test(url));
   }
 
   extractId(url: string): string | null {
-    // 从 URL 提取唯一标识，用于缓存 key
     try {
       const u = new URL(url);
       return u.hostname + u.pathname + u.search;
@@ -38,15 +65,28 @@ export class RemoteGameProvider implements IGameProvider {
     }
   }
 
+  /**
+   * 等待隧道连接就绪
+   * 与 KataGoRemoteAdapter.ensureConnected() 模式一致
+   */
+  private async ensureConnected(): Promise<TunnelClient> {
+    const client = await TunnelManager.getInstance().getClient();
+    if (client && client.isConnected) {
+      return client;
+    }
+    // getClient 可能因超时返回 null，再等一次
+    throw new Error('远程隧道未连接，请在设置中开启客户端模式');
+  }
+
   async fetch(url: string): Promise<FetchResult> {
     const timing: PerformanceTiming = {};
     const startTime = Date.now();
 
-    const manager = TunnelManager.getInstance();
-    const client = await manager.getClient();
-
-    if (!client || !client.isConnected) {
-      return this.createErrorResult(url, '远程服务未连接');
+    let client: TunnelClient;
+    try {
+      client = await this.ensureConnected();
+    } catch (error) {
+      return this.createErrorResult(url, error instanceof Error ? error.message : '隧道连接失败');
     }
 
     try {
@@ -79,9 +119,6 @@ export class RemoteGameProvider implements IGameProvider {
     }
   }
 
-  /**
-   * 创建失败的 FetchResult
-   */
   private createErrorResult(
     url: string,
     error: string,
