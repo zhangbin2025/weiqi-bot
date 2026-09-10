@@ -90,7 +90,6 @@ export class KatagoRpcHandler implements IRpcHandler {
         const currentModelId = rawModelId ? JSON.parse(rawModelId) : null;
         const rawFileName = localStorage.getItem('weiqi-model:current-model-filename');
         const currentFileName = rawFileName ? JSON.parse(rawFileName) : null;
-        console.info('[KatagoRpcHandler] listModels: currentModelId=%s, currentFileName=%s', currentModelId, currentFileName);
         if (currentModelId) {
           for (const m of models) {
             // 优先用 modelId 匹配
