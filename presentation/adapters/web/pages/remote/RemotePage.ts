@@ -297,18 +297,6 @@ export class RemotePage {
       '        <div class="empty-hint">暂无日志</div>',
       '      </div>',
       '    </div>',
-      '    <!-- 扩展菜单 -->',
-      '    <div class="command-menu" id="commandMenu">',
-      '      <div class="command-item" onclick="showConfigDialog()">',
-      '        <div class="command-icon">🔧</div>',
-      '        <div class="command-title">配置</div>',
-      '      </div>',
-      '      <div class="command-item" onclick="manualRefresh()">',
-      '        <div class="command-icon">🔄</div>',
-      '        <div class="command-title">刷新</div>',
-      '      </div>',
-      '    </div>',
-      '    <div class="command-menu-overlay" id="commandMenuOverlay" onclick="toggleCommandMenu()"></div>',
     ].join('\n');
   }
 
