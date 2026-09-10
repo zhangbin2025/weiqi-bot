@@ -58,14 +58,15 @@ export class ModelSelector {
       this.models = await this.options.modelManager.getModels();
     }
     
-    // 远程模式：从模型列表中提取 custom URL（由服务端提供）
+    // 远程模式：从模型列表中提取 custom URL，选中服务端当前模型
     if (this.isRemoteMode) {
       const customModel = this.models.find(m => m.id === 'custom');
       if (customModel?.url) {
         this.customModelUrl = customModel.url;
       }
-      // 选中默认模型
-      const defaultModel = this.models.find(m => m.isDefault) || this.models[0];
+      // 优先选中服务端当前加载的模型，fallback 到默认模型
+      const currentModel = this.models.find(m => m.isCurrent);
+      const defaultModel = currentModel || this.models.find(m => m.isDefault) || this.models[0];
       if (defaultModel) {
         this.selectedModelId = defaultModel.id;
       }

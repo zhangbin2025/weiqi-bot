@@ -51,18 +51,22 @@ export class ModelManagementService implements IModelManagementService {
         if (remoteModels.length > 0) {
           // 转换 ModelInfo → ModelConfig
           // url: 自定义模型由服务端提供 URL（客户端展示用），内置模型为空
-          return remoteModels.map(m => ({
-            id: m.id,
-            name: m.name,
-            description: '',
-            url: m.url || '',
-            size: m.size,
-            sizeBytes: 0,
-            version: '',
-            blocks: 0,
-            isDefault: m.isDefault,
-            features: { fastInference: false, lowMemory: false },
-          }));
+          return remoteModels.map(m => {
+            const cfg: ModelConfig = {
+              id: m.id,
+              name: m.name,
+              description: '',
+              url: m.url || '',
+              size: m.size,
+              sizeBytes: 0,
+              version: '',
+              blocks: 0,
+              isDefault: m.isDefault,
+              features: { fastInference: false, lowMemory: false },
+            };
+            if (m.isCurrent) cfg.isCurrent = true;
+            return cfg;
+          });
         }
       } catch (e) {
         console.warn('[ModelManagementService] Failed to get remote models, falling back to local:', e);

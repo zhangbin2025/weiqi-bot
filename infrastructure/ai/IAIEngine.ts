@@ -153,6 +153,8 @@ export interface ModelInfo {
   size: string;
   /** 是否为默认模型 */
   isDefault: boolean;
+  /** 是否为当前已加载的模型（服务端标记，客户端用于高亮选中项） */
+  isCurrent?: boolean;
   /** 模型 URL（自定义模型时由服务端提供，用于客户端展示） */
   url?: string;
 }

@@ -41,6 +41,8 @@ export interface ModelConfig {
   blocks: number;
   /** 是否为默认模型 */
   isDefault: boolean;
+  /** 是否为当前已加载的模型（远程模式由服务端标记） */
+  isCurrent?: boolean;
   /** 推荐场景 */
   recommended?: (string | undefined)[];
   /** 支持的难度 */

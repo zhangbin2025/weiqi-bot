@@ -414,6 +414,9 @@ export class KataGoAppAdapter implements IAIEngine {
    */
   async listModels(): Promise<ModelInfo[]> {
     const result: ModelInfo[] = [];
+    // 获取当前已加载的模型文件名
+    const currentModelName = this.engineInfo.modelName;
+
     try {
       const { getWebRoot } = await import('../../utils/web/pathUtils');
       const webRoot = getWebRoot();
@@ -422,11 +425,15 @@ export class KataGoAppAdapter implements IAIEngine {
         const config = await response.json();
         const models = config.models || [];
         for (const m of models) {
+          // 从 url 提取文件名，与当前模型比对
+          const modelFileName = m.url ? m.url.split('/').pop() : null;
+          const isCurrent = !!(currentModelName && modelFileName && currentModelName === modelFileName);
           result.push({
             id: m.id,
             name: m.name,
             size: m.size || '',
             isDefault: !!m.isDefault,
+            isCurrent,
           });
         }
       }
@@ -440,11 +447,13 @@ export class KataGoAppAdapter implements IAIEngine {
         // 避免重复
         if (!result.some(m => m.id === 'custom')) {
           const filename = savedUrl.split('/').pop() || 'custom';
+          const isCurrent = !!(currentModelName && currentModelName === filename);
           result.push({
             id: 'custom',
             name: '自定义模型 (' + filename + ')',
             size: '',
             isDefault: false,
+            isCurrent,
             url: savedUrl,
           });
         }
