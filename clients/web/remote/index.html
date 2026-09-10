@@ -119,13 +119,14 @@
             position: relative;
             overflow: hidden;
         }
+        #page-root { height: 100%; }
         .tab-panel {
             display: none;
             height: 100%;
             overflow-y: auto;
             -webkit-overflow-scrolling: touch;
         }
-        .tab-panel.active { display: block; }
+        .tab-panel.active { display: flex; flex-direction: column; }
 
         /* 状态卡片 */
         .status-card {
