@@ -105,7 +105,7 @@ export class ModelSelector {
   render(): string {
     // 远程模式：只读展示，radio disabled，不可切换
     if (this.isRemoteMode) {
-      const modelOptionsHtml = this.models.map(model => {
+      const modelOptionsHtml = this.models.filter(m => m.id !== 'custom').map(model => {
         const isSelected = model.id === this.selectedModelId;
         return `
           <div style="display: flex; align-items: center; gap: 8px; padding: 8px 0;">
@@ -116,21 +116,20 @@ export class ModelSelector {
         `;
       }).join('');
 
-      // 远程模式下如果选中的是 custom 且有 URL，只读展示 URL
+      // 自定义模型只显示 URL，不显示名称
       let customUrlHtml = '';
       if (this.selectedModelId === 'custom' && this.customModelUrl) {
         customUrlHtml = `
           <div style="padding: 8px 0;">
             <input type="url" value="${this.customModelUrl}" readonly
                    style="width: 100%; padding: 8px; border: 1px solid #e8e8e8; border-radius: 4px; font-size: 12px; box-sizing: border-box; color: #666; background: #f9f9f9;">
-            <div style="font-size: 11px; color: #bbb; margin-top: 4px;">服务端自定义模型 URL</div>
           </div>
         `;
       }
 
       return `
         <div class="model-selector">
-          <div style="font-size: 11px; color: #999; padding: 4px 0 8px;">🔒 模型由服务端决定</div>
+          <div style="font-size: 11px; color: #999; padding: 4px 0 8px;">当前使用远程服务模型</div>
           <div class="model-options" style="border: 1px solid #e8e8e8; border-radius: 8px; padding: 0 12px;">
             ${modelOptionsHtml}
           </div>
