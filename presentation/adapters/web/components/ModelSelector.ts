@@ -103,57 +103,25 @@ export class ModelSelector {
    * 渲染模型选择器 UI
    */
   render(): string {
-    // 远程模式：只读展示，radio disabled，不可切换
-    if (this.isRemoteMode) {
-      const modelOptionsHtml = this.models.map(model => {
-        const isSelected = model.id === this.selectedModelId;
-        return `
-          <div style="display: flex; align-items: center; gap: 8px; padding: 8px 0;">
-            <input type="radio" name="aiModel" value="${model.id}" ${isSelected ? 'checked' : ''} disabled style="width: auto; opacity: 0.6;">
-            <span style="flex: 1; font-size: 13px; ${isSelected ? '' : 'color: #666;'}">${model.name}</span>
-            <span style="font-size: 12px; color: #999; text-align: right; min-width: 50px;">${model.size}</span>
-          </div>
-        `;
-      }).join('');
+    // 远程模式：所有控件只读，布局和本地完全一致
+    const ro = this.isRemoteMode; // readonly flag
 
-      // 自定义模型显示 URL
-      let customUrlHtml = '';
-      if (this.selectedModelId === 'custom' && this.customModelUrl) {
-        customUrlHtml = `
-          <div style="padding: 8px 0;">
-            <input type="url" value="${this.customModelUrl}" readonly
-                   style="width: 100%; padding: 8px; border: 1px solid #e8e8e8; border-radius: 4px; font-size: 12px; box-sizing: border-box; color: #666; background: #f9f9f9;">
-          </div>
-        `;
-      }
-
-      return `
-        <div class="model-selector">
-          <div style="font-size: 11px; color: #999; padding: 4px 0 8px;">当前使用远程服务模型</div>
-          <div class="model-options" style="border: 1px solid #e8e8e8; border-radius: 8px; padding: 0 12px;">
-            ${modelOptionsHtml}
-          </div>
-          ${customUrlHtml}
-        </div>
-      `;
-    }
-
-    // 本地模式：正常渲染，可选可切换
     const modelOptionsHtml = this.models.map(model => {
       const isSelected = model.id === this.selectedModelId;
       return `
-        <label style="display: flex; align-items: center; gap: 8px; padding: 8px 0; cursor: pointer;">
-          <input type="radio" name="aiModel" value="${model.id}" ${isSelected ? 'checked' : ''} style="width: auto;">
+        <label style="display: flex; align-items: center; gap: 8px; padding: 8px 0; ${ro ? '' : 'cursor: pointer;'}">
+          <input type="radio" name="aiModel" value="${model.id}" ${isSelected ? 'checked' : ''} ${ro ? 'disabled' : ''} style="width: auto; ${ro ? 'opacity: 0.6;' : ''}">
           <span style="flex: 1; font-size: 13px;">${model.name}</span>
           <span style="font-size: 12px; color: #999; text-align: right; min-width: 50px;">${model.size}</span>
         </label>
       `;
     }).join('');
 
-    // 自定义模型选项（仅在 App 环境显示）
-    const customOptionHtml = this.isAppEnvironment ? `
-      <label id="customModelLabel" style="display: flex; align-items: center; gap: 8px; padding: 8px 0; cursor: pointer;">
-        <input type="radio" name="aiModel" value="custom" ${this.selectedModelId === 'custom' ? 'checked' : ''} style="width: auto;">
+    // 自定义模型选项（App 环境显示，远程模式下也显示但只读）
+    const showCustom = this.isAppEnvironment || (ro && this.selectedModelId === 'custom');
+    const customOptionHtml = showCustom ? `
+      <label id="customModelLabel" style="display: flex; align-items: center; gap: 8px; padding: 8px 0; ${ro ? '' : 'cursor: pointer;'}">
+        <input type="radio" name="aiModel" value="custom" ${this.selectedModelId === 'custom' ? 'checked' : ''} ${ro ? 'disabled' : ''} style="width: auto; ${ro ? 'opacity: 0.6;' : ''}">
         <div style="flex: 1;">
           <span style="font-size: 13px;">自定义模型</span> <a href="https://katagotraining.org/networks/" target="_blank" style="font-size: 11px; color: #4a90e2; margin-left: 8px;">模型列表 ↗</a>
         </div>
@@ -162,13 +130,17 @@ export class ModelSelector {
         <input type="url" id="customModelUrl" placeholder="https://example.com/model.bin.gz" 
                value="${this.customModelUrl}"
                inputmode="none"
-               style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; box-sizing: border-box;">
-        <div style="font-size: 11px; color: #999; margin-top: 4px;">长按输入框可粘贴URL</div>
+               ${ro ? 'readonly' : ''}
+               style="width: 100%; padding: 8px; border: 1px solid ${ro ? '#e8e8e8' : '#ddd'}; border-radius: 4px; font-size: 12px; box-sizing: border-box; ${ro ? 'color: #666; background: #f9f9f9;' : ''}">
+        <div style="font-size: 11px; color: #999; margin-top: 4px;">${ro ? '' : '长按输入框可粘贴URL'}</div>
       </div>
     ` : '';
 
+    const headerHtml = ro ? `<div style="font-size: 11px; color: #999; padding: 4px 0 8px;">当前使用远程服务模型</div>` : '';
+
     return `
       <div class="model-selector">
+        ${headerHtml}
         <div class="model-options" style="border: 1px solid #e8e8e8; border-radius: 8px; padding: 0 12px;">
           ${modelOptionsHtml}
           ${customOptionHtml}
