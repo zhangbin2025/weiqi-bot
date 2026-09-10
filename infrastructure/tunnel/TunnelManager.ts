@@ -17,7 +17,7 @@ import { DEFAULT_TUNNEL_CONFIG } from './types';
 const STORAGE_KEY = 'weiqi-tunnel-config';
 
 /** 等待连接超时 */
-const CONNECT_TIMEOUT = 60_000;
+const CONNECT_TIMEOUT = 30_000;
 
 export class TunnelManager {
   private static instance: TunnelManager | null = null;
@@ -118,7 +118,7 @@ export class TunnelManager {
 
     // 连接并等待
     return new Promise<TunnelClient | null>((resolve) => {
-      let timeout = setTimeout(() => {
+      const timeout = setTimeout(() => {
         console.warn('[TunnelManager] Connection timeout');
         this.connecting = null;
         resolve(this.client?.isConnected ? this.client : null);
@@ -129,14 +129,6 @@ export class TunnelManager {
           clearTimeout(timeout);
           this.connecting = null;
           resolve(this.client);
-        } else if (state === 'signaling-ok') {
-          // 信令已连接，重置超时给 P2P 更多时间
-          clearTimeout(timeout);
-          timeout = setTimeout(() => {
-            console.warn('[TunnelManager] P2P connection timeout after signaling ok');
-            this.connecting = null;
-            resolve(this.client?.isConnected ? this.client : null);
-          }, CONNECT_TIMEOUT);
         } else if (state === 'auth-failed' || state === 'error') {
           clearTimeout(timeout);
           this.connecting = null;
