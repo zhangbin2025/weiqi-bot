@@ -51,11 +51,31 @@ export class KataGoRemoteAdapter implements IAIEngine {
   async init(options: AIEngineInitOptions): Promise<void> {
     const client = await this.ensureConnected();
 
-    // 保留回调，去掉无法序列化的函数
+    // 检查服务端是否已加载相同模型，避免重复 init
+    try {
+      const info = await client.call('katago', 'getEngineInfo', undefined) as EngineInfo;
+      if (info.modelName) {
+        // 服务端已有引擎，检查是否是同一模型
+        const requestFileName = options.modelUrl?.split('/').pop() ?? '';
+        const serverFileName = info.modelName;
+        if (requestFileName === serverFileName) {
+          console.info('[KataGoRemoteAdapter] Server already loaded same model:', serverFileName);
+          this.engineInfo = info;
+          return;
+        }
+        // 模型不同，但服务端已加载 — 不重新 init（服务端的模型由服务端决定）
+        console.info('[KataGoRemoteAdapter] Server has model:', serverFileName, '(requested:', requestFileName, '), using server model');
+        this.engineInfo = info;
+        return;
+      }
+    } catch {
+      // 获取引擎信息失败，继续尝试 init
+    }
+
+    // 服务端未加载模型，发送 init RPC
     const serializableOptions: AIEngineInitOptions = {
       modelUrl: options.modelUrl,
     };
-    // 合并 onProgress + onInitProgress 为统一回调
     const progressCb = options.onProgress || options.onInitProgress
       ? (data: any) => {
           if (data.type === 'download' && options.onProgress) {
