@@ -142,6 +142,20 @@ export interface EngineInfo {
 }
 
 /**
+ * 模型信息（轻量，用于模型列表展示）
+ */
+export interface ModelInfo {
+  /** 模型 ID */
+  id: string;
+  /** 模型名称 */
+  name: string;
+  /** 显示大小（如 "4.7MB"） */
+  size: string;
+  /** 是否为默认模型 */
+  isDefault: boolean;
+}
+
+/**
  * 整盘分析选项 — 对应 KataGo analysis 协议
  * 
  * 与 AnalyzeOptions 不同，这里直接使用着法列表，
@@ -258,6 +272,12 @@ export interface IAIEngine {
    * @returns 每个回合的分析结果
    */
   analyzeGame?(options: AnalyzeGameOptions): Promise<GameTurnAnalysis[]>;
+
+  /**
+   * 获取当前环境可用的模型列表
+   * @description Web 端返回内置模型；App 端扫描本地模型目录；远程端通过 RPC 获取服务端模型
+   */
+  listModels?(): Promise<ModelInfo[]>;
 
   /**
    * 获取引擎信息

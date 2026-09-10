@@ -12,6 +12,7 @@ import type {
   EvaluateOptions,
   EvaluateBatchOptions,
   EngineInfo,
+  ModelInfo,
 } from '../IAIEngine';
 import { getWebRoot, toAbsoluteUrl } from '../../utils/web/pathUtils';
 
@@ -97,6 +98,30 @@ export class KataGoWebAdapter implements IAIEngine {
       rules: options.rules,
       conservativePass: options.conservativePass,
     } as any);
+  }
+
+  /**
+   * 获取可用的模型列表（Web 端从本地 model-config.json 加载）
+   */
+  async listModels(): Promise<ModelInfo[]> {
+    try {
+      const { getWebRoot } = await import('../../utils/web/pathUtils');
+      const webRoot = getWebRoot();
+      const response = await fetch(webRoot + 'models/model-config.json');
+      if (response.ok) {
+        const config = await response.json();
+        const models = config.models || [];
+        return models.map((m: any) => ({
+          id: m.id,
+          name: m.name,
+          size: m.size || '',
+          isDefault: !!m.isDefault,
+        }));
+      }
+    } catch (e) {
+      console.warn('[KataGoWebAdapter] Failed to load model config:', e);
+    }
+    return [];
   }
 
   /**

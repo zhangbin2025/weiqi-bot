@@ -5,6 +5,7 @@
 
 import type { IModelManagementService } from './IModelManagementService';
 import type { ModelConfig, DownloadProgressCallback } from './types';
+import type { ModelInfo } from '../../infrastructure/ai/IAIEngine';
 import type { ModelService } from './ModelService';
 import type { IAIController } from '../ai/IAIController';
 import type { IKeyValueStorage } from '../../infrastructure/storage/interfaces/IKeyValueStorage';
@@ -36,8 +37,35 @@ export class ModelManagementService implements IModelManagementService {
 
   /**
    * 获取模型列表
+   * 
+   * 远程隧道模式下从服务端获取模型列表（含大模型），
+   * 本地模式下从 model-config.json 加载。
    */
   async getModels(): Promise<ModelConfig[]> {
+    // 尝试从 AI 控制器获取远程模型列表
+    if (typeof this.aiController.listModels === 'function') {
+      try {
+        const remoteModels = await this.aiController.listModels();
+        if (remoteModels.length > 0) {
+          // 转换 ModelInfo → ModelConfig（远程模型 url 未知，用 id 占位）
+          return remoteModels.map(m => ({
+            id: m.id,
+            name: m.name,
+            description: '',
+            url: '',  // 远程模式不需要 url，init 时由服务端处理
+            size: m.size,
+            sizeBytes: 0,
+            version: '',
+            blocks: 0,
+            isDefault: m.isDefault,
+            features: { fastInference: false, lowMemory: false },
+          }));
+        }
+      } catch (e) {
+        console.warn('[ModelManagementService] Failed to get remote models, falling back to local:', e);
+      }
+    }
+    // Fallback: 本地模型列表
     return this.modelService.getModels();
   }
 

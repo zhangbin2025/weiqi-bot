@@ -13,6 +13,7 @@ export type {
   EngineInfo,
   AnalyzeGameOptions,
   GameTurnAnalysis,
+  ModelInfo,
 } from './IAIEngine';
 
 // 导出 Web 适配器

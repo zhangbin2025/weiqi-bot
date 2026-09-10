@@ -4,6 +4,7 @@
 
 import type { BoardState, PlayerColor } from '../../domain';
 import type { Difficulty, DifficultyConfig, IAnalysisResult } from './types';
+import type { ModelInfo } from '../../infrastructure/ai/IAIEngine';
 
 /**
  * AI 控制器接口
@@ -189,6 +190,12 @@ export interface IAIController {
     }>;
     ownership?: number[];
   }>>;
+
+  /**
+   * 获取当前引擎可用的模型列表
+   * @description 远程模式下从服务端获取，本地模式下从配置文件加载
+   */
+  listModels?(): Promise<ModelInfo[]>;
 
   /**
    * 销毁控制器

@@ -18,6 +18,7 @@ import type {
   EngineInfo,
   AnalyzeGameOptions,
   GameTurnAnalysis,
+  ModelInfo,
 } from '../IAIEngine';
 import { TunnelManager } from '../../tunnel/TunnelManager';
 import type { TunnelClient } from '../../tunnel/TunnelClient';
@@ -103,6 +104,11 @@ export class KataGoRemoteAdapter implements IAIEngine {
   async evaluateBatch(options: EvaluateBatchOptions): Promise<any[]> {
     const client = await this.ensureConnected();
     return client.call('katago', 'evaluateBatch', options) as Promise<any[]>;
+  }
+
+  async listModels(): Promise<ModelInfo[]> {
+    const client = await this.ensureConnected();
+    return client.call('katago', 'listModels', undefined) as Promise<ModelInfo[]>;
   }
 
   getEngineInfo(): EngineInfo {

@@ -3,7 +3,7 @@
  * @description 整合 KataGo 调用，支持初始化、落子生成、形势判断、数子等功能
  */
 
-import type { IAIEngine, AnalyzeOptions } from '../../infrastructure/ai';
+import type { IAIEngine, AnalyzeOptions, ModelInfo } from '../../infrastructure/ai';
 import { forceUseWebAdapter } from '../../infrastructure/ai';
 import type { BoardState, PlayerColor } from '../../domain';
 import type { IAIController } from './IAIController';
@@ -369,6 +369,11 @@ export class AIController implements IAIController {
     }
 
     return results;
+  }
+
+  async listModels(): Promise<ModelInfo[]> {
+    if (!this.engine) return [];
+    return this.engine.listModels?.() ?? [];
   }
 
   destroy(): void {

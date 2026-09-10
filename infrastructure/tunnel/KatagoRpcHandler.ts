@@ -11,7 +11,7 @@
  * - getEngineInfo: 获取引擎信息
  */
 
-import type { IAIEngine, AIEngineInitOptions, AnalyzeOptions, AnalyzeGameOptions, EvaluateOptions, EvaluateBatchOptions } from '../ai/IAIEngine';
+import type { IAIEngine, AIEngineInitOptions, AnalyzeOptions, AnalyzeGameOptions, EvaluateOptions, EvaluateBatchOptions, ModelInfo } from '../ai/IAIEngine';
 import type { IRpcHandler, TunnelService } from './types';
 
 /** KataGo RPC 请求参数映射 */
@@ -22,6 +22,7 @@ interface KatagoRpcParams {
   evaluate: EvaluateOptions;
   evaluateBatch: EvaluateBatchOptions;
   getEngineInfo: void;
+  listModels: void;
 }
 
 /** KataGo RPC 方法名 */
@@ -79,6 +80,9 @@ export class KatagoRpcHandler implements IRpcHandler {
 
       case 'getEngineInfo':
         return this.engine.getEngineInfo();
+
+      case 'listModels':
+        return this.engine.listModels?.() ?? [];
 
       default:
         throw new Error(`未知的 KataGo 方法: ${method}`);
