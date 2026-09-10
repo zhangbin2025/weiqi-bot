@@ -85,26 +85,34 @@ export class ModelManagementService implements IModelManagementService {
     //    这样即使模型加载失败，用户的选择也会被记录
     await this.savePreference(modelId, modelUrl);
 
-    // 2. 获取模型配置
-    const models = await this.getModels();
-    const model = models.find(m => m.id === modelId);
+    // 2. 确定模型 URL
+    let finalUrl: string;
 
-    // 3. 如果没有找到内置模型，且提供了 URL，则使用外部模型
-    const finalUrl = model?.url ?? modelUrl;
+    if (TunnelManager.getInstance().isClientMode()) {
+      // 远程客户端模式：模型由服务端管理
+      // 自定义模型传 URL；内置模型用服务端标准路径格式
+      finalUrl = modelUrl || `/models/${modelId}.bin.gz`;
+    } else {
+      // 本地模式：从模型列表获取 URL
+      const models = await this.getModels();
+      const model = models.find(m => m.id === modelId);
+      finalUrl = model?.url || modelUrl || '';
 
-    if (!finalUrl) {
-      throw new Error(`Model ${modelId} not found and no URL provided`);
+      if (!finalUrl) {
+        throw new Error(`Model ${modelId} not found and no URL provided`);
+      }
     }
 
-    // 4. 提取文件名（用于区分不同模型）
+    // 3. 提取文件名（用于区分不同模型）
     const fileName = finalUrl.split('/').pop()!;
     
-    // 5. 初始化 AI 引擎
+    // 4. 初始化 AI 引擎
+    // 远程客户端：RPC 到服务端
     // App 端：KataGoAppAdapter 内部下载
     // Web 端：worker 内部下载
     await this.aiController.init(modelId, finalUrl, onProgress, onInitProgress);
 
-    // 6. 更新当前模型和文件名
+    // 5. 更新当前模型和文件名
     this.currentModelId = modelId;
     this.currentModelFileName = fileName;
   }
