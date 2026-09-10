@@ -382,6 +382,8 @@ export class RemotePage {
   }
 
   private async doRefresh(): Promise<void> {
+    this.toggleCommandMenu();
+
     let stats: TunnelServerStats | TunnelClientStats | null = null;
 
     if (this.server) {
@@ -393,6 +395,9 @@ export class RemotePage {
     if (stats) {
       this.renderMonitorArea(stats);
       await this.writeCache(stats);
+    } else {
+      // 没有隧道运行，刷新状态显示
+      this.renderStatusBar(this.server?.getState() || this.client?.getState() || 'disconnected');
     }
   }
 
