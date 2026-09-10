@@ -347,10 +347,14 @@ export class RemotePage {
         logPanel.innerHTML = stats.recentLogs.map((log) => {
           const time = this.formatTime(log.timestamp);
           const color = LOG_COLORS[log.level] || '#333';
+          const levelLabel = log.level === 'info' ? 'INFO' : log.level === 'warn' ? 'WARN' : log.level === 'error' ? 'ERROR' : log.level;
           return '<div class="log-entry" style="border-left-color:' + color + '">' +
-            '<span class="log-time">' + time + '</span>' +
-            '<span class="log-msg" style="color:' + color + '">' + this.escapeHtml(log.message) + '</span>' +
-            '</div>';
+            '<div class="log-entry-header">' +
+              '<span class="log-level ' + log.level + '">' + levelLabel + '</span>' +
+              '<span class="log-time">' + time + '</span>' +
+            '</div>' +
+            '<div class="log-msg">' + this.escapeHtml(log.message) + '</div>' +
+          '</div>';
         }).join('');
         logPanel.scrollTop = logPanel.scrollHeight;
       } else {

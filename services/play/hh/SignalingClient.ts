@@ -88,11 +88,13 @@ export class SignalingClient {
     this.ws = null;
   }
 
-  send(message: ISignalingMessage): void {
+  send(message: ISignalingMessage): boolean {
     if (this.ws?.readyState !== WebSocket.OPEN) {
-      throw new Error('WebSocket 未连接');
+      console.warn('[SignalingClient] WebSocket not open, message dropped:', message.type);
+      return false;
     }
     this.ws.send(JSON.stringify(message));
+    return true;
   }
 
   setCallbacks(callbacks: ISignalingClientCallbacks): void {

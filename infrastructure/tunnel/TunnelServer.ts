@@ -212,9 +212,13 @@ export class TunnelServer {
     try {
       this.signaling.setCallbacks({
         onConnect: () => {
+          this.reconnectDelay = INITIAL_RECONNECT_DELAY;
+          if (!this.signaling.isConnected) {
+            this.log('warn', '信令 onConnect 回调时 WebSocket 已断开，跳过 create');
+            return;
+          }
           console.log('[TunnelServer] Signaling connected, sending create...');
           this.log('info', '信令已连接');
-          this.reconnectDelay = INITIAL_RECONNECT_DELAY;
           this.signaling.send({ type: 'create' });
           this.setState('signaling-ok');
         },
@@ -267,6 +271,10 @@ export class TunnelServer {
       case 'connected':
         break;
       case 'ready':
+        if (!this.signaling.isConnected) {
+          this.log('warn', '收到 ready 但信令已断开，跳过 room-info');
+          break;
+        }
         console.log('[TunnelServer] Received ready, sending room-info...');
         this.signaling.send({
           type: 'room-info',

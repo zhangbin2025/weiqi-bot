@@ -166,13 +166,22 @@
 
         /* 日志 */
         .log-entry {
-            padding: 8px 14px; margin: 2px 0;
-            border-radius: 0; background: #f9f9f9;
+            padding: 10px 16px; margin: 4px 8px;
+            border-radius: 8px; background: #f9f9f9;
             border-left: 3px solid #ddd;
-            display: flex; gap: 6px; align-items: flex-start;
         }
-        .log-time { color: #999; flex-shrink: 0; font-size: 13px; }
-        .log-msg { flex: 1; word-break: break-all; font-size: 14px; font-family: 'Courier New', monospace; line-height: 1.5; }
+        .log-entry-header {
+            display: flex; align-items: center; gap: 6px; margin-bottom: 4px;
+        }
+        .log-level {
+            font-size: 11px; font-weight: 600; padding: 1px 6px;
+            border-radius: 4px; text-transform: uppercase;
+        }
+        .log-level.info { background: #e3f2fd; color: #1976d2; }
+        .log-level.warn { background: #fff3e0; color: #f57c00; }
+        .log-level.error { background: #ffebee; color: #d32f2f; }
+        .log-time { color: #aaa; font-size: 12px; }
+        .log-msg { word-break: break-word; font-size: 14px; line-height: 1.6; color: #333; }
 
         .empty-hint { padding: 40px 20px; text-align: center; color: #bbb; font-size: 15px; }
 
