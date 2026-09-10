@@ -7,6 +7,7 @@ import type { IUserContext, Environment } from '../../infrastructure/network/int
 import type { PlatformCapabilities } from '../../infrastructure/platform/interfaces';
 import { PlatformDetector } from '../../infrastructure/platform';
 import { TunnelManager } from '../../infrastructure/tunnel/TunnelManager';
+import type { TunnelClient } from '../../infrastructure/tunnel/TunnelClient';
 
 /**
  * Game 策略配置
@@ -35,6 +36,9 @@ export interface IGameStrategy {
     userContext?: IUserContext
   ): Promise<IGameProvider | null>;
 }
+
+/** 隧道连接等待超时（毫秒） */
+const TUNNEL_WAIT_TIMEOUT = 10_000;
 
 /**
  * 默认 Game 策略
@@ -86,9 +90,16 @@ export class DefaultGameStrategy implements IGameStrategy {
   ): Promise<boolean> {
     const providerName = provider.name;
 
-    // Remote Provider：检查隧道是否已连接
+    // Remote Provider：等待隧道连接（有超时）
     if (providerName === 'remote') {
-      const client = TunnelManager.getInstance().getClientSync();
+      const manager = TunnelManager.getInstance();
+      // 非客户端模式，直接跳过
+      if (!manager.isClientMode()) return false;
+      // 已连接，直接可用
+      const syncClient = manager.getClientSync();
+      if (syncClient?.isConnected) return true;
+      // 未连接但配置了客户端模式，等待连接完成（带超时）
+      const client = await this.waitForTunnel(manager);
       return client?.isConnected ?? false;
     }
 
@@ -115,5 +126,18 @@ export class DefaultGameStrategy implements IGameStrategy {
 
     // REST API Providers（无需特殊能力）
     return true;
+  }
+
+  /**
+   * 等待隧道连接（带超时）
+   * 如果隧道正在连接中，等待最多 TUNNEL_WAIT_TIMEOUT 毫秒
+   */
+  private async waitForTunnel(manager: TunnelManager): Promise<TunnelClient | null> {
+    return Promise.race([
+      manager.getClient(),
+      new Promise<null>((resolve) => {
+        setTimeout(() => resolve(null), TUNNEL_WAIT_TIMEOUT);
+      }),
+    ]);
   }
 }
