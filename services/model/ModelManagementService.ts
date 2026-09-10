@@ -85,9 +85,10 @@ export class ModelManagementService implements IModelManagementService {
     onProgress?: DownloadProgressCallback,
     onInitProgress?: (info: { stage: string; message: string; current?: number; total?: number }) => void
   ): Promise<void> {
-    // 1. 先保存偏好（包括自定义模型的 URL 和文件名）
-    //    这样即使模型加载失败，用户的选择也会被记录
-    await this.savePreference(modelId, modelUrl);
+    // 1. 保存偏好（远程客户端模式不保存，避免远程配置覆盖本地）
+    if (!TunnelManager.getInstance().isClientMode()) {
+      await this.savePreference(modelId, modelUrl);
+    }
 
     // 2. 确定模型 URL
     let finalUrl: string;
