@@ -462,9 +462,11 @@ export class RemotePage {
     overlay.appendChild(dialog);
     document.body.appendChild(overlay);
 
-    // 点击遮罩关闭
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) overlay.remove();
+    // 点击遮罩关闭（用 mousedown 防止输入框滑动误触）
+    overlay.addEventListener('mousedown', (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+      }
     });
 
     // 绑定事件
