@@ -18,7 +18,6 @@ import { LocalStorageCacheAdapter } from '../../../../../infrastructure/storage/
 import { EntityExtractor } from '../../../../../domain/intent/EntityExtractor';
 import { AssistantRenderer } from './AssistantRenderer';
 import { UIController } from './UIController';
-import { createAIEngine } from '../../../../../infrastructure/ai';
 import { TaskPollingManager } from './TaskPollingManager';
 import { ExportService } from '../../../../../services/export/ExportService';
 import { WebFileExporter } from '../../../../../infrastructure/utils/export/WebFileExporter';
@@ -138,8 +137,6 @@ export class AssistantPage {
     await this.initChatHistoryManager();
     // 然后初始化用例
     await this.useCase.init();
-    // 创建 AI 引擎（客户端模式通过 TunnelManager 自动检测）
-    const aiEngine = createAIEngine();
     
     this.uiController.enableInput();
     this.uiController.init();
