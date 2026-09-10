@@ -47,12 +47,13 @@ export class ModelManagementService implements IModelManagementService {
       try {
         const remoteModels = await this.aiController.listModels();
         if (remoteModels.length > 0) {
-          // 转换 ModelInfo → ModelConfig（远程模型 url 未知，用 id 占位）
+          // 转换 ModelInfo → ModelConfig
+          // url: 自定义模型由服务端提供 URL（客户端展示用），内置模型为空
           return remoteModels.map(m => ({
             id: m.id,
             name: m.name,
             description: '',
-            url: '',  // 远程模式不需要 url，init 时由服务端处理
+            url: m.url || '',
             size: m.size,
             sizeBytes: 0,
             version: '',

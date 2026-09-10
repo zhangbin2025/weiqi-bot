@@ -413,6 +413,7 @@ export class KataGoAppAdapter implements IAIEngine {
    * 获取可用的模型列表（App 端从本地 model-config.json 加载）
    */
   async listModels(): Promise<ModelInfo[]> {
+    const result: ModelInfo[] = [];
     try {
       const { getWebRoot } = await import('../../utils/web/pathUtils');
       const webRoot = getWebRoot();
@@ -420,17 +421,36 @@ export class KataGoAppAdapter implements IAIEngine {
       if (response.ok) {
         const config = await response.json();
         const models = config.models || [];
-        return models.map((m: any) => ({
-          id: m.id,
-          name: m.name,
-          size: m.size || '',
-          isDefault: !!m.isDefault,
-        }));
+        for (const m of models) {
+          result.push({
+            id: m.id,
+            name: m.name,
+            size: m.size || '',
+            isDefault: !!m.isDefault,
+          });
+        }
       }
     } catch (e) {
       console.warn('[KataGoAppAdapter] Failed to load model config:', e);
     }
-    return [];
+    // 追加用户保存的自定义模型偏好
+    try {
+      const savedUrl = localStorage.getItem('custom-model-url');
+      if (savedUrl && (savedUrl.startsWith('http://') || savedUrl.startsWith('https://'))) {
+        // 避免重复
+        if (!result.some(m => m.id === 'custom')) {
+          const filename = savedUrl.split('/').pop() || 'custom';
+          result.push({
+            id: 'custom',
+            name: '自定义模型 (' + filename + ')',
+            size: '',
+            isDefault: false,
+            url: savedUrl,
+          });
+        }
+      }
+    } catch {}
+    return result;
   }
 
   /**

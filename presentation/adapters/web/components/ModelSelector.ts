@@ -5,6 +5,7 @@
 
 import type { IModelManagementService } from '../../../../services/model';
 import type { ModelConfig } from '../../../../services/model';
+import { TunnelManager } from '../../../../infrastructure/tunnel/TunnelManager';
 
 /**
  * 模型选择器选项
@@ -36,6 +37,7 @@ export class ModelSelector {
   private customModelUrl: string = '';
   private onModelChange?: ((modelId: string) => void) | undefined;
   private isAppEnvironment: boolean;
+  private isRemoteMode: boolean;
 
   constructor(private options: ModelSelectorOptions) {
     this.selectedModelId = options.currentModelId ?? null;
@@ -44,6 +46,8 @@ export class ModelSelector {
     }
     // 检测是否在 App 环境
     this.isAppEnvironment = typeof navigator !== 'undefined' && navigator.userAgent.includes('WeiqiApp');
+    // 检测是否在远程隧道客户端模式（模型由服务端决定，只读显示）
+    this.isRemoteMode = TunnelManager.getInstance().isClientMode();
   }
 
   /**
@@ -54,7 +58,21 @@ export class ModelSelector {
       this.models = await this.options.modelManager.getModels();
     }
     
-    // 从存储加载保存的模型 ID 和自定义模型的 URL
+    // 远程模式：从模型列表中提取 custom URL（由服务端提供）
+    if (this.isRemoteMode) {
+      const customModel = this.models.find(m => m.id === 'custom');
+      if (customModel?.url) {
+        this.customModelUrl = customModel.url;
+      }
+      // 选中默认模型
+      const defaultModel = this.models.find(m => m.isDefault) || this.models[0];
+      if (defaultModel) {
+        this.selectedModelId = defaultModel.id;
+      }
+      return;
+    }
+    
+    // 本地模式：从存储加载保存的模型 ID 和自定义模型的 URL
     if (this.options.modelManager && typeof this.options.modelManager.loadPreference === 'function') {
       const savedModelId = await this.options.modelManager.loadPreference();
       if (savedModelId) {
@@ -85,7 +103,43 @@ export class ModelSelector {
    * 渲染模型选择器 UI
    */
   render(): string {
-    // 渲染模型选项
+    // 远程模式：只读展示，radio disabled，不可切换
+    if (this.isRemoteMode) {
+      const modelOptionsHtml = this.models.map(model => {
+        const isSelected = model.id === this.selectedModelId;
+        return `
+          <div style="display: flex; align-items: center; gap: 8px; padding: 8px 0;">
+            <input type="radio" name="aiModel" value="${model.id}" ${isSelected ? 'checked' : ''} disabled style="width: auto; opacity: 0.6;">
+            <span style="flex: 1; font-size: 13px; ${isSelected ? '' : 'color: #666;'}">${model.name}</span>
+            <span style="font-size: 12px; color: #999; text-align: right; min-width: 50px;">${model.size}</span>
+          </div>
+        `;
+      }).join('');
+
+      // 远程模式下如果选中的是 custom 且有 URL，只读展示 URL
+      let customUrlHtml = '';
+      if (this.selectedModelId === 'custom' && this.customModelUrl) {
+        customUrlHtml = `
+          <div style="padding: 8px 0;">
+            <input type="url" value="${this.customModelUrl}" readonly
+                   style="width: 100%; padding: 8px; border: 1px solid #e8e8e8; border-radius: 4px; font-size: 12px; box-sizing: border-box; color: #666; background: #f9f9f9;">
+            <div style="font-size: 11px; color: #bbb; margin-top: 4px;">服务端自定义模型 URL</div>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="model-selector">
+          <div style="font-size: 11px; color: #999; padding: 4px 0 8px;">🔒 模型由服务端决定</div>
+          <div class="model-options" style="border: 1px solid #e8e8e8; border-radius: 8px; padding: 0 12px;">
+            ${modelOptionsHtml}
+          </div>
+          ${customUrlHtml}
+        </div>
+      `;
+    }
+
+    // 本地模式：正常渲染，可选可切换
     const modelOptionsHtml = this.models.map(model => {
       const isSelected = model.id === this.selectedModelId;
       return `
@@ -128,6 +182,9 @@ export class ModelSelector {
    * 绑定事件
    */
   bindEvents(container: HTMLElement): void {
+    // 远程模式：radio 全部 disabled，不绑定事件
+    if (this.isRemoteMode) return;
+
     const radios = container.querySelectorAll('input[name="aiModel"]');
     
     radios.forEach(radio => {
