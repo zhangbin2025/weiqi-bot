@@ -21,6 +21,7 @@ export { DEFAULT_TUNNEL_CONFIG } from './types';
 export { TunnelServer } from './TunnelServer';
 export { TunnelClient } from './TunnelClient';
 export { KatagoRpcHandler } from './KatagoRpcHandler';
+export { FetcherRpcHandler } from './FetcherRpcHandler';
 export { TunnelManager } from './TunnelManager';
 
 // 适配器

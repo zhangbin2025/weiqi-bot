@@ -8,6 +8,7 @@ import type { IGameHistoryStorage } from './IGameHistoryStorage';
 import type { NetworkManager } from '../../infrastructure/network/core/NetworkManager';
 import type { ISnifferProvider } from '../../infrastructure/network/interfaces/ISnifferProvider';
 import { ArchiveProvider } from './providers/archive';
+import { RemoteGameProvider } from './providers/remote';
 import { FoxwqProvider } from './providers/foxwq';
 import { FoxwqShareProvider } from './providers/foxwq/FoxwqShareProvider';
 import { OgsProvider } from './providers/ogs';
@@ -31,6 +32,8 @@ export interface IProviderRegistryOptions {
 }
 
 export class GameProviderRegistry {
+  /** Remote Provider（最高优先级，隧道连接时优先使用） */
+  private remoteProvider = new RemoteGameProvider();
   private providers: Map<string, IGameProvider> = new Map();
   private foxwqProvider!: IFoxwqProvider;
   private katagoProvider!: KatagoArchiveProvider;
@@ -52,7 +55,7 @@ export class GameProviderRegistry {
     // KataGo Archive Provider
     this.katagoProvider = new KatagoArchiveProvider(network);
 
-    // Archive Provider
+    // Archive Provider（纯本地，不走网络）
     this.providers.set('archive', new ArchiveProvider());
 
     // REST API Providers（无需 Sniffer，所有环境支持）
@@ -91,8 +94,18 @@ export class GameProviderRegistry {
     snifferProviders.forEach(p => this.providers.set(p.name, p));
   }
 
+  /**
+   * 获取所有 Provider（remote 在最前，确保隧道连接时优先选中）
+   */
   getProviders(): Map<string, IGameProvider> {
-    return this.providers;
+    const ordered = new Map<string, IGameProvider>();
+    // Remote Provider 排在第一位
+    ordered.set('remote', this.remoteProvider);
+    // 其余 Provider 按原顺序
+    for (const [key, value] of this.providers) {
+      ordered.set(key, value);
+    }
+    return ordered;
   }
 
   getFoxwqProvider(): IFoxwqProvider {
@@ -112,6 +125,6 @@ export class GameProviderRegistry {
   }
 
   getSupportedProviders(): string[] {
-    return Array.from(this.providers.keys());
+    return ['remote', ...Array.from(this.providers.keys())];
   }
 }

@@ -36,5 +36,9 @@ export type { IWeiqi101Provider } from './providers/weiqi101';
 export { FoxwqProvider } from './providers/foxwq';
 export type { IFoxwqProvider } from './providers/foxwq';
 
+// 远程提供者
+export { RemoteGameProvider } from './providers/remote';
+export type { RemoteFetchRequest, RemoteFetchResponse } from './providers/remote';
+
 // 归档提供者
 export { ArchiveProvider } from './providers/archive';

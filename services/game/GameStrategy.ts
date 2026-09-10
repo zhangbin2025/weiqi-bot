@@ -6,6 +6,7 @@ import type { IGameProvider } from './providers/base/IProvider';
 import type { IUserContext, Environment } from '../../infrastructure/network/interfaces';
 import type { PlatformCapabilities } from '../../infrastructure/platform/interfaces';
 import { PlatformDetector } from '../../infrastructure/platform';
+import { TunnelManager } from '../../infrastructure/tunnel/TunnelManager';
 
 /**
  * Game 策略配置
@@ -37,7 +38,11 @@ export interface IGameStrategy {
 
 /**
  * 默认 Game 策略
- * @description 根据平台能力和付费状态选择最佳提供者
+ * @description 根据平台能力和隧道连接状态选择最佳提供者
+ *
+ * Provider 遍历顺序（由 GameProviderRegistry.getProviders() 决定）：
+ * 1. remote（隧道已连接时优先选中，所有网络请求走远程）
+ * 2. 本地 provider（隧道未连接时回退到本地）
  */
 export class DefaultGameStrategy implements IGameStrategy {
   private snifferProvider?: import('../../infrastructure/network/interfaces').ISnifferProvider | undefined;
@@ -61,7 +66,7 @@ export class DefaultGameStrategy implements IGameStrategy {
     // 查找支持该 URL 的提供者
     for (const provider of providers.values()) {
       if (provider.canHandle(url)) {
-        // 检查提供者是否可用（考虑平台能力）
+        // 检查提供者是否可用（考虑平台能力、隧道状态）
         if (await this.checkProviderAvailability(provider, capabilities, userType)) {
           return provider;
         }
@@ -80,6 +85,12 @@ export class DefaultGameStrategy implements IGameStrategy {
     userType: string
   ): Promise<boolean> {
     const providerName = provider.name;
+
+    // Remote Provider：检查隧道是否已连接
+    if (providerName === 'remote') {
+      const client = TunnelManager.getInstance().getClientSync();
+      return client?.isConnected ?? false;
+    }
 
     // 付费用户可能有特殊权限
     if (userType === 'paid' || userType === 'premium') {

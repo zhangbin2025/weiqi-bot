@@ -10,8 +10,14 @@
 
 import { TunnelServer } from '../../../../../infrastructure/tunnel/TunnelServer';
 import { KatagoRpcHandler } from '../../../../../infrastructure/tunnel/KatagoRpcHandler';
+import { FetcherRpcHandler } from '../../../../../infrastructure/tunnel/FetcherRpcHandler';
 import { createAIEngine } from '../../../../../infrastructure/ai';
 import { TunnelClient } from '../../../../../infrastructure/tunnel/TunnelClient';
+import { GameService, GameHistoryStorage } from '../../../../../services/game';
+import { createGameArchiveCache, createGameHistoryIndex, createGameFileStorage } from '../../../../../clients/web/shared/storage';
+import { AppSnifferProvider } from '../../../../../infrastructure/network/adapters/app/AppSnifferProvider';
+import { UnsupportedSnifferProvider } from '../../../../../infrastructure/network/adapters/common/UnsupportedSnifferProvider';
+import type { WebShellContext } from '../../../../../clients/web/shared/Context';
 import type {
   ITunnelConfig,
   TunnelMode,
@@ -22,6 +28,7 @@ import type {
 import { DEFAULT_TUNNEL_CONFIG } from '../../../../../infrastructure/tunnel/types';
 import { LocalStorageCacheAdapter } from '../../../../../infrastructure/storage/adapters/web/LocalStorageCacheAdapter';
 import type { ICacheStorageAdapter } from '../../../../../infrastructure/storage/interfaces/ICacheStorage';
+import type { ISnifferProvider } from '../../../../../infrastructure/network/interfaces/ISnifferProvider';
 
 /** localStorage 配置键名（与 TunnelManager 保持一致） */
 const STORAGE_KEY = 'weiqi-tunnel-config';
@@ -66,8 +73,10 @@ const LOG_COLORS: Record<string, string> = {
 
 export class RemotePage {
   private rootContainer: HTMLElement;
+  private shellCtx: WebShellContext | null = null;
   private server: TunnelServer | null = null;
   private aiEngine: ReturnType<typeof createAIEngine> | null = null;
+  private gameService: GameService | null = null;
   private client: TunnelClient | null = null;
   private cache: ICacheStorageAdapter;
   private currentMode: TunnelMode = 'none';
@@ -75,8 +84,9 @@ export class RemotePage {
   private passwordVisible = false;
   private editConfig: ITunnelConfig = { ...DEFAULT_TUNNEL_CONFIG };
 
-  constructor(rootContainer: HTMLElement) {
+  constructor(rootContainer: HTMLElement, ctx?: WebShellContext) {
     this.rootContainer = rootContainer;
+    this.shellCtx = ctx ?? null;
     this.cache = new LocalStorageCacheAdapter(CACHE_NAMESPACE);
   }
 
@@ -104,7 +114,7 @@ export class RemotePage {
 
     // 根据模式自动启动
     if (this.editConfig.mode === 'server' && this.editConfig.password) {
-      this.startServer(this.editConfig);
+      await this.startServer(this.editConfig);
     } else if (this.editConfig.mode === 'client' && this.editConfig.password) {
       // 客户端模式：通过 TunnelManager 懒连接，这里只启动一个 TunnelClient 用于监控
       this.startClientMonitor(this.editConfig);
@@ -163,7 +173,7 @@ export class RemotePage {
   // ─--- 隧道控制 ─---
 
   /** 启动服务端 */
-  private startServer(config: ITunnelConfig): void {
+  private async startServer(config: ITunnelConfig): Promise<void> {
     this.stopTunnel();
     this.server = new TunnelServer(config);
     this.server.onStateChange((state, info) => {
@@ -171,8 +181,17 @@ export class RemotePage {
     });
     // 创建 AI 引擎并注册为 katago 服务
     this.aiEngine = createAIEngine();
-    const handler = new KatagoRpcHandler(this.aiEngine);
-    this.server.registerHandler(handler);
+    const katagoHandler = new KatagoRpcHandler(this.aiEngine);
+    this.server.registerHandler(katagoHandler);
+
+    // 创建 GameService 并注册为 fetcher 服务
+    if (this.shellCtx) {
+      this.gameService = await this.createGameService(this.shellCtx);
+      const fetcherHandler = new FetcherRpcHandler(this.gameService);
+      this.server.registerHandler(fetcherHandler);
+      console.info('[RemotePage] FetcherRpcHandler registered');
+    }
+
     this.server.start().catch((err) => {
       console.error('[RemotePage] Failed to start server:', err);
     });
@@ -203,6 +222,33 @@ export class RemotePage {
       this.client = null;
     }
     this.aiEngine = null;
+    this.gameService = null;
+  }
+
+  /**
+   * 创建 GameService（服务端模式用）
+   * 复用 createGameDeps 的逻辑，提供完整棋谱抓取能力
+   */
+  private async createGameService(ctx: WebShellContext): Promise<GameService> {
+    const [archiveCache, historyIndex, fileStorage] = await Promise.all([
+      createGameArchiveCache(),
+      createGameHistoryIndex(ctx),
+      createGameFileStorage(),
+    ]);
+
+    const historyStorage = new GameHistoryStorage(historyIndex, fileStorage);
+    await historyStorage.initialize();
+
+    // 服务端：检测 App 环境，否则用 UnsupportedSnifferProvider
+    const snifferProvider = createSnifferProviderForServer();
+
+    return new GameService(ctx.network, {
+      archiveCache,
+      historyStorage,
+      configProvider: ctx.config,
+      snifferProvider,
+      proxyUrl: ctx.proxyUrl,
+    });
   }
 
   /** 测试连接（客户端模式） */
@@ -252,7 +298,7 @@ export class RemotePage {
     this.stopTunnel();
 
     if (config.mode === 'server' && config.password) {
-      this.startServer(config);
+      this.startServer(config).catch(err => console.error('[RemotePage] startServer error:', err));
     } else if (config.mode === 'client' && config.password) {
       this.startClientMonitor(config);
     }
@@ -627,4 +673,19 @@ export class RemotePage {
     this.stopRefresh();
     this.stopTunnel();
   }
+}
+
+
+/**
+ * 创建服务端 SnifferProvider
+ * 服务端可能有 App 环境（WebView），也可能纯 Web 环境
+ */
+function createSnifferProviderForServer(): ISnifferProvider {
+  if (typeof window !== 'undefined') {
+    const appSniffer = new AppSnifferProvider();
+    if (appSniffer.isAvailable()) {
+      return appSniffer;
+    }
+  }
+  return new UnsupportedSnifferProvider();
 }

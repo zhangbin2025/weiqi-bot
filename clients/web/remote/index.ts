@@ -10,7 +10,7 @@ async function main() {
     containerId: 'page-root',
   });
 
-  const remotePage = new RemotePage(ctx.rootContainer);
+  const remotePage = new RemotePage(ctx.rootContainer, ctx);
   await remotePage.init();
 
   console.info('远程隧道服务页面已启动');
