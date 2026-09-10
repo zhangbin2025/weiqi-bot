@@ -51,6 +51,7 @@ export default defineConfig({
         'decision/list': path.resolve(__dirname, 'clients/web/decision/list.html'),
         'decision/quiz': path.resolve(__dirname, 'clients/web/decision/quiz.html'),
         'debug/index': path.resolve(__dirname, 'clients/web/debug/index.html'),
+        'remote/index': path.resolve(__dirname, 'clients/web/remote/index.html'),
       },
       output: {
         entryFileNames: 'assets/[name]-[hash].js',

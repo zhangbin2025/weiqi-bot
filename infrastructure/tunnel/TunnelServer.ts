@@ -27,6 +27,11 @@ import type {
   IAuthMessage,
   IRpcRequestMessage,
   IRpcCancelMessage,
+  LogEntry,
+  TunnelLogLevel,
+  ClientRecord,
+  RpcStat,
+  TunnelServerStats,
 } from './types';
 
 /** 默认 ICE 服务器 */
@@ -39,6 +44,11 @@ const DEFAULT_ICE_SERVERS: IIceServer[] = [
 const MAX_RECONNECT_DELAY = 30_000;
 /** 初始重连延迟 */
 const INITIAL_RECONNECT_DELAY = 3_000;
+
+/** 日志环形缓冲区最大条数 */
+const MAX_LOGS = 100;
+/** 客户端接入记录最大条数 */
+const MAX_CLIENT_HISTORY = 20;
 
 export class TunnelServer {
   private signaling: SignalingClient;
@@ -58,6 +68,16 @@ export class TunnelServer {
   private authenticated = false;
   private turnCredentials: { urls: string; username: string; credential: string } | null = null;
 
+  // ─── 监控数据 ───
+  private startedAt: number = Date.now();
+  private totalConnections: number = 0;
+  private clientHistory: ClientRecord[] = [];
+  private rpcStats: Map<string, RpcStat> = new Map();
+  private recentLogs: LogEntry[] = [];
+  private currentClientId: string | null = null;
+  private currentClientConnectedAt: number | null = null;
+  private currentClientRpcCount: number = 0;
+
   constructor(config: ITunnelConfig, iceServers?: IIceServer[]) {
     this.config = config;
     this.iceServers = iceServers ?? DEFAULT_ICE_SERVERS;
@@ -71,7 +91,7 @@ export class TunnelServer {
   /** 注册 RPC 处理器 */
   registerHandler(handler: IRpcHandler): void {
     this.handlers.set(handler.serviceName, handler);
-    console.log(`[TunnelServer] Handler registered: ${handler.serviceName}`);
+    console.log('[TunnelServer] Handler registered: ' + handler.serviceName);
   }
 
   /** 设置状态变更回调 */
@@ -82,6 +102,8 @@ export class TunnelServer {
   /** 启动服务端 */
   async start(): Promise<void> {
     this.destroyed = false;
+    this.startedAt = Date.now();
+    this.log('info', '服务端启动，密码: ' + this.config.password);
     console.log('[TunnelServer] Starting with password:', this.config.password);
     await this.connectSignaling();
   }
@@ -89,6 +111,7 @@ export class TunnelServer {
   /** 停止服务端 */
   stop(): void {
     this.destroyed = true;
+    this.log('info', '服务端停止');
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -104,7 +127,84 @@ export class TunnelServer {
     return this.state;
   }
 
+  /** 获取监控数据 */
+  getStats(): TunnelServerStats {
+    return {
+      state: this.state,
+      mode: 'server',
+      password: this.config.password,
+      connectedClients: this.authenticated ? 1 : 0,
+      totalConnections: this.totalConnections,
+      clientHistory: [...this.clientHistory],
+      rpcStats: Array.from(this.rpcStats.values()),
+      recentLogs: [...this.recentLogs],
+      startedAt: this.startedAt,
+    };
+  }
+
   // ─── 内部实现 ───
+
+  /** 记录日志到环形缓冲区 */
+  private log(level: TunnelLogLevel, message: string): void {
+    const entry: LogEntry = { timestamp: Date.now(), level, message };
+    this.recentLogs.push(entry);
+    if (this.recentLogs.length > MAX_LOGS) {
+      this.recentLogs.shift();
+    }
+    const prefix = level === 'error' ? '❌' : level === 'warn' ? '⚠️' : 'ℹ️';
+    console.log('[TunnelServer] ' + prefix + ' ' + message);
+  }
+
+  /** 记录 RPC 调用统计 */
+  private recordRpc(service: string, method: string, durationMs: number): void {
+    const key = service + '.' + method;
+    const existing = this.rpcStats.get(key);
+    if (existing) {
+      existing.count++;
+      existing.lastCallAt = Date.now();
+      existing.totalDurationMs += durationMs;
+      existing.avgDurationMs = Math.round(existing.totalDurationMs / existing.count);
+    } else {
+      this.rpcStats.set(key, {
+        service: service,
+        method: method,
+        count: 1,
+        lastCallAt: Date.now(),
+        totalDurationMs: durationMs,
+        avgDurationMs: durationMs,
+      });
+    }
+    this.currentClientRpcCount++;
+  }
+
+  /** 记录客户端接入 */
+  private recordClientConnect(remoteAddress?: string): void {
+    this.totalConnections++;
+    this.currentClientId = 'client-' + this.totalConnections + '-' + Date.now();
+    this.currentClientConnectedAt = Date.now();
+    this.currentClientRpcCount = 0;
+    this.log('info', '客户端接入 #' + this.totalConnections + (remoteAddress ? ' (' + remoteAddress + ')' : ''));
+  }
+
+  /** 记录客户端断开 */
+  private recordClientDisconnect(): void {
+    if (this.currentClientId && this.currentClientConnectedAt) {
+      const record: ClientRecord = {
+        id: this.currentClientId,
+        connectedAt: this.currentClientConnectedAt,
+        disconnectedAt: Date.now(),
+        rpcCount: this.currentClientRpcCount,
+      };
+      this.clientHistory.push(record);
+      if (this.clientHistory.length > MAX_CLIENT_HISTORY) {
+        this.clientHistory.shift();
+      }
+      this.log('info', '客户端断开 #' + this.totalConnections + '（RPC 调用 ' + this.currentClientRpcCount + ' 次）');
+    }
+    this.currentClientId = null;
+    this.currentClientConnectedAt = null;
+    this.currentClientRpcCount = 0;
+  }
 
   private async connectSignaling(): Promise<void> {
     if (this.destroyed) return;
@@ -113,22 +213,25 @@ export class TunnelServer {
       this.signaling.setCallbacks({
         onConnect: () => {
           console.log('[TunnelServer] Signaling connected, sending create...');
+          this.log('info', '信令已连接');
           this.reconnectDelay = INITIAL_RECONNECT_DELAY;
-          // 注册为房间创建方
           this.signaling.send({ type: 'create' });
           this.setState('signaling-ok');
         },
         onDisconnect: () => {
           console.log('[TunnelServer] Signaling disconnected, will reconnect...');
+          this.log('warn', '信令断开，准备重连');
           this.cleanupPeer();
           this.scheduleReconnect();
         },
         onMessage: (msg) => this.handleSignalingMessage(msg),
         onError: (err) => {
           console.error('[TunnelServer] Signaling error:', err.message);
+          this.log('error', '信令错误: ' + err.message);
         },
         onHeartbeatTimeout: () => {
           console.warn('[TunnelServer] Heartbeat timeout, reconnecting...');
+          this.log('warn', '信令心跳超时');
           this.cleanupPeer();
           this.signaling.disconnect();
           this.scheduleReconnect();
@@ -140,7 +243,9 @@ export class TunnelServer {
       });
       await this.signaling.connect(this.config.password);
     } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
       console.error('[TunnelServer] Failed to connect signaling:', err);
+      this.log('error', '信令连接失败: ' + errMsg);
       this.scheduleReconnect();
     }
   }
@@ -150,7 +255,8 @@ export class TunnelServer {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     const delay = this.reconnectDelay;
     this.reconnectDelay = Math.min(this.reconnectDelay * 1.5, MAX_RECONNECT_DELAY);
-    console.log(`[TunnelServer] Reconnecting in ${Math.round(delay / 1000)}s...`);
+    const delaySec = Math.round(delay / 1000);
+    console.log('[TunnelServer] Reconnecting in ' + delaySec + 's...');
     this.reconnectTimer = setTimeout(() => {
       this.connectSignaling();
     }, delay);
@@ -159,10 +265,8 @@ export class TunnelServer {
   private async handleSignalingMessage(msg: any): Promise<void> {
     switch (msg.type) {
       case 'connected':
-        // 信令服务器确认连接
         break;
       case 'ready':
-        // 双方都已连接到信令服务器，发 room-info 触发客户端发 join-confirm
         console.log('[TunnelServer] Received ready, sending room-info...');
         this.signaling.send({
           type: 'room-info',
@@ -173,8 +277,8 @@ export class TunnelServer {
         });
         break;
       case 'join-confirm':
-        // 客户端确认加入，主动发起 P2P
         console.log('[TunnelServer] Received join-confirm from client, initiating P2P...');
+        this.log('info', '客户端确认加入，发起 P2P 连接');
         await this.initiateP2P();
         break;
       case 'answer':
@@ -206,6 +310,10 @@ export class TunnelServer {
       },
       onClose: () => {
         console.log('[TunnelServer] P2P data channel closed');
+        this.log('info', 'P2P 数据通道关闭');
+        if (this.authenticated) {
+          this.recordClientDisconnect();
+        }
         this.cleanupPeer();
         this.setState('signaling-ok');
       },
@@ -213,6 +321,9 @@ export class TunnelServer {
       onConnectionStateChange: (state) => {
         console.log('[TunnelServer] P2P state:', state);
         if (state === 'failed' || state === 'closed') {
+          if (this.authenticated) {
+            this.recordClientDisconnect();
+          }
           this.cleanupPeer();
           this.setState('signaling-ok');
         }
@@ -222,7 +333,6 @@ export class TunnelServer {
       },
     });
 
-    // 服务端创建 offer
     const offer = await this.peerConnection.createOffer();
     this.signaling.send({ type: 'offer', data: offer });
     console.log('[TunnelServer] Offer sent');
@@ -248,12 +358,15 @@ export class TunnelServer {
   private handleAuth(msg: IAuthMessage): void {
     if (msg.password === this.config.password) {
       this.authenticated = true;
+      this.recordClientConnect();
       this.send({ type: 'auth-ok' });
       this.setState('connected');
+      this.log('info', '客户端认证成功');
       console.log('[TunnelServer] Client authenticated');
     } else {
       this.send({ type: 'auth-fail', reason: '密码错误' });
       this.setState('auth-failed');
+      this.log('warn', '客户端认证失败：密码错误');
       console.warn('[TunnelServer] Client auth failed: wrong password');
       setTimeout(() => this.cleanupPeer(), 1000);
     }
@@ -267,23 +380,32 @@ export class TunnelServer {
 
     const handler = this.handlers.get(msg.service as TunnelService);
     if (!handler) {
-      this.send({ type: 'rpc-response', id: msg.id, error: `未知服务: ${msg.service}` });
+      this.send({ type: 'rpc-response', id: msg.id, error: '未知服务: ' + msg.service });
+      this.log('warn', 'RPC 未知服务: ' + msg.service);
       return;
     }
 
     const controller = new AbortController();
     this.activeRequests.set(msg.id, controller);
+    const startTime = Date.now();
 
     try {
       const result = await handler.handle(msg.method, msg.params, (data) => {
         this.send({ type: 'rpc-progress', id: msg.id, data });
       });
+      const duration = Date.now() - startTime;
+      this.recordRpc(msg.service, msg.method, duration);
+      this.log('info', 'RPC: ' + msg.service + '.' + msg.method + ' (' + duration + 'ms)');
       this.send({ type: 'rpc-response', id: msg.id, result });
     } catch (err) {
+      const duration = Date.now() - startTime;
+      this.recordRpc(msg.service, msg.method, duration);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      this.log('error', 'RPC 错误: ' + msg.service + '.' + msg.method + ' - ' + errMsg);
       this.send({
         type: 'rpc-response',
         id: msg.id,
-        error: err instanceof Error ? err.message : String(err),
+        error: errMsg,
       });
     } finally {
       this.activeRequests.delete(msg.id);

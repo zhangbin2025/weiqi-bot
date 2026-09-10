@@ -146,6 +146,13 @@ export const MANAGEMENT_COMMANDS: ManagementCommand[] = [
     appOnly: true,
   },
   {
+    command: '/remote',
+    title: '远程隧道',
+    icon: '🔗',
+    description: '打开远程隧道服务页面（配置、监控）',
+    appOnly: false,
+  },
+  {
     command: '/help',
     title: '帮助',
     icon: '📚',

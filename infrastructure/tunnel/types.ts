@@ -119,6 +119,92 @@ export const DEFAULT_TUNNEL_CONFIG: ITunnelConfig = {
   signalingUrl: 'wss://api.weiqi.lol/ws/signal',
 };
 
+
+// ─── 监控数据类型 ───
+
+/** 日志级别 */
+export type TunnelLogLevel = 'info' | 'warn' | 'error';
+
+/** 日志条目 */
+export interface LogEntry {
+  /** 时间戳（毫秒） */
+  timestamp: number;
+  /** 日志级别 */
+  level: TunnelLogLevel;
+  /** 日志内容 */
+  message: string;
+}
+
+/** 客户端接入记录 */
+export interface ClientRecord {
+  /** 客户端唯一 ID */
+  id: string;
+  /** 接入时间戳 */
+  connectedAt: number;
+  /** 断开时间戳（undefined 表示仍连接） */
+  disconnectedAt?: number;
+  /** 远程地址（从 ICE candidate 解析） */
+  remoteAddress?: string;
+  /** 该客户端的 RPC 调用次数 */
+  rpcCount: number;
+}
+
+/** RPC 调用统计 */
+export interface RpcStat {
+  /** 服务名 */
+  service: string;
+  /** 方法名 */
+  method: string;
+  /** 调用次数 */
+  count: number;
+  /** 最近调用时间戳 */
+  lastCallAt: number;
+  /** 总耗时（毫秒） */
+  totalDurationMs: number;
+  /** 平均耗时（毫秒） */
+  avgDurationMs: number;
+}
+
+/** 服务端监控数据 */
+export interface TunnelServerStats {
+  /** 当前连接状态 */
+  state: TunnelConnectionState;
+  /** 运行模式 */
+  mode: TunnelMode;
+  /** 密码（房间号） */
+  password: string;
+  /** 当前连接的客户端数 */
+  connectedClients: number;
+  /** 历史总连接数 */
+  totalConnections: number;
+  /** 最近接入记录（最多 20 条） */
+  clientHistory: ClientRecord[];
+  /** RPC 调用统计 */
+  rpcStats: RpcStat[];
+  /** 最近日志（最多 100 条） */
+  recentLogs: LogEntry[];
+  /** 服务端启动时间戳 */
+  startedAt: number;
+}
+
+/** 客户端监控数据 */
+export interface TunnelClientStats {
+  /** 当前连接状态 */
+  state: TunnelConnectionState;
+  /** 运行模式 */
+  mode: TunnelMode;
+  /** 密码（房间号） */
+  password: string;
+  /** 是否已认证 */
+  authenticated: boolean;
+  /** RPC 调用统计 */
+  rpcStats: RpcStat[];
+  /** 最近日志（最多 100 条） */
+  recentLogs: LogEntry[];
+  /** 客户端启动时间戳 */
+  startedAt: number;
+}
+
 // ─── 连接状态 ───
 
 /** 隧道连接状态 */

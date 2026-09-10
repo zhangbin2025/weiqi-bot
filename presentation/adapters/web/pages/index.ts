@@ -2,6 +2,9 @@
  * 页面控制器导出
  * @module presentation/pages
  */
+// 远程隧道服务页面
+export { RemotePage } from './remote';
+
 // AI 助手页面
 export { AssistantPage } from './assistant';
 // 对弈页面

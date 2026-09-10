@@ -96,6 +96,9 @@ export class CommandHandler {
       case '/debug':
         await this.handleDebug(args);
         break;
+      case '/remote':
+        await this.handleRemote();
+        break;
       case '/help':
         await this.showCommandHelp();
         break;
@@ -341,6 +344,18 @@ export class CommandHandler {
       console.error('[CommandHandler] Failed to show schedule result:', error);
       await this.renderMessage(`❌ 查询执行结果失败: ${error instanceof Error ? error.message : '未知错误'}`);
     }
+  }
+
+  /**
+   * 打开远程隧道服务页面
+   */
+  private async handleRemote(): Promise<void> {
+    const actionUrl = '../remote/index.html';
+    const actionText = '前往 远程隧道服务页面';
+    await this.renderMessage('🔗 正在打开远程隧道服务页面...', actionUrl, actionText);
+    this.messageRenderer.showCountdownJump(actionUrl, 2, () => {
+      console.log('[CommandHandler] 用户取消了远程服务页面跳转');
+    });
   }
 
   /**

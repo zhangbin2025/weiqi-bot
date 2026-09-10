@@ -138,9 +138,8 @@ export class AssistantPage {
     await this.initChatHistoryManager();
     // 然后初始化用例
     await this.useCase.init();
-    // 创建 AI 引擎（供隧道服务端模式使用）
+    // 创建 AI 引擎（客户端模式通过 TunnelManager 自动检测）
     const aiEngine = createAIEngine();
-    this.uiController.setEngine(aiEngine);
     
     this.uiController.enableInput();
     this.uiController.init();

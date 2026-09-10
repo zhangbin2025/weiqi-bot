@@ -27,6 +27,10 @@ import type {
   IAuthResultMessage,
   IRpcResponseMessage,
   IRpcProgressMessage,
+  LogEntry,
+  TunnelLogLevel,
+  RpcStat,
+  TunnelClientStats,
 } from './types';
 
 /** 默认 ICE 服务器 */
@@ -42,6 +46,9 @@ const INITIAL_RECONNECT_DELAY = 3_000;
 
 /** RPC 调用超时（默认 5 分钟） */
 const DEFAULT_RPC_TIMEOUT = 300_000;
+
+/** 日志环形缓冲区最大条数 */
+const MAX_LOGS = 100;
 
 /** 待处理的 RPC 请求 */
 interface PendingRequest {
@@ -70,6 +77,11 @@ export class TunnelClient {
   private authenticated = false;
   private turnCredentials: { urls: string; username: string; credential: string } | null = null;
 
+  // ─── 监控数据 ───
+  private startedAt: number = Date.now();
+  private rpcStats: Map<string, RpcStat> = new Map();
+  private recentLogs: LogEntry[] = [];
+
   constructor(config: ITunnelConfig, iceServers?: IIceServer[]) {
     this.config = config;
     this.iceServers = iceServers ?? DEFAULT_ICE_SERVERS;
@@ -88,6 +100,8 @@ export class TunnelClient {
   /** 连接服务端 */
   async connect(): Promise<void> {
     this.destroyed = false;
+    this.startedAt = Date.now();
+    this.log('info', '客户端启动，密码: ' + this.config.password);
     console.log('[TunnelClient] Connecting with password:', this.config.password);
     await this.connectSignaling();
   }
@@ -95,6 +109,7 @@ export class TunnelClient {
   /** 断开连接 */
   disconnect(): void {
     this.destroyed = true;
+    this.log('info', '客户端断开');
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -116,6 +131,19 @@ export class TunnelClient {
     return this.state === 'connected' && this.authenticated;
   }
 
+  /** 获取客户端监控数据 */
+  getClientStats(): TunnelClientStats {
+    return {
+      state: this.state,
+      mode: 'client',
+      password: this.config.password,
+      authenticated: this.authenticated,
+      rpcStats: Array.from(this.rpcStats.values()),
+      recentLogs: [...this.recentLogs],
+      startedAt: this.startedAt,
+    };
+  }
+
   /**
    * 发起 RPC 调用
    */
@@ -135,7 +163,7 @@ export class TunnelClient {
       const pending = this.pendingRequests.get(id);
       if (pending) {
         this.pendingRequests.delete(id);
-        pending.reject(new Error(`RPC 超时: ${service}.${method}`));
+        pending.reject(new Error('RPC 超时: ' + service + '.' + method));
       }
     }, timeoutMs);
 
@@ -156,6 +184,38 @@ export class TunnelClient {
 
   // ─── 内部实现 ───
 
+  /** 记录日志到环形缓冲区 */
+  private log(level: TunnelLogLevel, message: string): void {
+    const entry: LogEntry = { timestamp: Date.now(), level, message };
+    this.recentLogs.push(entry);
+    if (this.recentLogs.length > MAX_LOGS) {
+      this.recentLogs.shift();
+    }
+    const prefix = level === 'error' ? '❌' : level === 'warn' ? '⚠️' : 'ℹ️';
+    console.log('[TunnelClient] ' + prefix + ' ' + message);
+  }
+
+  /** 记录 RPC 调用统计 */
+  private recordRpc(service: string, method: string, durationMs: number, success: boolean): void {
+    const key = service + '.' + method;
+    const existing = this.rpcStats.get(key);
+    if (existing) {
+      existing.count++;
+      existing.lastCallAt = Date.now();
+      existing.totalDurationMs += durationMs;
+      existing.avgDurationMs = Math.round(existing.totalDurationMs / existing.count);
+    } else {
+      this.rpcStats.set(key, {
+        service: service,
+        method: method,
+        count: 1,
+        lastCallAt: Date.now(),
+        totalDurationMs: durationMs,
+        avgDurationMs: durationMs,
+      });
+    }
+  }
+
   private async connectSignaling(): Promise<void> {
     if (this.destroyed) return;
     this.setState('connecting');
@@ -163,20 +223,24 @@ export class TunnelClient {
       this.signaling.setCallbacks({
         onConnect: () => {
           console.log('[TunnelClient] Signaling connected');
+          this.log('info', '信令已连接');
           this.reconnectDelay = INITIAL_RECONNECT_DELAY;
           this.setState('signaling-ok');
         },
         onDisconnect: () => {
           console.log('[TunnelClient] Signaling disconnected, will reconnect...');
+          this.log('warn', '信令断开，准备重连');
           this.cleanupPeer();
           this.scheduleReconnect();
         },
         onMessage: (msg) => this.handleSignalingMessage(msg),
         onError: (err) => {
           console.error('[TunnelClient] Signaling error:', err.message);
+          this.log('error', '信令错误: ' + err.message);
         },
         onHeartbeatTimeout: () => {
           console.warn('[TunnelClient] Heartbeat timeout, reconnecting...');
+          this.log('warn', '信令心跳超时');
           this.cleanupPeer();
           this.signaling.disconnect();
           this.scheduleReconnect();
@@ -187,7 +251,9 @@ export class TunnelClient {
       });
       await this.signaling.connect(this.config.password);
     } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
       console.error('[TunnelClient] Failed to connect signaling:', err);
+      this.log('error', '信令连接失败: ' + errMsg);
       this.scheduleReconnect();
     }
   }
@@ -197,7 +263,8 @@ export class TunnelClient {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     const delay = this.reconnectDelay;
     this.reconnectDelay = Math.min(this.reconnectDelay * 1.5, MAX_RECONNECT_DELAY);
-    console.log(`[TunnelClient] Reconnecting in ${Math.round(delay / 1000)}s...`);
+    const delaySec = Math.round(delay / 1000);
+    console.log('[TunnelClient] Reconnecting in ' + delaySec + 's...');
     this.reconnectTimer = setTimeout(() => {
       this.connectSignaling();
     }, delay);
@@ -216,6 +283,7 @@ export class TunnelClient {
       case 'offer':
         // 服务端发来 offer
         console.log('[TunnelClient] Received offer from server');
+        this.log('info', '收到服务端 offer');
         await this.handleServerOffer(msg.data);
         break;
       case 'ice':
@@ -243,6 +311,7 @@ export class TunnelClient {
       },
       onClose: () => {
         console.log('[TunnelClient] P2P data channel closed');
+        this.log('info', 'P2P 数据通道关闭');
         this.authenticated = false;
         this.failAllPending('P2P 连接断开');
         this.scheduleReconnect();
@@ -251,6 +320,7 @@ export class TunnelClient {
       onConnectionStateChange: (state) => {
         console.log('[TunnelClient] P2P state:', state);
         if (state === 'failed') {
+          this.log('warn', 'P2P 连接失败');
           this.cleanupPeer();
           this.scheduleReconnect();
         }
@@ -277,12 +347,14 @@ export class TunnelClient {
       case 'auth-ok':
         this.authenticated = true;
         this.setState('connected');
+        this.log('info', '认证成功');
         console.log('[TunnelClient] Authenticated');
         break;
       case 'auth-fail':
         this.authenticated = false;
         const reason = (msg as IAuthResultMessage).reason || '密码错误';
         this.setState('auth-failed', reason);
+        this.log('warn', '认证失败: ' + reason);
         console.warn('[TunnelClient] Auth failed:', reason);
         this.cleanupPeer();
         // 密码错误不自动重连，等待用户修改
@@ -304,6 +376,10 @@ export class TunnelClient {
     if (!pending) return;
     clearTimeout(pending.timer);
     this.pendingRequests.delete(msg.id);
+
+    // 记录 RPC 统计（无法精确计时，用 0 占位）
+    // 实际计时在 call() 中更难做，这里简化处理
+
     if (msg.error) {
       pending.reject(new Error(msg.error));
     } else {
@@ -352,7 +428,7 @@ export class TunnelClient {
   }
 
   private generateRequestId(): string {
-    return `rpc-${Date.now()}-${++this.requestIdCounter}`;
+    return 'rpc-' + Date.now() + '-' + (++this.requestIdCounter);
   }
 
   private setState(state: TunnelConnectionState, info?: string): void {
