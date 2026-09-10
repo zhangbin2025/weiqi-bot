@@ -224,6 +224,13 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon-180x180.png">
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#667eea">
+<script>
+    // Fallback: 防止 JS 加载前点击报错
+    window.toggleCommandMenu = window.toggleCommandMenu || function(){};
+    window.switchTab = window.switchTab || function(){};
+    window.showConfigDialog = window.showConfigDialog || function(){};
+    window.manualRefresh = window.manualRefresh || function(){};
+  </script>
 </head>
 <body>
     <div class="page-container">
