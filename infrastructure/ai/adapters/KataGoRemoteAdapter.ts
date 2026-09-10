@@ -127,12 +127,9 @@ export class KataGoRemoteAdapter implements IAIEngine {
   }
 
   async listModels(): Promise<ModelInfo[]> {
-    // 快速尝试连接（5 秒超时），连不上就返回空让调用方 fallback
+    // 等待隧道连接完成（复用 TunnelManager 的连接超时机制）
     if (!this.tunnelClient || !this.tunnelClient.isConnected) {
-      const client = await Promise.race([
-        TunnelManager.getInstance().waitForConnection(),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 5_000)),
-      ]);
+      const client = await TunnelManager.getInstance().waitForConnection();
       if (!client || !client.isConnected) {
         console.warn('[KataGoRemoteAdapter] listModels: tunnel not connected, returning empty');
         return [];
