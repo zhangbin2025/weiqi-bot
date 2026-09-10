@@ -35,6 +35,9 @@ export interface IGameStrategy {
   ): Promise<IGameProvider | null>;
 }
 
+/** foxwq 直播 URL 模式 */
+const FOXWQ_LIVE_PATTERN = /foxwq\.com.*(svrtype=20010|roomid=|golive)/i;
+
 /**
  * 默认 Game 策略
  * @description 根据平台能力和付费状态选择最佳提供者
@@ -42,6 +45,7 @@ export interface IGameStrategy {
  * Provider 遍历顺序由 GameProviderRegistry 注册顺序决定：
  * - REST API 型 provider 优先（本地可用）
  * - Sniffer 依赖型 provider 在纯 Web 环境不可用，被跳过
+ * - foxwq 直播 URL 在 Sniffer 不可用时跳过（让 remote 兜底）
  * - RemoteGameProvider 注册在最后（兜底），匹配 Sniffer 依赖型 URL
  *
  * RemoteGameProvider 在 fetch 时自行等待隧道连接（ensureConnected），
@@ -70,7 +74,7 @@ export class DefaultGameStrategy implements IGameStrategy {
     for (const provider of providers.values()) {
       if (provider.canHandle(url)) {
         // 检查提供者是否可用（考虑平台能力）
-        if (await this.checkProviderAvailability(provider, capabilities, userType)) {
+        if (await this.checkProviderAvailability(provider, url, capabilities, userType)) {
           return provider;
         }
       }
@@ -84,6 +88,7 @@ export class DefaultGameStrategy implements IGameStrategy {
    */
   private async checkProviderAvailability(
     provider: IGameProvider,
+    url: string,
     capabilities: PlatformCapabilities,
     userType: string
   ): Promise<boolean> {
@@ -107,6 +112,12 @@ export class DefaultGameStrategy implements IGameStrategy {
 
     if (snifferProviders.includes(providerName)) {
       // 检查 Sniffer 是否可用
+      return this.snifferProvider?.isAvailable() ?? false;
+    }
+
+    // foxwq 直播 URL 需要 Sniffer，纯 Web 环境下不可用
+    // 跳过 foxwq，让 remote 兜底
+    if (providerName === 'foxwq' && FOXWQ_LIVE_PATTERN.test(url)) {
       return this.snifferProvider?.isAvailable() ?? false;
     }
 
