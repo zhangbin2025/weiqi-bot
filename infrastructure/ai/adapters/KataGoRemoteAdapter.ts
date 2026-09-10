@@ -50,11 +50,21 @@ export class KataGoRemoteAdapter implements IAIEngine {
   async init(options: AIEngineInitOptions): Promise<void> {
     const client = await this.ensureConnected();
 
-    // 远程 init 不传回调函数（无法跨 WebRTC 序列化）
+    // 保留回调，去掉无法序列化的函数
     const serializableOptions: AIEngineInitOptions = {
       modelUrl: options.modelUrl,
     };
-    await client.call('katago', 'init', serializableOptions, undefined, INIT_TIMEOUT);
+    // 合并 onProgress + onInitProgress 为统一回调
+    const progressCb = options.onProgress || options.onInitProgress
+      ? (data: any) => {
+          if (data.type === 'download' && options.onProgress) {
+            options.onProgress(data.loaded, data.total, data.progress);
+          } else if (data.type === 'init' && options.onInitProgress) {
+            options.onInitProgress(data);
+          }
+        }
+      : undefined;
+    await client.call('katago', 'init', serializableOptions, progressCb, INIT_TIMEOUT);
 
     // init 成功后获取引擎信息
     try {

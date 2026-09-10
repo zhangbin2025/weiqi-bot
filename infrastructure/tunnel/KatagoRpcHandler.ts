@@ -43,8 +43,18 @@ export class KatagoRpcHandler implements IRpcHandler {
   async handle(method: string, params: unknown, onProgress?: (data: unknown) => void): Promise<unknown> {
     const m = method as KatagoMethod;
     switch (m) {
-      case 'init':
-        return this.engine.init(params as AIEngineInitOptions);
+      case 'init': {
+        const initOpts = params as AIEngineInitOptions;
+        if (onProgress) {
+          initOpts.onProgress = (loaded, total, progress) => {
+            onProgress({ type: 'download', loaded, total, progress });
+          };
+          initOpts.onInitProgress = (info) => {
+            onProgress({ type: 'init', ...info });
+          };
+        }
+        return this.engine.init(initOpts);
+      }
 
       case 'analyze':
         return this.engine.analyze(params as AnalyzeOptions);
