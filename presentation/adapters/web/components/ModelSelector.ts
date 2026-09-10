@@ -105,7 +105,7 @@ export class ModelSelector {
   render(): string {
     // 远程模式：只读展示，radio disabled，不可切换
     if (this.isRemoteMode) {
-      const modelOptionsHtml = this.models.filter(m => m.id !== 'custom').map(model => {
+      const modelOptionsHtml = this.models.map(model => {
         const isSelected = model.id === this.selectedModelId;
         return `
           <div style="display: flex; align-items: center; gap: 8px; padding: 8px 0;">
@@ -116,7 +116,7 @@ export class ModelSelector {
         `;
       }).join('');
 
-      // 自定义模型只显示 URL，不显示名称
+      // 自定义模型显示 URL
       let customUrlHtml = '';
       if (this.selectedModelId === 'custom' && this.customModelUrl) {
         customUrlHtml = `
