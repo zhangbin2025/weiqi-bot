@@ -57,6 +57,7 @@ export class ModelSelector {
     if (this.options.modelManager) {
       this.models = await this.options.modelManager.getModels();
     }
+    console.info('[ModelSelector] loadModels: isRemoteMode=%s, models=%o', this.isRemoteMode, this.models.map(m => ({ id: m.id, name: m.name, isCurrent: m.isCurrent, isDefault: m.isDefault, url: m.url })));
     
     // 远程模式：从模型列表中提取 custom URL，选中服务端当前模型
     if (this.isRemoteMode) {
@@ -67,6 +68,7 @@ export class ModelSelector {
       // 优先选中服务端当前加载的模型，fallback 到默认模型
       const currentModel = this.models.find(m => m.isCurrent);
       const defaultModel = currentModel || this.models.find(m => m.isDefault) || this.models[0];
+      console.info('[ModelSelector] Remote selection: currentModel=%o, selected=%s', currentModel?.id, defaultModel?.id);
       if (defaultModel) {
         this.selectedModelId = defaultModel.id;
       }

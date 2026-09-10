@@ -111,12 +111,20 @@ export class KataGoWebAdapter implements IAIEngine {
       if (response.ok) {
         const config = await response.json();
         const models = config.models || [];
-        return models.map((m: any) => ({
-          id: m.id,
-          name: m.name,
-          size: m.size || '',
-          isDefault: !!m.isDefault,
-        }));
+        // 获取当前引擎信息用于标记 isCurrent
+        const currentInfo = this.client.getEngineInfo();
+        const currentModelName = currentInfo.modelName;
+        return models.map((m: any) => {
+          const modelFileName = m.url ? m.url.split('/').pop() : null;
+          const isCurrent = !!(currentModelName && modelFileName && currentModelName === modelFileName);
+          return {
+            id: m.id,
+            name: m.name,
+            size: m.size || '',
+            isDefault: !!m.default || !!m.isDefault,
+            isCurrent,
+          };
+        });
       }
     } catch (e) {
       console.warn('[KataGoWebAdapter] Failed to load model config:', e);

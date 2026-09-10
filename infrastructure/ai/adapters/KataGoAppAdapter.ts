@@ -432,7 +432,7 @@ export class KataGoAppAdapter implements IAIEngine {
             id: m.id,
             name: m.name,
             size: m.size || '',
-            isDefault: !!m.isDefault,
+            isDefault: !!m.default || !!m.isDefault,
             isCurrent,
           });
         }
