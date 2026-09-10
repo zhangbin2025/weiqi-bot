@@ -9,6 +9,8 @@
  */
 
 import { TunnelServer } from '../../../../../infrastructure/tunnel/TunnelServer';
+import { KatagoRpcHandler } from '../../../../../infrastructure/tunnel/KatagoRpcHandler';
+import { createAIEngine } from '../../../../../infrastructure/ai';
 import { TunnelClient } from '../../../../../infrastructure/tunnel/TunnelClient';
 import type {
   ITunnelConfig,
@@ -65,6 +67,7 @@ const LOG_COLORS: Record<string, string> = {
 export class RemotePage {
   private rootContainer: HTMLElement;
   private server: TunnelServer | null = null;
+  private aiEngine: ReturnType<typeof createAIEngine> | null = null;
   private client: TunnelClient | null = null;
   private cache: ICacheStorageAdapter;
   private currentMode: TunnelMode = 'none';
@@ -163,11 +166,10 @@ export class RemotePage {
     this.server.onStateChange((state, info) => {
       this.renderStatusBar(state, info);
     });
-    // 注册 KataGo handler（如果页面有引擎实例）
-    // 注意：RemotePage 不直接创建 AI 引擎，服务端模式需要在有引擎的页面运行
-    // 但 RemotePage 可以作为纯监控页面，依赖其他页面（如 assistant）的引擎
-    // 当前设计：RemotePage 独立运行，不创建引擎。服务端模式只做隧道中转。
-    // 如果需要 KataGo 服务，需要额外传入引擎实例。
+    // 创建 AI 引擎并注册为 katago 服务
+    this.aiEngine = createAIEngine();
+    const handler = new KatagoRpcHandler(this.aiEngine);
+    this.server.registerHandler(handler);
     this.server.start().catch((err) => {
       console.error('[RemotePage] Failed to start server:', err);
     });
@@ -197,6 +199,7 @@ export class RemotePage {
       this.client.disconnect();
       this.client = null;
     }
+    this.aiEngine = null;
   }
 
   /** 测试连接（客户端模式） */
