@@ -123,6 +123,7 @@ export class KataGoWebAdapter implements IAIEngine {
             size: m.size || '',
             isDefault: !!m.default || !!m.isDefault,
             isCurrent,
+            url: m.url || '',
           };
         });
       }

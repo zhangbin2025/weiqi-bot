@@ -31,6 +31,8 @@ type KatagoMethod = keyof KatagoRpcParams;
 export class KatagoRpcHandler implements IRpcHandler {
   readonly serviceName: TunnelService = 'katago';
   private engine: IAIEngine;
+  /** 当前已初始化的模型文件名（init 时记录，listModels 时用于标记 isCurrent） */
+  private currentModelFileName: string | null = null;
 
   constructor(engine: IAIEngine) {
     this.engine = engine;
@@ -46,6 +48,11 @@ export class KatagoRpcHandler implements IRpcHandler {
     switch (m) {
       case 'init': {
         const initOpts = params as AIEngineInitOptions;
+        // 记录当前初始化的模型文件名
+        if (initOpts.modelUrl) {
+          this.currentModelFileName = initOpts.modelUrl.split('/').pop() ?? null;
+          console.info('[KatagoRpcHandler] Current model:', this.currentModelFileName);
+        }
         if (onProgress) {
           initOpts.onProgress = (loaded, total, progress) => {
             onProgress({ type: 'download', loaded, total, progress });
@@ -81,8 +88,21 @@ export class KatagoRpcHandler implements IRpcHandler {
       case 'getEngineInfo':
         return this.engine.getEngineInfo();
 
-      case 'listModels':
-        return this.engine.listModels?.() ?? [];
+      case 'listModels': {
+        const models = await this.engine.listModels?.() ?? [];
+        // 标记当前已加载的模型
+        const currentName = this.currentModelFileName;
+        if (currentName) {
+          for (const m of models) {
+            // 比对模型文件名（从 url 字段或 id 推断）
+            const fileName = m.url?.split('/').pop() ?? `${m.id}.bin.gz`;
+            if (fileName === currentName) {
+              m.isCurrent = true;
+            }
+          }
+        }
+        return models;
+      }
 
       default:
         throw new Error(`未知的 KataGo 方法: ${method}`);
