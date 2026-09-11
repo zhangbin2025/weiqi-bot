@@ -60,8 +60,10 @@ export class DirectProvider extends BaseProvider {
             data = buffer.toString('utf-8') as T;
             break;
           default:
+            {
             const text = buffer.toString('utf-8');
             try { data = JSON.parse(text) as T; } catch { data = text as T; }
+            }
         }
         return {
           status: 200,
@@ -120,12 +122,14 @@ export class DirectProvider extends BaseProvider {
           data = (await response.arrayBuffer()) as T;
           break;
         default:
+          {
           // 先读 text，再尝试 JSON 解析，避免 body 已消费问题
           const text = await response.text();
           try {
             data = JSON.parse(text) as T;
           } catch {
             data = text as T;
+          }
           }
       }
 

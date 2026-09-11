@@ -51,31 +51,29 @@ export class ConsoleCapture {
    * 安装 console 劫持
    */
   private install(): void {
-    const self = this;
-
-    console.log = function(...args: any[]) {
-      self.originalConsole.log(...args);
-      self.capture('INFO', args);
+    console.log = (...args: any[]) => {
+      this.originalConsole.log(...args);
+      this.capture('INFO', args);
     };
 
-    console.info = function(...args: any[]) {
-      self.originalConsole.info(...args);
-      self.capture('INFO', args);
+    console.info = (...args: any[]) => {
+      this.originalConsole.info(...args);
+      this.capture('INFO', args);
     };
 
-    console.warn = function(...args: any[]) {
-      self.originalConsole.warn(...args);
-      self.capture('WARN', args);
+    console.warn = (...args: any[]) => {
+      this.originalConsole.warn(...args);
+      this.capture('WARN', args);
     };
 
-    console.error = function(...args: any[]) {
-      self.originalConsole.error(...args);
-      self.capture('ERROR', args);
+    console.error = (...args: any[]) => {
+      this.originalConsole.error(...args);
+      this.capture('ERROR', args);
     };
 
-    console.debug = function(...args: any[]) {
-      self.originalConsole.debug(...args);
-      self.capture('DEBUG', args);
+    console.debug = (...args: any[]) => {
+      this.originalConsole.debug(...args);
+      this.capture('DEBUG', args);
     };
   }
 

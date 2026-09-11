@@ -73,6 +73,7 @@ export class AIController implements IAIController {
         const isExternalModel = this.modelUrl?.startsWith('http://') || this.modelUrl?.startsWith('https://');
         if (isExternalModel) {
           console.error('[AIController] Custom model not supported by WebAdapter:', this.modelUrl);
+          // eslint-disable-next-line preserve-caught-error
           throw new Error('Custom model not supported by Web KataGo. Please use a built-in model or fix native KataGo.');
         }
         

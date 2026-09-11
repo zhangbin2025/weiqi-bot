@@ -184,6 +184,6 @@ export class PdfMatchParser {
   }
 
   private cls(s: string): string {
-    return s.replace(/[\s　]+/g, '');
+    return s.replace(/\s+/g, '');
   }
 }

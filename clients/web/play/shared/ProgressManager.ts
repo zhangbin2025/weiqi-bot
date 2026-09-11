@@ -51,8 +51,8 @@ export function updateProgress(loaded: number, total: number, progress: number):
   // 强制 UI 更新（使用 requestAnimationFrame）
   // 这样可以避免浏览器的批量渲染优化，确保进度实时显示
   requestAnimationFrame(() => {
-    // 触发重绘
-    loadingProgress.style.display = loadingProgress.style.display;
+    // 触发重绘（读取后写回，强制浏览器重绘）
+    void loadingProgress.offsetWidth;
   });
 }
 

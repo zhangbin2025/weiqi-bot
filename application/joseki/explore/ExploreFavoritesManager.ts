@@ -87,6 +87,7 @@ export class ExploreFavoritesManager {
   }
   /** 转换收藏条目 */
   private transformFavoriteItem(item: IFavoriteItem): FavoriteEntry {
+    // eslint-disable-next-line no-useless-assignment
     let path: string[] = [];
     try {
       path = JSON.parse(item.key);

@@ -47,6 +47,7 @@ export class QuizUIHelper {
     let html = '<div class="winrate-detail-row"><span class="winrate-detail-label">胜率变化</span><span class="winrate-detail-value">' + (delta > 0 ? '+' : '') + (delta * 100).toFixed(2) + '%</span></div>';
     if (stats.stddev !== undefined) {
       const stddev = stats.stddev;
+      // eslint-disable-next-line no-useless-assignment
       let stability = '较稳定';
       if (stddev < 0.02) stability = '很稳定';
       else if (stddev < 0.04) stability = '较稳定';

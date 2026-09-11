@@ -173,6 +173,7 @@ export class NetworkLogStorage {
       this.entries = entries;
       await this.storage.write('network-logs', entries);
     } catch (error) {
+      // eslint-disable-next-line preserve-caught-error
       throw new Error('Failed to import logs: invalid JSON format');
     }
   }

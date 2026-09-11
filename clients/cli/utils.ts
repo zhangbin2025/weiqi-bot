@@ -169,8 +169,8 @@ function formatBoardText(data: BoardTextData): string {
 
 function formatPlayerText(data: PlayerTextData): string {
   const lines: string[] = [];
-  let hasShoutan = data.shoutan.found && data.shoutan.players.length > 0;
-  let hasYichafen = data.yichafen.found && data.yichafen.data;
+  const hasShoutan = data.shoutan.found && data.shoutan.players.length > 0;
+  const hasYichafen = data.yichafen.found && data.yichafen.data;
 
   if (!hasShoutan && !hasYichafen) {
     lines.push(`棋手: ${data.name}`);
@@ -612,7 +612,7 @@ function formatOpponentAnalyzeText(data: any): string {
 
   const games = data?.games ?? [];
   if (games.length > 0) {
-    let wins = 0, losses = 0, draws = 0;
+    let wins = 0; const losses = 0; const draws = 0;
     for (const g of games) {
       if (g.result?.startsWith('B+') || g.result?.startsWith('W+')) {
         // 简单统计

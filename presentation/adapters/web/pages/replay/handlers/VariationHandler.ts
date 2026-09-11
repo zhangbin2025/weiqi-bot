@@ -37,7 +37,7 @@ export class VariationHandler {
     const currentMove = this.state.getCurrentMoveNumber();
     this.state.enterVariationMode(currentMove);
     // 将当前 displayIndex 转换为路径（沿着主分支走 displayIndex 步）
-    let currentPath = [...this.state.get('currentPath')];
+    const currentPath = [...this.state.get('currentPath')];
     const displayIndex = this.state.get('displayIndex');
     for (let i = 0; i < displayIndex; i++) {
       currentPath.push(0);

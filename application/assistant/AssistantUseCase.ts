@@ -439,7 +439,7 @@ ${linksHtml}`;
     const alternativeIntents = alternatives.map(alt => alt.intent);
     const allIntents = [intent, ...alternativeIntents];
     // 检查是否有 SGF 参数,如果有则通过 SessionService 传递
-    let processedEntities = { ...entities };
+    const processedEntities = { ...entities };
     if (entities['sgf'] && this.sessionService) {
       const sessionId = await this.sessionService.create('replay', { sgf: entities['sgf'] });
       delete processedEntities['sgf'];
@@ -475,7 +475,7 @@ ${linksHtml}`;
     decision: { shouldJump: boolean; countdown: number; showAlternatives: boolean }
   ): Promise<void> {
     // 检查是否有 SGF 参数,如果有则通过 SessionService 传递
-    let processedEntities = { ...entities };
+    const processedEntities = { ...entities };
     if (entities['sgf'] && this.sessionService) {
       const sessionId = await this.sessionService.create('replay', { sgf: entities['sgf'] });
       // 移除 sgf 参数,添加 sessionId

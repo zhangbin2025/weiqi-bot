@@ -443,7 +443,7 @@ export class LiveModeManager {
 
     // 收集棋盘相关属性
     const boardProperties: string[] = [];
-    let moveIndex = 0;
+    const moveIndex = 0;
 
     // 匹配所有属性 [KEY[value]]，包括 AB/AW/AE 等多值属性
     const propPattern = /([A-Z]+)((?:\[[^\]]*\])+)/g;

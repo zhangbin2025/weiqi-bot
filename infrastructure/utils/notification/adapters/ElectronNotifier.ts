@@ -27,7 +27,8 @@ export class ElectronNotifier implements INotificationProvider {
   constructor() {
     // 动态加载 electron 模块
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
+       
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       this.electronNotification = require('electron').Notification;
     } catch {
       // Electron 未安装或不在 Electron 环境中

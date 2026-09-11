@@ -279,8 +279,10 @@ export class ScheduleManager {
       case 'daily':
         return '每天';
       case 'weekly':
+        {
         const weekDays = ['一', '二', '三', '四', '五', '六', '日'];
         return `每周${weekDays[(config.dayOfWeek || 1) - 1]}`;
+        }
       case 'monthly':
         return `每月${config.dayOfMonth}号`;
       default:

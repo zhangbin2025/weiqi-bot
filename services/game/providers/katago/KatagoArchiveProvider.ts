@@ -145,7 +145,7 @@ export class KatagoArchiveProvider {
 import { Buffer as BufferPolyfill } from 'buffer';
 if (typeof globalThis.Buffer === 'undefined') { (globalThis as any).Buffer = BufferPolyfill; }
 
-// @ts-ignore - seek-bzip has no type declarations
+// @ts-expect-error - seek-bzip has no type declarations
 import * as seekBzipModule from 'seek-bzip';
 const _bz2Decompress: (data: Uint8Array) => Uint8Array = (() => {
   const findDecode = (obj: any, depth = 0): ((data: any) => any) | null => {

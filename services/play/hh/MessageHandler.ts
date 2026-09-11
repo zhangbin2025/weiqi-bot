@@ -86,9 +86,11 @@ export class MessageHandler {
         this.callbacks.onDisconnected?.();
         break;
       case 'offer':
+        {
         const answer = await this.peerConnection.handleOffer(msg.data);
         this.signaling.send({ type: 'answer', data: answer });
         break;
+        }
       case 'answer':
         await this.peerConnection.handleAnswer(msg.data);
         break;
@@ -112,9 +114,11 @@ export class MessageHandler {
   private handleP2PMessage(data: P2PMessage): void {
     switch (data.type) {
       case 'move':
+        {
         const m = data as any;
         this.callbacks.onMove?.(m.x, m.y, m.color, m.blackTime, m.whiteTime);
         break;
+        }
       case 'pass':
         this.callbacks.onPass?.((data as any).color);
         break;
@@ -123,16 +127,20 @@ export class MessageHandler {
         this.callbacks.onUndoRequest?.((data as any).name);
         break;
       case 'undo-response':
+        {
         const undoResp = data as any;
         this.callbacks.onUndo?.(undoResp.accept, undoResp.blackTime, undoResp.whiteTime);
         break;
+        }
       case 'resign':
         this.callbacks.onResign?.((data as any).color);
         break;
       case 'game-end':
+        {
         const gameEndData = data as any;
         this.callbacks.onGameEnd?.(gameEndData.winner, gameEndData.reason, gameEndData.scoreLead);
         break;
+        }
       case 'request-count':
         // 对手申请数子
         this.callbacks.onCountRequest?.((data as any).from);

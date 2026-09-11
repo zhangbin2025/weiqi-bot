@@ -124,6 +124,7 @@ async function main() {
   const hmPlayApp = new HMPlayApp(hmPlayService, modelService, activityLogService, historyManager);
 
   // 8.1 加载模型列表
+  // eslint-disable-next-line no-useless-assignment
   let modelCards: Array<{ id: string; name: string; size: string }> = [];
   try {
     await hmPlayApp.loadModels();

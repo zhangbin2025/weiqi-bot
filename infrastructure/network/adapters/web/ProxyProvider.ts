@@ -193,11 +193,13 @@ export class ProxyProvider extends BaseProvider {
       case 'blob': return (await response.blob()) as T;
       case 'arraybuffer': return (await response.arrayBuffer()) as T;
       default:
+        {
         const text = await response.text();
         try {
           return JSON.parse(text) as T;
         } catch {
           return text as T;
+        }
         }
     }
   }

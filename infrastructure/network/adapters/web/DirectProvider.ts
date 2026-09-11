@@ -90,12 +90,14 @@ export class DirectProvider extends BaseProvider {
           data = (await response.arrayBuffer()) as T;
           break;
         default:
+          {
           // 先读 text，再尝试 JSON 解析，避免非 JSON 响应（如代理返回 HTML）导致崩溃
           const text = await response.text();
           try {
             data = JSON.parse(text) as T;
           } catch {
             data = text as T;
+          }
           }
       }
 
@@ -249,6 +251,7 @@ export class DirectProvider extends BaseProvider {
     };
 
     try {
+      // eslint-disable-next-line no-async-promise-executor
       const readPromise = new Promise<Blob>(async (resolve, reject) => {
         stallReject = reject;
         resetStallTimer();

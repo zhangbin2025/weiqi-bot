@@ -363,7 +363,7 @@ export class FetcherRenderer {
   showLatestItemLoading(url: string, show: boolean = true): void {
     const el = this.latestCard.getContainer?.() as HTMLElement | undefined;
     if (!el) return;
-    const sel = '[data-url="' + url.replace(/"/g, '\\\"') + '"]';
+    const sel = '[data-url="' + url.replace(/"/g, '\\"') + '"]';
     const item = el.querySelector(sel) as HTMLElement | null;
     if (!item) return;
     if (show) {

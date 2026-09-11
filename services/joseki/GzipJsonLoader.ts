@@ -54,6 +54,7 @@ export class GzipJsonLoader {
         responseType: 'arraybuffer',
       });
     } catch (err) {
+      // eslint-disable-next-line preserve-caught-error
       throw new Error(`下载定式库失败: ${err instanceof Error ? err.message : String(err)}`);
     }
 
@@ -79,6 +80,7 @@ export class GzipJsonLoader {
         data = JSON.parse(text);
       }
     } catch (err) {
+      // eslint-disable-next-line preserve-caught-error
       throw new Error(`解压定式库失败: ${err instanceof Error ? err.message : String(err)}`);
     }
 

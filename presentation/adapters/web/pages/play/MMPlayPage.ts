@@ -529,6 +529,7 @@ export class MMPlayPage implements IPage {
   private async executeGameEnd(): Promise<void> {
     this.uiUpdater?.updateStatusBar('AI 正在数目...');
     
+    // eslint-disable-next-line no-useless-assignment
     let result: MMGameEndResult | null = null;
     
     try {

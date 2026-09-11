@@ -54,6 +54,8 @@ export function getStarPoints(boardSize: BoardSizeValue): { x: number; y: number
       break;
     }
     default:
+      {
+      {
       // 其他大小的星位（简化处理）
       const mid = Math.floor(boardSize / 2);
       const edge = boardSize >= 11 ? 3 : 2;
@@ -62,6 +64,8 @@ export function getStarPoints(boardSize: BoardSizeValue): { x: number; y: number
       stars.push({ x: edge, y: boardSize - 1 - edge });
       stars.push({ x: boardSize - 1 - edge, y: edge });
       stars.push({ x: boardSize - 1 - edge, y: boardSize - 1 - edge });
+      }
+      }
   }
   return stars;
 }

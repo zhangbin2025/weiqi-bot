@@ -249,6 +249,7 @@ export class YikeOnlineGameProvider extends BaseProvider {
    * 将解析结果的moves转换为MoveOrPass格式
    */
   private convertMoves(parsedMoves: Array<{ color: 'B' | 'W'; coord: string }>): import('../../../../domain/move').MoveOrPass[] {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { coordToPos } = require('../../../../domain/sgf');
     
     return parsedMoves.map((move, index) => {

@@ -106,7 +106,7 @@ export class YichafenClient {
     }
 
     // CLI 环境：从远程加载（走代理）
-    let isCli = isCliEnv();
+    const isCli = isCliEnv();
     if (isCli) {
       const REMOTE_BASE = this.remoteBase + '/shared/assets/data/rankings';
       for (const url of getSnapshotCandidates(3)) {

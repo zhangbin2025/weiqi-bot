@@ -21,12 +21,13 @@ export class NotificationManager {
   /** 自动检测运行环境 */
   private detectProvider(): INotificationProvider {
     try { // Electron
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
+       
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       if (require('electron')) return new ElectronNotifier();
     } catch { /* not in electron */ }
 
     if (typeof window !== 'undefined' && 'Notification' in window) return new BrowserNotifier();
-    // @ts-ignore - wx 是微信小程序的全局对象
+    // @ts-expect-error - wx 是微信小程序的全局对象
     if (typeof wx !== 'undefined') return new MiniProgramNotifier();
     return new TerminalNotifier();
   }

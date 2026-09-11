@@ -97,6 +97,7 @@ export class StoragePluginLoader implements IStoragePluginLoader {
         );
       }
     } catch (error) {
+      // eslint-disable-next-line preserve-caught-error
       throw new Error(
         `Failed to load plugin "${descriptor.name}": ${error instanceof Error ? error.message : String(error)}`
       );

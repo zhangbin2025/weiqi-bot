@@ -718,6 +718,7 @@ export class ReviewPage implements IPage {
         this.ui.updateStatus('已进入选点变化图 — 点击圆圈继续或点击退出');
         break;
       case 'normal':
+        {
         this.currentCandidates = [];
         // 恢复到退出推荐模式前的步数
         const restoredMoveCount = this.interaction.restoredMoveCount;
@@ -729,6 +730,7 @@ export class ReviewPage implements IPage {
         }
         this.ui.updateStatus(this.liveModeManager?.isActive() ? '直播中' : this.currentModelName);
         break;
+        }
     }
   }
 
@@ -1008,6 +1010,7 @@ export class ReviewPage implements IPage {
       let rankText: string;
       let className = 'candidate-compact';
       
+      // eslint-disable-next-line no-constant-condition, no-constant-binary-expression
       if (false && c.isActualMove && !c.isHit) {
         // 不在推荐中的实战落点
         rankText = '实战';

@@ -49,7 +49,7 @@ class EventHtmlParser extends HtmlParserBase {
    * @returns 分组列表
    */
   extractGroupsFromHtml(eventId: number, html: string): Group[] {
-    let groups = this.parseGroupsFromHtml(html);
+    const groups = this.parseGroupsFromHtml(html);
 
     // 如果没有解析到分组，尝试备用模式
     if (groups.length === 0) {

@@ -86,7 +86,7 @@ export function extractWinrates(tree: ISGFNode): WinratePoint[] {
 function parseWinrateComment(comment: string, moveNumber: number): WinratePoint | null {
   // KataGo Archive 格式: "0.51 0.49 0.00 0.6 v=600"
   // 格式: <black_wr> <white_wr> <scoreMean> <scoreStdev> v=<visits>
-  const katagoArchiveMatch = comment.match(/^(\d+\.?\d*)\s+(\d+\.?\d*)\s+([\-\d.]+)\s+([\-\d.]+)\s+v=(\d+)/);
+  const katagoArchiveMatch = comment.match(/^(\d+\.?\d*)\s+(\d+\.?\d*)\s+([-\d.]+)\s+([-\d.]+)\s+v=(\d+)/);
   if (katagoArchiveMatch && katagoArchiveMatch[1] && katagoArchiveMatch[2]) {
     const blackWr = parseFloat(katagoArchiveMatch[1]);
     const whiteWr = parseFloat(katagoArchiveMatch[2]);

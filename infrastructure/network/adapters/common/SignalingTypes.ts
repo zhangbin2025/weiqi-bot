@@ -23,7 +23,7 @@ export interface IAnswerMessageData {
 /**
  * ICE 消息数据
  */
-export interface IIceMessageData extends RTCIceCandidateInit {}
+export type IIceMessageData = RTCIceCandidateInit
 
 /**
  * 信令消息数据（联合类型）

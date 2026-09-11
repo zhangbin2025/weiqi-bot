@@ -18,7 +18,7 @@ export class UIManager {
   }
 
   private detectController(): IUIController {
-    // @ts-ignore - wx 是微信小程序的全局对象
+    // @ts-expect-error - wx 是微信小程序的全局对象
     if (typeof wx !== 'undefined') return new MiniProgramUIController();
     try {
       if (typeof process !== 'undefined' && process.versions?.['electron']) {

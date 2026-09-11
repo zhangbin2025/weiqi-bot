@@ -53,6 +53,7 @@ export function createAIEngine(networkManager?: NetworkManager): IAIEngine {
 
   if (isAppEnvironment()) {
     // 动态 import App 适配器（仅 App 环境需要，避免 Web 端打包原生桥接代码）
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createKataGoAppAdapter } = require('./adapters/KataGoAppAdapter');
     console.log('[AIEngineFactory] App environment detected, using KataGoAppAdapter');
     cachedEngine = createKataGoAppAdapter(networkManager);

@@ -66,6 +66,7 @@ export class TerminalTable {
   /** 计算字符串的终端显示宽度（中文=2，英文=1，ANSI转义=0） */
   static displayWidth(text: string): number {
     // Strip ANSI escape sequences first
+    // eslint-disable-next-line no-control-regex
     const stripped = text.replace(/\x1b\[[0-9;]*m/g, '');
     let width = 0;
     for (const ch of stripped) {

@@ -382,7 +382,7 @@ export class HMEventBinder {
     
     // 加载已保存的配置
     const stored = localStorage.getItem('weiqi-custom-difficulties');
-    let difficulties = stored ? JSON.parse(stored) : [];
+    const difficulties = stored ? JSON.parse(stored) : [];
     
     let label: string;
     let existingIndex = -1;

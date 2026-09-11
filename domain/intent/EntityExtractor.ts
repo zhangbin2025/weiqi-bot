@@ -244,6 +244,7 @@ export class EntityExtractor implements IEntityExtractor {
           const finalExclude = ['围棋', '象棋', '棋类'];
           if (!finalExclude.some(ex => keyword.includes(ex))) {
             entities['keyword'] = keyword;
+            // eslint-disable-next-line no-useless-assignment
             foundKeyword = true;
           }
         }

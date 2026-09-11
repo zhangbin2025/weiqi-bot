@@ -13,6 +13,4 @@ import type { IPlatformAdapter } from '../../interfaces/IPlatformAdapter';
  * }
  * ```
  */
-export interface IElectronAdapter extends IPlatformAdapter {
-  // Electron 特有能力（待定义）
-}
+export type IElectronAdapter = IPlatformAdapter;

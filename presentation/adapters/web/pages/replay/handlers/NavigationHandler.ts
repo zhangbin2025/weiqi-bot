@@ -33,7 +33,7 @@ export class NavigationHandler {
         return; // 已经在分支起点，不能再退
       }
       // 本地后退一步
-      let displayIndex = this.state.get('displayIndex');
+      const displayIndex = this.state.get('displayIndex');
       if (displayIndex > 0) {
         this.state.set('displayIndex', displayIndex - 1);
       }
@@ -60,7 +60,7 @@ export class NavigationHandler {
       // 检查是否还有下一步
       const node = this.state.getCurrentNode();
       if (node?.children && node.children.length > 0) {
-        let displayIndex = this.state.get('displayIndex');
+        const displayIndex = this.state.get('displayIndex');
         this.state.set('displayIndex', displayIndex + 1);
         this.updateDisplay();
         // 播放音效

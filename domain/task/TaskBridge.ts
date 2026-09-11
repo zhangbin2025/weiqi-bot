@@ -102,6 +102,7 @@ export class TaskBridgeImpl {
       }
       return result.taskId
     } catch (e) {
+      // eslint-disable-next-line preserve-caught-error
       throw new Error(`Failed to parse response: ${response}`)
     }
   }
@@ -262,6 +263,7 @@ export class TaskBridgeImpl {
       }
       return result.id
     } catch (e) {
+      // eslint-disable-next-line preserve-caught-error
       throw new Error(`Failed to parse response: ${response}`)
     }
   }
@@ -283,6 +285,7 @@ export class TaskBridgeImpl {
         throw new Error(result.error)
       }
     } catch (e) {
+      // eslint-disable-next-line preserve-caught-error
       throw new Error(`Failed to parse response: ${response}`)
     }
   }
@@ -304,6 +307,7 @@ export class TaskBridgeImpl {
         throw new Error(result.error)
       }
     } catch (e) {
+      // eslint-disable-next-line preserve-caught-error
       throw new Error(`Failed to parse response: ${response}`)
     }
   }
@@ -369,6 +373,7 @@ export class TaskBridgeImpl {
         throw new Error(result.error)
       }
     } catch (e) {
+      // eslint-disable-next-line preserve-caught-error
       throw new Error(`Failed to parse response: ${response}`)
     }
   }

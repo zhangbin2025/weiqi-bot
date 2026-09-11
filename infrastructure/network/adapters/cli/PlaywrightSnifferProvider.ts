@@ -245,6 +245,7 @@ class PlaywrightSnifferSession implements ISnifferSession {
     try {
       return await this.page.evaluate(script);
     } catch (e) {
+      // eslint-disable-next-line preserve-caught-error
       throw new Error(`JavaScript evaluation failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
@@ -290,6 +291,7 @@ export class PlaywrightSnifferProvider implements ISnifferProvider {
       return session;
     } catch (error) {
       console.error('Failed to start Playwright:', error);
+      // eslint-disable-next-line preserve-caught-error
       throw new Error(`Playwright 启动失败: ${error instanceof Error ? error.message : String(error)}`);
     }
   }

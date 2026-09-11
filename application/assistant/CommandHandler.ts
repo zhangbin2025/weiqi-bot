@@ -514,9 +514,11 @@ export class CommandHandler {
           await this.handleStoreImport();
           break;
         default:
+          {
           // 显示概览
           const overview = await this.storageBrowserService.showOverview();
           await this.renderMessage(overview);
+          }
       }
     } catch (error) {
       console.error('[CommandHandler] Failed to handle store command:', error);
@@ -571,6 +573,7 @@ export class CommandHandler {
         }
         break;
       default:
+        {
         // 显示帮助
         let help = '📋 存储浏览命令\n\n';
         help += '**列出存储内容**\n';
@@ -582,6 +585,7 @@ export class CommandHandler {
         help += '- `--limit <n>` - 每页显示条数（默认 10）\n';
         help += '- `--offset <n>` - 偏移量（默认 0）\n';
         await this.renderMessage(help);
+        }
     }
   }
 
@@ -638,6 +642,7 @@ export class CommandHandler {
         }
         break;
       default:
+        {
         let help = '📋 获取存储值\n\n';
         help += '**命令格式**\n';
         help += '- `/store get local <key>` - 获取 LocalStorage 值\n';
@@ -645,6 +650,7 @@ export class CommandHandler {
         help += '- `/store get idb <db> <store> <key>` - 获取 IndexedDB 值\n';
         help += '- `/store get cache <name> <url>` - 获取 Cache Storage 响应\n';
         await this.renderMessage(help);
+        }
     }
   }
 
@@ -670,6 +676,7 @@ export class CommandHandler {
         await this.renderMessage(await this.storageBrowserService.clearCacheStorage(args[1]));
         break;
       default:
+        {
         // 默认清空所有缓存
         const result = await this.storageBrowserService.clearAllCache();
         
@@ -683,6 +690,7 @@ export class CommandHandler {
           return;
         }
         await this.renderMessage(result);
+        }
     }
   }
 

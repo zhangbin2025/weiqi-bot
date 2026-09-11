@@ -130,6 +130,7 @@ export class ReviewAnalysis {
             moves,
           });
         } else {
+          // 无分析数据
         }
         return true;
       }

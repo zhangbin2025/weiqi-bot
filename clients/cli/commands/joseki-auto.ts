@@ -390,6 +390,7 @@ async function fetchAvailableDates(): Promise<string[]> {
 /** 下载单个文件（对齐 Python download_single，带重试和延迟） */
 function downloadFile(url: string, outputPath: string, maxRetries: number = 3, delaySec: number = 10): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const https = require('https');
     const attempt = (retry: number) => {
       const req = https.request(url, {
@@ -531,6 +532,7 @@ export async function executeAutoBuild(
     throw new Error('缓存目录不存在: ' + CACHE_DIR + '\n请先下载 KataGo 棋谱');
   }
 
+  // eslint-disable-next-line no-useless-assignment
   let allTarFiles = fs.readdirSync(CACHE_DIR)
     .filter(f => f.endsWith('rating.tar.bz2'))
     .sort();

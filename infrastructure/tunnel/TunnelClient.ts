@@ -351,6 +351,7 @@ export class TunnelClient {
         console.log('[TunnelClient] Authenticated');
         break;
       case 'auth-fail':
+        {
         this.authenticated = false;
         const reason = (msg as IAuthResultMessage).reason || '密码错误';
         this.setState('auth-failed', reason);
@@ -359,6 +360,7 @@ export class TunnelClient {
         this.cleanupPeer();
         // 密码错误不自动重连，等待用户修改
         break;
+        }
       case 'rpc-response':
         this.handleRpcResponse(msg as IRpcResponseMessage);
         break;

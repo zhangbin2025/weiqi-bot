@@ -151,6 +151,7 @@ export class HMPlayPage implements IPage {
   }
   /** 创建回调上下文 */
   private createCallbackContext() {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this;
     return {
       board: this.board,

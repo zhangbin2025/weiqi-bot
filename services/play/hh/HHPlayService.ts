@@ -483,6 +483,7 @@ export class HHPlayService implements IHHPlayService {
       }
     } catch (error) {
       console.error('[HHPlayService] 数子失败:', error);
+      // eslint-disable-next-line preserve-caught-error
       throw new Error('数子失败:' + (error as Error).message);
     }
   }
@@ -547,6 +548,7 @@ export class HHPlayService implements IHHPlayService {
         winner,
       };
     } catch (error) {
+      // eslint-disable-next-line preserve-caught-error
       throw new Error('数子功能暂不可用:' + (error as Error).message);
     }
   }

@@ -96,7 +96,7 @@ export async function showSettingsDialog(
     // 绑定按钮事件
   document.getElementById('startBtn')?.addEventListener('click', async () => {
     const modelId = modelSelector.getSelectedModelId() || DefaultModelService.getDefaultModelId();
-    let customModelUrl = modelSelector.getCustomModelUrl();
+    const customModelUrl = modelSelector.getCustomModelUrl();
     const visitsSlider = document.getElementById('visitsSlider') as HTMLInputElement;
     const speedSelect = Select.get('#speed');
     
