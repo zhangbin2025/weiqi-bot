@@ -561,9 +561,11 @@ export class TaskManager {
     
     // 点击通知 -> 聚焦窗口并导航到结果页面
     notification.on('click', () => {
-      // 查找主窗口（可见的、非 worker 的窗口）
-      const window = BrowserWindow.getAllWindows().find(w => w.isVisible() && !w.isDestroyed());
+      // 查找主窗口（托盘模式下可能被隐藏，需要主动显示）
+      const window = BrowserWindow.getAllWindows().find(w => !w.isDestroyed());
       if (window) {
+        if (!window.isVisible()) window.show();
+        if (window.isMinimized()) window.restore();
         window.focus();
         if (linkUrl) {
           // 构建完整 URL
@@ -636,6 +638,14 @@ export class TaskManager {
     });
     const failNotifId = taskId + '_fail';
     this.notifications.set(failNotifId, failNotification);
+    failNotification.on('click', () => {
+      const window = BrowserWindow.getAllWindows().find(w => !w.isDestroyed());
+      if (window) {
+        if (!window.isVisible()) window.show();
+        if (window.isMinimized()) window.restore();
+        window.focus();
+      }
+    });
     failNotification.on('close', () => {
       this.notifications.delete(failNotifId);
     });
