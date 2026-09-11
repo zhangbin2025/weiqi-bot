@@ -80,6 +80,8 @@ export class FetcherPage implements IPage {
     console.info('FetcherPage initialized');
   }
   async handleParams(params: PageParams): Promise<void> {
+    // 从 URL 参数进入时，切回抓取标签页（initialize 可能已切到最新标签页）
+    this.renderer.switchToQueryTab();
     // 优先处理 sessionId：从 SessionService 恢复 SGF
     if (params['sessionId'] && this.sessionService) {
       try {
