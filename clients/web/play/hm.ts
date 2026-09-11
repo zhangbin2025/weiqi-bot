@@ -78,6 +78,24 @@ async function main() {
     tunnelManager.getClient().catch((e) => {
       console.warn('[hm.ts] 隧道连接失败:', e);
     });
+
+    // 监听隧道状态变化，在连接失败时提示用户
+    let tunnelErrorShown = false;
+    tunnelManager.onStateChange((state) => {
+      if (state === 'auth-failed') {
+        tunnelErrorShown = true;
+        setTimeout(() => alert('隧道认证失败：密码与服务端不一致'), 100);
+      } else if (state === 'error' && !tunnelErrorShown) {
+        // 只在首次失败时提示，避免重连时反复弹窗
+        tunnelErrorShown = true;
+        setTimeout(() => alert('远程服务端不在线，AI 相关功能将不可用。\n请确认服务端已启动并连接信令服务器。'), 100);
+      } else if (state === 'connected') {
+        if (tunnelErrorShown) {
+          tunnelErrorShown = false;
+          console.info('[hm.ts] 隧道已重新连接');
+        }
+      }
+    });
   }
 
   // 5. 创建 ModelService

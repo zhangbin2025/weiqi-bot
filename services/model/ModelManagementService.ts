@@ -69,10 +69,12 @@ export class ModelManagementService implements IModelManagementService {
           });
         }
       } catch (e) {
-        console.warn('[ModelManagementService] Failed to get remote models, falling back to local:', e);
+        console.warn('[ModelManagementService] Failed to get remote models:', e);
+        // 远程服务端不在线时，向上抛出错误，让 UI 能提示用户
+        throw new Error('远程服务端不在线，无法获取模型列表');
       }
     }
-    // Fallback: 本地模型列表
+    // 本地模式：本地模型列表
     return this.modelService.getModels();
   }
 

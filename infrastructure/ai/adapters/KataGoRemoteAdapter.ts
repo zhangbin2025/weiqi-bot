@@ -42,7 +42,7 @@ export class KataGoRemoteAdapter implements IAIEngine {
     }
     const client = await TunnelManager.getInstance().waitForConnection();
     if (!client || !client.isConnected) {
-      throw new Error('远程隧道未连接');
+      throw new Error('远程服务端不在线，请检查服务端是否已启动并连接信令服务器');
     }
     this.tunnelClient = client;
     return client;
@@ -131,8 +131,8 @@ export class KataGoRemoteAdapter implements IAIEngine {
     if (!this.tunnelClient || !this.tunnelClient.isConnected) {
       const client = await TunnelManager.getInstance().waitForConnection();
       if (!client || !client.isConnected) {
-        console.warn('[KataGoRemoteAdapter] listModels: tunnel not connected, returning empty');
-        return [];
+        console.warn('[KataGoRemoteAdapter] listModels: tunnel not connected');
+        throw new Error('远程服务端不在线');
       }
       this.tunnelClient = client;
     }

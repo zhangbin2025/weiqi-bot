@@ -207,7 +207,12 @@ export class MMPlayPage implements IPage {
       this.progress.render();
       setTimeout(() => this.progress.hide(), 500);
     } catch (error) {
-      this.toast.error('模型加载失败');
+      const errMsg = error instanceof Error ? error.message : String(error);
+      if (errMsg.includes('远程服务端不在线')) {
+        this.toast.error('远程服务端不在线，无法获取模型列表');
+      } else {
+        this.toast.error('模型加载失败');
+      }
       this.progress.hide();
     }
   }
@@ -287,8 +292,14 @@ export class MMPlayPage implements IPage {
     } catch (error) {
       hideLoading();
       this.setGameState('idle');
-      this.toast.error('启动自对弈失败');
-      this.uiUpdater?.updateStatusBar('启动失败');
+      const errMsg = error instanceof Error ? error.message : String(error);
+      if (errMsg.includes('远程服务端不在线') || errMsg.includes('隧道未连接')) {
+        this.toast.error('远程服务端不在线，请检查服务端是否已启动');
+        this.uiUpdater?.updateStatusBar('服务端不在线');
+      } else {
+        this.toast.error('启动自对弈失败: ' + errMsg);
+        this.uiUpdater?.updateStatusBar('启动失败');
+      }
     }
   }
 

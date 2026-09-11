@@ -23,6 +23,7 @@ export class TunnelManager {
   private static instance: TunnelManager | null = null;
   private client: TunnelClient | null = null;
   private connecting: Promise<TunnelClient | null> | null = null;
+  private stateCallbacks: Array<(state: TunnelConnectionState) => void> = [];
 
   private constructor() {}
 
@@ -31,6 +32,16 @@ export class TunnelManager {
       TunnelManager.instance = new TunnelManager();
     }
     return TunnelManager.instance;
+  }
+
+  /** 注册状态变更回调（客户端模式有效） */
+  onStateChange(callback: (state: TunnelConnectionState) => void): void {
+    this.stateCallbacks.push(callback);
+    // 如果已有 client，立即通知当前状态
+    const currentState = this.client?.getState();
+    if (currentState) {
+      callback(currentState);
+    }
   }
 
   /** 读取 localStorage 配置 */
@@ -121,10 +132,18 @@ export class TunnelManager {
       const timeout = setTimeout(() => {
         console.warn('[TunnelManager] Connection timeout');
         this.connecting = null;
+        // 通知超时状态
+        for (const cb of this.stateCallbacks) {
+          try { cb('error'); } catch (e) { console.error('[TunnelManager] State callback error:', e); }
+        }
         resolve(this.client?.isConnected ? this.client : null);
       }, CONNECT_TIMEOUT);
 
       this.client!.onStateChange((state) => {
+        // 通知所有外部监听器
+        for (const cb of this.stateCallbacks) {
+          try { cb(state); } catch (e) { console.error('[TunnelManager] State callback error:', e); }
+        }
         if (state === 'connected') {
           clearTimeout(timeout);
           this.connecting = null;
