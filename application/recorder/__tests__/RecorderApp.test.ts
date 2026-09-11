@@ -112,15 +112,15 @@ describe('RecorderApp', () => {
       );
       expect(app).toBeDefined();
     });
-    it('应该在构造时设置 onUpdate 回调以自动保存草稿', () => {
+    it('构造函数不应注册 onUpdate 回调（由 setOnUpdate 统一注册）', () => {
       const app = new RecorderApp(
         mockRecorderService,
         mockExportService,
         mockHistoryManager,
       );
-      expect(mockRecorderService.setOnUpdate).toHaveBeenCalled();
+      expect(mockRecorderService.setOnUpdate).not.toHaveBeenCalled();
     });
-    it('应该在 state 变化时自动保存草稿', async () => {
+    it('应该在 state 变化时自动保存草稿（通过 setOnUpdate 注册后）', async () => {
       const mockState = createMockGameState();
       let onUpdateCallback: ((state: IGameState) => void) | null = null;
       vi.mocked(mockRecorderService.setOnUpdate).mockImplementation((cb) => {
@@ -132,6 +132,7 @@ describe('RecorderApp', () => {
         mockExportService,
         mockHistoryManager,
       );
+      app.setOnUpdate(vi.fn());
       // 模拟 state 变化
       if (onUpdateCallback) {
         onUpdateCallback(mockState);
@@ -140,7 +141,7 @@ describe('RecorderApp', () => {
       await new Promise(resolve => setTimeout(resolve, 10));
       expect(mockRecorderService.saveDraft).toHaveBeenCalled();
     });
-    it('应该在自动保存失败时记录警告', async () => {
+    it('应该在自动保存失败时记录警告（通过 setOnUpdate 注册后）', async () => {
       const mockState = createMockGameState();
       let onUpdateCallback: ((state: IGameState) => void) | null = null;
       vi.mocked(mockRecorderService.setOnUpdate).mockImplementation((cb) => {
@@ -152,6 +153,7 @@ describe('RecorderApp', () => {
         mockExportService,
         mockHistoryManager,
       );
+      app.setOnUpdate(vi.fn());
       // 模拟 state 变化
       if (onUpdateCallback) {
         onUpdateCallback(mockState);
@@ -451,7 +453,7 @@ describe('RecorderApp', () => {
     });
   });
   describe('setOnUpdate', () => {
-    it('应该委托给 RecorderService', () => {
+    it('应该注册包装回调到 RecorderService（包含自动保存）', () => {
       const callback = vi.fn();
       const app = new RecorderApp(
         mockRecorderService,
@@ -459,7 +461,15 @@ describe('RecorderApp', () => {
         mockHistoryManager,
       );
       app.setOnUpdate(callback);
-      expect(mockRecorderService.setOnUpdate).toHaveBeenCalledWith(callback);
+      // 应该注册了一个函数（包装函数，而非原始 callback）
+      expect(mockRecorderService.setOnUpdate).toHaveBeenCalledTimes(1);
+      const registered = vi.mocked(mockRecorderService.setOnUpdate).mock.calls[0][0];
+      expect(typeof registered).toBe('function');
+      // 调用包装函数时，外部回调应该被触发
+      const mockState = createMockGameState();
+      vi.mocked(mockRecorderService.saveDraft).mockResolvedValue(undefined);
+      registered(mockState);
+      expect(callback).toHaveBeenCalledWith(mockState);
     });
   });
 });

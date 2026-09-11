@@ -32,12 +32,8 @@ export class RecorderApp {
     private readonly audioPlayer?: IAudioPlayer,
   ) {
     this.historyManager = historyManager;
-    // 每次 state 变化时自动保存草稿（包含当前模式）
-    this.recorderService.setOnUpdate((state: IGameState) => {
-      this.saveDraft(this.currentMode).catch((err) => {
-        console.warn('自动保存草稿失败', err);
-      });
-    });
+    // 注意：自动保存草稿的回调在 setOnUpdate 中包装注册
+    // 构造函数不注册，因为会被后续 setOnUpdate 覆盖
   }
 
   // ===== 记谱操作 =====
@@ -157,7 +153,14 @@ export class RecorderApp {
   // ===== 回调设置 =====
 
   setOnUpdate(callback: OnUpdateCallback): void {
-    this.recorderService.setOnUpdate(callback);
+    // 包装回调：先执行自动保存草稿，再执行外部回调
+    // （RecorderService 只支持单个回调，不能直接覆盖丢失自动保存）
+    this.recorderService.setOnUpdate((state: IGameState) => {
+      this.saveDraft(this.currentMode).catch((err) => {
+        console.warn('自动保存草稿失败', err);
+      });
+      callback(state);
+    });
   }
 
   // ===== 音效 =====
