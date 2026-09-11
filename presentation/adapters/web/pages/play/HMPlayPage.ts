@@ -605,9 +605,18 @@ export class HMPlayPage implements IPage {
         });
         
         // 加载模型列表
-        await modelSelector.loadModels();
+        try {
+          await modelSelector.loadModels();
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error);
+          if (errMsg.includes('远程服务端不在线')) {
+            this.toast.error('远程服务端不在线，无法获取模型列表');
+          } else {
+            this.toast.error('加载模型列表失败');
+          }
+        }
         
-        // 渲染模型选择 UI
+        // 渲染模型选择 UI（即使加载失败也渲染空列表）
         modelCardsContainer.innerHTML = modelSelector.render();
         
         // 绑定事件

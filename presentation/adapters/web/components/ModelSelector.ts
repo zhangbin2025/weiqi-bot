@@ -55,7 +55,18 @@ export class ModelSelector {
    */
   async loadModels(): Promise<void> {
     if (this.options.modelManager) {
-      this.models = await this.options.modelManager.getModels();
+      try {
+        this.models = await this.options.modelManager.getModels();
+      } catch (error) {
+        // 远程模式下服务端不在线，使用空列表让 UI 正常渲染
+        const errMsg = error instanceof Error ? error.message : String(error);
+        if (errMsg.includes('远程服务端不在线')) {
+          console.warn('[ModelSelector] 远程服务端不在线，模型列表为空');
+          this.models = [];
+          return;
+        }
+        throw error;
+      }
     }
     // 远程模式：从模型列表中提取 custom URL，选中服务端当前模型
     if (this.isRemoteMode) {
