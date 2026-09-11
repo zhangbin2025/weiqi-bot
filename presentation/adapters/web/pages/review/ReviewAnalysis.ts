@@ -270,6 +270,10 @@ export class ReviewAnalysis {
         console.error('[ReviewAnalysis.ensureModelLoaded] 模型加载失败', error);
         this.callbacks.onProgress(false);
         this.callbacks.onLoadingAnimation(false);
+        const errMsg = error instanceof Error ? error.message : String(error);
+        if (errMsg.includes('远程服务端不在线')) {
+          this.callbacks.onStatusUpdate('远程服务端不在线，无法加载模型');
+        }
         throw error;
       }
     }
@@ -418,9 +422,14 @@ export class ReviewAnalysis {
       }
     } catch (error) {
       console.error('[ReviewAnalysis] 分析失败', error as Error | undefined);
-      this.callbacks.onStatusUpdate('分析失败');
+      const errMsg = error instanceof Error ? error.message : String(error);
+      if (errMsg.includes('远程服务端不在线') || errMsg.includes('隧道未连接')) {
+        this.callbacks.onStatusUpdate('远程服务端不在线，请检查服务端是否已启动');
+      } else {
+        this.callbacks.onStatusUpdate('分析失败');
+      }
       if (taskId) {
-        TaskHelper.notifyFail(taskId, error instanceof Error ? error.message : '分析失败');
+        TaskHelper.notifyFail(taskId, errMsg);
       }
       throw error; // 重新抛出异常，让调用方知道分析失败
     } finally {

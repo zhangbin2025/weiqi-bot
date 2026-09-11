@@ -305,7 +305,12 @@ export class HMPlayPage implements IPage {
         this.updateStatus('AI思考中...');
       }
     } catch (error) {
-      this.toast.error('形势判断失败');
+      const errMsg = error instanceof Error ? error.message : String(error);
+      if (errMsg.includes('远程服务端不在线') || errMsg.includes('隧道未连接')) {
+        this.toast.error('远程服务端不在线，无法进行形势判断');
+      } else {
+        this.toast.error('形势判断失败');
+      }
       // 恢复状态栏
       if (this.hmPlayApp.isPlayerTurn()) {
         this.updateStatus('轮到你落子');

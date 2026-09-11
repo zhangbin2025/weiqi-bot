@@ -12,7 +12,7 @@ import { ActivityLogService } from '../../../services/activity';
 import { ModelService, ModelManagementService } from '../../../services/model';
 import { Game } from '../../../domain/game';
 import { createAIEngine } from '../../../infrastructure/ai';
-import { TunnelManager } from '../../../infrastructure/tunnel/TunnelManager';
+import { setupTunnelMonitor } from '../shared/tunnelMonitor';
 import { InMemoryDocumentStorage } from '../../../infrastructure/storage/adapters/common/InMemoryDocumentStorage';
 import { IndexedDBAdapter } from '../../../infrastructure/storage/adapters/web/IndexedDBAdapter';
 import { LocalStorageAdapter } from '../../../infrastructure/storage/adapters/web/LocalStorageAdapter';
@@ -41,31 +41,8 @@ async function main() {
   const kataGoEngine = createAIEngine(networkManager);
   const aiController = new AIController(kataGoEngine);
 
-  // 4.1 客户端模式下后台启动隧道连接（不阻塞页面渲染）
-  const tunnelManager = TunnelManager.getInstance();
-  if (tunnelManager.isClientMode()) {
-    console.info('[mm.ts] 客户端模式，后台启动隧道连接');
-    tunnelManager.getClient().catch((e) => {
-      console.warn('[mm.ts] 隧道连接失败:', e);
-    });
-
-    // 监听隧道状态变化，在连接失败时提示用户
-    let tunnelErrorShown = false;
-    tunnelManager.onStateChange((state) => {
-      if (state === 'auth-failed') {
-        tunnelErrorShown = true;
-        setTimeout(() => alert('隧道认证失败：密码与服务端不一致'), 100);
-      } else if (state === 'error' && !tunnelErrorShown) {
-        tunnelErrorShown = true;
-        setTimeout(() => alert('远程服务端不在线，AI 相关功能将不可用。\n请确认服务端已启动并连接信令服务器。'), 100);
-      } else if (state === 'connected') {
-        if (tunnelErrorShown) {
-          tunnelErrorShown = false;
-          console.info('[mm.ts] 隧道已重新连接');
-        }
-      }
-    });
-  }
+  // 4.1 客户端模式下后台启动隧道连接（不阻塞页面渲染），并监听状态变化
+  setupTunnelMonitor('mm');
 
   // 5. 创建 ModelService
   const modelStorage = new IndexedDBAdapter<{ id: string; data: Blob; timestamp: number }>('weiqi-models', 'models');

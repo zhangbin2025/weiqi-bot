@@ -546,7 +546,12 @@ export class ReviewPage implements IPage {
       }
     } catch (error) {
       console.error('[ReviewPage] 局面分析失败', error as Error | undefined);
-      this.ui.updateStatus('分析失败');
+      const errMsg = error instanceof Error ? error.message : String(error);
+      if (errMsg.includes('远程服务端不在线') || errMsg.includes('隧道未连接')) {
+        this.ui.updateStatus('远程服务端不在线，请检查服务端是否已启动');
+      } else {
+        this.ui.updateStatus('分析失败');
+      }
     } finally {
       this.ui.setButtonsEnabled(true);
       this.analyzing = false;
@@ -667,7 +672,12 @@ export class ReviewPage implements IPage {
       }
     } catch (error) {
       console.error('[ReviewPage] 自动选点分析失败', error as Error | undefined);
-      this.ui.updateStatus('分析失败');
+      const errMsg = error instanceof Error ? error.message : String(error);
+      if (errMsg.includes('远程服务端不在线') || errMsg.includes('隧道未连接')) {
+        this.ui.updateStatus('远程服务端不在线');
+      } else {
+        this.ui.updateStatus('分析失败');
+      }
     } finally {
       this.ui.setButtonsEnabled(true);
       this.analyzing = false;
@@ -853,7 +863,12 @@ export class ReviewPage implements IPage {
         console.warn('[ReviewPage] 没有获取到候选选点');
       }
     } catch (error) {
-      console.warn('[ReviewPage] 获取AI选点失败', error);
+      const errMsg = error instanceof Error ? error.message : String(error);
+      if (errMsg.includes('远程服务端不在线') || errMsg.includes('隧道未连接')) {
+        console.warn('[ReviewPage] 远程服务端不在线，跳过AI选点');
+      } else {
+        console.warn('[ReviewPage] 获取AI选点失败', error);
+      }
     } finally {
       this.showingLiveRecommendations = false;
     }

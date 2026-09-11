@@ -473,9 +473,14 @@ export class MMPlayPage implements IPage {
       
       noteEl.textContent = result.winRate > 0.5 ? '黑方形势占优' : '白方形势占优';
     } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
       winRateEl.textContent = '分析失败';
       scoreDiffEl.textContent = '--';
-      noteEl.textContent = '请检查 KataGo 是否正常运行';
+      if (errMsg.includes('远程服务端不在线') || errMsg.includes('隧道未连接')) {
+        noteEl.textContent = '远程服务端不在线，请检查服务端是否已启动';
+      } else {
+        noteEl.textContent = '请检查 KataGo 是否正常运行';
+      }
     }
   }
 

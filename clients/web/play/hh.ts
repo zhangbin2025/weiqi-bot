@@ -11,6 +11,7 @@ import { AIController } from '../../../services/ai';
 import { ActivityLogService } from '../../../services/activity';
 import { Game } from '../../../domain/game';
 import { createAIEngine } from '../../../infrastructure/ai';
+import { setupTunnelMonitor } from '../shared/tunnelMonitor';
 import { InMemoryDocumentStorage } from '../../../infrastructure/storage/adapters/common/InMemoryDocumentStorage';
 import { LocalStorageAdapter } from '../../../infrastructure/storage/adapters/web/LocalStorageAdapter';
 import { createGameDeps } from '../shared/deps/game';
@@ -32,6 +33,9 @@ async function main() {
   // 3. 创建 KataGo 适配器（用于数子）
   const kataGoEngine = createAIEngine();
   const aiController = new AIController(kataGoEngine);
+
+  // 3.1 客户端模式下监听隧道状态，服务端不在线时提示用户
+  setupTunnelMonitor('hh');
 
   // 3.1 初始化 AI 模型（异步加载，不阻塞页面渲染）
   // 先加载模型配置，找到默认模型
