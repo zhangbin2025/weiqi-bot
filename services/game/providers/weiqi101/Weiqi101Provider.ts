@@ -57,7 +57,7 @@ export class Weiqi101Provider extends BaseProvider implements IWeiqi101Provider 
       return this.fetchQuestion(url, timing, startTime);
     }
 
-    return this.createErrorResult(url, '不支持的URL格式', timing);
+    return this.createErrorResult(url, '无法从 URL 提取对局 ID', timing);
   }
 
   /**

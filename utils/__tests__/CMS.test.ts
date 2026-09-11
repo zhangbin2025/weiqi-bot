@@ -32,7 +32,7 @@ describe('CountMinSketch', () => {
     
     // 插入不同的 item
     for (let i = 0; i < 100; i++) {
-      cms.update(\`item_\${i}\`, i + 1);
+      cms.update(`item_${i}`, i + 1);
     }
     
     // 验证前几个 item 的估计值

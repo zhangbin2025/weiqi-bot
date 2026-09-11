@@ -1,4 +1,4 @@
-import type { IAdapterFactory } from '../../../core/interfaces';
+import type { IAdapterFactory } from '../../../presentation/core/interfaces';
 import type { IConfigProvider } from '../../../infrastructure/config/interfaces/IConfigProvider';
 import type { NetworkManager } from '../../../infrastructure/network/core/NetworkManager';
 import type { IDocumentStorage } from '../../../infrastructure/storage/interfaces/IDocumentStorage';

@@ -38,7 +38,7 @@ export class MoveNavigator {
   }
   goTo(index: number): void {
     const target = Math.max(0, Math.min(index, this.maxMoves));
-    // 始终触发回调，修复 move=0 时变化图面板不显示的问题
+    if (target === this.currentIndex) return;
     this.currentIndex = target;
     this.onMoveChange(this.currentIndex);
   }

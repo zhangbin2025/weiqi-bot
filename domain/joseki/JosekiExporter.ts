@@ -167,8 +167,10 @@ export function exportTree(
   const moves = normalized.length > 0 ? normalized : matchedPath;
   const limited = moves.slice(0, Math.min(depth, moves.length));
   const nodes = limited
-    .filter((c) => c && c !== "tt" && c !== "pass")
-    .map((c, i) => `;${i % 2 === 0 ? "B" : "W"}[${c}]`)
+    .map((c, i) => {
+      if (!c || c === "tt" || c === "pass") return "";
+      return `;${i % 2 === 0 ? "B" : "W"}[${c}]`;
+    })
     .join("");
   return `(;GM[1]FF[4]SZ[19]CA[UTF-8]AP[WeiqiJoseki:1.0]${nodes})`;
 }
@@ -183,8 +185,10 @@ export function exportTreeWithCandidates(
 ): string {
   const limitedMain = mainPath.slice(0, Math.min(depth, mainPath.length));
   const mainNodes = limitedMain
-    .filter((c) => c && c !== "tt" && c !== "pass")
-    .map((c, i) => `;${i % 2 === 0 ? "B" : "W"}[${c}]`)
+    .map((c, i) => {
+      if (!c || c === "tt" || c === "pass") return "";
+      return `;${i % 2 === 0 ? "B" : "W"}[${c}]`;
+    })
     .join("");
   const candidateParts = candidates.slice(0, 5).map((candidate) => {
     const limited = candidate.slice(0, Math.min(depth, candidate.length));
@@ -194,8 +198,10 @@ export function exportTreeWithCandidates(
     }
     const branchNodes = limited
       .slice(divPoint)
-      .filter((c) => c && c !== "tt" && c !== "pass")
-      .map((c, i) => `;${(divPoint + i) % 2 === 0 ? "B" : "W"}[${c}]`)
+      .map((c, i) => {
+        if (!c || c === "tt" || c === "pass") return "";
+        return `;${(divPoint + i) % 2 === 0 ? "B" : "W"}[${c}]`;
+      })
       .join("");
     return branchNodes ? `(${branchNodes})` : "";
   }).filter(Boolean).join("");
