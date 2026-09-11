@@ -7,7 +7,7 @@
  *   setupTunnelMonitor(); // 在页面入口 main() 中调用即可
  */
 
-import { TunnelManager } from '../../infrastructure/tunnel/TunnelManager';
+import { TunnelManager } from '../../../infrastructure/tunnel/TunnelManager';
 
 /** 是否已显示过错误提示（避免重连时反复弹窗） */
 let errorShown = false;
