@@ -96,11 +96,13 @@ export class MMPlayService implements IMMPlayService {
     
     // 如果 AI 未初始化，才初始化
     // 如果 AI 已初始化（通过 modelManager.switchModel()），跳过初始化
+    // 计算最终模型 URL：优先使用传入的，否则根据 modelId 构建路径
+    const finalModelUrl = mergedConfig.modelUrl ?? `/models/${mergedConfig.modelId}.bin.gz`;
     if (!this.aiController.isInitialized()) {
-      const finalModelUrl = mergedConfig.modelUrl ?? `/models/${mergedConfig.modelId}.bin.gz`;
       await this.aiController.init(mergedConfig.modelId, finalModelUrl, mergedConfig.onProgress);
-      this.currentModelUrl = finalModelUrl;
     }
+    // 始终记录当前模型 URL，以便保存到草稿（刷新后可恢复）
+    this.currentModelUrl = finalModelUrl;
   }
 
   async start(): Promise<void> {

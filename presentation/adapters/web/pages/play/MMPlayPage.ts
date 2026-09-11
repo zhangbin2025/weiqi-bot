@@ -227,9 +227,9 @@ export class MMPlayPage implements IPage {
       await new Promise(resolve => setTimeout(resolve, 0));
       
       // 使用 ModelManagementService 切换模型（如果可用）
+      let modelUrl: string | undefined;
       if (this.modelManager) {
         // 获取模型 URL
-        let modelUrl: string | undefined;
         if (options.modelId === 'custom') {
           // 自定义模型：优先使用传入的 URL
           if (options.modelUrl) {
@@ -270,7 +270,7 @@ export class MMPlayPage implements IPage {
         modelId: options.modelId,
         visits: options.visits,
         speed: options.speed,
-      });
+      }, modelUrl || undefined);  // 传递 modelUrl 以便保存到草稿
       
       await this.mmPlayApp.start();
       

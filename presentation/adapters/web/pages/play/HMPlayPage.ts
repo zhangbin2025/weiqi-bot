@@ -642,9 +642,9 @@ export class HMPlayPage implements IPage {
       await new Promise(resolve => setTimeout(resolve, 0));
 
       // 使用 ModelManagementService 切换模型（如果可用）
+      let modelUrl: string | undefined;
       if (this.modelManager) {
         // 获取模型 URL
-        let modelUrl: string | undefined;
         if (options.modelId === 'custom') {
           // 自定义模型：从 modelSelector 获取 URL 或从存储加载
           const modelSelector = (this as any).modelSelector;
@@ -682,7 +682,7 @@ export class HMPlayPage implements IPage {
         handicap: options.handicap,
         noUndo: options.noUndo,
         modelId: options.modelId,
-        modelUrl: '',  // 已经通过 modelManager 切换，不需要再传递
+        modelUrl: modelUrl || undefined,  // 传递给 newGame 以便保存到草稿（刷新后可恢复）
         onProgress: (loaded: number, total: number, progress: number) => {
           this.progressManager.updateProgress(loaded, total, progress);
         },

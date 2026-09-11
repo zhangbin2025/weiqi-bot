@@ -80,12 +80,13 @@ export class HMPlayService implements IHMPlayService {
     }
     this.previousBoard = null; // 重置打劫判断
 
+    // 计算最终模型 URL：优先使用传入的，否则根据 modelId 构建路径
+    const finalModelUrl = config.modelUrl ?? `/models/${merged.modelId}.bin.gz`;
     if (!this.aiController.isInitialized()) {
-      // 使用传入的 modelUrl，或根据 modelId 构建路径
-      const finalModelUrl = config.modelUrl ?? `/models/${merged.modelId}.bin.gz`;
       await this.aiController.init(merged.modelId, finalModelUrl, merged.onProgress);
-      this.currentModelUrl = finalModelUrl;
     }
+    // 始终记录当前模型 URL，以便保存到草稿（刷新后可恢复）
+    this.currentModelUrl = finalModelUrl;
 
     this.notifier.notifyBoardChange(getBoardState(this.game.getState().board));
     this.notifier.notifyPlayerChange(this.game.getState().currentPlayer);
