@@ -2,7 +2,7 @@
  * Electron 主进程入口
  */
 
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage } from 'electron';
 import * as path from 'path';
 import { AssetServer } from './server/asset-server';
 import { BridgeRouter } from './ipc/bridge-router';
@@ -18,6 +18,7 @@ if (!gotTheLock) {
 app.on('second-instance', (_event, commandLine) => {
   console.log('[Main] Second instance detected, focusing main window');
   if (mainWindow) {
+    if (!mainWindow.isVisible()) mainWindow.show();
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
     handleSgfFileFromArgs(commandLine);
@@ -112,6 +113,8 @@ function sendSgfToAssistant(sgfContent: string, fileName: string) {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
+let isQuitting = false;
 let assetServer: AssetServer | null = null;
 let bridgeRouter: BridgeRouter | null = null;
 
@@ -323,8 +326,64 @@ function createMainWindow() {
     mainWindow.webContents.openDevTools();
   }
 
+  // 最小化时隐藏到托盘
+  mainWindow.on('minimize', (event: Electron.Event) => {
+    event.preventDefault();
+    mainWindow?.hide();
+  });
+
+  // 关闭时隐藏到托盘，而非真正退出
+  mainWindow.on('close', (event: Electron.Event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      mainWindow?.hide();
+    }
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
+  });
+}
+
+/**
+ * 创建系统托盘
+ */
+function createTray() {
+  const iconPath = path.join(__dirname, '../../resources/icon.png');
+  const icon = nativeImage.createFromPath(iconPath);
+
+  if (icon.isEmpty()) {
+    console.error('[Main] Failed to load tray icon from:', iconPath);
+    return;
+  }
+
+  tray = new Tray(icon.resize({ width: 16, height: 16 }));
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: '显示窗口',
+      click: () => {
+        mainWindow?.show();
+        mainWindow?.focus();
+      },
+    },
+    { type: 'separator' },
+    {
+      label: '退出',
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    },
+  ]);
+
+  tray.setContextMenu(contextMenu);
+  tray.setToolTip('围棋助手');
+
+  // 双击托盘图标恢复窗口
+  tray.on('double-click', () => {
+    mainWindow?.show();
+    mainWindow?.focus();
   });
 }
 
@@ -416,6 +475,7 @@ app.whenReady().then(async () => {
     loadingWindow = null;
     
     createMainWindow();
+    createTray();
 
     (global as any).assetServer = assetServer;
     setupIPC();
@@ -457,13 +517,12 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    const assetServer = (global as any).assetServer;
-    if (assetServer) {
-      assetServer.stop();
-    }
-    app.quit();
+  // 托盘模式下窗口全部关闭不退出（Windows/Linux 保活）
+  // macOS 保持默认行为
+  if (process.platform === 'darwin') {
+    return;
   }
+  // 不退出，用户通过托盘菜单"退出"
 });
 
 app.on('activate', () => {
@@ -473,6 +532,7 @@ app.on('activate', () => {
 });
 
 app.on('before-quit', () => {
+  isQuitting = true;
   const assetServer = (global as any).assetServer;
   if (assetServer) {
     assetServer.stop();
