@@ -6,6 +6,7 @@
 import type { IModelManagementService } from '../../../../services/model';
 import type { ModelConfig } from '../../../../services/model';
 import { TunnelManager } from '../../../../infrastructure/tunnel/TunnelManager';
+import { WebToast } from './Toast';
 
 /**
  * 模型选择器选项
@@ -62,6 +63,7 @@ export class ModelSelector {
         const errMsg = error instanceof Error ? error.message : String(error);
         if (errMsg.includes('远程服务端不在线')) {
           console.warn('[ModelSelector] 远程服务端不在线，模型列表为空');
+          new WebToast().error('远程服务端不在线，无法获取模型列表', 5000);
           this.models = [];
           return;
         }
