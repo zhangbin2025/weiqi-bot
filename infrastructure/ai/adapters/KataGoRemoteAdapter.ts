@@ -3,7 +3,7 @@
  * @description 通过 WebRTC 隧道远程调用服务端的 KataGo，实现 IAIEngine 接口
  *
  * 工作原理：
- * - init() 时通过 TunnelManager 等待隧道连接就绪
+ * - 懒连接：首次调用任意方法时才通过 TunnelManager 建立隧道连接
  * - 所有 IAIEngine 方法调用都通过 TunnelClient.call('katago', method, params) 远程执行
  * - 上层代码（AIController 等）完全无感知，使用方式与本地适配器一致
  */
@@ -22,29 +22,50 @@ import type {
 } from '../IAIEngine';
 import { TunnelManager } from '../../tunnel/TunnelManager';
 import type { TunnelClient } from '../../tunnel/TunnelClient';
+import { WebToast } from '../../../presentation/adapters/web/components/Toast';
 
 /** RPC 超时：初始化可能较慢（模型下载等），给 10 分钟 */
 const INIT_TIMEOUT = 600_000;
 /** 分析超时：整盘分析可能较久，给 30 分钟 */
 const ANALYZE_GAME_TIMEOUT = 1_800_000;
 
+/** 共享 toast 实例（延迟创建） */
+let sharedToast: WebToast | null = null;
+function getToast(): WebToast {
+  if (!sharedToast) sharedToast = new WebToast();
+  return sharedToast;
+}
+
 export class KataGoRemoteAdapter implements IAIEngine {
   private engineInfo: EngineInfo = { backend: 'remote', modelName: null };
   private tunnelClient: TunnelClient | null = null;
+  /** 是否正在显示连接提示 */
+  private connectingToastShown = false;
 
   /**
-   * 等待隧道连接就绪
-   * 由 init() 调用，也可由其他方法在 tunnelClient 为空时调用
+   * 等待隧道连接就绪（懒连接）
+   * 首次调用时通过 TunnelManager 建立连接，连接过程中给用户进度提示
    */
   private async ensureConnected(): Promise<TunnelClient> {
     if (this.tunnelClient && this.tunnelClient.isConnected) {
       return this.tunnelClient;
     }
+
+    // 提示用户正在连接
+    if (!this.connectingToastShown) {
+      this.connectingToastShown = true;
+      getToast().info('正在连接远程服务端...', 30000);
+    }
+
     const client = await TunnelManager.getInstance().waitForConnection();
     if (!client || !client.isConnected) {
+      this.connectingToastShown = false;
+      getToast().error('远程服务端不在线，请检查服务端是否已启动并连接信令服务器', 5000);
       throw new Error('远程服务端不在线，请检查服务端是否已启动并连接信令服务器');
     }
     this.tunnelClient = client;
+    this.connectingToastShown = false;
+    getToast().success('远程服务端已连接', 2000);
     return client;
   }
 
@@ -127,16 +148,9 @@ export class KataGoRemoteAdapter implements IAIEngine {
   }
 
   async listModels(): Promise<ModelInfo[]> {
-    // 等待隧道连接完成（复用 TunnelManager 的连接超时机制）
-    if (!this.tunnelClient || !this.tunnelClient.isConnected) {
-      const client = await TunnelManager.getInstance().waitForConnection();
-      if (!client || !client.isConnected) {
-        console.warn('[KataGoRemoteAdapter] listModels: tunnel not connected');
-        throw new Error('远程服务端不在线');
-      }
-      this.tunnelClient = client;
-    }
-    return this.tunnelClient.call('katago', 'listModels', undefined) as Promise<ModelInfo[]>;
+    // 懒连接：通过 ensureConnected 确保隧道就绪
+    const client = await this.ensureConnected();
+    return client.call('katago', 'listModels', undefined) as Promise<ModelInfo[]>;
   }
 
   getEngineInfo(): EngineInfo {

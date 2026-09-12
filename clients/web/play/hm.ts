@@ -12,7 +12,6 @@ import { ActivityLogService } from '../../../services/activity';
 import { ModelService, ModelManagementService, DefaultModelService } from '../../../services/model';
 import { Game } from '../../../domain/game';
 import { createAIEngine } from '../../../infrastructure/ai';
-import { setupTunnelMonitor } from '../shared/tunnelMonitor';
 import { InMemoryDocumentStorage } from '../../../infrastructure/storage/adapters/common/InMemoryDocumentStorage';
 import { IndexedDBAdapter } from '../../../infrastructure/storage/adapters/web/IndexedDBAdapter';
 import { LocalStorageAdapter } from '../../../infrastructure/storage/adapters/web/LocalStorageAdapter';
@@ -70,9 +69,6 @@ async function main() {
   // 4. 创建 KataGo 适配器和 AIController
   const kataGoEngine = createAIEngine(networkManager);
   const aiController = new AIController(kataGoEngine);
-
-  // 4.1 客户端模式下后台启动隧道连接（不阻塞页面渲染），并监听状态变化
-  setupTunnelMonitor('hm');
 
   // 5. 创建 ModelService
   const modelStorage = new IndexedDBAdapter<{ id: string; data: Blob; timestamp: number }>('weiqi-models', 'models');

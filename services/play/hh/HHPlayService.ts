@@ -442,6 +442,11 @@ export class HHPlayService implements IHHPlayService {
       throw new Error('数子功能暂不可用,AI 未加载');
     }
 
+    // 客户端模式下，AI 可能还在连接远程服务端
+    if (!this.aiController.isInitialized()) {
+      throw new Error('AI 正在连接远程服务端，请稍后再试');
+    }
+
     // 重置数子结果
     this.myCountResult = null;
     // opponentCountResult 不重置,因为可能已经收到对手结果
