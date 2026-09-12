@@ -159,7 +159,7 @@ export class ModelSelector {
     // 远程模式：所有控件只读，布局和本地完全一致
     const ro = this.isRemoteMode; // readonly flag
 
-    const modelOptionsHtml = this.models.filter(m => !(ro && m.id === 'custom')).map(model => {
+    const modelOptionsHtml = this.models.map(model => {
       const isSelected = model.id === this.selectedModelId;
       return `
         <label style="display: flex; align-items: center; gap: 8px; padding: 8px 0; ${ro ? '' : 'cursor: pointer;'}">
@@ -171,7 +171,7 @@ export class ModelSelector {
     }).join('');
 
     // 自定义模型选项（App 环境显示，远程模式下也显示但只读）
-    const showCustom = this.isAppEnvironment || (ro && this.selectedModelId === 'custom');
+    const showCustom = this.isAppEnvironment;
     const customOptionHtml = showCustom ? `
       <label id="customModelLabel" style="display: flex; align-items: center; gap: 8px; padding: 8px 0; ${ro ? '' : 'cursor: pointer;'}">
         <input type="radio" name="aiModel" value="custom" ${this.selectedModelId === 'custom' ? 'checked' : ''} ${ro ? 'disabled' : ''} style="width: auto; ${ro ? 'opacity: 0.6;' : ''}">
