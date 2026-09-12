@@ -7,6 +7,62 @@ import { WebBootstrap } from '../shared/Bootstrap';
 import { ReplayPage } from '../../../presentation/adapters/web/pages/replay';
 import { createReplayDeps } from '../shared/deps/replay';
 
+/**
+ * 简单 hash 函数（djb2），用于收藏 key 去重
+ */
+function positionHash(content: string, move: number): string {
+  const str = content + '|' + move;
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash) + str.charCodeAt(i);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+/**
+ * 显示 toast 提示
+ */
+function showToast(message: string, linkText?: string, linkHref?: string) {
+  const existing = document.getElementById('replay-toast');
+  if (existing) existing.remove();
+
+  const toast = document.createElement('div');
+  toast.id = 'replay-toast';
+  toast.style.cssText = [
+    'position: fixed',
+    'top: 50%',
+    'left: 50%',
+    'transform: translate(-50%, -50%)',
+    'background: rgba(0,0,0,0.8)',
+    'color: white',
+    'padding: 16px 24px',
+    'border-radius: 12px',
+    'font-size: 14px',
+    'z-index: 99999',
+    'opacity: 0',
+    'transition: opacity 0.3s',
+    'text-align: center',
+    'max-width: 300px',
+    'pointer-events: auto'
+  ].join(';');
+  
+  let html = '';
+  const div = document.createElement('div');
+  div.textContent = message;
+  html += div.innerHTML;
+  if (linkText && linkHref) {
+    html += '<br><a href="' + linkHref + '" style="color:#8ab4ff;text-decoration:underline;display:block;margin-top:8px;">' + linkText + '</a>';
+  }
+  toast.innerHTML = html;
+  document.body.appendChild(toast);
+  requestAnimationFrame(() => { toast.style.opacity = '1'; });
+
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+}
+
 async function main() {
   const ctx = await WebBootstrap.init({
     containerId: 'page-root',
@@ -18,7 +74,6 @@ async function main() {
     replayApp,
     logger: ctx.logger,
     onNavigate: (pageId: string) => {
-      // 导航到其他页面
       if (pageId === 'home') {
         window.location.replace('../index.html');
       } else if (pageId === 'fetcher') {
@@ -29,16 +84,10 @@ async function main() {
 
   await page.initialize();
 
-  // 监听打印事件
-  window.addEventListener('printPosition', async () => {
-    const printData = page.getPrintData();
-    if (printData.stones.length === 0) {
-      alert('当前没有棋盘数据');
-      return;
-    }
-    sessionStorage.setItem('replay-print-data', JSON.stringify(printData));
-
-    // 获取二维码内容：优先原始URL，没有则用精简SGF
+  /**
+   * 获取当前局面的二维码内容（URL 或精简 SGF）
+   */
+  async function getQrContent(): Promise<{ content: string; type: 'url' | 'sgf' }> {
     const params = new URLSearchParams(window.location.search);
     let qrContent: string | null = params.get('src');
     if (!qrContent) {
@@ -54,36 +103,85 @@ async function main() {
     if (qrContent && qrContent.startsWith('archive:')) {
       qrContent = null;
     }
-    // 没有原始链接，用精简SGF（仅含initial stones + 到当前move的着法）
     if (!qrContent) {
-      qrContent = page.getCompactSgf();
+      qrContent = page.getCompactSgf() ?? '';
+      return { content: qrContent, type: 'sgf' };
     }
-    // 在二维码 URL 后追加 wqmove 参数，让 fetcher 扫码后能跳到当前手数
-    if (qrContent && !qrContent.startsWith('(')) {  // SGF 内容以 ( 开头，不追加
-      const moveNumber = printData.moveNumber;
-      if (moveNumber > 0) {
-        try {
-          const url = new URL(qrContent);
-          url.searchParams.set('wqmove', String(moveNumber));
-          qrContent = url.toString();
-        } catch {
-          // 不是合法 URL，跳过
-        }
+    const printData = page.getPrintData();
+    const moveNumber = printData.moveNumber;
+    if (moveNumber > 0) {
+      try {
+        const url = new URL(qrContent);
+        url.searchParams.set('wqmove', String(moveNumber));
+        qrContent = url.toString();
+      } catch {
+        // 不是合法 URL，跳过
       }
     }
-    sessionStorage.setItem('replay-print-source-url', qrContent ?? '');
+    return { content: qrContent, type: 'url' };
+  }
 
+  // 监听打印事件
+  window.addEventListener('printPosition', async () => {
+    const printData = page.getPrintData();
+    if (printData.stones.length === 0) {
+      alert('当前没有棋盘数据');
+      return;
+    }
+    sessionStorage.setItem('replay-print-data', JSON.stringify(printData));
+    const { content } = await getQrContent();
+    sessionStorage.setItem('replay-print-source-url', content);
     window.location.href = './print-preview.html';
+  });
+
+  // 监听收藏局面事件
+  window.addEventListener('favoritePosition', async () => {
+    const printData = page.getPrintData();
+    if (printData.stones.length === 0) {
+      showToast('当前没有棋盘数据');
+      return;
+    }
+
+    try {
+      const { content, type } = await getQrContent();
+      const params = new URLSearchParams(window.location.search);
+      const archiveId = params.get('archiveId') ?? undefined;
+      const key = positionHash(content, printData.moveNumber);
+      const existing = await ctx.favoriteService.getFavorite('position', key);
+
+      const favData = {
+        qrContent: content,
+        qrType: type,
+        archiveId,
+        source: archiveId ? 'archive' : 'session',
+        blackName: printData.blackName,
+        whiteName: printData.whiteName,
+        moveNumber: printData.moveNumber,
+        turn: printData.turn,
+        stones: printData.stones,
+        lastMove: printData.lastMove,
+        size: printData.size,
+        viewBox: printData.viewBox,
+        labels: printData.labels,
+      };
+
+      await ctx.favoriteService.addFavorite('position', key, favData);
+      showToast(
+        existing ? '已更新收藏' : '收藏成功',
+        '查看收藏',
+        './favorites.html'
+      );
+    } catch (e) {
+      console.error('收藏失败', e);
+      showToast('收藏失败: ' + (e instanceof Error ? e.message : String(e)));
+    }
   });
 
   // 从 URL 参数加载数据
   const params = new URLSearchParams(window.location.search);
-  
-  // 解析 move 参数（跳转到指定手数）
   const moveParam = params.get('move');
   const defaultMove = moveParam ? parseInt(moveParam, 10) : undefined;
-  
-  // 支持 ?sessionId=<id> 从会话加载
+
   if (params.get('sessionId')) {
     try {
       const sessionId = params.get('sessionId')!;
@@ -95,8 +193,7 @@ async function main() {
       console.error('会话加载失败', e instanceof Error ? e : new Error(String(e)));
     }
   }
-  
-  // 支持 ?archiveId=<id> 从归档加载
+
   if (params.get('archiveId')) {
     try {
       const archiveId = params.get('archiveId')!;
@@ -108,8 +205,7 @@ async function main() {
       console.error('归档加载失败', e instanceof Error ? e : new Error(String(e)));
     }
   }
-  
-  // 支持 ?sgf=<base64> 加载 SGF 内容
+
   if (params.get('sgf')) {
     try {
       const base64Str = params.get('sgf')!;

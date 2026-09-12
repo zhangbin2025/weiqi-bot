@@ -397,6 +397,7 @@
             <button class="dropdown-item" id="discoverMenuItem">🔍 发现定式</button>
             <button class="dropdown-item" id="downloadMenuItem">📥 下载SGF</button>
             <button class="dropdown-item" id="printMenuItem">🖨️ 打印</button>
+            <button class="dropdown-item" id="favoriteMenuItem">⭐ 收藏局面</button>
           </div>
         </div>
       </div>
@@ -523,6 +524,14 @@
       e.stopPropagation();
       dropdownMenu?.classList.remove('visible');
       window.dispatchEvent(new CustomEvent('printPosition'));
+    });
+
+    // 收藏局面
+    const favoriteMenuItem = document.getElementById('favoriteMenuItem');
+    favoriteMenuItem?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dropdownMenu?.classList.remove('visible');
+      window.dispatchEvent(new CustomEvent('favoritePosition'));
     });
     
     // AI分析

@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>收藏局面 - 棋谱</title>
+  <style>
+    html, body {
+      width: 100% !important;
+      overflow-x: hidden !important;
+      zoom: 1 !important;
+      transform: scale(1) !important;
+      -webkit-text-size-adjust: 100% !important;
+      text-size-adjust: 100% !important;
+      min-zoom: 1 !important;
+      max-zoom: 1 !important;
+      user-zoom: fixed !important;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+      padding-top: env(safe-area-inset-top);
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    /* 顶部工具栏 */
+    .toolbar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      background: white;
+      padding: 20px;
+      padding-top: max(20px, env(safe-area-inset-top));
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 100;
+      min-height: 60px;
+    }
+    .toolbar h1 {
+      font-size: 16px;
+      color: #333;
+    }
+    .toolbar-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .config-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 14px;
+      color: #555;
+    }
+    .config-group input {
+      width: 48px;
+      height: 36px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      text-align: center;
+      font-size: 14px;
+    }
+    .config-group input:focus {
+      border-color: #667eea;
+      outline: none;
+    }
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s;
+      min-height: 44px;
+    }
+    .btn-primary {
+      background: #667eea;
+      color: white;
+    }
+    .btn-primary:hover { background: #5568d3; }
+    .btn-primary:active { transform: scale(0.95); }
+    .btn-primary:disabled { background: #ccc; cursor: not-allowed; }
+    .btn-secondary {
+      background: #f0f0f0;
+      color: #555;
+    }
+    .btn-secondary:hover { background: #e0e0e0; }
+    .btn-secondary.active {
+      background: #667eea;
+      color: white;
+    }
+    .btn-danger {
+      background: #fff0f0;
+      color: #ff6b6b;
+    }
+    .btn-danger:hover { background: #ffe0e0; }
+    .btn-danger:disabled { background: #f5f5f5; color: #ccc; cursor: not-allowed; }
+
+    /* 内容区域 */
+    .content {
+      padding: 80px 15px 15px;
+    }
+
+    .hint {
+      text-align: center;
+      padding: 15px;
+      background: #fff3e0;
+      border-radius: 8px;
+      margin-bottom: 15px;
+      color: #e65100;
+      font-size: 14px;
+    }
+    .hint.hidden { display: none; }
+
+    /* 空状态 */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #999;
+    }
+    .empty-state-icon {
+      font-size: 3em;
+      margin-bottom: 16px;
+      opacity: 0.4;
+    }
+    .empty-state-text {
+      font-size: 16px;
+      color: #666;
+    }
+
+    /* A4 纸张容器 — 屏幕预览时保持 A4 宽高比 */
+    .a4-page {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+      max-width: 900px;
+      margin: 0 auto 15px;
+      padding: 15px;
+      /* A4 宽高比 210:297 ≈ 0.707 */
+      aspect-ratio: 210 / 297;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* 缩略图网格 — 填满整个 a4-page */
+    .thumbnail-grid {
+      display: grid;
+      gap: 10px;
+      flex: 1;
+      min-height: 0;
+    }
+
+    /* 每个收藏卡片 — 自适应填满网格单元 */
+    .thumbnail-card {
+      background: white;
+      border-radius: 4px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      cursor: pointer;
+      transition: all 0.15s;
+      position: relative;
+      border: 2px solid transparent;
+      page-break-inside: avoid;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .thumbnail-card:hover {
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .thumbnail-card.selected {
+      border-color: #667eea;
+      background: #f0f4ff;
+    }
+    .thumbnail-card canvas.board-canvas {
+      width: 100% !important;
+      max-height: 100%;
+      object-fit: contain;
+      flex: 1;
+      min-height: 0;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+    }
+
+    /* 分隔线 */
+    .card-footer {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 4px 2px 6px;
+      gap: 6px;
+      border-bottom: 1px solid #f0f0f0;
+      margin-bottom: 4px;
+    }
+    .card-footer-text {
+      flex: 1;
+      min-width: 0;
+      line-height: 1.3;
+    }
+    .card-footer-players {
+      font-weight: 600;
+      font-size: 12px;
+      color: #333;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .card-footer-meta {
+      font-size: 10px;
+      color: #999;
+      margin-top: 1px;
+    }
+    .card-footer-qr {
+      flex-shrink: 0;
+    }
+    .card-footer-qr img,
+    .card-footer-qr canvas {
+      display: block;
+      width: 56px !important;
+      height: 56px !important;
+    }
+
+    /* 多选勾选框 */
+    .select-checkbox {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      border: 2px solid #ccc;
+      background: rgba(255,255,255,0.9);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      color: white;
+      z-index: 5;
+    }
+    body.multi-select-mode .select-checkbox { display: flex; }
+    .thumbnail-card.selected .select-checkbox {
+      background: #667eea;
+      border-color: #667eea;
+    }
+
+    /* 底部操作栏 */
+    .bottom-bar {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: white;
+      box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+      padding: 12px 16px;
+      padding-bottom: max(12px, env(safe-area-inset-bottom));
+      display: none;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 100;
+    }
+    .bottom-bar.visible { display: flex; }
+    .bottom-bar-info { font-size: 14px; color: #555; }
+
+    /* 加载更多提示 */
+    .load-more {
+      text-align: center;
+      padding: 20px;
+      color: #999;
+      font-size: 14px;
+    }
+
+    @media print {
+      .toolbar, .hint, .bottom-bar, .load-more, .select-checkbox { display: none !important; }
+      .content { padding: 0; }
+      body { background: white; padding: 0; margin: 0; }
+      .a4-page {
+        box-shadow: none;
+        border-radius: 0;
+        padding: 4mm;
+        margin: 0;
+        page-break-after: always;
+        aspect-ratio: auto;
+        width: 100%;
+        height: 100vh;
+      }
+      .a4-page:last-child {
+        page-break-after: auto;
+      }
+      .thumbnail-card {
+        box-shadow: none;
+        border: none !important;
+        border-radius: 0;
+        page-break-inside: avoid;
+      }
+      .thumbnail-card canvas.board-canvas {
+        max-width: none !important;
+        width: 100% !important;
+        max-height: 100%;
+        border: none !important;
+        border-radius: 0 !important;
+      }
+      .thumbnail-grid { gap: 3mm; }
+      .card-footer {
+        border-bottom: 0.5px solid #ddd;
+        padding: 1mm 0 1mm;
+        margin-bottom: 1mm;
+      }
+      .card-footer-qr img,
+      .card-footer-qr canvas {
+        width: 20mm !important;
+        height: 20mm !important;
+      }
+      .card-footer-players { font-size: 10px; }
+      .card-footer-meta { font-size: 8px; }
+      @page { margin: 4mm; size: A4; }
+    }
+
+    body.android-print .a4-page { padding: 4mm; aspect-ratio: auto; }
+    body.android-print .thumbnail-grid { gap: 3mm; }
+    body.android-print .thumbnail-card canvas.board-canvas {
+      max-width: none !important;
+    }
+
+    @media (max-width: 768px) {
+      .a4-page { padding: 10px; }
+      .thumbnail-grid { gap: 8px; }
+      .toolbar {
+        padding: 15px;
+        padding-top: max(15px, env(safe-area-inset-top));
+        min-height: 60px;
+      }
+      .toolbar h1 { font-size: 14px; }
+      .card-footer-qr img,
+      .card-footer-qr canvas {
+        width: 44px !important;
+        height: 44px !important;
+      }
+      .config-group { font-size: 12px; }
+      .config-group input { width: 40px; height: 32px; }
+    }
+  </style>
+
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon-180x180.png">
+  <script src="/qrcode.min.js"></script>
+</head>
+<body>
+  <div class="toolbar no-print">
+    <h1>⭐ 收藏局面</h1>
+    <div class="toolbar-actions">
+      <div class="config-group">
+        <span>行</span>
+        <input type="number" id="rowsInput" value="2" min="1" max="10">
+        <span>×</span>
+        <input type="number" id="colsInput" value="2" min="1" max="10">
+        <span>列</span>
+      </div>
+      <button class="btn btn-secondary" id="selectModeBtn">☑️ 多选</button>
+      <button class="btn btn-danger" id="deleteBtn" disabled>🗑️ 删除</button>
+      <button class="btn btn-primary" id="printBtn">🖨️ 打印</button>
+    </div>
+  </div>
+
+  <div id="page-root" style="display:none;"></div>
+  <div class="content">
+    <div class="hint hidden" id="appHint">
+      💡 提示：长按图片可保存，或截图分享
+    </div>
+    <div class="empty-state" id="emptyState">
+      <div class="empty-state-icon">⭐</div>
+      <div class="empty-state-text">暂无收藏局面</div>
+      <div style="margin-top:8px;font-size:13px;color:#aaa;">在打谱页面点击菜单 → 收藏局面</div>
+    </div>
+    <div id="pagesContainer"></div>
+    <div class="load-more" id="loadMore" style="display:none;">加载更多中...</div>
+  </div>
+
+  <div class="bottom-bar" id="bottomBar">
+    <div class="bottom-bar-info" id="bottomBarInfo">已选 0 个</div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-secondary" id="cancelSelectBtn">取消</button>
+      <button class="btn btn-primary" id="printSelectedBtn" disabled>🖨️ 打印选中</button>
+    </div>
+  </div>
+
+  <script type="module" src="./favorites.ts"></script>
+</body>
+</html>
