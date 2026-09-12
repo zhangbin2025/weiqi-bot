@@ -22,6 +22,7 @@ export { TunnelServer } from './TunnelServer';
 export { TunnelClient } from './TunnelClient';
 export { KatagoRpcHandler } from './KatagoRpcHandler';
 export { FetcherRpcHandler } from './FetcherRpcHandler';
+export { DebugRpcHandler } from './DebugRpcHandler';
 export { TunnelManager } from './TunnelManager';
 
 // 适配器

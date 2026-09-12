@@ -6,7 +6,7 @@
 // ─── Service 枚举 ───
 
 /** 可用的远程服务 */
-export type TunnelService = 'katago' | 'fetcher' | string;
+export type TunnelService = 'katago' | 'fetcher' | 'debug' | string;
 
 // ─── RPC 消息协议 ───
 

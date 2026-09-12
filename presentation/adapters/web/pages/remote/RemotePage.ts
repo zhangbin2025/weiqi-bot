@@ -11,6 +11,8 @@
 import { TunnelServer } from '../../../../../infrastructure/tunnel/TunnelServer';
 import { KatagoRpcHandler } from '../../../../../infrastructure/tunnel/KatagoRpcHandler';
 import { FetcherRpcHandler } from '../../../../../infrastructure/tunnel/FetcherRpcHandler';
+import { DebugRpcHandler } from '../../../../../infrastructure/tunnel/DebugRpcHandler';
+import { DebugService } from '../../../../../services/debug/DebugService';
 import { createAIEngine } from '../../../../../infrastructure/ai';
 import { TunnelClient } from '../../../../../infrastructure/tunnel/TunnelClient';
 import { GameService, GameHistoryStorage } from '../../../../../services/game';
@@ -190,6 +192,11 @@ export class RemotePage {
       const fetcherHandler = new FetcherRpcHandler(this.gameService);
       this.server.registerHandler(fetcherHandler);
       console.info('[RemotePage] FetcherRpcHandler registered');
+
+      // 注册 debug 服务（提供远程日志查看）
+      const debugHandler = new DebugRpcHandler(new DebugService());
+      this.server.registerHandler(debugHandler);
+      console.info('[RemotePage] DebugRpcHandler registered');
     }
 
     this.server.start().catch((err) => {
