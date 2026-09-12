@@ -6,6 +6,7 @@ import { Dialog, Select } from '@ui';
 import type { ReviewApp } from '../../../../../application/review';
 import { ModelSelector } from '../../components/ModelSelector';
 import { DefaultModelService } from '../../../../../services/model';
+import { WebToast } from '../../components/Toast';
 import type { ModelConfig } from '../../../../../services/model/types';
 
 /** 将任意值 HTML escape 后嵌入 attribute */
@@ -722,30 +723,24 @@ export class ReviewUI {
     const dialog = document.createElement('div');
     dialog.className = 'config-dialog';
     
-    // 获取模型列表
+    // 获取模型列表（只调用一次，远程模式失败时返回空列表）
     let models: any[] = [];
-    
-    // 优先使用 ModelManagementService
     if (modelManager && typeof modelManager.getModels === 'function') {
       try {
-        const modelList = await modelManager.getModels();
-        console.log('[ReviewUI] Model list from ModelManagementService:', modelList);
-        models = modelList;
+        models = await modelManager.getModels();
+        console.log('[ReviewUI] Model list:', models);
       } catch (error) {
-        console.error('[ReviewUI] Failed to load models from ModelManagementService:', error);
-      }
-    }
-    
-    // fallback: 从 modelManager 获取
-    if (models.length === 0 && modelManager) {
-      try {
-        const modelList = await modelManager.getModels();
-        console.log('[ReviewUI] Model list from modelManager:', modelList);
-        models = modelList;
-      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
         console.error('[ReviewUI] Failed to load models:', error);
-        models = [DefaultModelService.getDefaultModelCard()];
+        if (errMsg.includes('远程服务端不在线')) {
+          new WebToast().error('远程服务端不在线，无法获取模型列表', 5000);
+          // models 保持空列表，dialog 照常渲染
+        } else {
+          models = [DefaultModelService.getDefaultModelCard()];
+        }
       }
+    } else {
+      models = [DefaultModelService.getDefaultModelCard()];
     }
     
     console.log('[ReviewUI] Models to display:', models);
@@ -756,12 +751,9 @@ export class ReviewUI {
       currentModelId: this.getConfigModel(),
     });
     
-    // 手动设置模型列表
-    (modelSelector as any).models = models;
-    
-    // 加载保存的偏好（包括自定义模型的 URL）
+    // 设置模型列表并加载保存的偏好（避免重复调用 getModels）
     try {
-      await modelSelector.loadModels();
+      await modelSelector.setModelsAndLoadPreference(models);
       console.log('[ReviewUI] ModelSelector loaded saved preferences');
     } catch (error) {
       console.error('[ReviewUI] Failed to load saved preferences:', error);

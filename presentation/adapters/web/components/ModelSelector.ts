@@ -111,6 +111,46 @@ export class ModelSelector {
   }
 
   /**
+   * 直接设置模型列表（跳过 getModels 调用），并加载保存的偏好
+   * 用于外部已获取模型列表的场景，避免重复调用
+   */
+  async setModelsAndLoadPreference(models: ModelConfig[]): Promise<void> {
+    this.models = models;
+    // 远程模式：从模型列表中提取 custom URL，选中服务端当前模型
+    if (this.isRemoteMode) {
+      const customModel = this.models.find(m => m.id === 'custom');
+      if (customModel?.url) {
+        this.customModelUrl = customModel.url;
+      }
+      const currentModel = this.models.find(m => m.isCurrent);
+      const defaultModel = currentModel || this.models.find(m => m.isDefault) || this.models[0];
+      if (defaultModel) {
+        this.selectedModelId = defaultModel.id;
+      }
+      return;
+    }
+    // 本地模式：加载保存的偏好
+    if (this.options.modelManager && typeof this.options.modelManager.loadPreference === 'function') {
+      const savedModelId = await this.options.modelManager.loadPreference();
+      if (savedModelId) {
+        this.selectedModelId = savedModelId;
+        if (savedModelId === 'custom' && typeof this.options.modelManager.loadCustomModelUrl === 'function') {
+          const savedUrl = await this.options.modelManager.loadCustomModelUrl();
+          if (savedUrl) {
+            this.customModelUrl = savedUrl;
+          }
+        }
+      }
+    }
+    if (!this.selectedModelId && this.models.length > 0) {
+      const defaultModel = this.models.find(m => m.isDefault) || this.models[0];
+      if (defaultModel) {
+        this.selectedModelId = defaultModel.id;
+      }
+    }
+  }
+
+  /**
    * 渲染模型选择器 UI
    */
   render(): string {

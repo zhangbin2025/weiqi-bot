@@ -37,6 +37,9 @@ export function setupTunnelMonitor(pageName?: string): void {
 
   const tag = pageName ? '[' + pageName + ']' : '[TunnelMonitor]';
 
+  // 提示用户正在连接远程服务端
+  getToast().info('正在连接远程服务端...', 3000);
+
   // 后台启动隧道连接（不阻塞页面渲染）
   console.info(tag + ' 客户端模式，后台启动隧道连接');
   tunnelManager.getClient().catch((e) => {
