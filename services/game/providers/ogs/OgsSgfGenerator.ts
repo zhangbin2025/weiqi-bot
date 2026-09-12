@@ -1,15 +1,9 @@
 /**
  * @fileoverview OGS SGF 生成器
  */
-
 import type { GameMetadata } from '../base/types';
-import type { OgsGameResponse } from './types';
+import type { OgsGameResponse, OgsGameData } from './types';
 
-/**
- * OGS SGF 生成器
- *
- * 负责将 OGS API 响应转换为 SGF 格式。
- */
 export class OgsSgfGenerator {
   /**
    * 生成 SGF 内容
@@ -41,9 +35,11 @@ export class OgsSgfGenerator {
       parts.push(`RE[${metadata.result}]`);
     }
 
+    // 让子棋处理：优先从 initial_state 读取实际让子位置
     if (metadata.handicap > 0) {
       parts.push(`HA[${metadata.handicap}]`);
-      const handicapStones = this.getHandicapStones(
+      const handicapStones = this.getHandicapStonesFromInitialState(
+        gamedata,
         metadata.handicap,
         metadata.width,
         metadata.height
@@ -64,6 +60,10 @@ export class OgsSgfGenerator {
     const rule = ruleMap[metadata.rules] || 'JP';
     parts.push(`RU[${rule}]`);
 
+    // 着法颜色判定：让子棋时白方先行
+    const initialPlayer = gamedata.initial_player || 'black';
+    const firstMoveColor = initialPlayer === 'white' ? 'W' : 'B';
+
     // 着法
     const moves = gamedata.moves || [];
     for (let i = 0; i < moves.length; i++) {
@@ -72,7 +72,7 @@ export class OgsSgfGenerator {
         const x = move[0]!;
         const y = move[1]!;
         const coord = this.coordToSgf(x, y, metadata.height);
-        const color = i % 2 === 0 ? 'B' : 'W';
+        const color = i % 2 === 0 ? firstMoveColor : (firstMoveColor === 'B' ? 'W' : 'B');
         parts.push(`;${color}[${coord}]`);
       }
     }
@@ -93,6 +93,35 @@ export class OgsSgfGenerator {
     const sgfX = String.fromCharCode(97 + x);
     const sgfY = String.fromCharCode(97 + y);
     return sgfX + sgfY;
+  }
+
+  /**
+   * 从 OGS initial_state 获取让子位置
+   * OGS initial_state.black = "pddp" 表示 pd(15,3) + dp(3,15) 两个黑子
+   * 每2个字符为一个 SGF 坐标
+   */
+  private getHandicapStonesFromInitialState(
+    gamedata: OgsGameData,
+    handicap: number,
+    width: number,
+    height: number
+  ): string[] {
+    const coords: string[] = [];
+
+    // 优先从 initial_state 读取
+    const initialState = gamedata.initial_state;
+    if (initialState?.black) {
+      const blackStr = initialState.black;
+      for (let i = 0; i + 1 < blackStr.length; i += 2) {
+        coords.push(blackStr.substring(i, i + 2));
+      }
+      if (coords.length > 0) {
+        return coords;
+      }
+    }
+
+    // 回退：使用标准星位计算
+    return this.getHandicapStones(handicap, width, height);
   }
 
   /**

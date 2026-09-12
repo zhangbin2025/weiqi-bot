@@ -43,6 +43,18 @@ export interface OgsGameData {
   rules: string;
   /** 着法列表 [[x, y], ...]，(-1, -1) 表示 pass */
   moves: number[][];
+  /** 初始棋子状态（让子棋专用）
+   * 格式: { black: "pddp", white: "" }
+   * black/white 值为连续的 SGF 坐标对（每2个字符表示一个位置）
+   */
+  initial_state?: {
+    black?: string;
+    white?: string;
+  };
+  /** 先手方 ('black' | 'white')，让子棋时为 'white' */
+  initial_player?: 'black' | 'white';
+  /** 是否自由让子位置 */
+  free_handicap_placement?: boolean;
 }
 
 /**
