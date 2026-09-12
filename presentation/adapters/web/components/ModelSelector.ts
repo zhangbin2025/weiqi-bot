@@ -159,7 +159,7 @@ export class ModelSelector {
     // 远程模式：所有控件只读，布局和本地完全一致
     const ro = this.isRemoteMode; // readonly flag
 
-    const modelOptionsHtml = this.models.map(model => {
+    const modelOptionsHtml = this.models.filter(m => !(ro && m.id === 'custom')).map(model => {
       const isSelected = model.id === this.selectedModelId;
       return `
         <label style="display: flex; align-items: center; gap: 8px; padding: 8px 0; ${ro ? '' : 'cursor: pointer;'}">
