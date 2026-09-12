@@ -11,6 +11,7 @@ import { AIController } from '../../../services/ai';
 import { ActivityLogService } from '../../../services/activity';
 import { Game } from '../../../domain/game';
 import { createAIEngine } from '../../../infrastructure/ai';
+import { WebToast } from '../../../presentation/adapters/web/components/Toast';
 import { InMemoryDocumentStorage } from '../../../infrastructure/storage/adapters/common/InMemoryDocumentStorage';
 import { LocalStorageAdapter } from '../../../infrastructure/storage/adapters/web/LocalStorageAdapter';
 import { createGameDeps } from '../shared/deps/game';
@@ -64,6 +65,12 @@ async function main() {
     console.info('AI 模型加载完成，数子功能已就绪');
   }).catch((error) => {
     console.error('AI 模型加载失败', error);
+    const errMsg = error instanceof Error ? error.message : String(error);
+    if (errMsg.includes('远程服务端不在线')) {
+      new WebToast().error('远程服务端不在线，数子功能将不可用', 5000);
+    } else {
+      new WebToast().error('AI 模型加载失败，数子功能将不可用', 5000);
+    }
   });
 
   // 4. 创建存储适配器（用于草稿保存）
