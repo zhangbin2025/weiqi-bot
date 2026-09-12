@@ -4,6 +4,8 @@
 import type { IToast, IToastConfig, ToastType } from '../../../core/interfaces';
 
 export class WebToast implements IToast {
+  private static sharedContainer: HTMLElement | null = null;
+  private static sharedInstance: WebToast | null = null;
   private container: HTMLElement;
   private currentToast: HTMLElement | null = null;
   private hideTimer: ReturnType<typeof setTimeout> | null = null;
@@ -29,14 +31,18 @@ export class WebToast implements IToast {
       WebToast.styleInjected = true;
     }
 
-    this.container = document.createElement('div');
-    this.container.className = 'web-toast-container';
-    this.container.style.cssText = `
-      position: fixed; bottom: 24px; left: 50%;
-      transform: translateX(-50%); z-index: 2000;
-      pointer-events: none;
-    `;
-    document.body.appendChild(this.container);
+    // 所有实例共享同一个 container
+    if (!WebToast.sharedContainer) {
+      WebToast.sharedContainer = document.createElement('div');
+      WebToast.sharedContainer.className = 'web-toast-container';
+      WebToast.sharedContainer.style.cssText = `
+        position: fixed; bottom: 24px; left: 50%;
+        transform: translateX(-50%); z-index: 2000;
+        pointer-events: none;
+      `;
+      document.body.appendChild(WebToast.sharedContainer);
+    }
+    this.container = WebToast.sharedContainer;
   }
 
   show(message: string, config?: IToastConfig): void {
