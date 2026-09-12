@@ -10,6 +10,7 @@ import type { IGameHistoryStorage } from "./IGameHistoryStorage";
 import type { IGameArchiveCache } from "./IGameArchiveCache";
 import type { IUserContext } from "../../infrastructure/network/interfaces/IUserContext";
 import { createUnsupportedResult, createErrorResult } from "./GameServiceHelpers";
+import { parseSGF } from "../../domain/sgf";
 
 export interface GameFetchHelperOptions {
   registry: GameProviderRegistry;
@@ -80,10 +81,19 @@ export class GameFetchHelper {
       return this.createFailedResult(url, result);
     }
 
-    // 4. 归档
+    // 4. 手数 fallback：如果 Provider 未提取到手数，用 domain 层 parseSGF 解析主线
+    if (result.metadata.movesCount === 0) {
+      const parsed = parseSGF(result.sgfContent);
+      if (parsed.moves.length > 0) {
+        console.info("[GameFetchHelper] movesCount fallback: 0 -> " + parsed.moves.length + " (via parseSGF)");
+        result.metadata.movesCount = parsed.moves.length;
+      }
+    }
+
+    // 5. 归档
     const archiveId = await this.archive(result);
 
-    // 5. 更新缓存
+    // 6. 更新缓存
     if (archiveId) {
       const cacheKey = this.computeCacheKey(url);
       await archiveCache?.set(cacheKey, archiveId);

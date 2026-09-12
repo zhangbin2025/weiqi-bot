@@ -155,8 +155,8 @@ export class FoxwqJueyiLiveProvider extends FoxwqLiveProviderBase {
     // 解析元数据
     const metadata = this.parseSgfMetadata(sgfContent);
     metadata.source = this.name;
-    metadata.isLive = true;
     metadata.isEnded = !!metadata.result;
+    metadata.isLive = !metadata.isEnded;
     timing.total = this.now() - startTime;
 
     console.info('[FoxwqLive] ✅ Protobuf 解码成功:', moves.length, '手，让子:', handicap.count,

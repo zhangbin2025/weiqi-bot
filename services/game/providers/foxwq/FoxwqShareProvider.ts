@@ -193,7 +193,7 @@ export class FoxwqShareProvider extends BaseProvider {
   }
 
   private countMoves(sgf: string): number {
-    const matches = sgf.match(/[BW]\\[[^\\]]*\\]/g);
+    const matches = sgf.match(/[BW]\[[^\]]*\]/g);
     return matches ? matches.length : 0;
   }
 }

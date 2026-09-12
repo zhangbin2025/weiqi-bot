@@ -133,6 +133,10 @@ export class FetcherApp {
     if (r.metadata?.isLive !== undefined) result.metadata.isLive = r.metadata.isLive;
     if (r.metadata?.isEnded !== undefined) result.metadata.isEnded = r.metadata.isEnded;
     if (r.metadata?.result !== undefined) result.metadata.result = r.metadata.result;
+    // 最终保障：如果棋局已结束（有结果），不应标记为直播
+    if (result.metadata.isEnded && result.metadata.isLive) {
+      result.metadata.isLive = false;
+    }
     return result;
   }
   private extractBookmarkData(result: FetcherResult): Record<string, unknown> {
