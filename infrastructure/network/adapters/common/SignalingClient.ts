@@ -79,6 +79,24 @@ export class SignalingClient {
   }
 
   async connect(): Promise<void> {
+    // 先关闭旧连接，避免信令服务器认为旧连接还在线（room 冲突）
+    this.stopHeartbeat();
+    if (this.ws) {
+      try {
+        // 移除回调防止触发 onclose 重连逻辑
+        this.ws.onclose = null;
+        this.ws.onerror = null;
+        this.ws.onopen = null;
+        this.ws.onmessage = null;
+        if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+          this.ws.close();
+        }
+      } catch {
+        // ignore
+      }
+      this.ws = null;
+    }
+
     return new Promise((resolve, reject) => {
       const fullUrl = this.buildUrl();
       this.ws = new WebSocket(fullUrl);

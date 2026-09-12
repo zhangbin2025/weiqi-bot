@@ -103,6 +103,14 @@ export class TunnelServer {
   async start(): Promise<void> {
     this.destroyed = false;
     this.startedAt = Date.now();
+
+    // 先清理旧连接，避免信令服务器 room 冲突
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.stopHeartbeat();
+    this.cleanupPeer();
     this.log('info', '服务端启动，密码: ' + this.config.password[0] + '***' + this.config.password.slice(-1));
     console.log('[TunnelServer] Starting with password:', this.config.password[0] + '***' + this.config.password.slice(-1));
     await this.connectSignaling();
