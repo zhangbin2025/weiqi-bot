@@ -80,8 +80,8 @@ function renderQRCode(url: string): void {
       ? window.QRCode.CorrectLevel.M
       : 0;
     const qr = new window.QRCode(container, {
-      width: 400,
-      height: 400,
+      width: 500,
+      height: 500,
       colorDark: '#000000',
       colorLight: '#ffffff',
       correctLevel,
