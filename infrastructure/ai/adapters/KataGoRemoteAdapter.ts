@@ -60,7 +60,6 @@ export class KataGoRemoteAdapter implements IAIEngine {
     const client = await TunnelManager.getInstance().waitForConnection();
     if (!client || !client.isConnected) {
       this.connectingToastShown = false;
-      getToast().error('远程服务端不在线，请检查服务端是否已启动并连接信令服务器', 5000);
       throw new Error('远程服务端不在线，请检查服务端是否已启动并连接信令服务器');
     }
     this.tunnelClient = client;
