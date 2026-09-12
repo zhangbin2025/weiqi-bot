@@ -11,6 +11,7 @@ import type { IGameService } from '../../../../../services/game/IGameService';
 import type { IFavoriteService } from '../../../../../services/favorite/IFavoriteService';
 import { RecorderHistoryManager } from '../../../../../application/recorder/RecorderHistoryManager';
 import { TaskHelper } from '../../../../../clients/web/shared/task-helper';
+import { TunnelManager } from '../../../../../infrastructure/tunnel/TunnelManager';
 
 /** 分析编排回调 */
 export interface AnalysisCallbacks {
@@ -192,14 +193,37 @@ export class ReviewAnalysis {
       
       try {
         // 加载模型
-        const savedModelId = await this.modelManager.loadPreference();
-        if (savedModelId) {
-          let modelUrl: string | undefined;
-          if (savedModelId === 'custom') {
+        // 远程模式：从服务端获取模型列表，优先选 isCurrent 的模型（服务端当前选中）
+        // 本地模式：读 localStorage 保存的偏好
+        const isRemote = TunnelManager.getInstance().isClientMode();
+        let modelId: string | null = null;
+        let modelUrl: string | undefined;
+        
+        if (isRemote) {
+          // 远程模式：使用服务端当前模型，不读本地偏好
+          const remoteModels = await this.modelManager.getModels();
+          const currentModel = remoteModels.find(m => m.isCurrent);
+          const fallbackModel = currentModel || remoteModels.find(m => m.isDefault) || remoteModels[0];
+          modelId = fallbackModel?.id ?? null;
+          if (modelId === 'custom') {
+            modelUrl = fallbackModel?.url || undefined;
+          }
+        } else {
+          // 本地模式：读保存的偏好
+          modelId = await this.modelManager.loadPreference();
+          if (modelId === 'custom') {
             modelUrl = (await this.modelManager.loadCustomModelUrl()) ?? undefined;
           }
-          
-          await this.modelManager.switchModel(savedModelId, modelUrl, (loaded, total, progress) => {
+          // 没有保存的偏好时，使用默认模型
+          if (!modelId) {
+            const models = await this.modelManager.getModels();
+            const defaultModel = models.find(m => m.isDefault) || models[0];
+            modelId = defaultModel?.id ?? null;
+          }
+        }
+        
+        if (modelId) {
+          await this.modelManager.switchModel(modelId, modelUrl, (loaded, total, progress) => {
             // 格式化进度，只显示整数
             const displayProgress = Math.round(progress);
             this.callbacks.onUpdateProgress(displayProgress);
@@ -228,39 +252,9 @@ export class ReviewAnalysis {
             }
           });
         } else {
-          // 如果没有保存的模型，使用默认模型
-          const models = await this.modelManager.getModels();
-          const defaultModel = models.find(m => m.isDefault) || models[0];
-          if (defaultModel) {
-            await this.modelManager.switchModel(defaultModel.id, undefined, (loaded, total, progress) => {
-              // 格式化进度，只显示整数
-              const displayProgress = Math.round(progress);
-              this.callbacks.onUpdateProgress(displayProgress);
-              // 通知后台进度（模型下载）
-              if (taskId) {
-                TaskHelper.notifyProgress(taskId, displayProgress, `正在加载模型... ${displayProgress}%`);
-              }
-            }, (info) => {
-              // KataGo 初始化进度（tuning）
-              // 隐藏进度条，只显示文本
-              this.callbacks.onProgress(false);
-              
-              let displayMessage = info.message || '';
-              if (info.stage === 'tuning' && displayMessage.includes('Tuning')) {
-                const match = displayMessage.match(/Tuning \d+\/\d+/);
-                if (match) {
-                  displayMessage = match[0];
-                }
-              }
-              this.callbacks.onUpdateLoadingText(displayMessage);
-              // 通知后台进度（KataGo 初始化）
-              // 根据初始化阶段计算进度：tuning 通常是最后阶段，进度在 80%-100% 之间
-              if (taskId) {
-                const initProgress = info.stage === 'tuning' ? 90 : 80;
-                TaskHelper.notifyProgress(taskId, initProgress, displayMessage);
-              }
-            });
-          }
+          // 没有可用的模型
+          console.warn('[ReviewAnalysis] No model available');
+          throw new Error('没有可用的 AI 模型');
         }
         
         // 隐藏进度提示
