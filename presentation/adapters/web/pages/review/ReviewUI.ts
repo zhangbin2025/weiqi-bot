@@ -723,45 +723,18 @@ export class ReviewUI {
     const dialog = document.createElement('div');
     dialog.className = 'config-dialog';
     
-    // 获取模型列表（只调用一次，远程模式失败时返回空列表）
-    let models: any[] = [];
-    if (modelManager && typeof modelManager.getModels === 'function') {
-      try {
-        models = await modelManager.getModels();
-        console.log('[ReviewUI] Model list:', models);
-      } catch (error) {
-        const errMsg = error instanceof Error ? error.message : String(error);
-        console.error('[ReviewUI] Failed to load models:', error);
-        if (errMsg.includes('远程服务端不在线')) {
-          new WebToast().error('远程服务端不在线，无法获取模型列表', 5000);
-          // models 保持空列表，dialog 照常渲染
-        } else {
-          models = [DefaultModelService.getDefaultModelCard()];
-        }
-      }
-    } else {
-      models = [DefaultModelService.getDefaultModelCard()];
-    }
-    
-    console.log('[ReviewUI] Models to display:', models);
-    
     // 创建 ModelSelector 组件
     const modelSelector = new ModelSelector({
-      modelManager: modelManager,  // 传入 modelManager，以便加载保存的偏好
+      modelManager: modelManager,
       currentModelId: this.getConfigModel(),
     });
     
-    // 设置模型列表并加载保存的偏好（避免重复调用 getModels）
+    // 加载模型列表（和 hm/mm 一样的方式）
     try {
-      await modelSelector.setModelsAndLoadPreference(models);
-      console.log('[ReviewUI] ModelSelector loaded saved preferences');
+      await modelSelector.loadModels();
+      console.log('[ReviewUI] ModelSelector loaded');
     } catch (error) {
-      console.error('[ReviewUI] Failed to load saved preferences:', error);
-    }
-    
-    // 如果没有选中模型且有模型列表，默认选中第一个
-    if (!modelSelector.getSelectedModelId() && models.length > 0) {
-      (modelSelector as any).selectedModelId = models[0]!.id;
+      console.error('[ReviewUI] Failed to load models:', error);
     }
     
     // 保存 modelSelector 实例，以便在点击"确定"时获取选中的模型
