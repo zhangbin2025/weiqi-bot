@@ -75,6 +75,7 @@
       font-size: 14px;
       transition: all 0.2s;
       min-height: 44px;
+      white-space: nowrap;
     }
     .btn-primary {
       background: #667eea;
@@ -327,18 +328,32 @@
       .a4-page { padding: 10px; }
       .thumbnail-grid { gap: 8px; }
       .toolbar {
-        padding: 15px;
-        padding-top: max(15px, env(safe-area-inset-top));
-        min-height: 60px;
+        padding: 8px 12px;
+        padding-top: max(8px, env(safe-area-inset-top));
+        min-height: auto;
+        flex-wrap: wrap;
+        gap: 6px;
       }
-      .toolbar h1 { font-size: 14px; }
+      .toolbar h1 { font-size: 15px; }
+      .toolbar-actions {
+        gap: 6px;
+        align-items: center;
+      }
+      .config-group {
+        font-size: 12px;
+        gap: 4px;
+        order: 2;
+        width: 100%;
+        margin-top: 2px;
+      }
+      .config-group input { width: 36px; height: 30px; font-size: 13px; }
+      .btn { padding: 6px 10px; font-size: 13px; min-height: 36px; }
       .card-footer-qr img,
       .card-footer-qr canvas {
         width: 44px !important;
         height: 44px !important;
       }
-      .config-group { font-size: 12px; }
-      .config-group input { width: 40px; height: 32px; }
+      .content { padding: 64px 10px 15px; }
     }
   </style>
 

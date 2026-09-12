@@ -124,7 +124,8 @@ function createCard(
   metaDiv.className = 'card-footer-meta';
   const turnText = data.turn === 'black' ? '黑先' : '白先';
   const moveText = data.moveNumber > 0 ? '第' + data.moveNumber + '手' : '初始';
-  metaDiv.textContent = formatRelativeTime(item.createdAt) + ' · ' + turnText + ' · ' + moveText;
+  metaDiv.textContent = turnText + ' · ' + moveText;
+  metaDiv.title = '收藏于 ' + formatRelativeTime(item.createdAt);
   footerText.appendChild(metaDiv);
   footer.appendChild(footerText);
   card.appendChild(footer);

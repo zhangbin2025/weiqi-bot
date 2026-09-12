@@ -102,6 +102,11 @@ export const INTENT_CONFIG: Record<string, IntentConfig> = {
     path: '../recorder/index.html',
     params: []
   },
+  view_favorites: {
+    name: '收藏局面',
+    path: '../replay/favorites.html',
+    params: []
+  },
   search_event: {
     name: '赛事查询',
     path: '../event/index.html',

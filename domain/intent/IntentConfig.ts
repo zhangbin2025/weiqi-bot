@@ -101,6 +101,12 @@ export const INTENT_KEYWORDS: IntentConfig[] = [
     variantKeywords: ['帮我下载', '帮我取', '棋谱下载'],
     description: '下载棋谱',
   },
+  {
+    intent: 'view_favorites',
+    page: '../replay/favorites.html',
+    coreKeywords: ['局面收藏', '收藏局面', '我的收藏'],
+    description: '查看收藏的局面',
+  },
 ];
 
 /**

@@ -27,6 +27,7 @@ export class JumpDecision implements IJumpDecision {
       'start_recorder',
       'start_replay',
       'start_joseki',
+      'view_favorites',
     ];
     if (highConfidenceIntents.includes(intent)) {
       if (intent === 'query_player' && entities['player']) {
@@ -46,6 +47,9 @@ export class JumpDecision implements IJumpDecision {
         return { shouldJump: true, countdown: 3, showAlternatives: false };
       }
       if (intent === 'start_joseki') {
+        return { shouldJump: true, countdown: 3, showAlternatives: false };
+      }
+      if (intent === 'view_favorites') {
         return { shouldJump: true, countdown: 3, showAlternatives: false };
       }
     }
