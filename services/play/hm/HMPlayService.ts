@@ -28,6 +28,7 @@ export class HMPlayService implements IHMPlayService {
   private aiMover: HMPlayAIMover;
   private sgfWriter = new SGFWriter();
   private previousBoard: BoardState | null = null; // 用于打劫判断
+  private playerPassed = false; // 玩家是否刚停一手
 
   constructor(game: IGame, aiController: AIController, configProvider?: IConfigProvider) {
     this.game = game;
@@ -158,13 +159,9 @@ export class HMPlayService implements IHMPlayService {
       return;
     }
 
-    // 玩家 pass 后，AI 跟着 pass，进入数子定胜负
-    // 玩家主动停手表示认为棋局已定，AI 跟随停手是围棋惯例
-    this.gameState.incrementPasses();
-    this.game.pass();
-    this.notifier.notifyPlayerChange(this.game.getState().currentPlayer);
-    await this.saveDraft();
-    await this.endGame();
+    // 玩家 pass 后，AI 正常思考，但上层介入：如果 AI 已胜券在握则直接 pass
+    this.playerPassed = true;
+    await this.aiMove();
   }
 
   async undo(): Promise<boolean> {
@@ -340,14 +337,16 @@ export class HMPlayService implements IHMPlayService {
       () => this.gameState.incrementPasses(),
       () => this.gameState.resetPasses(),
       () => this.saveDraft(),
-      visits,  // 传递 visits，不再是 difficulty
+      visits,
       async () => {
         // AI 认输
         const config = this.gameState.getConfig();
         const winner = config?.playerColor === 'black' ? 'black' : 'white';
         await this.endGame(winner, 'AI认输');
-      }
+      },
+      this.playerPassed  // 告知 AI 玩家是否刚停一手
     );
+    this.playerPassed = false;
     
     // 检查是否双方虚手
     const passes = this.gameState.getConsecutivePasses();

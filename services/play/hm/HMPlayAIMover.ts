@@ -10,6 +10,9 @@ import type { IGame } from '../../../domain/game/IGame';
 import type { HMGameStateManager } from './HMGameStateManager';
 import { getBoardState, toSimpleMove } from './HMUtils';
 
+/** AI 已胜券在握的胜率阈值：高于此值时如果玩家 pass，AI 也直接 pass */
+const AI_WIN_THRESHOLD = 0.95;
+
 /**
  * AI 移动控制器
  * 负责调用 AI 生成着法并执行
@@ -50,7 +53,8 @@ export class HMPlayAIMover {
     resetPasses: () => void,
     onSaveDraft: () => Promise<void>,
     visits?: number,
-    onAiResign?: () => Promise<void>
+    onAiResign?: () => Promise<void>,
+    playerPassed?: boolean
   ): Promise<void> {
     this.notifier.notifyAiThinking(true);
 
@@ -84,6 +88,17 @@ export class HMPlayAIMover {
       if (move) {
         const aiColor = state.currentPlayer;
         const aiWinRate = aiColor === 'black' ? move.winRate : (1 - move.winRate);
+
+        // 玩家停一手后，如果 AI 已胜券在握，直接 pass 结束，不再下废棋
+        if (playerPassed && aiWinRate >= AI_WIN_THRESHOLD) {
+          incrementPasses();
+          this.setPreviousBoard(currentBoard);
+          this.game.pass();
+          this.notifier.notifyPlayerChange(this.game.getState().currentPlayer);
+          await onSaveDraft();
+          return;
+        }
+
         if (this.gameState.shouldAiResign(aiWinRate) && onAiResign) {
           await onAiResign();
           return;
