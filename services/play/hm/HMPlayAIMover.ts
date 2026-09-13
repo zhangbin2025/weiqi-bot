@@ -7,6 +7,7 @@ import type { PlayerColor, BoardState } from '../../../domain';
 import type { AIController } from '../../ai/AIController';
 import type { HMNotifier } from './HMNotifier';
 import type { IGame } from '../../../domain/game/IGame';
+import type { HMGameStateManager } from './HMGameStateManager';
 import { getBoardState, toSimpleMove } from './HMUtils';
 
 /**
@@ -19,19 +20,22 @@ export class HMPlayAIMover {
   private notifier: HMNotifier;
   private getPreviousBoard: () => BoardState | null;
   private setPreviousBoard: (board: BoardState | null) => void;
+  private gameState: HMGameStateManager;
 
   constructor(
     game: IGame,
     aiController: AIController,
     notifier: HMNotifier,
     getPreviousBoard: () => BoardState | null,
-    setPreviousBoard: (board: BoardState | null) => void
+    setPreviousBoard: (board: BoardState | null) => void,
+    gameState: HMGameStateManager
   ) {
     this.game = game;
     this.aiController = aiController;
     this.notifier = notifier;
     this.getPreviousBoard = getPreviousBoard;
     this.setPreviousBoard = setPreviousBoard;
+    this.gameState = gameState;
   }
 
   /**
@@ -45,7 +49,8 @@ export class HMPlayAIMover {
     incrementPasses: () => number,
     resetPasses: () => void,
     onSaveDraft: () => Promise<void>,
-    visits?: number
+    visits?: number,
+    onAiResign?: () => Promise<void>
   ): Promise<void> {
     this.notifier.notifyAiThinking(true);
 
@@ -74,6 +79,16 @@ export class HMPlayAIMover {
         undefined, // maxTimeMs
         initialStones.length > 0 ? initialStones : undefined
       );
+
+      // 检查 AI 是否应该认输（winRate 是黑方胜率，转换为 AI 视角）
+      if (move) {
+        const aiColor = state.currentPlayer;
+        const aiWinRate = aiColor === 'black' ? move.winRate : (1 - move.winRate);
+        if (this.gameState.shouldAiResign(aiWinRate) && onAiResign) {
+          await onAiResign();
+          return;
+        }
+      }
 
       // AI 返回 pass 着法：genmove 返回 null 或 {x:-1, y:-1}（KataGo best move 是 pass）
       const isPassMove = !move || (move.x === -1 && move.y === -1);

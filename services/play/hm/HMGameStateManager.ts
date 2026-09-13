@@ -5,6 +5,10 @@
 import type { PlayerColor } from '../../../domain';
 import type { IHMPlayConfig } from './types';
 
+/** AI 认输参数 */
+const RESIGN_THRESHOLD = 0.05; // AI 胜率低于 5% 考虑认输
+const RESIGN_CONSEC_TURNS = 3;  // 连续 3 手都低于阈值才认输
+
 /**
  * 游戏状态管理器
  * 负责管理游戏配置、连续虚手计数、游戏状态查询
@@ -12,6 +16,7 @@ import type { IHMPlayConfig } from './types';
 export class HMGameStateManager {
   private config: IHMPlayConfig | null = null;
   private consecutivePasses = 0;
+  private lowWinRateCount = 0; // AI 连续低胜率手数
 
   /** 设置游戏配置 */
   setConfig(config: IHMPlayConfig): void {
@@ -57,5 +62,16 @@ export class HMGameStateManager {
   reset(): void {
     this.config = null;
     this.consecutivePasses = 0;
+    this.lowWinRateCount = 0;
+  }
+
+  /** 检查 AI 是否应该认输 */
+  shouldAiResign(aiWinRate: number): boolean {
+    if (aiWinRate < RESIGN_THRESHOLD) {
+      this.lowWinRateCount++;
+    } else {
+      this.lowWinRateCount = 0;
+    }
+    return this.lowWinRateCount >= RESIGN_CONSEC_TURNS;
   }
 }

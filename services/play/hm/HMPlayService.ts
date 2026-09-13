@@ -38,7 +38,8 @@ export class HMPlayService implements IHMPlayService {
       aiController,
       this.notifier,
       () => this.previousBoard,
-      (board) => { this.previousBoard = board; }
+      (board) => { this.previousBoard = board; },
+      this.gameState
     );
   }
 
@@ -156,7 +157,14 @@ export class HMPlayService implements IHMPlayService {
       await this.endGame();
       return;
     }
-    await this.aiMove();
+
+    // 玩家 pass 后，AI 跟着 pass，进入数子定胜负
+    // 玩家主动停手表示认为棋局已定，AI 跟随停手是围棋惯例
+    this.gameState.incrementPasses();
+    this.game.pass();
+    this.notifier.notifyPlayerChange(this.game.getState().currentPlayer);
+    await this.saveDraft();
+    await this.endGame();
   }
 
   async undo(): Promise<boolean> {
@@ -332,7 +340,13 @@ export class HMPlayService implements IHMPlayService {
       () => this.gameState.incrementPasses(),
       () => this.gameState.resetPasses(),
       () => this.saveDraft(),
-      visits  // 传递 visits，不再是 difficulty
+      visits,  // 传递 visits，不再是 difficulty
+      async () => {
+        // AI 认输
+        const config = this.gameState.getConfig();
+        const winner = config?.playerColor === 'black' ? 'black' : 'white';
+        await this.endGame(winner, 'AI认输');
+      }
     );
     
     // 检查是否双方虚手
