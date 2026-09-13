@@ -681,6 +681,30 @@
             word-break: break-all;
             white-space: pre-wrap;
         }
+        
+        /* 加载更多指示器 */
+        .load-more-indicator {
+            display: none;
+            justify-content: center;
+            align-items: center;
+            padding: 12px;
+            gap: 8px;
+            color: #999;
+            font-size: 14px;
+        }
+        
+        .load-more-indicator .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid #ddd;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 
     <!-- Favicon -->
@@ -704,6 +728,11 @@
             <div class="status">
                 <span>✅</span>
                 <span id="loadingText">AI助手已就绪</span>
+            </div>
+            <!-- 加载更多指示器 -->
+            <div class="load-more-indicator" id="loadMoreIndicator">
+                <div class="spinner"></div>
+                <span>加载更多消息...</span>
             </div>
         </div>
         

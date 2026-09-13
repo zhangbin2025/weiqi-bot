@@ -19,6 +19,7 @@ import { EntityExtractor } from '../../../../../domain/intent/EntityExtractor';
 import { AssistantRenderer } from './AssistantRenderer';
 import { UIController } from './UIController';
 import { TaskPollingManager } from './TaskPollingManager';
+import type { ChatMessage } from '../../../../../application/assistant/ChatHistoryManager';
 import { ExportService } from '../../../../../services/export/ExportService';
 import { WebFileExporter } from '../../../../../infrastructure/utils/export/WebFileExporter';
 import { WebDialog } from '../../components/Dialog';
@@ -38,6 +39,12 @@ export class AssistantPage {
   private remoteBase: string = DEFAULT_REMOTE_BASE;
   private managementService: ManagementService; // 管理服务
   private taskPollingManager: TaskPollingManager; // 任务轮询管理器
+  
+  // 懒加载：待渲染的历史消息
+  private pendingMessages: ChatMessage[] = [];
+  private readonly INITIAL_RENDER_COUNT = 30; // 默认显示最后 30 条
+  private readonly LOAD_MORE_BATCH = 20; // 每次向上滚动加载 20 条
+  private isLoadingMore = false;
   
   constructor() {
     this.renderer = new AssistantRenderer();
@@ -355,7 +362,13 @@ export class AssistantPage {
         const messages = await this.chatHistoryManager.loadSession(recentSession.sessionId);
         if (messages && messages.length > 0) {
           const sortedMessages = messages.sort((a, b) => a.timestamp - b.timestamp);
-          for (const msg of sortedMessages) {
+          
+          // 分割：最后 N 条立即渲染，更早的延迟加载
+          const renderCount = Math.min(this.INITIAL_RENDER_COUNT, sortedMessages.length);
+          const initialMessages = sortedMessages.slice(-renderCount);
+          this.pendingMessages = sortedMessages.slice(0, -renderCount);
+          
+          for (const msg of initialMessages) {
             await this.renderer.renderMessage(
               msg.content,
               msg.role === 'user',
@@ -368,22 +381,94 @@ export class AssistantPage {
             );
           }
           
-          // 加载完成后，延迟滚动到最后一条消息
-          const chatContainer = document.getElementById('chatContainer');
-          if (chatContainer && chatContainer.lastElementChild) {
-            setTimeout(() => {
-              chatContainer.lastElementChild!.scrollIntoView({ 
-                behavior: 'smooth', 
-                block: 'end'
-              });
-            }, 100);
+          // 如果有待加载的消息，设置懒加载
+          if (this.pendingMessages.length > 0) {
+            this.setupLazyLoad();
           }
-          // console.info(`已加载历史会话: ${recentSession.data.title} (${messages.length} 条消息)`);
+          
+          // 加载完成后，延迟滚动到底部最新消息
+          // 多次尝试滚动，覆盖异步 markdown 渲染导致高度变化的情况
+          const chatContainer = document.getElementById('chatContainer');
+          if (chatContainer) {
+            const tryScroll = (attempts: number) => {
+              chatContainer.scrollTop = chatContainer.scrollHeight;
+              if (attempts > 1) {
+                setTimeout(() => tryScroll(attempts - 1), 200);
+              }
+            };
+            tryScroll(4);
+          }
         }
       }
     } catch (error) {
       // console.error('加载历史会话失败:', error as Error);
     }
+  }
+  
+  /**
+   * 设置向上滚动懒加载
+   */
+  private setupLazyLoad(): void {
+    const chatContainer = document.getElementById('chatContainer');
+    if (!chatContainer) return;
+    
+    const onScroll = () => {
+      if (this.isLoadingMore || this.pendingMessages.length === 0) return;
+      if (chatContainer.scrollTop < 50) {
+        this.loadMoreMessages();
+      }
+    };
+    
+    chatContainer.addEventListener('scroll', onScroll, { passive: true });
+  }
+  
+  /**
+   * 向上滚动时加载更多历史消息
+   */
+  private async loadMoreMessages(): Promise<void> {
+    if (this.isLoadingMore || this.pendingMessages.length === 0) return;
+    this.isLoadingMore = true;
+    
+    const chatContainer = document.getElementById('chatContainer');
+    if (!chatContainer) {
+      this.isLoadingMore = false;
+      return;
+    }
+    
+    // 显示加载指示器
+    const indicator = document.getElementById('loadMoreIndicator');
+    if (indicator) indicator.style.display = 'flex';
+    
+    // 记录当前滚动位置
+    const prevScrollHeight = chatContainer.scrollHeight;
+    const prevScrollTop = chatContainer.scrollTop;
+    
+    // 取一批消息（从 pendingMessages 头部取，即最早的消息）
+    const batch = this.pendingMessages.splice(0, this.LOAD_MORE_BATCH);
+    
+    // 倒序插入（prepend 最早的消息要最后插入才能保持顺序）
+    for (let i = batch.length - 1; i >= 0; i--) {
+      const msg = batch[i];
+      if (!msg) continue;
+      await this.renderer.prependMessage(
+        msg.content,
+        msg.role === 'user',
+        msg.intent,
+        msg.entities,
+        msg.actionUrl,
+        msg.actionText,
+        msg.taskId
+      );
+    }
+    
+    // 恢复滚动位置（新内容加在上方，scrollTop 要相应增加）
+    const newScrollHeight = chatContainer.scrollHeight;
+    chatContainer.scrollTop = prevScrollTop + (newScrollHeight - prevScrollHeight);
+    
+    // 隐藏加载指示器
+    if (indicator) indicator.style.display = 'none';
+    
+    this.isLoadingMore = false;
   }
   /**
    * 检查版本更新（App 环境下比较远程版本和本地版本）

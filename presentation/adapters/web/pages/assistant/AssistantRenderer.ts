@@ -536,6 +536,85 @@ export class AssistantRenderer implements IMessageRenderer {
     });
   }
 
+  /**
+   * 在顶部插入消息（用于向上滚动加载历史消息）
+   */
+  async prependMessage(
+    text: string,
+    isUser: boolean,
+    intent?: string | null,
+    entities?: Record<string, any> | null,
+    actionUrl?: string,
+    actionText?: string,
+    taskId?: string
+  ): Promise<void> {
+    const chatContainer = document.getElementById('chatContainer');
+    if (!chatContainer) return;
+    
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `message ${isUser ? 'user' : 'assistant'}`;
+    
+    if (taskId) {
+      messageDiv.setAttribute('data-task-id', taskId);
+    }
+    
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'message-content';
+    
+    if (intent && !isUser) {
+      const badge = document.createElement('span');
+      badge.className = 'intent-badge';
+      badge.textContent = INTENT_CONFIG[intent]?.name || intent;
+      contentDiv.appendChild(badge);
+    }
+    
+    if (entities && Object.keys(entities).length > 0) {
+      const entityDiv = document.createElement('div');
+      entityDiv.className = 'entity-list';
+      entityDiv.innerHTML = '<strong>识别参数：</strong>';
+      for (const [key, value] of Object.entries(entities)) {
+        if (key === 'text') continue;
+        const item = document.createElement('div');
+        item.className = 'entity-item';
+        const displayValue = this.formatEntityValue(key, value);
+        item.innerHTML = `<strong>${key}:</strong> ${displayValue}`;
+        entityDiv.appendChild(item);
+      }
+      if (entityDiv.children.length > 1) {
+        contentDiv.appendChild(entityDiv);
+      }
+    }
+    
+    messageDiv.appendChild(contentDiv);
+    
+    // 插入到第一条消息之前（状态提示之后）
+    const firstMessage = chatContainer.querySelector('.message');
+    if (firstMessage) {
+      chatContainer.insertBefore(messageDiv, firstMessage);
+    } else {
+      chatContainer.appendChild(messageDiv);
+    }
+    
+    if (!isUser) {
+      // 历史消息不用打字机效果，直接渲染
+      await this.renderMarkdownContent(contentDiv, text, false);
+      this.beautifyContent(contentDiv);
+      this.processTaskIdLinks(contentDiv);
+      this.processScheduleDeleteLinks(contentDiv);
+    } else {
+      this.renderUserMessage(contentDiv, text);
+      this.processTaskIdLinks(contentDiv);
+    }
+    
+    if (actionUrl && actionText) {
+      const actionBtn = document.createElement('a');
+      actionBtn.className = 'action-btn';
+      actionBtn.href = this.resolvePath(actionUrl);
+      actionBtn.textContent = actionText;
+      contentDiv.appendChild(actionBtn);
+    }
+  }
+
   showTyping(): void {
     const chatContainer = document.getElementById('chatContainer');
     if (!chatContainer) return;
