@@ -285,12 +285,13 @@ export class HMPlayPage implements IPage {
     }
   }
   async pass(): Promise<void> {
-    await this.hmPlayApp.playerPass();
+    // 先即时反馈，避免等 AI 落子后才提示
     this.toast.info('停一手');
-    // 更新手数（停一手也算一手）
     this.moveCount++;
     const moveCountEl = document.getElementById('moveCount');
     if (moveCountEl) moveCountEl.textContent = String(this.moveCount);
+    // 再执行 pass（内部会触发 AI 思考，callback 自动更新状态为AI思考中...）
+    await this.hmPlayApp.playerPass();
   }
   async showSituation(): Promise<void> {
     try {
