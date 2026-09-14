@@ -368,6 +368,17 @@ export class AssetServer {
     const contentType = req.headers['content-type'];
     if (contentType) (options.headers as Record<string, string>)['Content-Type'] = contentType as string;
 
+    // 透传其他自定义请求头（签名头等，如 AppKey, CheckSum, accesstoken, Nonce, timestamp 等）
+    const passthroughHeaders = [
+      'appkey', 'checksum', 'accesstoken', 'nonce', 'curtime',
+      'timestamp', 'usertoken', 'version', 'platform', 'uuid',
+      'accept', 'accept-language', 'authorization',
+    ];
+    for (const h of passthroughHeaders) {
+      const value = req.headers[h];
+      if (value) (options.headers as Record<string, string>)[h] = value as string;
+    }
+
     const proxyReq = client.request(options, (proxyRes) => {
       const headers: Record<string, string> = {
         'Content-Type': proxyRes.headers['content-type'] || 'application/json',
