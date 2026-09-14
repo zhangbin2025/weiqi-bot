@@ -101,6 +101,7 @@ export class FetcherRenderer {
       options: [
         { value: 'foxwq', label: '野狐围棋' },
         { value: 'weiqi101', label: '101围棋' },
+        { value: 'ogs-live', label: 'OGS在线' },
       ],
       value: 'foxwq',
     });
@@ -322,7 +323,8 @@ export class FetcherRenderer {
     this.latestCard.setVisible(true);
     this._latestItems = items;
     const html = items.map(item => {
-      const sourceLabel = item.source === 'foxwq' ? '🏆 野狐' : '📝 101围棋';
+      const sourceLabels: Record<string, string> = { foxwq: '🏆 野狐', weiqi101: '📝 101围棋', 'ogs-live': '🎬 OGS' };
+      const sourceLabel = sourceLabels[item.source] || item.source;
       const subtitle = item.subtitle
         ? `<div style="font-size:0.85em;color:#666;margin-top:4px;">${item.subtitle}</div>`
         : '';

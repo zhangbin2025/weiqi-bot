@@ -6,6 +6,7 @@
  *   npx tsx clients/cli/index.ts player query 柯洁
  *   npx tsx clients/cli/index.ts event list --area 广东省 --month 1
  *   npx tsx clients/cli/index.ts fetch download https://www.foxwq.com/qipu/share/xxx.html
+  npx tsx clients/cli/index.ts fetch browse --source foxwq
  *   npx tsx clients/cli/index.ts joseki discover --sgf game.sgf
  *   npx tsx clients/cli/index.ts opponent analyze 柯洁
  *   npx tsx clients/cli/index.ts decision --date 2026-07-28
@@ -23,12 +24,12 @@ import { createCliContext } from './bootstrap';
 const HELP = `
 usage: weiqi-bot <command> [options]
 
-围棋工具集：棋手查询、比赛查询、棋谱下载、定式发现、对手分析、实战选点
+围棋工具集：棋手查询、比赛查询、棋谱下载与浏览、定式发现、对手分析、实战选点
 
 commands:
   player            棋手等级分查询
   event             云比赛赛事查询
-  fetch             棋谱下载
+  fetch             棋谱下载与浏览
   joseki            定式发现
   opponent          对手分析
   decision          实战选点题生成
@@ -41,6 +42,7 @@ examples:
   player query 柯洁 --format text
   event list --area 广东省 --month 1
   fetch download https://www.foxwq.com/qipu/share/xxx.html
+  npx tsx clients/cli/index.ts fetch browse --source foxwq
   joseki --date 2026-07-28 --limit 20
   opponent analyze 柯洁
   decision --date 2026-07-28 --limit 20

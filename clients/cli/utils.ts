@@ -55,6 +55,7 @@ export function formatTextOutput(result: CliResult): string {
     case 'fetch-history': return formatFetchHistoryText(result.data as any);
     case 'fetch-get': return formatFetchGetText(result.data as any);
     case 'fetch-help': return result.data as string;
+    case 'fetch-browse': return formatFetchBrowseText(result.data as any);
     case 'joseki-discover': return formatJosekiDiscoverText(result.data as any);
     case 'joseki-help': return result.data as string;
     case 'opponent-analyze': return formatOpponentAnalyzeText(result.data as any);
@@ -581,6 +582,28 @@ function formatFetchHistoryText(data: any): string {
 function formatFetchGetText(data: any): string {
   if (!data?.sgfContent) return '无 SGF 内容';
   return data.sgfContent;
+}
+function formatFetchBrowseText(data: any): string {
+  const lines: string[] = [];
+  const items = data?.items ?? [];
+  const sources = (data?.sources ?? []).join(", ");
+  const kw = data?.keyword ? `  关键词: ${data.keyword}` : "";
+  lines.push(`=== 最新棋谱 (${data?.total ?? 0} 条 | 来源: ${sources})${kw} ===`);
+  lines.push("");
+  if (items.length === 0) {
+    lines.push("暂无棋谱");
+    return lines.join("\n");
+  }
+  const sourceLabel: Record<string, string> = { foxwq: "野狐", weiqi101: "101", "ogs-live": "OGS" };
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const src = sourceLabel[item.source] ?? item.source;
+    const subtitle = item.subtitle ? `  ${item.subtitle}` : "";
+    lines.push(`#${String(i + 1).padStart(2, "0")} [${src}] ${item.title}${subtitle}`);
+    if (item.date) lines.push(`     日期: ${item.date}`);
+    if (item.url) lines.push(`     URL:  ${item.url}`);
+  }
+  return lines.join("\n");
 }
 
 function formatJosekiDiscoverText(data: any): string {

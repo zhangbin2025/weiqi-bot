@@ -8,18 +8,22 @@ import type { IExportService, ExportResult } from '../../services/export';
 import type { IShareService } from '../../services/share';
 import type { FetcherResult, FetcherBookmark, ShareResult, FetcherFetchOptions, LatestGameItem } from './types';
 import { parseSGF, coordToPos } from '../../domain/sgf';
+import { OgsLiveProvider } from '../../services/game/providers/ogs/OgsLiveProvider';
 /**
  * 棋谱下载应用编排器
  * @description 组合 GameService、FavoriteService、ShareService 完成棋谱下载、收藏管理与分享
  */
 export class FetcherApp {
   private readonly CATEGORY = 'fetcher';
+  private readonly ogsLive: OgsLiveProvider;
   constructor(
     private readonly gameService: IGameService,
     private readonly exportService: IExportService,
     private readonly favoriteService?: IFavoriteService,
     private readonly shareService?: IShareService,
-  ) {}
+  ) {
+    this.ogsLive = new OgsLiveProvider();
+  }
   async fetch(url: string, options?: FetcherFetchOptions): Promise<FetcherResult> {
     const gameResult = await this.gameService.fetch(url);
     const result = this.transformResult(gameResult);
@@ -73,7 +77,7 @@ export class FetcherApp {
 
   /**
    * 获取最新棋谱列表
-   * @param source - 来源 ('foxwq' | 'weiqi101')
+   * @param source - 来源 ('foxwq' | 'weiqi101' | 'ogs-live')
    * @param count - 数量
    * @returns 最新棋谱列表
    */
@@ -109,6 +113,9 @@ export class FetcherApp {
           date: item.date,
           url: item.url,
         }));
+      } else if (source === "ogs-live") {
+        const games = await this.ogsLive.fetchLiveGames(count, keyword);
+        return games;
       }
       return [];
     } catch (error) {
