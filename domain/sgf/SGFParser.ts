@@ -180,6 +180,7 @@ export class SGFParser {
       komi: getProp('KM', '375'),
       handicap,
       handicapStones,
+      rules: getProp('RU'),
       initialPlayer,
     };
   }

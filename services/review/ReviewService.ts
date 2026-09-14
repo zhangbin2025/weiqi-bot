@@ -21,6 +21,7 @@ interface ReviewData {
   moves: Array<{ x: number; y: number; color: PlayerColor }>;
   handicapStones: Array<{ x: number; y: number; color: PlayerColor }>;
   komi: number;
+  rules: string;
   gameInfo: ReviewState['gameInfo'];
   result: FullReviewResult | null;
   analyzing: boolean;
@@ -90,11 +91,14 @@ export class ReviewService implements IReviewService {
     const parsedKomi = parseFloat(info.komi);
     const komi = Number.isNaN(parsedKomi) ? 7.5 : normalizeKomi(parsedKomi);
     
+    // 解析规则 (SGF RU[] -> KataGo rules)
+    const rules = sgfRuleToKataGo(info.rules);
+    
     const gameInfo: ReviewState['gameInfo'] = { black: info.black, white: info.white, komi };
     if (info.result) gameInfo.result = info.result;
     // 保存先手方：PL[] 指定的优先，否则让子棋自动白先
     const initialPlayer = info.initialPlayer;
-    this.reviews.set(id, { id, moves, handicapStones, komi, gameInfo, result: null, analyzing: false, progress: 0, initialPlayer });
+    this.reviews.set(id, { id, moves, handicapStones, komi, rules, gameInfo, result: null, analyzing: false, progress: 0, initialPlayer });
     return id;
   }
 
@@ -200,7 +204,7 @@ export class ReviewService implements IReviewService {
       y: s.y,
     }));
     
-    const analysis = await this.ai!.analyze(board, previousBoard, currentPlayer, moveHistory as any, komi, visits, undefined, includePv ? 15 : 0, initialStones, undefined, undefined, regionOfInterest);
+    const analysis = await this.ai!.analyze(board, previousBoard, currentPlayer, moveHistory as any, komi, visits, undefined, includePv ? 15 : 0, initialStones, undefined, undefined, regionOfInterest, data.rules);
     
     // 返回结果（没有胜率变化，因为没有实际着法可以比较）
     return {
@@ -286,6 +290,7 @@ export class ReviewService implements IReviewService {
       }));
       
       const results = await (this.ai as any).analyzeGame(moves, komi, {
+        rules: data.rules || undefined,
         visits: visits > 0 ? visits : 25,
         analyzeTurns,
         includeOwnership: true,
@@ -414,7 +419,8 @@ export class ReviewService implements IReviewService {
     moves: Array<{ x: number; y: number; color: PlayerColor }>,
     komi: number,
     options?: ReviewOptions,
-    handicapStones?: Array<{ x: number; y: number; color: PlayerColor }>
+    handicapStones?: Array<{ x: number; y: number; color: PlayerColor }>,
+    rules?: string,
   ): Promise<MoveReview | null> {
     this.ensureAI();
     if (moves.length === 0) return null;
@@ -448,7 +454,7 @@ export class ReviewService implements IReviewService {
       y: s.y,
     }));
     
-    const analysis = await this.ai!.analyze(board, previousBoard, currentPlayer, moveHistory as any, komi, visits, undefined, includePv ? 15 : 0, initialStones, undefined, undefined, regionOfInterest);
+    const analysis = await this.ai!.analyze(board, previousBoard, currentPlayer, moveHistory as any, komi, visits, undefined, includePv ? 15 : 0, initialStones, undefined, undefined, regionOfInterest, rules);
     
     // 返回结果
     return {
@@ -771,6 +777,7 @@ export class ReviewService implements IReviewService {
       }));
       const results = await (this.ai as any).analyzeGame(moves, komi, {
         visits: 1,
+        rules: data.rules || undefined,
         analyzeTurns: moveIndices,
         includeOwnership: false,
         includePv: false,
@@ -808,4 +815,22 @@ export class ReviewService implements IReviewService {
       scoreLead: evals[i]!.scoreLead,
     }));
   }
+}
+
+/**
+ * 将 SGF RU[] 属性值映射为 KataGo 规则名称
+ * SGF 规范: JP=日本, CN=中国, KR=韩国, AGA=美国, TT=Tromp-Taylor
+ * @param sgfRule SGF RU[] 的值（如 'JP', 'CN'）
+ * @returns KataGo 规则名称，默认 'chinese'
+ */
+function sgfRuleToKataGo(sgfRule?: string): string {
+  if (!sgfRule) return 'chinese';
+  const mapping: Record<string, string> = {
+    'JP': 'japanese',
+    'CN': 'chinese',
+    'KR': 'korean',
+    'AGA': 'aga',
+    'TT': 'tromp-taylor',
+  };
+  return mapping[sgfRule.toUpperCase()] ?? 'chinese';
 }

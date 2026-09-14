@@ -61,6 +61,8 @@ export interface ISGFGameInfoFull {
   komi: string;
   handicap: number;
   handicapStones: HandicapStone[];
+  /** SGF RU[] 规则: JP/CN/KR/AGA/TT 等 */
+  rules?: string;
   /** 先手方 */
   initialPlayer?: PlayerColor;
 }

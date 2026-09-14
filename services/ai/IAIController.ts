@@ -80,6 +80,7 @@ export interface IAIController {
     wideRootNoise?: number,
     nnRandomize?: boolean,
     regionOfInterest?: { xMin: number; yMin: number; xMax: number; yMax: number } | null,
+    rules?: string,
   ): Promise<IAnalysisResult>;
 
   /**
