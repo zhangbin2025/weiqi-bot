@@ -15,7 +15,7 @@
  * https://home.yikeweiqi.com/mobile.html#/golive/room/{Id}/0/0
  */
 
-import * as crypto from "crypto";
+import { md5 } from "js-md5";
 import type { LatestGameItem } from "../../../../application/fetcher/types";
 import type { NetworkManager } from "../../../../infrastructure/network/core/NetworkManager";
 
@@ -47,17 +47,40 @@ const APP_KEY = "3396jtzhK57XhJom";
 const APP_SECRET = "hfdSXRKm0DQyLmNXmNCNkZpjy2o5q1Hk";
 const SALT = "@1%e$5*f@3";
 
+// --- 跨平台 hash 工具 ---
+
+/** MD5: 使用 js-md5（浏览器 + Node.js 通用） */
+function md5Hex(input: string): string {
+  return md5(input).toLowerCase();
+}
+
+/** SHA-1: 浏览器用 Web Crypto，Node.js 用 crypto 模块 */
+async function sha1Hex(input: string): Promise<string> {
+  if (typeof globalThis !== "undefined" && (globalThis as any).crypto?.subtle) {
+    const data = new TextEncoder().encode(input);
+    const hashBuffer = await (globalThis as any).crypto.subtle.digest("SHA-1", data);
+    const bytes = new Uint8Array(hashBuffer);
+    let hex = "";
+    for (let i = 0; i < bytes.length; i++) {
+      hex += (bytes[i]!).toString(16).padStart(2, "0");
+    }
+    return hex.toLowerCase();
+  }
+  const nodeCrypto = await import("crypto");
+  return nodeCrypto.createHash("sha1").update(input).digest("hex").toLowerCase();
+}
+
 /**
  * 生成弈客 API 签名头
  */
-function buildSignHeaders(): Record<string, string> {
+async function buildSignHeaders(): Promise<Record<string, string>> {
   const nonce = Math.round(Math.random() * 1e8).toString();
   const timestamp = Date.now().toString();
   const curtime = Date.now().toString();
 
-  const md5Timestamp = crypto.createHash("md5").update(timestamp).digest("hex").toLowerCase();
-  const accesstoken = crypto.createHash("md5").update(SALT + md5Timestamp + "web").digest("hex").toLowerCase();
-  const checksum = crypto.createHash("sha1").update(APP_SECRET + nonce + curtime).digest("hex").toLowerCase();
+  const md5Timestamp = md5Hex(timestamp);
+  const accesstoken = md5Hex(SALT + md5Timestamp + "web");
+  const checksum = await sha1Hex(APP_SECRET + nonce + curtime);
 
   return {
     "AppKey": APP_KEY,
@@ -96,7 +119,7 @@ export class YikeLiveProvider {
    */
   async fetchLiveGames(count: number = 20, keyword?: string): Promise<LatestGameItem[]> {
     const apiUrl = `${YIKE_LIVE_API}?p=1&since=0&official=1&version=2&usertoken=-1`;
-    const headers = buildSignHeaders();
+    const headers = await buildSignHeaders();
 
     let data: YikeLiveListResponse;
 
@@ -105,6 +128,7 @@ export class YikeLiveProvider {
         url: apiUrl,
         method: "GET",
         headers,
+        bypassProxy: true,
       });
       data = response.data as unknown as YikeLiveListResponse;
     } else {
