@@ -49,10 +49,10 @@ describe('MoveNavigator', () => {
     navigator.goTo(100);
     expect(navigator.getCurrentIndex()).toBe(10);
   });
-  it('goTo() should not call onMoveChange when same index', () => {
+  it('goTo() should always call onMoveChange (fixes move=0 variation panel issue)', () => {
     const callCount = onChange.mock.calls.length;
     navigator.goTo(0);
-    expect(onChange.mock.calls.length).toBe(callCount);
+    expect(onChange.mock.calls.length).toBe(callCount + 1);
   });
   it('setMaxMoves() should update maxMoves', () => {
     navigator.setMaxMoves(20);
