@@ -43,6 +43,7 @@ async function main() {
     exportService,
     ctx.favoriteService,
     shareService,
+    ctx.network,
   );
 
   // 7. 创建 SessionService（用于从 assistant 页面传递 SGF）

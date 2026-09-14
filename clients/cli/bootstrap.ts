@@ -230,7 +230,7 @@ export async function createCliContext(
   const eventQuerier = new EventQuerier(new EventService(network, cache, config), new RankingCalculator(), favoriteService);
 
   const exportService = new ExportService({ exportText: async () => ({ success: true }), exportJSON: async () => ({ success: true }) } as any);
-  const fetcherApp = new FetcherApp(gameService, exportService, favoriteService);
+  const fetcherApp = new FetcherApp(gameService, exportService, favoriteService, undefined, network);
 
   const josekiLoader = new JosekiLoader(network, gameFileStorage as any, config);
   const josekiDiscoverService = new JosekiDiscoverService(josekiLoader);

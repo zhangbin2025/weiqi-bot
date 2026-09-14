@@ -9,6 +9,8 @@ import type { IShareService } from '../../services/share';
 import type { FetcherResult, FetcherBookmark, ShareResult, FetcherFetchOptions, LatestGameItem } from './types';
 import { parseSGF, coordToPos } from '../../domain/sgf';
 import { OgsLiveProvider } from '../../services/game/providers/ogs/OgsLiveProvider';
+import type { NetworkManager } from '../../infrastructure/network/core/NetworkManager';
+import { YikeLiveProvider } from '../../services/game/providers/yike/YikeLiveProvider';
 /**
  * 棋谱下载应用编排器
  * @description 组合 GameService、FavoriteService、ShareService 完成棋谱下载、收藏管理与分享
@@ -16,13 +18,16 @@ import { OgsLiveProvider } from '../../services/game/providers/ogs/OgsLiveProvid
 export class FetcherApp {
   private readonly CATEGORY = 'fetcher';
   private readonly ogsLive: OgsLiveProvider;
+  private readonly yikeLive: YikeLiveProvider;
   constructor(
     private readonly gameService: IGameService,
     private readonly exportService: IExportService,
     private readonly favoriteService?: IFavoriteService,
     private readonly shareService?: IShareService,
+    network?: NetworkManager,
   ) {
     this.ogsLive = new OgsLiveProvider();
+    this.yikeLive = new YikeLiveProvider(network);
   }
   async fetch(url: string, options?: FetcherFetchOptions): Promise<FetcherResult> {
     const gameResult = await this.gameService.fetch(url);
@@ -77,7 +82,7 @@ export class FetcherApp {
 
   /**
    * 获取最新棋谱列表
-   * @param source - 来源 ('foxwq' | 'weiqi101' | 'ogs-live')
+   * @param source - 来源 ('foxwq' | 'weiqi101' | 'yike-live' | 'ogs-live')
    * @param count - 数量
    * @returns 最新棋谱列表
    */
@@ -113,6 +118,9 @@ export class FetcherApp {
           date: item.date,
           url: item.url,
         }));
+      } else if (source === "yike-live") {
+        const games = await this.yikeLive.fetchLiveGames(count, keyword);
+        return games;
       } else if (source === "ogs-live") {
         const games = await this.ogsLive.fetchLiveGames(count, keyword);
         return games;

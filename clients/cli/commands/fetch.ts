@@ -20,7 +20,7 @@ commands:
   browse [source]       浏览每日最新棋谱
 
 browse options:
-  --source SOURCE       来源: foxwq | weiqi101 | ogs-live | all (default: all)
+  --source SOURCE       来源: foxwq | weiqi101 | yike-live | ogs-live | all (default: all)
   --count N             数量 (default: 20)
   --keyword KW          关键词筛选（如棋手名）
 
@@ -36,6 +36,7 @@ examples:
   fetch browse --source foxwq           # 只看野狐最新棋谱
   fetch browse --source weiqi101        # 只看101死活题
   fetch browse --source ogs-live        # 只看OGS在线对局
+  fetch browse --source yike-live        # 只看弈客直播
   fetch browse --source foxwq --count 10
   fetch browse --keyword 柯洁           # 按关键词筛选
 `;
@@ -183,7 +184,7 @@ function parseBrowseArgs(args: string[]): { source: string; count: number; keywo
 async function fetchBrowse(args: string[], ctx: CliContext): Promise<CliResult> {
   const { source, count, keyword } = parseBrowseArgs(args);
 
-  const sources = source === "all" ? ["foxwq", "weiqi101", "ogs-live"] : [source];
+  const sources = source === "all" ? ["foxwq", "weiqi101", "yike-live", "ogs-live"] : [source];
   const allItems: Array<{ source: string; title: string; subtitle?: string; date: string; url: string }> = [];
 
   for (const src of sources) {

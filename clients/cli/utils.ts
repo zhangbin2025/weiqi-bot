@@ -594,7 +594,7 @@ function formatFetchBrowseText(data: any): string {
     lines.push("暂无棋谱");
     return lines.join("\n");
   }
-  const sourceLabel: Record<string, string> = { foxwq: "野狐", weiqi101: "101", "ogs-live": "OGS" };
+  const sourceLabel: Record<string, string> = { foxwq: "野狐", weiqi101: "101", "yike-live": "弈客", "ogs-live": "OGS" };
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     const src = sourceLabel[item.source] ?? item.source;
