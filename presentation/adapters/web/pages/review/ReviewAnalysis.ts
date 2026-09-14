@@ -55,7 +55,7 @@ export class ReviewAnalysis {
   private analyzing = false;
 
   /** 分析局面用的 visits（用户可配） */
-  private configVisits = 200;
+  private configVisits = 15;
 
   constructor(
     reviewApp: ReviewApp,

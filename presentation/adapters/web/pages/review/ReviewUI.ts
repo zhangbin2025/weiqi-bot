@@ -65,7 +65,7 @@ export class ReviewUI {
   private regionStatusEl: HTMLElement | null = null;
 
   // 配置
-  private configVisits = 200;  // 默认分析局面用
+  private configVisits = 15;  // 默认分析局面用
   private modelManager: any = null;  // ModelManagementService 引用
   private readonly CONFIG_KEY = 'review-config';
 
@@ -621,7 +621,7 @@ export class ReviewUI {
       const saved = localStorage.getItem(this.CONFIG_KEY);
       if (saved) {
         const config = JSON.parse(saved);
-        this.configVisits = config.visits ?? 200;
+        this.configVisits = config.visits ?? 15;
       }
     } catch (error) {
       console.error('加载配置失败', error as Error | undefined);
