@@ -241,7 +241,11 @@ export class ReviewPage implements IPage {
     const chartContainer = document.getElementById('chart-container');
     if (chartContainer) {
       this.winrateChart = new WinrateChart(chartContainer);
-      this.winrateChart.setOnClick((moveNumber) => this.goToMove(moveNumber));
+      this.winrateChart.setOnClick((moveNumber) => {
+        // 直播模式下禁止浏览历史着法
+        if (this.liveModeManager?.isActive()) return;
+        this.goToMove(moveNumber);
+      });
     }
   }
 
@@ -1144,6 +1148,11 @@ export class ReviewPage implements IPage {
       return;
     }
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+    // 直播模式下禁止键盘浏览历史着法
+    if (this.liveModeManager?.isActive()) {
+      // 只允许 Escape，其他按键直接返回
+      if (event.key !== 'Escape') return;
+    }
     switch (event.key) {
       case 'ArrowLeft':
         if (this.interaction.getMode() === 'normal') {
