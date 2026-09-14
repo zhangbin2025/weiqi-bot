@@ -97,6 +97,12 @@ export class RemoteGameProvider implements IGameProvider {
     const timing: PerformanceTiming = {};
     const startTime = Date.now();
 
+    // 未配置远程服务时，返回"不支持"提示（而非隧道错误）
+    const manager = TunnelManager.getInstance();
+    if (!manager.isClientMode()) {
+      return this.createErrorResult(url, '当前环境不支持此请求。');
+    }
+
     let client: TunnelClient;
     try {
       client = await this.ensureConnected();
