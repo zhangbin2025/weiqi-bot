@@ -119,6 +119,19 @@ class ProxyHandler(
             if (!contentType.isNullOrEmpty()) {
                 requestBuilder.header("Content-Type", contentType)
             }
+
+            // 透传自定义签名头（如 AppKey, CheckSum, accesstoken 等）
+            val passthroughHeaders = listOf(
+                "appkey", "checksum", "accesstoken", "nonce", "curtime",
+                "timestamp", "usertoken", "version", "platform", "uuid",
+                "accept", "accept-language", "authorization"
+            )
+            for (h in passthroughHeaders) {
+                val value = session.headers?.get(h)
+                if (!value.isNullOrEmpty()) {
+                    requestBuilder.header(h, value)
+                }
+            }
             
             // 透传 Origin
             val origin = session.headers?.get("origin")
