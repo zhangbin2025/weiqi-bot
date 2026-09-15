@@ -143,6 +143,7 @@ export class FetcherFormatter {
       'yikeweiqi': '弈客',
       'yuanluobo': '元萝卜',
       'goproblems': 'GoProblems',
+      'katago': 'KataGo',
       'txwq': '腾讯围棋',
       'unknown': '未知',
     };

@@ -139,6 +139,39 @@ export class FetcherApp {
       } else if (source === "ogs-live") {
         const games = await this.ogsLive.fetchLiveGames(count, keyword);
         return games;
+      } else if (source === "katago") {
+        const foxwq = this.gameService as any;
+        const registry = foxwq?.registry;
+        if (!registry) return [];
+        const providers = registry.getProviders?.();
+        const katagoGameProvider = providers?.get("katago");
+        if (!katagoGameProvider || typeof (katagoGameProvider as any).getGamesByDate !== "function") return [];
+        const archiveProvider = registry.getKatagoProvider?.();
+        if (!archiveProvider) return [];
+
+        // 获取日期列表，逐日展开棋谱
+        const dates = await archiveProvider.listArchiveDates();
+        const results: Array<{ source: string; title: string; subtitle: string; date: string; url: string }> = [];
+
+        for (const entry of dates) {
+          if (results.length >= count) break;
+          try {
+            const games = await (katagoGameProvider as any).getGamesByDate(entry.date);
+            for (let i = 0; i < games.length; i++) {
+              if (results.length >= count) break;
+              results.push({
+                source: "katago",
+                title: "KataGo " + entry.date + " #" + (i + 1),
+                subtitle: games[i].filename || "",
+                date: entry.date,
+                url: "katago://date/" + entry.date + "/" + i,
+              });
+            }
+          } catch (e) {
+            console.error("[FetcherApp] katago fetchGamesByDate failed for " + entry.date, e);
+          }
+        }
+        return results;
       }
       return [];
     } catch (error) {

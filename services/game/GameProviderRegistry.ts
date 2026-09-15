@@ -24,6 +24,7 @@ import { YichengProvider } from './providers/yicheng';
 import { YikeShaoerProvider } from './providers/yike-shaoer';
 import { YuanluoboProvider } from './providers/yuanluobo';
 import { GoProblemsProvider } from './providers/goproblems';
+import { KatagoGameProvider } from './providers/katago/KatagoGameProvider';
 import { KatagoArchiveProvider } from './providers/katago';
 
 export interface IProviderRegistryOptions {
@@ -65,6 +66,7 @@ export class GameProviderRegistry {
       new YichengProvider(network),
       new YuanluoboProvider(network),
       new GoProblemsProvider(network),
+      new KatagoGameProvider(network, this.katagoProvider),
     ];
     restProviders.forEach(p => this.providers.set(p.name, p));
 
