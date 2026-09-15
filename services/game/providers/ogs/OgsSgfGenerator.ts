@@ -30,18 +30,80 @@ export class OgsSgfGenerator {
   ): string {
     const gamedata = data.gamedata || {};
     const rawMoves = gamedata.moves || [];
-    const firstMoveColor = (gamedata.initial_player || 'black') === 'white' ? 'W' : 'B';
 
     // 截掉末尾连续的 pass 手（OGS 对局结束时双方 pass）
     const moves = this.trimTrailingPasses(rawMoves);
 
-    // 头部
-    const header = this.buildHeader(data, metadata, gamedata, aiReview);
+    // 处理自由让子：前 handicap 手全是黑棋，提取为 AB[] 而非正常着法
+    let handicapStones: string[] = [];
+    let playMoves = moves;
+    if (gamedata.free_handicap_placement && gamedata.handicap > 0) {
+      const hc = gamedata.handicap;
+      for (let i = 0; i < hc && i < moves.length; i++) {
+        const m = moves[i]!;
+        if (m.length >= 2 && m[0]! >= 0 && m[1]! >= 0) {
+          handicapStones.push(this.coordToSgf(m[0]!, m[1]!, metadata.height));
+        }
+      }
+      playMoves = moves.slice(hc); // 让子后的着法
+    }
+
+    // 让子棋后第一手的颜色：自由让子时白方先行
+    const firstMoveColor = gamedata.free_handicap_placement && gamedata.handicap > 0
+      ? 'W'
+      : (gamedata.initial_player || 'black') === 'white' ? 'W' : 'B';
+
+    // AI review 索引偏移：自由让子时，win_rates/scores 的索引从让子后的第一手开始
+    // 需要调整 aiReview 的 moveDetails key（减去 handicap 偏移）
+    const aiReviewAdjusted = this.adjustAiReviewForHandicap(aiReview, handicapStones.length);
+
+    // 头部（含 AB 让子位置）
+    const header = this.buildHeader(data, metadata, gamedata, aiReviewAdjusted, handicapStones);
 
     // 着法
-    const body = this.buildBody(moves, firstMoveColor, metadata.height, aiReview);
+    const body = this.buildBody(playMoves, firstMoveColor, metadata.height, aiReviewAdjusted);
 
     return header + body + ')';
+  }
+
+  /**
+   * 调整 AI Review 数据的索引偏移（自由让子棋专用）
+   *
+   * OGS 的 win_rates/scores 数组可能包含让子阶段的每手数据，
+   * 也可能从让子后的第一手开始。需要对应到实际着法索引。
+   *
+   * move-N 的 N 是 1-based，对应 OGS moves 数组的索引（包含让子手）。
+   * 当 playMoves = moves.slice(handicap) 时，playMoves[0] 对应 moves[handicap]。
+   * 所以 moveDetails 的 key 需要减去 handicap 偏移。
+   */
+  private adjustAiReviewForHandicap(
+    aiReview: OgsAiReviewSummary | null,
+    handicapOffset: number
+  ): OgsAiReviewSummary | null {
+    if (!aiReview || handicapOffset === 0) {
+      return aiReview;
+    }
+
+    // moveDetails key: 1-based move-N 转 0-based 后减去 handicap 偏移
+    const adjustedDetails = new Map<number, OgsAiReviewMove>();
+    for (const [key, value] of aiReview.moveDetails) {
+      const adjustedKey = key - handicapOffset;
+      if (adjustedKey >= 0) {
+        adjustedDetails.set(adjustedKey, value);
+      }
+    }
+
+    // winRates/scores: 截掉前 handicapOffset 个（让子阶段的胜率），
+    // 使 winRates[0] 对应 playMoves[0]
+    const adjustedWinRates = aiReview.winRates.slice(handicapOffset);
+    const adjustedScores = aiReview.scores.slice(handicapOffset);
+
+    return {
+      ...aiReview,
+      winRates: adjustedWinRates,
+      scores: adjustedScores,
+      moveDetails: adjustedDetails,
+    };
   }
 
   /**
@@ -51,7 +113,8 @@ export class OgsSgfGenerator {
     data: OgsGameResponse,
     metadata: GameMetadata,
     gamedata: OgsGameData,
-    aiReview: OgsAiReviewSummary | null
+    aiReview: OgsAiReviewSummary | null,
+    handicapStones: string[]
   ): string {
     const parts: string[] = ['(;GM[1]FF[4]CA[UTF-8]'];
 
@@ -72,7 +135,12 @@ export class OgsSgfGenerator {
     // 让子棋
     if (metadata.handicap > 0) {
       parts.push(`HA[${metadata.handicap}]`);
-      const stones = this.getHandicapStonesFromInitialState(gamedata, metadata.width, metadata.height);
+      // 优先使用传入的让子位置（自由让子已提取）
+      // 否则从 initial_state 读取
+      let stones = handicapStones;
+      if (stones.length === 0) {
+        stones = this.getHandicapStonesFromInitialState(gamedata, metadata.width, metadata.height);
+      }
       for (const coord of stones) {
         parts.push(`AB[${coord}]`);
       }
