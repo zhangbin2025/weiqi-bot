@@ -161,14 +161,28 @@ function simplifyTree(node: ISGFNode): ReplayNode {
 }
 
 /**
- * 计算棋谱最大手数（只计算主分支，包括 Pass）
+ * 计算棋谱最大手数（只计算主分支）
+ * 遇到双方连续停一手（Pass）时停止计数，后续着法忽略
  */
 function countMoves(node: ISGFNode): number {
   if (!node) return 0;
-  // 只要有 color 就计数（包括 Pass）
-  let count = node.color ? 1 : 0;
-  if (node.children && node.children.length > 0) {
-    count += countMoves(node.children[0]!);
+  let count = 0;
+  let consecutivePasses = 0;
+  let current: ISGFNode | undefined = node;
+
+  while (current && current.children && current.children.length > 0) {
+    current = current.children[0]!;
+    if (!current.color) continue;
+
+    if (current.coord) {
+      consecutivePasses = 0;
+    } else {
+      // Pass（无坐标）
+      consecutivePasses++;
+      if (consecutivePasses >= 2) { count--; break; } // 双方停一手，回退前一个Pass计数后结束
+    }
+    count++;
   }
+
   return count;
 }

@@ -101,6 +101,7 @@ export class ReplayDataManager {
   translateResult(result: string): string {
     if (!result) return '';
     result = result.trim();
+    if (result === '0' || result === 'Draw' || result === 'Void') return '和棋';
     if (result === 'B+R' || result === 'B+Resign') return '黑中盘胜';
     if (result === 'W+R' || result === 'W+Resign') return '白中盘胜';
     if (result === 'B+T' || result === 'B+Time') return '黑超时胜';

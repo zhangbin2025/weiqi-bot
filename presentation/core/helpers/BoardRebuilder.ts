@@ -59,6 +59,7 @@ export class BoardRebuilder {
     const variationStartPathIndex = options.inVariation ? path.length - 1 : -1;
     
     // 第一步：沿着 path 遍历树
+    let pathConsecutivePasses = 0;
     for (let i = 0; i < path.length; i++) {
       const index = path[i]!;
       if (!node.children || node.children.length <= index) break;
@@ -68,12 +69,16 @@ export class BoardRebuilder {
         if (pos && pos.x >= 0 && pos.x < size && pos.y >= 0 && pos.y < size) {
           game.placeStone(pos.x, pos.y);
           moveCounter++;
+          pathConsecutivePasses = 0;
           if (options.inVariation && i >= variationStartPathIndex) {
             moveNumbers.push({ x: pos.x, y: pos.y, number: i - variationStartPathIndex + 1 });
           } else if (!options.inVariation) {
             moveNumbers.push({ x: pos.x, y: pos.y, number: moveCounter });
           }
         } else {
+          // Pass
+          pathConsecutivePasses++;
+          if (pathConsecutivePasses >= 2) { moveCounter--; break; } // 双方停一手，回退前一个Pass计数
           game.pass();
           moveCounter++;
         }
@@ -82,6 +87,7 @@ export class BoardRebuilder {
     
     // 第二步：沿着主分支走 targetIndex 步
     if (options.inVariation) {
+      let varConsecutivePasses = 0;
       for (let step = 0; step < targetIndex && node.children && node.children.length > 0; step++) {
         node = node.children[0]!;
         if (node.color) {
@@ -89,14 +95,19 @@ export class BoardRebuilder {
           if (pos && pos.x >= 0 && pos.x < size && pos.y >= 0 && pos.y < size) {
             game.placeStone(pos.x, pos.y);
             moveCounter++;
+            varConsecutivePasses = 0;
             moveNumbers.push({ x: pos.x, y: pos.y, number: moveNumbers.length + 1 });
           } else {
+            // Pass
+            varConsecutivePasses++;
+            if (varConsecutivePasses >= 2) { moveCounter--; break; } // 双方停一手，回退前一个Pass计数
             game.pass();
             moveCounter++;
           }
         }
       }
     } else {
+      let consecutivePasses = 0;
       while (moveCounter < targetIndex && node.children && node.children.length > 0) {
         node = node.children[0]!;
         if (node.color) {
@@ -104,8 +115,12 @@ export class BoardRebuilder {
           if (pos && pos.x >= 0 && pos.x < size && pos.y >= 0 && pos.y < size) {
             game.placeStone(pos.x, pos.y);
             moveCounter++;
+            consecutivePasses = 0;
             moveNumbers.push({ x: pos.x, y: pos.y, number: moveCounter });
           } else {
+            // Pass
+            consecutivePasses++;
+            if (consecutivePasses >= 2) { moveCounter--; break; } // 双方停一手，回退前一个Pass计数
             game.pass();
             moveCounter++;
           }
