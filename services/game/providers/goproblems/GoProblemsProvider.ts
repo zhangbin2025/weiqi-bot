@@ -146,10 +146,11 @@ export class GoProblemsProvider extends BaseProvider implements IGoProblemsProvi
         for (const item of entries) {
           if (results.length >= maxCount) break;
 
-          const rankStr = this.rankToString(item.rank);
+          const rankStr = item.difficulty || (item.rank ? this.rankToString(item.rank) : '');
           const genre = item.genre || '';
-          const dateStr = item.createdAt || '';
+          const dateStr = (item.createdAt || '').slice(0, 10);
           const authorName = item.author?.name || '';
+          const authorRank = item.author?.rank ? this.rankToString(item.author.rank) : '';
 
           if (kw) {
             const matchRank = rankStr.toLowerCase().includes(kw);
@@ -160,9 +161,10 @@ export class GoProblemsProvider extends BaseProvider implements IGoProblemsProvi
             if (!matchRank && !matchGenre && !matchId && !matchDate && !matchAuthor) continue;
           }
 
+          const subtitleParts = [rankStr, genre, authorName && (authorName + (authorRank ? '(' + authorRank + ')' : ''))].filter(Boolean);
           results.push({
             title: 'GP-' + item.id,
-            subtitle: (rankStr + ' ' + genre + (authorName ? ' ' + authorName : '')).trim(),
+            subtitle: subtitleParts.join(' '),
             date: dateStr,
             url: GOPROBLEMS_BASE_URL + '/' + item.id,
           });

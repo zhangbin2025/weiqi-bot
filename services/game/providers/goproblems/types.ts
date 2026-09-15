@@ -33,6 +33,8 @@ export interface GoProblemsListItem {
   id: number;
   imageUrl?: string;
   rank?: GoProblemsRank | null;
+  /** 题目难度，如 "19 kyu?" */
+  difficulty?: string;
   createdAt?: string;
   author?: GoProblemsAuthor;
   genre?: string;
