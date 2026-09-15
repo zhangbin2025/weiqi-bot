@@ -78,7 +78,13 @@ export class QRScanner {
     this.video = document.createElement('video');
     this.video.style.cssText = `
       width: 100%; height: 100%; object-fit: cover;
+      transition: transform 0.3s ease;
+      transform-origin: center;
     `;
+    this.video.onclick = () => {
+      const isZoomed = this.video!.style.transform.includes('2');
+      this.video!.style.transform = isZoomed ? 'scale(1)' : 'scale(2)';
+    };
     this.video.setAttribute('playsinline', '');
     this.video.setAttribute('muted', '');
     this.overlay.appendChild(this.video);
@@ -100,7 +106,7 @@ export class QRScanner {
       left: 0; right: 0; text-align: center;
       color: rgba(255,255,255,0.8); font-size: 14px;
     `;
-    tip.textContent = '将二维码放入框中即可自动扫描';
+    tip.textContent = '将二维码放入框中即可自动扫描 · 点击画面可放大';
     this.overlay.appendChild(tip);
 
     // 从相册选图按钮
@@ -142,7 +148,11 @@ export class QRScanner {
     // 请求摄像头
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
+        video: {
+          facingMode: 'environment',
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
         audio: false,
       });
       this.video.srcObject = this.stream;
@@ -167,7 +177,7 @@ export class QRScanner {
       const w = video.videoWidth;
       const h = video.videoHeight;
       // 限制 canvas 尺寸以提升性能
-      const scale = Math.min(1, 480 / Math.max(w, h));
+      const scale = Math.min(1, 1080 / Math.max(w, h));
       const cw = Math.floor(w * scale);
       const ch = Math.floor(h * scale);
       this.canvas.width = cw;
@@ -176,7 +186,7 @@ export class QRScanner {
 
       const imageData = this.ctx.getImageData(0, 0, cw, ch);
       const code = jsQR(imageData.data, imageData.width, imageData.height, {
-        inversionAttempts: 'dontInvert',
+        inversionAttempts: 'attemptBoth',
       });
 
       if (code && code.data) {

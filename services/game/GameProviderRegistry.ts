@@ -23,6 +23,7 @@ import { ShoutanProvider } from './providers/shoutan';
 import { YichengProvider } from './providers/yicheng';
 import { YikeShaoerProvider } from './providers/yike-shaoer';
 import { YuanluoboProvider } from './providers/yuanluobo';
+import { GoProblemsProvider } from './providers/goproblems';
 import { KatagoArchiveProvider } from './providers/katago';
 
 export interface IProviderRegistryOptions {
@@ -63,6 +64,7 @@ export class GameProviderRegistry {
       new ShoutanProvider(network),
       new YichengProvider(network),
       new YuanluoboProvider(network),
+      new GoProblemsProvider(network),
     ];
     restProviders.forEach(p => this.providers.set(p.name, p));
 

@@ -82,7 +82,7 @@ export class FetcherApp {
 
   /**
    * 获取最新棋谱列表
-   * @param source - 来源 ('foxwq' | 'weiqi101' | 'yike-live' | 'ogs-live')
+   * @param source - 来源 ('foxwq' | 'weiqi101' | 'goproblems' | 'yike-live' | 'ogs-live')
    * @param count - 数量
    * @returns 最新棋谱列表
    */
@@ -113,6 +113,21 @@ export class FetcherApp {
         const items = await (provider as any).fetchQdayList(count, kw || undefined);
         return items.map((item: any) => ({
           source: 'weiqi101',
+          title: item.title,
+          subtitle: item.subtitle,
+          date: item.date,
+          url: item.url,
+        }));
+      } else if (source === "goproblems") {
+        const foxwq = this.gameService as any;
+        const registry = foxwq?.registry;
+        if (!registry) return [];
+        const providers = registry.getProviders?.();
+        const provider = providers?.get("goproblems");
+        if (!provider || typeof (provider as any).fetchProblemList !== "function") return [];
+        const items = await (provider as any).fetchProblemList(count, kw || undefined);
+        return items.map((item: any) => ({
+          source: "goproblems",
           title: item.title,
           subtitle: item.subtitle,
           date: item.date,

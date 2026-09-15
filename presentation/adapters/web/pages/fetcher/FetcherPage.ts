@@ -229,8 +229,9 @@ export class FetcherPage implements IPage {
             /101weiqi\.cn\/qday\//,
             /101weiqi\.cn\/q\//,
           ];
-          const isQuestion = result.source === 'weiqi101' &&
-                             questionPatterns.some(p => p.test(result.url || ''));
+          const isQuestion = (result.source === 'weiqi101' &&
+                             questionPatterns.some(p => p.test(result.url || ''))) ||
+                             result.source === 'goproblems';
           const replayLink = isQuestion
             ? `/replay/index.html?archiveId=${result.archiveId}&move=0`
             : (() => {
@@ -315,8 +316,9 @@ export class FetcherPage implements IPage {
           /101weiqi\.cn\/qday\//,
           /101weiqi\.cn\/q\//,
         ];
-        const isQuestion = result.source === 'weiqi101' &&
-                           questionPatterns.some(p => p.test(result.url || ''));
+        const isQuestion = (result.source === 'weiqi101' &&
+                           questionPatterns.some(p => p.test(result.url || ''))) ||
+                           result.source === 'goproblems';
         const srcUrl = result.url || '';
         if (!result.archiveId) return;
         if (isQuestion) {
@@ -355,15 +357,16 @@ export class FetcherPage implements IPage {
       return;
     }
     
-    // 判断是否是题目（101围棋网 qday 或 q 页面）
+    // 判断是否是题目（101围棋网 qday 或 q 页面，或 goproblems 死活题）
     const questionPatterns = [
       /101weiqi\.com\/qday\//,
       /101weiqi\.com\/q\//,
       /101weiqi\.cn\/qday\//,
       /101weiqi\.cn\/q\//,
     ];
-    const isQuestion = this.currentResult?.source === 'weiqi101' && 
-                       questionPatterns.some(p => p.test(this.currentResult?.url || ''));
+    const isQuestion = (this.currentResult?.source === 'weiqi101' &&
+                       questionPatterns.some(p => p.test(this.currentResult?.url || ''))) ||
+                       this.currentResult?.source === 'goproblems';
     
     // 正常模式：原有逻辑
     if (!this._onNavigate) return;

@@ -142,6 +142,7 @@ export class FetcherFormatter {
       '101weiqi': '101围棋',
       'yikeweiqi': '弈客',
       'yuanluobo': '元萝卜',
+      'goproblems': 'GoProblems',
       'txwq': '腾讯围棋',
       'unknown': '未知',
     };
