@@ -163,6 +163,15 @@ export class FetcherPage implements IPage {
     }
   }
 
+
+  /**
+   * 过滤不适合作为 src 的 URL（如 archive: 协议，内容太长会导致 URL 超限）
+   */
+  private filterSrcUrl(url: string | undefined): string {
+    if (!url || url.startsWith('archive:')) return '';
+    return url;
+  }
+
   private async viewBookmark(id: string): Promise<void> {
     const entry = this.bookmarks.find(h => h.id === id);
     if (!entry) return;
@@ -319,7 +328,7 @@ export class FetcherPage implements IPage {
         const isQuestion = (result.source === 'weiqi101' &&
                            questionPatterns.some(p => p.test(result.url || ''))) ||
                            result.source === 'goproblems';
-        const srcUrl = result.url || '';
+        const srcUrl = this.filterSrcUrl(result.url);
         if (!result.archiveId) return;
         if (isQuestion) {
           this._onNavigate?.('replay', { archiveId: result.archiveId, move: '0', src: srcUrl });
@@ -372,7 +381,7 @@ export class FetcherPage implements IPage {
     if (!this._onNavigate) return;
     
     // 题目棋谱：从初始局面开始（move=0）
-    const srcUrl = this.currentResult?.url || '';
+    const srcUrl = this.filterSrcUrl(this.currentResult?.url);
     if (isQuestion) {
       this._onNavigate('replay', { archiveId: this.currentResult.archiveId, move: '0', src: srcUrl });
     } else {
