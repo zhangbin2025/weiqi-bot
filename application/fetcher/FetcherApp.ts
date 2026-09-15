@@ -159,10 +159,11 @@ export class FetcherApp {
             const games = await (katagoGameProvider as any).getGamesByDate(entry.date);
             for (let i = 0; i < games.length; i++) {
               if (results.length >= count) break;
+            const hash = (games[i].filename || '').replace(/^.*\//, '').replace(/\.sgf$/i, '');
               results.push({
                 source: "katago",
-                title: "KataGo " + entry.date + " #" + (i + 1),
-                subtitle: games[i].filename || "",
+                title: "#" + (i + 1),
+                subtitle: hash,
                 date: entry.date,
                 url: "katago://date/" + entry.date + "/" + i,
               });
