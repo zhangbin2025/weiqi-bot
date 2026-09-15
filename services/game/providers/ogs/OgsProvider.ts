@@ -1,5 +1,9 @@
 /**
  * @fileoverview OGS (Online-Go.com) 提供者实现
+ *
+ * 支持从 OGS 下载棋谱，并自动获取 AI 复盘数据（如有）。
+ * AI review 数据通过 WebSocket 连接 wss://ai.online-go.com/ 获取，
+ * 包含每手胜率、目差，以及关键手的推荐选点分支。
  */
 
 import { BaseProvider } from "../base/BaseProvider";
@@ -7,6 +11,7 @@ import type { FetchResult, GameMetadata, PerformanceTiming } from "../base/types
 import type { IOgsProvider } from "./IOgsProvider";
 import type { OgsGameResponse } from "./types";
 import { OgsSgfGenerator } from "./OgsSgfGenerator";
+import { OgsAiReviewFetcher } from "./OgsAiReviewFetcher";
 
 /**
  * OGS API 基础 URL
@@ -15,9 +20,6 @@ const OGS_API_URL = "https://online-go.com/api/v1";
 
 /**
  * OGS 提供者
- *
- * 支持从 OGS (Online-Go.com) 下载棋谱。
- * 纯 REST API 实现，无需 Playwright。
  *
  * URL 格式：
  * - https://online-go.com/game/{GAME_ID}
@@ -32,6 +34,7 @@ export class OgsProvider extends BaseProvider implements IOgsProvider {
   ];
 
   private readonly sgfGenerator = new OgsSgfGenerator();
+  private readonly aiReviewFetcher = new OgsAiReviewFetcher();
 
   /**
    * 通过游戏 ID 获取游戏数据
@@ -57,7 +60,7 @@ export class OgsProvider extends BaseProvider implements IOgsProvider {
     }
 
     try {
-      // 2. 调用 API
+      // 2. 调用 REST API 获取对局数据
       const apiStart = this.now();
       const apiUrl = `${OGS_API_URL}/games/${gameId}`;
 
@@ -72,10 +75,38 @@ export class OgsProvider extends BaseProvider implements IOgsProvider {
         return this.createErrorResult(url, "API 响应为空", timing);
       }
 
-      // 3. 解析数据并生成 SGF
+      // 3. 解析元数据
       const metadata = this.parseMetadata(response.data, gameId);
+
+      // 4. 尝试获取 AI Review 数据（仅已结束的对局）
+      let aiReview = null;
+      if (metadata.isEnded) {
+        const aiStart = this.now();
+        try {
+          aiReview = await this.aiReviewFetcher.fetch(
+            parseInt(gameId),
+            async (reqUrl: string) => {
+              const resp = await this.network.request<any>({
+                url: reqUrl,
+                method: "GET",
+              });
+              return resp.data;
+            }
+          );
+        } catch (e) {
+          // AI review 获取失败不影响棋谱下载
+          console.warn(`[OgsProvider] AI review fetch failed:`, e);
+        }
+        timing.tokenRequest = this.now() - aiStart;
+      }
+
+      // 5. 生成 SGF（含 AI review 数据）
       const sgfStart = this.now();
-      const sgfContent = this.sgfGenerator.generate(response.data, metadata);
+      const sgfContent = this.sgfGenerator.generateWithAiReview(
+        response.data,
+        metadata,
+        aiReview
+      );
       timing.sgfGeneration = this.now() - sgfStart;
 
       timing.total = this.now() - startTime;
@@ -108,9 +139,6 @@ export class OgsProvider extends BaseProvider implements IOgsProvider {
 
     let result = "";
     if (data.outcome) {
-      // 将 OGS 原始 outcome 翻译为 SGF 标准格式
-      // OGS 返回: "Resignation", "Timeout", "Score", "6.5" 等
-      // SGF 标准: "B+R", "W+R", "B+T", "W+T", "W+6.5" 等
       const outcome = data.outcome;
       const blackLost = !!data.black_lost;
       const whiteLost = !!data.white_lost;
@@ -121,8 +149,6 @@ export class OgsProvider extends BaseProvider implements IOgsProvider {
       } else if (outcome === "Timeout") {
         result = winner + "+T";
       } else {
-        // 尝试从 outcome 中提取目数
-        // OGS 格式: "17.5 points", "6.5", "Score" 等
         const pointsMatch = outcome.match(/^([\d.]+)\s*points?$/i)
           || outcome.match(/^([\d.]+)$/);
         if (pointsMatch) {
@@ -141,7 +167,6 @@ export class OgsProvider extends BaseProvider implements IOgsProvider {
       }
     }
 
-    // 直播状态：棋局未结束即为直播中
     const isEnded = !!data.ended;
     const isLive = !isEnded;
 
@@ -168,7 +193,6 @@ export class OgsProvider extends BaseProvider implements IOgsProvider {
   /**
    * 格式化段位
    * OGS ranking: 0-30 = 30k-1k, 30+ = 1d, 31+ = 2d, ...
-   * 参考: https://ogs.readme.io/docs/ranking-system
    */
   private formatRank(ranking?: number): string {
     if (ranking === undefined || ranking === null) {
@@ -179,5 +203,12 @@ export class OgsProvider extends BaseProvider implements IOgsProvider {
     }
     const dan = Math.floor(ranking - 30) + 1;
     return `${dan}d`;
+  }
+
+  /**
+   * 获取当前时间戳
+   */
+  protected override now(): number {
+    return Date.now();
   }
 }

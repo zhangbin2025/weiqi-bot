@@ -100,3 +100,99 @@ export interface OgsMetadata {
   /** 手数 */
   movesCount: number;
 }
+
+// ============================================================================
+// AI Review 类型定义
+// ============================================================================
+
+/**
+ * AI Review 元数据（REST API 返回）
+ */
+export interface OgsAiReviewMeta {
+  id: number;
+  uuid: string;
+  type: string;
+  game_id: number;
+  engine: string;
+  engine_version?: string;
+  network?: string;
+  network_size?: string;
+  playouts?: number;
+  visits?: number;
+  strength?: number;
+  date: string;
+  win_rate: number;
+  moves: Record<string, never>;
+  cheat_detection?: boolean;
+}
+
+/**
+ * AI Review 详细数据（WebSocket 推送）
+ */
+export interface OgsAiReviewData {
+  metadata?: OgsAiReviewMetadata;
+  [key: string]: unknown;
+}
+
+/**
+ * AI Review metadata（WebSocket 推送的完整版本）
+ */
+export interface OgsAiReviewMetadata {
+  id: string;
+  uuid: string;
+  type: string;
+  engine: string;
+  engine_version: string;
+  network: string;
+  network_size: string;
+  strength: number;
+  date: number;
+  win_rate: number;
+  /** 每手胜率数组，索引 = 手数（0-based） */
+  win_rates: number[];
+  /** 每手目差数组，索引 = 手数（0-based） */
+  scores: number[];
+  moves: Record<string, unknown>;
+  game_state?: unknown;
+  scores_history?: unknown;
+}
+
+/**
+ * AI Review 单手详细数据（move-N 的值）
+ */
+export interface OgsAiReviewMove {
+  move_number: number;
+  move: { x: number; y: number };
+  win_rate: number;
+  score: number;
+  branches: OgsAiReviewBranch[];
+}
+
+/**
+ * AI Review 选点分支
+ */
+export interface OgsAiReviewBranch {
+  moves: { x: number; y: number }[];
+  win_rate: number;
+  score: number;
+  visits: number;
+  score_stdev?: number;
+}
+
+/**
+ * 整合后的 AI Review 数据（传给 SGF 生成器）
+ */
+export interface OgsAiReviewSummary {
+  /** 引擎名称 */
+  engine: string;
+  /** 网络名称 */
+  network: string;
+  /** 最终胜率 */
+  finalWinRate: number;
+  /** 每手胜率数组 */
+  winRates: number[];
+  /** 每手目差数组 */
+  scores: number[];
+  /** 关键手详细数据（含选点分支） */
+  moveDetails: Map<number, OgsAiReviewMove>;
+}

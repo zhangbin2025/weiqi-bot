@@ -4,5 +4,17 @@
 
 export { OgsProvider } from './OgsProvider';
 export { OgsSgfGenerator } from './OgsSgfGenerator';
+export { OgsAiReviewFetcher } from './OgsAiReviewFetcher';
 export type { IOgsProvider } from './IOgsProvider';
-export type { OgsGameResponse, OgsGameData, OgsPlayer, OgsMetadata } from './types';
+export type {
+  OgsGameResponse,
+  OgsGameData,
+  OgsPlayer,
+  OgsMetadata,
+  OgsAiReviewMeta,
+  OgsAiReviewData,
+  OgsAiReviewMetadata,
+  OgsAiReviewMove,
+  OgsAiReviewBranch,
+  OgsAiReviewSummary,
+} from './types';
