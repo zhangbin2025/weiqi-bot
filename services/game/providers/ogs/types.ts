@@ -196,3 +196,62 @@ export interface OgsAiReviewSummary {
   /** 关键手详细数据（含选点分支） */
   moveDetails: Map<number, OgsAiReviewMove>;
 }
+
+// ============================================================================
+// Player 类型定义
+// ============================================================================
+
+/**
+ * OGS 玩家信息（搜索结果）
+ */
+export interface OgsPlayerInfo {
+  /** 玩家 ID */
+  id: number;
+  /** 用户名 */
+  username: string;
+  /** 国家代码 */
+  country?: string;
+  /** 段位值（OGS ranking: 0-30 = 30k-1k, 30+ = 1d, ...） */
+  ranking?: number;
+  /** 是否职业 */
+  professional?: boolean;
+}
+
+/**
+ * OGS 玩家对局列表项（REST API 返回）
+ */
+export interface OgsPlayerGame {
+  /** 对局 ID */
+  id: number;
+  /** 对局名称 */
+  name?: string;
+  /** 玩家信息（包含完整对象） */
+  players: {
+    black: { id: number; username: string; ranking?: number };
+    white: { id: number; username: string; ranking?: number };
+  };
+  /** 黑方玩家 ID（整数） */
+  black: number;
+  /** 白方玩家 ID（整数） */
+  white: number;
+  /** 棋盘宽度 */
+  width: number;
+  /** 棋盘高度 */
+  height: number;
+  /** 让子数 */
+  handicap: number;
+  /** 贴目 */
+  komi: string;
+  /** 是否排位赛 */
+  ranked: boolean;
+  /** 结果描述 */
+  outcome?: string;
+  /** 黑方是否输 */
+  black_lost?: boolean;
+  /** 白方是否输 */
+  white_lost?: boolean;
+  /** 开始时间 */
+  started?: string;
+  /** 结束时间 */
+  ended?: string;
+}

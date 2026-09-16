@@ -15,6 +15,7 @@ import { GameProviderRegistry } from './GameProviderRegistry';
 import { DefaultGameStrategy, type IGameStrategy } from './GameStrategy';
 import { GameFetchHelper } from './GameFetchHelper';
 import { GameFoxwqHelper } from './GameFoxwqHelper';
+import { GameOgsHelper } from './GameOgsHelper';
 import type { KatagoSgfEntry } from './providers/katago/types';
 
 export interface IGameServiceOptions {
@@ -31,6 +32,7 @@ export class GameService implements IGameService {
   private registry: GameProviderRegistry;
   private fetchHelper: GameFetchHelper;
   private foxwqHelper: GameFoxwqHelper;
+  private ogsHelper: GameOgsHelper;
   private config: IGameConfig | null = null;
   private configProvider: IConfigProvider | null = null;
   private historyStorage?: IGameHistoryStorage | undefined;
@@ -62,6 +64,12 @@ export class GameService implements IGameService {
 
     this.foxwqHelper = new GameFoxwqHelper({
       registry: this.registry,
+      archiveCache: options?.archiveCache,
+      historyStorage: options?.historyStorage,
+    });
+
+    this.ogsHelper = new GameOgsHelper({
+      network,
       archiveCache: options?.archiveCache,
       historyStorage: options?.historyStorage,
     });
@@ -97,6 +105,22 @@ export class GameService implements IGameService {
     options?: { onProgress?: FetchProgressCallback }
   ): Promise<GameServiceResult[]> {
     return this.foxwqHelper.fetchByChessIds(chessids, options);
+  }
+
+  async listOgsPlayerGames(username: string, count?: number): Promise<string[]> {
+    return this.ogsHelper.listPlayerGames(username, count);
+  }
+
+  async fetchOgsPlayerGames(
+    username: string,
+    count?: number,
+    options?: { onProgress?: FetchProgressCallback }
+  ): Promise<GameServiceResult[]> {
+    const opts: { onProgress?: FetchProgressCallback; fetchFn: (url: string) => Promise<GameServiceResult> } = {
+      fetchFn: async (url: string) => this.fetch(url),
+    };
+    if (options?.onProgress) opts.onProgress = options.onProgress;
+    return this.ogsHelper.fetchPlayerGames(username, count, opts);
   }
 
   getSupportedProviders(): string[] {

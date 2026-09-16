@@ -33,12 +33,16 @@ export async function analyzeOpponent(
   analyzer: any,
   queryBtn: HTMLButtonElement,
   statsSection: HTMLElement,
-  taskId?: string
+  taskId?: string,
+  platform?: 'foxwq' | 'ogs'
 ): Promise<void> {
   if (!foxwqId) {
-    await Dialog.alert('请输入野狐昵称');
+    await Dialog.alert('请输入用户名');
     return;
   }
+
+  const plat = platform ?? 'foxwq';
+  const platLabel = plat === 'ogs' ? 'OGS' : '野狐';
 
   // 禁用按钮
   queryBtn.disabled = true;
@@ -46,11 +50,12 @@ export async function analyzeOpponent(
   statsSection.classList.remove('show');
 
   // 显示加载状态
-  showLoading(statsSection, foxwqId);
+  showLoading(statsSection, `${foxwqId} (${platLabel})`);
 
   try {
     const result = await analyzer.analyze(foxwqId, {
       maxGames: limit,
+      platform: plat,
       onProgress: (percent: number, status: string, detail?: string) => {
         showProgress(statsSection, percent, status, detail);
         

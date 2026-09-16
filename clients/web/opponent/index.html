@@ -224,6 +224,35 @@
             margin-bottom: 12px;
             opacity: 0.5;
         }
+
+        .platform-toggle {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 12px;
+        }
+
+        .platform-btn {
+            flex: 1;
+            padding: 8px 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            background: transparent;
+            color: #666;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .platform-btn.active {
+            border-color: #667eea;
+            background: #667eea;
+            color: white;
+        }
+
+        .platform-btn:hover:not(.active) {
+            border-color: #667eea;
+            color: #667eea;
+        }
     </style>
 
     <!-- Favicon -->
@@ -237,7 +266,7 @@
     <div class="glass-container">
         <header class="glass-header">
             <h1 class="glass-title">📊 对手分析</h1>
-            <p class="glass-subtitle">分析野狐棋手棋谱与定式</p>
+            <p class="glass-subtitle">分析棋手棋谱与定式</p>
         </header>
 
         <div class="glass-content">
@@ -257,8 +286,12 @@
         <!-- 查询面板 -->
         <div id="queryPanel" class="tab-content active">
             <div class="card">
-                <h2>🔍 野狐棋手ID</h2>
-                <input type="text" id="foxwqIdInput" placeholder="请输入野狐昵称..." maxlength="20">
+                <div class="platform-toggle">
+                    <button class="platform-btn active" data-platform="foxwq">野狐</button>
+                    <button class="platform-btn" data-platform="ogs">OGS</button>
+                </div>
+                <h2>🔍 <span class="platform-label">野狐昵称</span></h2>
+                <input type="text" id="foxwqIdInput" placeholder="请输入野狐昵称..." maxlength="30">
                 <div data-ui="select"
                      id="limitSelect"
                      data-value="10"

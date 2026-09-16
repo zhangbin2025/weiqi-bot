@@ -20,6 +20,7 @@ let queryBtn: HTMLButtonElement;
 let statsSection: HTMLElement;
 let favoritesList: HTMLElement;
 let clearBtn: HTMLButtonElement;
+let currentPlatform: 'foxwq' | 'ogs' = 'foxwq';
 
 // 分析器
 let analyzer: any;
@@ -92,6 +93,11 @@ async function main() {
   
   if (foxwqIdParam) {
     foxwqIdInput.value = foxwqIdParam;
+    // 检测 URL 中的平台参数
+    const platParam = urlParams.get('platform');
+    if (platParam === 'ogs') {
+      switchPlatform('ogs');
+    }
     if (auto === 'true') {
       // 执行后立即移除 auto 参数，避免返回时重复触发
       urlParams.delete('auto');
@@ -121,6 +127,16 @@ function setupEventListeners() {
     });
   });
 
+  // 平台切换
+  document.querySelectorAll('.platform-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const platform = btn.getAttribute('data-platform');
+      if (platform === 'foxwq' || platform === 'ogs') {
+        switchPlatform(platform);
+      }
+    });
+  });
+
   // 查询按钮
   queryBtn.addEventListener('click', () => handleAnalyze());
 
@@ -131,6 +147,22 @@ function setupEventListeners() {
 
   // 清除收藏
   clearBtn.addEventListener('click', () => handleClearFavorites());
+}
+
+/**
+ * 切换平台
+ */
+function switchPlatform(platform: 'foxwq' | 'ogs') {
+  currentPlatform = platform;
+  document.querySelectorAll('.platform-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-platform') === platform);
+  });
+  // 更新输入框提示
+  const label = document.querySelector('.platform-label') as HTMLElement;
+  if (label) {
+    label.textContent = platform === 'ogs' ? 'OGS 用户名' : '野狐昵称';
+  }
+  foxwqIdInput.placeholder = platform === 'ogs' ? '请输入OGS用户名...' : '请输入野狐昵称...';
 }
 
 /**
@@ -161,7 +193,7 @@ function switchTab(tabName: string) {
 async function handleAnalyze(taskId?: string) {
   const foxwqId = foxwqIdInput.value.trim();
   const limit = parseInt(limitSelect.getValue());
-  await analyzeOpponent(foxwqId, limit, analyzer, queryBtn, statsSection, taskId);
+  await analyzeOpponent(foxwqId, limit, analyzer, queryBtn, statsSection, taskId, currentPlatform);
 }
 
 /**

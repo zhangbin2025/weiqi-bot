@@ -97,6 +97,27 @@ export interface IGameService {
   ): Promise<GameServiceResult[]>;
 
   /**
+   * 获取 OGS 玩家的棋谱 URL 列表（不下载）
+   * @param username - OGS 用户名（精确匹配）
+   * @param count - 最大数量，默认 10
+   * @returns 棋谱 URL 列表
+   */
+  listOgsPlayerGames(username: string, count?: number): Promise<string[]>;
+
+  /**
+   * 批量下载 OGS 玩家棋谱
+   * @param username - OGS 用户名（精确匹配）
+   * @param count - 最大数量
+   * @param options - 可选配置（包含进度回调）
+   * @returns 下载结果列表
+   */
+  fetchOgsPlayerGames(
+    username: string,
+    count?: number,
+    options?: { onProgress?: FetchProgressCallback }
+  ): Promise<GameServiceResult[]>;
+
+  /**
    * 获取支持的提供者列表
    * @returns 提供者名称列表
    */

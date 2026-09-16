@@ -5,6 +5,7 @@
 export { OgsProvider } from './OgsProvider';
 export { OgsSgfGenerator } from './OgsSgfGenerator';
 export { OgsAiReviewFetcher } from './OgsAiReviewFetcher';
+export { OgsPlayerProvider } from './OgsPlayerProvider';
 export type { IOgsProvider } from './IOgsProvider';
 export type {
   OgsGameResponse,
@@ -17,4 +18,6 @@ export type {
   OgsAiReviewMove,
   OgsAiReviewBranch,
   OgsAiReviewSummary,
+  OgsPlayerInfo,
+  OgsPlayerGame,
 } from './types';

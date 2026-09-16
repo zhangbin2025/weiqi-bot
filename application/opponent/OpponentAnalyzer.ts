@@ -2,7 +2,7 @@
  * 对手分析编排器
  * @description Application 层编排器，组合 GameService、JosekiDiscoverService、ActivityLogService 完成对手分析
  */
-import type { IGameService } from '../../services/game';
+import type { IGameService, GameServiceResult } from '../../services/game';
 import type { IJosekiDiscoverService } from '../../services/joseki';
 import type { IActivityLogService, ActivityEntry } from '../../services/activity';
 import type { IFavoriteService, IFavoriteItem } from '../../services/favorite';
@@ -32,6 +32,8 @@ export interface OpponentAnalysisResult {
 export interface OpponentAnalyzeOptions {
   maxGames?: number;
   forceRefresh?: boolean;
+  /** 平台：'foxwq'（默认）或 'ogs' */
+  platform?: 'foxwq' | 'ogs';
   onProgress?: (percent: number, status: string, detail?: string) => void;
 }
 /** 分析历史查询选项 */
@@ -94,25 +96,43 @@ export class OpponentAnalyzer {
   ): Promise<OpponentAnalysisResultWithBookmark> {
     const onProgress = options?.onProgress;
     const maxGames = options?.maxGames ?? 10;
+    const platform = options?.platform ?? 'foxwq';
     // 1. 获取棋手棋谱 ID 列表
     onProgress?.(0, '开始分析', foxwqId);
     onProgress?.(10, '获取棋谱列表');
-    const gameIds = await this.gameService.listPlayerGames(foxwqId, maxGames);
-    if (gameIds.length === 0) {
-      onProgress?.(100, '无棋谱数据');
-      return {
-        foxwqId, userInfo: { uid: foxwqId, nickname: foxwqId },
-        games: [], joseki: { count: 0, patterns: [] }, analyzedAt: Date.now(),
-      };
+
+    let fetchResults: GameServiceResult[];
+
+    if (platform === 'ogs') {
+      // OGS 平台：通过用户名精确搜索 → 获取对局 → 下载
+      const gameUrls = await this.gameService.listOgsPlayerGames(foxwqId, maxGames);
+      if (gameUrls.length === 0) {
+        onProgress?.(100, '无棋谱数据');
+        return {
+          foxwqId, userInfo: { uid: foxwqId, nickname: foxwqId },
+          games: [], joseki: { count: 0, patterns: [] }, analyzedAt: Date.now(),
+        } as OpponentAnalysisResultWithBookmark;
+      }
+      onProgress?.(15, `获取到 ${gameUrls.length} 盘棋谱`);
+      fetchResults = await this.gameService.fetchMany(gameUrls);
+    } else {
+      // 野狐平台：原有逻辑
+      const gameIds = await this.gameService.listPlayerGames(foxwqId, maxGames);
+      if (gameIds.length === 0) {
+        onProgress?.(100, '无棋谱数据');
+        return {
+          foxwqId, userInfo: { uid: foxwqId, nickname: foxwqId },
+          games: [], joseki: { count: 0, patterns: [] }, analyzedAt: Date.now(),
+        };
+      }
+      onProgress?.(15, `获取到 ${gameIds.length} 盘棋谱`);
+      fetchResults = await this.gameService.fetchByChessIds(gameIds, {
+        onProgress: (current, total, chessid) => {
+          const percent = 15 + Math.round((current / total) * 55);
+          onProgress?.(percent, '下载棋谱', `${current}/${total}: ${chessid}`);
+        },
+      });
     }
-    onProgress?.(15, `获取到 ${gameIds.length} 盘棋谱`);
-    // 2. 通过 chessid 批量下载棋谱
-    const fetchResults = await this.gameService.fetchByChessIds(gameIds, {
-      onProgress: (current, total, chessid) => {
-        const percent = 15 + Math.round((current / total) * 55);
-        onProgress?.(percent, '下载棋谱', `${current}/${total}: ${chessid}`);
-      },
-    });
     console.log('[OpponentAnalyzer] fetchResults:', fetchResults.map(r => ({
       chessid: r.metadata.gameId,
       archiveId: r.archiveId,

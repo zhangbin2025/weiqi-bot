@@ -25,9 +25,12 @@ export { GameFetchHelper } from './GameFetchHelper';
 export type { GameFetchHelperOptions } from './GameFetchHelper';
 export { GameFoxwqHelper } from './GameFoxwqHelper';
 export type { GameFoxwqHelperOptions } from './GameFoxwqHelper';
+export { GameOgsHelper } from './GameOgsHelper';
+export type { GameOgsHelperOptions } from './GameOgsHelper';
 
 // 平台提供者
 export { OgsProvider } from './providers/ogs';
+export { OgsPlayerProvider } from './providers/ogs';
 export type { IOgsProvider } from './providers/ogs';
 
 export { Weiqi101Provider } from './providers/weiqi101';
