@@ -53,6 +53,7 @@ async function main() {
 
   // 挂载自定义下拉框
   Select.mountAll();
+  platformSelect = Select.get('#platformSelect')!;
   limitSelect = Select.get('#limitSelect')!;
 
   // 3. 设置事件监听
@@ -96,6 +97,7 @@ async function main() {
     // 检测 URL 中的平台参数
     const platParam = urlParams.get('platform');
     if (platParam === 'ogs') {
+      platformSelect.setValue('ogs');
       switchPlatform('ogs');
     }
     if (auto === 'true') {
@@ -154,14 +156,6 @@ function setupEventListeners() {
  */
 function switchPlatform(platform: 'foxwq' | 'ogs') {
   currentPlatform = platform;
-  document.querySelectorAll('.platform-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.getAttribute('data-platform') === platform);
-  });
-  // 更新输入框提示
-  const label = document.querySelector('.platform-label') as HTMLElement;
-  if (label) {
-    label.textContent = platform === 'ogs' ? 'OGS 用户名' : '野狐昵称';
-  }
   foxwqIdInput.placeholder = platform === 'ogs' ? '请输入OGS用户名...' : '请输入野狐昵称...';
 }
 
