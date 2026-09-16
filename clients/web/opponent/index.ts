@@ -130,13 +130,10 @@ function setupEventListeners() {
   });
 
   // 平台切换
-  document.querySelectorAll('.platform-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const platform = btn.getAttribute('data-platform');
-      if (platform === 'foxwq' || platform === 'ogs') {
-        switchPlatform(platform);
-      }
-    });
+  platformSelect.onChange((value: string) => {
+    if (value === 'foxwq' || value === 'ogs') {
+      switchPlatform(value);
+    }
   });
 
   // 查询按钮
