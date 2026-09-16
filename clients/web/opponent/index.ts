@@ -15,6 +15,7 @@ import { TaskHelper } from '../shared/task-helper';
 
 // DOM 元素
 let foxwqIdInput: HTMLInputElement;
+let platformSelect: SelectInstance;
 let limitSelect: SelectInstance;
 let queryBtn: HTMLButtonElement;
 let statsSection: HTMLElement;
