@@ -179,6 +179,123 @@ export class ReplayPageUI {
     this.moveInfoEl.textContent = `第 ${moveNum} 手`;
   }
   /**
+   * 更新副标题：浏览中间手数时显示胜率/目差，最后一手显示结果
+   */
+  updateSubtitle(): void {
+    const resultInfoEl = document.getElementById('resultInfo');
+    const resultTextEl = document.getElementById('resultText');
+    if (!resultInfoEl || !resultTextEl) return;
+
+    const replayData = this.state.get('replayData');
+    if (!replayData) return;
+
+    const moveNum = this.state.getCurrentMoveNumber();
+    const maxMoves = replayData.max_moves || 0;
+    // 最后一手（或无胜率时）：显示结果/先行方
+    if (moveNum >= maxMoves || moveNum === 0) {
+      if (replayData.result) {
+        resultTextEl.textContent = this.translateResult(replayData.result);
+        resultInfoEl.style.display = 'flex';
+      } else if (replayData.initial_player) {
+        resultTextEl.textContent = replayData.initial_player === 'white' ? '白先' : '黑先';
+        resultInfoEl.style.display = 'flex';
+      } else {
+        resultInfoEl.style.display = 'none';
+      }
+      return;
+    }
+
+    // 中间手数：尝试从当前节点注释提取胜率/目差
+    const node = this.state.getCurrentNode();
+    const comment = node?.properties?.C;
+    if (!comment) {
+      // 无注释，回退到结果/先行方
+      if (replayData.result) {
+        resultTextEl.textContent = this.translateResult(replayData.result);
+        resultInfoEl.style.display = 'flex';
+      } else if (replayData.initial_player) {
+        resultTextEl.textContent = replayData.initial_player === 'white' ? '白先' : '黑先';
+        resultInfoEl.style.display = 'flex';
+      } else {
+        resultInfoEl.style.display = 'none';
+      }
+      return;
+    }
+
+    // 尝试提取胜率信息
+    const info = this.extractWinrateInfo(comment);
+    if (info) {
+      resultTextEl.textContent = info;
+      resultInfoEl.style.display = 'flex';
+    } else {
+      // 有注释但无胜率格式，回退
+      if (replayData.result) {
+        resultTextEl.textContent = this.translateResult(replayData.result);
+        resultInfoEl.style.display = 'flex';
+      } else if (replayData.initial_player) {
+        resultTextEl.textContent = replayData.initial_player === 'white' ? '白先' : '黑先';
+        resultInfoEl.style.display = 'flex';
+      } else {
+        resultInfoEl.style.display = 'none';
+      }
+    }
+  }
+  /**
+   * 从注释中提取胜率/目差信息字符串
+   * 支持格式：jueyi黑XX%、黑XX%、B XX%、胜率:黑 XX%、KataGo Archive
+   */
+  private extractWinrateInfo(comment: string): string | null {
+    // KataGo Archive 格式: "0.51 0.49 0.00 0.6 v=600"
+    // 格式: <black_wr> <white_wr> <draw_rate> <scoreLead> v=<visits>
+    const katagoArchiveMatch = comment.match(/^(\d+\.?\d*)\s+(\d+\.?\d*)\s+([-\d.]+)\s+([-\d.]+)\s+v=(\d+)/);
+    if (katagoArchiveMatch && katagoArchiveMatch[1] && katagoArchiveMatch[4]) {
+      const blackWr = parseFloat(katagoArchiveMatch[1]);
+      const scoreLead = parseFloat(katagoArchiveMatch[4]);
+      const wrText = `黑 ${(blackWr * 100).toFixed(1)}%`;
+      const scoreText = scoreLead >= 0 ? `+${scoreLead.toFixed(1)}目` : `${scoreLead.toFixed(1)}目`;
+      return `${wrText} ${scoreText}`;
+    }
+
+    // 绝艺格式: "jueyi黑53.2%"
+    const jueyiMatch = comment.match(/jueyi(黑|白)(\d+\.?\d*)%/);
+    if (jueyiMatch && jueyiMatch[1] && jueyiMatch[2]) {
+      return `${jueyiMatch[1]} ${jueyiMatch[2]}%`;
+    }
+
+    // OGS 格式: "胜率: 36.1% | 目差: -0.9 | 第1手"
+    const ogsMatch = comment.match(/胜率[:\s]*(\d+\.?\d*)%.*?目差[:\s]*([-\d.]+)/);
+    if (ogsMatch && ogsMatch[1]) {
+      const wr = parseFloat(ogsMatch[1]);
+      const scoreLead = ogsMatch[2] ? parseFloat(ogsMatch[2]) : null;
+      const wrText = `黑 ${wr.toFixed(1)}%`;
+      const scoreText = scoreLead !== null
+        ? (scoreLead >= 0 ? `+${scoreLead.toFixed(1)}目` : `${scoreLead.toFixed(1)}目`)
+        : '';
+      return scoreText ? `${wrText} ${scoreText}` : wrText;
+    }
+
+    // 星阵格式: "胜率:黑 65.3%" 或 "胜率:黑65.3%"
+    const xingzhenMatch = comment.match(/胜率[:\s]*([黑白])\s*(\d+\.?\d*)%/);
+    if (xingzhenMatch && xingzhenMatch[1] && xingzhenMatch[2]) {
+      return `${xingzhenMatch[1]} ${xingzhenMatch[2]}%`;
+    }
+
+    // 野狐格式: "黑65.3%" 或 "白48.2%"
+    const foxwqMatch = comment.match(/([黑白])(\d+\.?\d*)%/);
+    if (foxwqMatch && foxwqMatch[1] && foxwqMatch[2]) {
+      return `${foxwqMatch[1]} ${foxwqMatch[2]}%`;
+    }
+
+    // KataGo 格式: "B 65.3%" 或 "W 48.2%"
+    const katagoMatch = comment.match(/(B|W)\s+(\d+\.?\d*)%/);
+    if (katagoMatch && katagoMatch[1] && katagoMatch[2]) {
+      const color = katagoMatch[1] === 'B' ? '黑' : '白';
+      return `${color} ${katagoMatch[2]}%`;
+    }
+
+    return null;
+  }
+  /**
    * 更新提子显示
    */
   updateCapturedDisplay(black: number, white: number): void {

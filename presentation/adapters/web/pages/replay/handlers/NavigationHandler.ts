@@ -110,6 +110,7 @@ export class NavigationHandler {
     this.rebuildBoard(currentPath, displayIndex);
     this.syncBoardToDisplay();
     this.ui.updateStatusDisplay();
+    this.ui.updateSubtitle();
     // 注意：updateVariationPanel 需要回调，由外部调用
   }
   /**

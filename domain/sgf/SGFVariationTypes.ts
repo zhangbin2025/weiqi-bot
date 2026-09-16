@@ -43,8 +43,8 @@ export interface WinratePoint {
   blackWr?: number;
   /** 白方胜率（0-1，KataGo Archive 格式） */
   whiteWr?: number;
-  /** 分差（KataGo Archive 格式） */
-  scoreMean?: number;
+  /** 目差/领先目数（KataGo Archive 格式，黑方视角） */
+  scoreLead?: number;
   /** 访问量（KataGo Archive 格式） */
   visits?: number;
 }

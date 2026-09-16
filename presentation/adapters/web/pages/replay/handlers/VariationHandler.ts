@@ -86,6 +86,7 @@ export class VariationHandler {
     this.rebuildBoard(currentPath, displayIndex);
     this.syncBoardToDisplay();
     this.ui.updateStatusDisplay();
+    this.ui.updateSubtitle();
   }
   /**
    * 重建棋盘状态
