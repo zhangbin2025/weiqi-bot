@@ -102,6 +102,20 @@ export const SPECIAL_RULES: SpecialRule[] = [
     description: '死活/死活题关键词识别为下载101围棋棋谱',
   },
   {
+    name: 'live_stream',
+    priority: 79,
+    match: (text: string): boolean => {
+      const trimmed = text.trim();
+      return trimmed === '直播' || (trimmed.includes('直播') && !trimmed.includes('http'));
+    },
+    intent: 'download_game',
+    extractParams: (): Record<string, any> => {
+      const isApp = typeof navigator !== 'undefined' && navigator.userAgent.includes('WeiqiApp');
+      return { source: isApp ? 'yike-live' : 'ogs-live' };
+    },
+    description: '直播关键词：App环境跳弈客直播，Web环境跳OGS在线',
+  },
+  {
     name: 'event_search',
     priority: 75,
     match: (text: string): boolean => {

@@ -582,7 +582,7 @@ ${linksHtml}`;
 
 - 📥 **[抓取棋谱](../fetcher/index.html)**
   - 从分享链接抓取棋谱、死活题
-  - 示例: <a href="../fetcher/index.html">抓取棋谱</a> <a href="#" onclick="quickSend('死活'); return false;">死活</a>
+  - 示例: <a href="../fetcher/index.html">抓谱</a> <a href="#" onclick="quickSend('直播'); return false;">直播</a> <a href="#" onclick="quickSend('死活'); return false;">死活</a>
 
 ---
 
