@@ -54,6 +54,7 @@ async function main() {
   // 挂载自定义下拉框
   Select.mountAll();
   platformSelect = Select.get('#platformSelect')!;
+  if (!platformSelect) console.error('[OpponentPage] platformSelect not found!');
   limitSelect = Select.get('#limitSelect')!;
 
   // 3. 设置事件监听
@@ -130,11 +131,16 @@ function setupEventListeners() {
   });
 
   // 平台切换
-  platformSelect.onChange((value: string) => {
-    if (value === 'foxwq' || value === 'ogs') {
-      switchPlatform(value);
-    }
-  });
+  if (platformSelect) {
+    platformSelect.onChange((value: string) => {
+      console.log('[OpponentPage] platform changed:', value);
+      if (value === 'foxwq' || value === 'ogs') {
+        switchPlatform(value);
+      }
+    });
+  } else {
+    console.error('[OpponentPage] platformSelect is null, onChange not bound');
+  }
 
   // 查询按钮
   queryBtn.addEventListener('click', () => handleAnalyze());
