@@ -30,6 +30,8 @@ export async function loadHistoryList(favoriteService: IFavoriteService | undefi
     
     historyList.innerHTML = sortedFavorites.map(fav => {
       const label = (fav.data?.['label'] as string) || '未知';
+      const source = (fav.data?.['source'] as string) || 'foxwq';
+      const sourceLabel = source === 'ogs' ? 'OGS' : '野狐';
       const gamesCount = (fav.data?.['gamesCount'] as number) || 0;
       const quizGamesCount = (fav.data?.['quizGamesCount'] as number) || 0;
       const problemsCount = (fav.data?.['problemsCount'] as number) || 0;
@@ -39,7 +41,7 @@ export async function loadHistoryList(favoriteService: IFavoriteService | undefi
       return `
         <div class="history-item" data-id="${fav.id}">
           <div class="history-header">
-            <div class="history-title"><span class="history-source">野狐</span> ${label}</div>
+            <div class="history-title"><span class="history-source">${sourceLabel}</span> ${label}</div>
           </div>
           <div class="history-meta">
             <span class="meta-phase">🌅${stats?.phases?.layout ?? 0}</span>
