@@ -66,7 +66,6 @@ async function main() {
   // 生成题目按钮（在 handled 检查之前注册，确保任务链接进入时按钮也可用）
   const generateBtn = document.getElementById('generate-btn');
   generateBtn?.addEventListener('click', async () => {
-    console.log('[decision] generate button clicked', { btn: generateBtn });
     const sourceSelect = Select.get('#source-select');
     const dateSelect = Select.get('#date-select');
     const limitSelect = Select.get('#limit-select');
