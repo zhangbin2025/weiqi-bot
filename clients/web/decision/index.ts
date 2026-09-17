@@ -165,7 +165,7 @@ async function executeGenerate(
     const result = await decisionApp.generateFromOnlineWithOptions(date, limit, {
       blunderFirst: true,
       source: source || 'foxwq',
-      blunderOnly: source === 'ogs' ? false : true,
+      blunderOnly: true,
     }, (percent, status) => {
       // 更新进度
       if (progressBar) progressBar.style.width = `${percent}%`;

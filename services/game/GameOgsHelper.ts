@@ -147,6 +147,7 @@ export class GameOgsHelper {
         for (const game of games) {
           if (collected.length >= maxCount) break;
 
+          if (game.handicap >= 2) continue;  // 跳过让子棋
           scanned++;
           const hasReview = await this.aiReviewFetcher.hasAiReview(game.id, requestFn);
 
