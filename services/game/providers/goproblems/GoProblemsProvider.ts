@@ -455,30 +455,56 @@ export class GoProblemsProvider extends BaseProvider implements IGoProblemsProvi
 
   /**
    * 递归查找分支中的死活题注释，返回 101 格式类型名
-   * 优先返回 RIGHT/NOTTHIS（正解/失败），其次是 CHOICE（变化）
+   *
+   * 遍历整个子树，收集所有注释标记：
+   * - RIGHT（正解图）优先级最高
+   * - NOTTHIS（失败图）次之
+   * - CHOICE（变化图）最低
+   * - 都没有注释 → 变化图
+   *
+   * 注意：不能遇到 CHOICE 就返回，因为更深层可能有 RIGHT。
    */
   private findBranchType(node: SgfNode): string {
-    // 检查当前节点
+    const tags = this.collectBranchTags(node);
+    if (tags.right) return '正解图';
+    if (tags.notthis) return '失败图';
+    if (tags.choice) return '变化图';
+    return '变化图';
+  }
+
+  /**
+   * 递归收集子树中所有注释标记
+   */
+  private collectBranchTags(node: SgfNode): { right: boolean; notthis: boolean; choice: boolean } {
+    let right = false;
+    let notthis = false;
+    let choice = false;
+
+    // 检查当前节点注释
     const comment = node.properties['C']?.[0] || '';
     if (comment) {
-      for (const [key, value] of Object.entries(COMMENT_TYPE_MAP)) {
-        if (comment.includes(key)) return value;
-      }
+      if (comment.includes('RIGHT')) right = true;
+      if (comment.includes('NOTTHIS')) notthis = true;
+      if (comment.includes('CHOICE')) choice = true;
     }
 
-    // 优先检查 next 链（主分支上的着法）
+    // 检查 next 链
     if (node.next) {
-      const found = this.findBranchType(node.next);
-      if (found !== '变化图') return found;
+      const childTags = this.collectBranchTags(node.next);
+      right = right || childTags.right;
+      notthis = notthis || childTags.notthis;
+      choice = choice || childTags.choice;
     }
 
     // 检查子分支
     for (const child of node.children) {
-      const found = this.findBranchType(child);
-      if (found !== '变化图') return found;
+      const childTags = this.collectBranchTags(child);
+      right = right || childTags.right;
+      notthis = notthis || childTags.notthis;
+      choice = choice || childTags.choice;
     }
 
-    return '变化图'; // 默认
+    return { right, notthis, choice };
   }
 
   /**
