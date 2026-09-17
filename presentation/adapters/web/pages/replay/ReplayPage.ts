@@ -192,7 +192,8 @@ export class ReplayPage implements IPage {
           game_name: replayData.game_name,
           max_moves: replayData.max_moves,
           handicap_stones: replayData.handicap_stones,
-          initial_player: replayData.initial_player
+          initial_player: replayData.initial_player,
+          board_size: replayData.board_size
         }
       }));
     }

@@ -658,6 +658,20 @@
         }
       }
       
+      // 非19路棋盘：禁用 AI分析和发现定式
+      const isNonStd = data.board_size && data.board_size !== 19;
+      if (isNonStd) {
+        const aiItem = document.getElementById('aiReviewMenuItem');
+        const discItem = document.getElementById('discoverMenuItem');
+        [aiItem, discItem].forEach(item => {
+          if (item) {
+            item.disabled = true;
+            item.style.opacity = '0.5';
+            item.style.cursor = 'not-allowed';
+          }
+        });
+      }
+
       // 更新底部的对局名称
       const gameTitleEl = document.getElementById('gameTitle');
       if (gameTitleEl) {
