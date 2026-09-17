@@ -63,6 +63,24 @@ async function main() {
     }
   });
 
+  // 生成题目按钮（在 handled 检查之前注册，确保任务链接进入时按钮也可用）
+  const generateBtn = document.getElementById('generate-btn');
+  generateBtn?.addEventListener('click', async () => {
+    console.log('[decision] generate button clicked', { btn: generateBtn });
+    const sourceSelect = Select.get('#source-select');
+    const dateSelect = Select.get('#date-select');
+    const limitSelect = Select.get('#limit-select');
+
+    const source = sourceSelect?.getValue() || 'foxwq';
+    const dateValue = dateSelect?.getValue() || '';
+    const dateOffset = dateValue ? parseInt(dateValue) : NaN;
+    const date = isNaN(dateOffset) ? undefined : getDateStr(dateOffset);
+    const limit = limitSelect?.getValue() ? parseInt(limitSelect.getValue()) : 20;
+    
+    // 执行生成任务（前台模式）
+    await executeGenerate(decisionApp, favoriteService, date, limit, taskParams.taskId, source);
+  });
+
   // 解析任务参数
   const taskParams = TaskHelper.parseTaskParams();
   
@@ -85,23 +103,6 @@ async function main() {
   if (handled) {
     return; // 任务已处理，终止后续逻辑
   }
-
-  // 生成题目按钮（在 handled 检查之前注册，确保任务链接进入时按钮也可用）
-  const generateBtn = document.getElementById('generate-btn');
-  generateBtn?.addEventListener('click', async () => {
-    const sourceSelect = Select.get('#source-select');
-    const dateSelect = Select.get('#date-select');
-    const limitSelect = Select.get('#limit-select');
-
-    const source = sourceSelect?.getValue() || 'foxwq';
-    const dateValue = dateSelect?.getValue() || '';
-    const dateOffset = dateValue ? parseInt(dateValue) : NaN;
-    const date = isNaN(dateOffset) ? undefined : getDateStr(dateOffset);
-    const limit = limitSelect?.getValue() ? parseInt(limitSelect.getValue()) : 20;
-    
-    // 执行生成任务（前台模式）
-    await executeGenerate(decisionApp, favoriteService, date, limit, taskParams.taskId, source);
-  });
 
   // 正常页面加载逻辑
   console.log('[decision] Normal page load');
