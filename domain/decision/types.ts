@@ -23,6 +23,8 @@ export interface IDecisionOption {
   label: string;  // 一选/二选/三选/四选，实战命中几选
   variations?: string[];      // 后续变化（SGF着法序列）
   isPractical?: boolean;      // 是否是实战选点（恶手题中为恶手）
+  /** 胜率为近似值（实战不在推荐选点中，取最差推荐胜率作为上限） */
+  winrateApproximate?: boolean;
   /** 兼容旧页面字段：同 position */
   coord?: string | undefined;
   /** 兼容旧页面字段：同 label */

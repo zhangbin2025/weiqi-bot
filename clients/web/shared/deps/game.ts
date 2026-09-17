@@ -4,7 +4,7 @@
  */
 
 import { GameService, GameHistoryStorage } from '../../../../services/game';
-import { createGameArchiveCache, createGameHistoryIndex, createGameFileStorage } from '../storage';
+import { createGameArchiveCache, createGameHistoryIndex, createGameFileStorage, createOgsPlayerCache } from '../storage';
 import { AppSnifferProvider } from '../../../../infrastructure/network/adapters/app/AppSnifferProvider';
 import { UnsupportedSnifferProvider } from '../../../../infrastructure/network/adapters/common/UnsupportedSnifferProvider';
 import type { WebShellContext } from '../Context';
@@ -18,10 +18,11 @@ export interface GameDeps {
 
 /** 创建棋谱下载依赖 */
 export async function createGameDeps(ctx: WebShellContext): Promise<GameDeps> {
-  const [archiveCache, historyIndex, fileStorage] = await Promise.all([
+  const [archiveCache, historyIndex, fileStorage, ogsPlayerCache] = await Promise.all([
     createGameArchiveCache(),
     createGameHistoryIndex(ctx),
     createGameFileStorage(),
+    createOgsPlayerCache(ctx),
   ]);
 
   const historyStorage = new GameHistoryStorage(historyIndex, fileStorage);
@@ -36,6 +37,7 @@ export async function createGameDeps(ctx: WebShellContext): Promise<GameDeps> {
     configProvider: ctx.config,
     snifferProvider,
     proxyUrl: ctx.proxyUrl,
+    ogsPlayerCache,
   });
 
   return { gameService };

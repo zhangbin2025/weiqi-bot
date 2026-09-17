@@ -8,6 +8,8 @@ import type { NetworkManager } from '../../infrastructure/network/core/NetworkMa
 import type { ISnifferProvider } from '../../infrastructure/network/interfaces/ISnifferProvider';
 import type { IUserContext } from '../../infrastructure/network/interfaces/IUserContext';
 import type { IGameHistoryStorage, GameHistoryIndex } from './IGameHistoryStorage';
+import type { IDocumentStorage } from '../../infrastructure/storage/interfaces/IDocumentStorage';
+import type { OgsPlayerCacheEntry } from './GameOgsHelper';
 import type { IGameArchiveCache } from './IGameArchiveCache';
 import type { IConfigProvider } from '../../infrastructure/config/interfaces/IConfigProvider';
 import type { IGameConfig } from '../../infrastructure/config/schemas/GameConfigSchema';
@@ -26,6 +28,7 @@ export interface IGameServiceOptions {
   userContext?: IUserContext;
   configProvider?: IConfigProvider;
   proxyUrl?: string;
+  ogsPlayerCache?: IDocumentStorage<OgsPlayerCacheEntry> | undefined;
 }
 
 export class GameService implements IGameService {
@@ -72,6 +75,7 @@ export class GameService implements IGameService {
       network,
       archiveCache: options?.archiveCache,
       historyStorage: options?.historyStorage,
+      playerCache: options?.ogsPlayerCache,
     });
   }
 
@@ -79,8 +83,11 @@ export class GameService implements IGameService {
     return this.fetchHelper.fetch(url, forceRefresh, timeout);
   }
 
-  async fetchMany(urls: string[]): Promise<GameServiceResult[]> {
-    return this.fetchHelper.fetchMany(urls);
+  async fetchMany(
+    urls: string[],
+    onProgress?: (completed: number, total: number) => void,
+  ): Promise<GameServiceResult[]> {
+    return this.fetchHelper.fetchMany(urls, onProgress);
   }
 
   canHandle(url: string): boolean {

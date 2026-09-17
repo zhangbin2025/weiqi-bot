@@ -21,6 +21,8 @@ export interface DecisionGenerateOptions {
   archiveId?: string | undefined;
   /** 原始URL */
   url?: string | undefined;
+  /** 棋谱来源（'ogs' 的胜率为黑方胜率，需转换） */
+  source?: string | undefined;
 }
 
 /** 题目生成结果 */

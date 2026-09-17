@@ -129,5 +129,12 @@ function parseWinrateComment(comment: string, moveNumber: number): WinratePoint 
     return { moveNumber, color, winrate, comment };
   }
 
+  // OGS 格式: "胜率: 55.3% | 目差: 3.2 | 第5手" — 胜率为黑方胜率
+  const ogsMatch = comment.match(/胜率[:\s]*(\d+\.?\d*)%/);
+  if (ogsMatch && ogsMatch[1]) {
+    const winrate = parseFloat(ogsMatch[1]);
+    return { moveNumber, color: 'black', winrate, comment };
+  }
+
   return null;
 }

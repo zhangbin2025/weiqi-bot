@@ -58,7 +58,7 @@ export interface IGameService {
    * @param urls - 游戏 URL 列表
    * @returns 下载结果列表
    */
-  fetchMany(urls: string[]): Promise<GameServiceResult[]>;
+  fetchMany(urls: string[], onProgress?: (completed: number, total: number) => void): Promise<GameServiceResult[]>;
 
   /**
    * 检测 URL 是否支持

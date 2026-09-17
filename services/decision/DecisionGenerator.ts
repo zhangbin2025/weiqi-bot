@@ -31,7 +31,14 @@ export class DecisionGenerator {
     const maxCount = options?.maxCount;
     const blunderOnly = options?.blunderOnly ?? false;
 
-    for (const [moveNumStr, vars] of Object.entries(variations)) {
+    // OGS 的 SGF 胜率是黑方胜率，需转为当前方胜率（与野狐/KataGo 对齐）
+    // 转换后所有下游逻辑（checkBlunder/getPracticalWinrate/buildProblem）统一用当前方胜率
+    const isBlackWinrate = options?.source === 'ogs';
+    const convertedVariations = isBlackWinrate
+      ? this.convertBlackWinrates(variations, moves)
+      : variations;
+
+    for (const [moveNumStr, vars] of Object.entries(convertedVariations)) {
       const moveNum = parseInt(moveNumStr, 10);
       if (vars.length < 2) continue;
 
@@ -39,7 +46,7 @@ export class DecisionGenerator {
       if (deduped.length < 2) continue;
 
       const practicalMove = moves[moveNum];
-      const isBlunderProblem = this.checkBlunder(deduped, practicalMove, moveNum, moves, variations);
+      const isBlunderProblem = this.checkBlunder(deduped, practicalMove, moveNum, moves, convertedVariations);
       
       // 如果设置只生成恶手题，且不是恶手，跳过
       if (blunderOnly && !isBlunderProblem) continue;
@@ -53,7 +60,7 @@ export class DecisionGenerator {
       // 阶段筛选
       if (options?.phase && classifyPhase(moveNum) !== options.phase) continue;
 
-      const problem = this.buildProblem(deduped, moveNum, moves, gameInfo, gameLevel, gameId, practicalMove, options, variations);
+      const problem = this.buildProblem(deduped, moveNum, moves, gameInfo, gameLevel, gameId, practicalMove, options, convertedVariations);
       if (problem) problems.push(problem);
     }
 
@@ -93,34 +100,40 @@ export class DecisionGenerator {
     return generic ? parseFloat(generic[1]!) : 0;
   }
 
-  /** 从下一手变化图推算实战胜率
-   *  白棋下完后的胜率 = 100% - 下一手对方变化图最高胜率
-   *  黑棋下完后的胜率 = 100% - 下一手对方变化图最高胜率
+  /** 从下一手变化图推算实战胜率（当前方胜率）
+   *  胜率统一为当前方胜率，下一手是对方选择，取对方最高胜率后翻转
    */
   private getPracticalWinrate(
     moveNum: number,
     moves: VariationMove[],
     allVariations: Record<string, ISGFVariation[]>,
+    vars?: VarWithRate[],
   ): number | undefined {
-    // 下一手 = moveNum + 1
+    // 优先：从下一手 AI 推荐分支推算（野狐每手都有推荐分支）
     const nextVars = allVariations[String(moveNum + 1)];
-    if (!nextVars || nextVars.length === 0) return undefined;
-
-    // 提取下一手所有变化图的胜率，取最高
-    let nextMaxRate = 0;
-    for (const v of nextVars) {
-      if (!v.moves?.length) continue;
-      const rate = this.extractRate(v.comment);
-      if (rate > nextMaxRate) nextMaxRate = rate;
+    if (nextVars && nextVars.length > 0) {
+      let nextMaxRate = 0;
+      for (const v of nextVars) {
+        if (!v.moves?.length) continue;
+        const rate = this.extractRate(v.comment);
+        if (rate > nextMaxRate) nextMaxRate = rate;
+      }
+      if (nextMaxRate > 0) {
+        return 100 - nextMaxRate;
+      }
     }
-    if (nextMaxRate === 0) return undefined;
 
-    // 实战胜率 = 100% - 下一手对方最高胜率
-    return 100 - nextMaxRate;
+    // 回退：没有下一手推荐分支时，取当前手推荐选点中最差的胜率
+    // 表示实战胜率比最差推荐还差，用 < 号标记
+    if (vars && vars.length > 0) {
+      return Math.min(...vars.map(v => v.winrate));
+    }
+
+    return undefined;
   }
 
-  /** 检测恶手：实战胜率与最高胜率差 > 20%，对齐 weiqi-move/scripts/quiz.py
-   *  当实战选点不在 AI 变化图中时，通过下一手变化图推算实战胜率
+  /** 检测恶手：实战胜率与最高胜率差 > 20%
+   *  胜率统一为当前方胜率（SGF 生成时已转换），无需区分黑白
    */
   private checkBlunder(
     vars: VarWithRate[],
@@ -134,12 +147,10 @@ export class DecisionGenerator {
     const pv = vars.find(v => v.firstMove.coord === practical.coord);
 
     if (pv) {
-      // 实战选点在变化图中，直接比较
       return maxRate - pv.winrate > 20;
     }
 
-    // 实战选点不在变化图中，通过下一手推算实战胜率
-    const practicalRate = this.getPracticalWinrate(moveNum, moves, allVariations);
+    const practicalRate = this.getPracticalWinrate(moveNum, moves, allVariations, vars);
     if (practicalRate === undefined) return false;
 
     return maxRate - practicalRate > 20;
@@ -196,8 +207,13 @@ export class DecisionGenerator {
       : undefined;
 
     if (practicalInVars || !practicalMove) {
-      // 实战选点在变化图中，或没有实战信息 → 正常取 top 4
-      decisionOptions = sorted.slice(0, 4).map((v, i) => {
+      // 实战选点在变化图中，或没有实战信息 → 取 top 4，但确保实战包含在内
+      let topPicks = sorted.slice(0, 4);
+      // 如果实战在变化图中但不在 top 4，替换最后一个
+      if (practicalMove && practicalRank > 4) {
+        topPicks = [...sorted.slice(0, 3), sorted[practicalRank - 1]!];
+      }
+      decisionOptions = topPicks.map((v, i) => {
         const isThisPractical = practicalMove ? v.firstMove.coord === practicalMove.coord : false;
         // 实战选点在变化图中但无胜率注释时，用下一手推算
         const winrate = (isThisPractical && v.winrate === 0 && inferredPracticalRate !== undefined)
@@ -206,7 +222,7 @@ export class DecisionGenerator {
         return {
           position: v.firstMove.coord,
           winrate,
-          label: isThisPractical && practicalRank > 0 ? `实战（${rankLabels[practicalRank - 1]}）` : rankLabels[i]!,
+          label: isThisPractical && practicalRank > 0 ? `实战（${rankLabels[practicalRank - 1]})` : rankLabels[i]!,
           variations: v.variation.moves.slice(1, 10).map(m => m.coord),
           isPractical: isThisPractical,
         };
@@ -227,7 +243,10 @@ export class DecisionGenerator {
       }
     } else {
       // 实战选点不在 AI 变化图中 → 需要把实战选点作为选项加入
-      const practicalRate = this.getPracticalWinrate(moveNum, moves, allVarsMap);
+      // 判断是否有下一手推荐分支（决定胜率是否为近似值）
+      const nextVarsForCheck = allVarsMap[String(moveNum + 1)];
+      const nextVarsHasBranches = nextVarsForCheck && nextVarsForCheck.length > 0;
+      const practicalRate = this.getPracticalWinrate(moveNum, moves, allVarsMap, sorted);
       // 实战后续着法（从SGF棋谱中取最多10手）
       const gameContinuation = moves.slice(moveNum + 1, moveNum + 11).map(m => m.coord);
 
@@ -240,17 +259,20 @@ export class DecisionGenerator {
         isPractical: false,
       }));
 
+      // practicalRate 来自最差推荐选点回退时，标记为近似值（显示 < 号）
+      const isApproximate = !nextVarsHasBranches;
       const practicalOption: IDecisionOption = {
         position: practicalMove.coord,
         winrate: practicalRate ?? 0,
         label: '实战',
         variations: gameContinuation,
         isPractical: true,
+        winrateApproximate: isApproximate,
       };
 
       decisionOptions = [...aiOptions, practicalOption];
 
-      // 按胜率重新排序，重新分配标签
+      // 按对当前方的优劣重新排序
       decisionOptions.sort((a, b) => b.winrate - a.winrate);
       for (let i = 0; i < decisionOptions.length; i++) {
         const opt = decisionOptions[i]!;
@@ -267,6 +289,9 @@ export class DecisionGenerator {
     const best = decisionOptions[0]!.winrate;
     const second = decisionOptions[1]?.winrate ?? 0;
     const isBlunderProblem = this.checkBlunder(sorted, practicalMove, moveNum, moves, allVarsMap);
+    // calcDifficulty expects best > second (both from current player's perspective)
+    // For white moves, we already sorted ascending, so best < second in black winrate terms
+    // Need to pass values where best is the best for current player
     const difficulty = isBlunderProblem ? 'blunder' : calcDifficulty(best, second);
 
     return {
@@ -293,5 +318,42 @@ export class DecisionGenerator {
         gameId,
       },
     };
+  }
+
+  /**
+   * 将 OGS 黑方胜率转换为当前方胜率
+   *
+   * OGS 的 SGF 注释中胜率始终是黑方胜率（如 "胜率: 55.3%" 或 "选点1: 胜率=62.1%"）。
+   * 此方法重建 variations，将白棋着手的胜率注释翻转为白方胜率。
+   *
+   * @param variations - 原始 variations（胜率为黑方胜率）
+   * @param moves - 棋谱着法（含 color 信息）
+   * @returns 转换后的 variations（胜率为当前方胜率）
+   */
+  private convertBlackWinrates(
+    variations: Record<number, ISGFVariation[]>,
+    moves: { color: string; coord: string }[]
+  ): Record<number, ISGFVariation[]> {
+    const result: Record<number, ISGFVariation[]> = {};
+
+    for (const [moveNumStr, vars] of Object.entries(variations)) {
+      const moveNum = parseInt(moveNumStr, 10);
+      const currentColor = moves[moveNum]?.color;
+      const isWhite = currentColor === 'W';
+
+      result[moveNum] = vars.map(v => {
+        if (!v.comment) return v;
+        // 转换注释中的胜率：白棋时 100 - 黑方胜率
+        const convertedComment = isWhite
+          ? v.comment.replace(/(\d+\.?\d*)%/g, (match, num) => {
+              const wr = parseFloat(num);
+              return `${(100 - wr).toFixed(1)}%`;
+            })
+          : v.comment;
+        return { ...v, comment: convertedComment };
+      });
+    }
+
+    return result;
   }
 }

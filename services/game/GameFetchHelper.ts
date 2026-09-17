@@ -113,9 +113,14 @@ export class GameFetchHelper {
   /**
    * 批量获取棋谱（限制并发数）
    */
-  async fetchMany(urls: string[]): Promise<GameServiceResult[]> {
+  async fetchMany(
+    urls: string[],
+    onProgress?: (completed: number, total: number) => void,
+  ): Promise<GameServiceResult[]> {
     const results: GameServiceResult[] = new Array(urls.length);
     let currentIndex = 0;
+    let completed = 0;
+    const total = urls.length;
     const activeTasks: Promise<void>[] = [];
 
     const worker = async (): Promise<void> => {
@@ -127,6 +132,8 @@ export class GameFetchHelper {
           await this.delay(this.requestDelay);
         }
         results[index] = await this.fetch(url);
+        completed++;
+        onProgress?.(completed, total);
       }
     };
 

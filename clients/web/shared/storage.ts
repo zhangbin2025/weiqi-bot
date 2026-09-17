@@ -37,6 +37,21 @@ export async function createReadMarkStorage(ctx: WebShellContext): Promise<IDocu
   return ctx.createCache<ReadMarkEntry>('weiqi-bot-readmark', 'marks');
 }
 
+/** OGS 活跃玩家缓存条目 */
+export type OgsPlayerCacheEntry = {
+  id: string;            // player id (string for IDocumentStorage)
+  playerId: number;      // OGS player id
+  username: string;
+  rank: number;
+  lastSeen: string;      // YYYY-MM-DD
+  gameCount: number;     // 当天收集到的对局数
+};
+
+/** 创建 OGS 活跃玩家缓存（IndexedDB，7 天 TTL 由应用层管理）*/
+export async function createOgsPlayerCache(ctx: WebShellContext): Promise<IDocumentStorage<OgsPlayerCacheEntry>> {
+  return ctx.createCache<OgsPlayerCacheEntry>('weiqi-bot-ogs-players', 'players');
+}
+
 /** 创建棋谱归档缓存（URL → archiveId 映射）*/
 export async function createGameArchiveCache(): Promise<IGameArchiveCache> {
   const adapter = new MemoryAdapter({ name: 'game-archive-cache' });

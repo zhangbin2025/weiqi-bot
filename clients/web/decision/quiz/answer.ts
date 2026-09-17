@@ -95,7 +95,7 @@ export function showResultCard(
 
     const winrateDiv = document.createElement('div');
     winrateDiv.className = 'option-winrate';
-    winrateDiv.textContent = option.winrate !== undefined ? `${option.winrate.toFixed(1)}%` : '-';
+    winrateDiv.textContent = option.winrate !== undefined ? `${option.winrateApproximate ? "<" : ""}${option.winrate.toFixed(1)}%` : '-';
 
     infoDiv.appendChild(labelDiv);
     infoDiv.appendChild(winrateDiv);

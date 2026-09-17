@@ -60,6 +60,7 @@ export class DecisionService implements IDecisionService {
       blunderOnly: options?.blunderOnly,
       archiveId: options?.archiveId,
       url: options?.url,
+      source: options?.source,
     };
     const problems = this.generator.generate(sgf, mergedOptions);
 

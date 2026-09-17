@@ -106,7 +106,10 @@ export class DecisionApp {
     onProgress?.(10, `获取到 ${urls.length} 个棋谱`);
     // 2. 批量下载棋谱
     onProgress?.(20, `正在下载棋谱...`);
-    const fetchResults = await this.gameService.fetchMany(urls);
+    const fetchResults = await this.gameService.fetchMany(urls, (completed, total) => {
+      const percent = 20 + Math.round((completed / Math.max(total, 1)) * 20);
+      onProgress?.(percent, `正在下载棋谱 ${completed}/${total}...`);
+    });
     // 3. 提取 SGF 内容
     const successfulResults = fetchResults.filter((r): r is GameServiceResult & { sgfContent: string } => Boolean(r.success && r.sgfContent));
     onProgress?.(40, `成功下载 ${successfulResults.length} 个棋谱，正在分析...`);
@@ -120,6 +123,7 @@ export class DecisionApp {
         phase: options?.phase,
         blunderFirst: options?.blunderFirst,
         blunderOnly: options?.blunderOnly ?? true,
+        source: options?.source,
         archiveId: fetchResult.archiveId,
         url: fetchResult.url,
       });
