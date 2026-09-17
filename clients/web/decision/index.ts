@@ -70,7 +70,7 @@ async function main() {
   const handled = await TaskHelper.handleTaskParams(taskParams, {
     onExecuteSchedule: async (params, scheduleId) => {
       const dateOffset = params.dateOffset || 1;  // 实战选点默认昨天
-      const limit = params.limit || 50;
+      const limit = params.limit || 20;
       const source = params.source || 'foxwq';
       const date = getDateStr(dateOffset);
       
@@ -100,7 +100,7 @@ async function main() {
     const dateValue = dateSelect?.getValue() || '';
     const dateOffset = dateValue ? parseInt(dateValue) : NaN;
     const date = isNaN(dateOffset) ? undefined : getDateStr(dateOffset);
-    const limit = limitSelect?.getValue() ? parseInt(limitSelect.getValue()) : 50;
+    const limit = limitSelect?.getValue() ? parseInt(limitSelect.getValue()) : 20;
     
     // 执行生成任务（前台模式）
     await executeGenerate(decisionApp, favoriteService, date, limit, taskParams.taskId, source);
@@ -123,7 +123,7 @@ async function main() {
     
     // 自动触发生成任务（使用默认参数）
     const dateOffset = 1;  // 默认昨天
-    const limit = 50;      // 默认 50
+    const limit = 20;      // 默认 20
     const date = getDateStr(dateOffset);
     
     await executeGenerate(decisionApp, favoriteService, date, limit, taskParams.taskId);

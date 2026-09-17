@@ -93,7 +93,7 @@ export class GameService implements IGameService {
 
   async listPublicGames(date?: string, count?: number, source?: string): Promise<string[]> {
     if (source === 'ogs') {
-      return this.ogsHelper.listProGamesWithAiReview(date ?? new Date().toISOString().slice(0, 10), count ?? 50);
+      return this.ogsHelper.listProGamesWithAiReview(date ?? new Date().toISOString().slice(0, 10), count ?? 20);
     }
     if (source === 'katago') {
       const katago = this.registry.getKatagoProvider();
