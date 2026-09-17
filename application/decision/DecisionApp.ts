@@ -15,6 +15,10 @@ export interface DecisionGenerateOptions {
   phase?: DecisionPhase | undefined;
   /** 恶手题优先 */
   blunderFirst?: boolean | undefined;
+  /** 棋谱来源 */
+  source?: string | undefined;
+  /** 是否只生成恶手题（默认 true，OGS 源用 false） */
+  blunderOnly?: boolean | undefined;
 }
 /** 决策题生成结果 */
 export interface DecisionGenerateStats {
@@ -97,7 +101,8 @@ export class DecisionApp {
     if (!this.decisionService) throw new Error('DecisionService not available');
     // 1. 获取公开棋谱列表
     onProgress?.(0, '正在获取棋谱列表...');
-    const urls = await this.gameService.listPublicGames(date, limit ?? 10);
+    const source = options?.source;
+    const urls = await this.gameService.listPublicGames(date, limit ?? 10, source);
     onProgress?.(10, `获取到 ${urls.length} 个棋谱`);
     // 2. 批量下载棋谱
     onProgress?.(20, `正在下载棋谱...`);
@@ -114,7 +119,7 @@ export class DecisionApp {
         difficulty: options?.difficulty,
         phase: options?.phase,
         blunderFirst: options?.blunderFirst,
-        blunderOnly: true,
+        blunderOnly: options?.blunderOnly ?? true,
         archiveId: fetchResult.archiveId,
         url: fetchResult.url,
       });
@@ -130,10 +135,10 @@ export class DecisionApp {
     // 5. 保存到favorite
     onProgress?.(90, '正在保存结果...');
     const label = (date || new Date().toISOString().split('T')[0]) as string;
-    const favoriteKey = `foxwq_${date || 'all'}`;
+    const favoriteKey = `${source || 'foxwq'}_${date || 'all'}`;
     const favoriteData = {
       label,
-      source: 'foxwq',
+      source: source || 'foxwq',
       date,
       gamesCount: successfulResults.length,
       quizGamesCount: gameGroups.length,

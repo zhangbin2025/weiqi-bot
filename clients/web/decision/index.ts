@@ -71,10 +71,11 @@ async function main() {
     onExecuteSchedule: async (params, scheduleId) => {
       const dateOffset = params.dateOffset || 1;  // 实战选点默认昨天
       const limit = params.limit || 50;
+      const source = params.source || 'foxwq';
       const date = getDateStr(dateOffset);
       
       // 执行生成任务
-      await executeGenerate(decisionApp, favoriteService, date, limit, scheduleId);
+      await executeGenerate(decisionApp, favoriteService, date, limit, scheduleId, source);
     },
     onViewFavorite: async (key) => {
       await viewFavorite(decisionApp, favoriteService, key);
@@ -91,16 +92,18 @@ async function main() {
   // 生成题目按钮
   const generateBtn = document.getElementById('generate-btn');
   generateBtn?.addEventListener('click', async () => {
+    const sourceSelect = Select.get('#source-select');
     const dateSelect = Select.get('#date-select');
     const limitSelect = Select.get('#limit-select');
 
+    const source = sourceSelect?.getValue() || 'foxwq';
     const dateValue = dateSelect?.getValue() || '';
     const dateOffset = dateValue ? parseInt(dateValue) : NaN;
     const date = isNaN(dateOffset) ? undefined : getDateStr(dateOffset);
     const limit = limitSelect?.getValue() ? parseInt(limitSelect.getValue()) : 50;
     
     // 执行生成任务（前台模式）
-    await executeGenerate(decisionApp, favoriteService, date, limit, taskParams.taskId);
+    await executeGenerate(decisionApp, favoriteService, date, limit, taskParams.taskId, source);
   });
 
   // 加载历史记录列表
@@ -145,7 +148,8 @@ async function executeGenerate(
   favoriteService: any,
   date: string | undefined,
   limit: number,
-  taskId?: string
+  taskId?: string,
+  source?: string
 ): Promise<void> {
   // 显示进度条
   const progressCard = document.getElementById('progress-card') as HTMLElement;
@@ -160,6 +164,8 @@ async function executeGenerate(
     // 生成题目
     const result = await decisionApp.generateFromOnlineWithOptions(date, limit, {
       blunderFirst: true,
+      source: source || 'foxwq',
+      blunderOnly: source === 'ogs' ? false : true,
     }, (percent, status) => {
       // 更新进度
       if (progressBar) progressBar.style.width = `${percent}%`;

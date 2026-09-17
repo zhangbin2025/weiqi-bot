@@ -34,7 +34,7 @@ export class OgsAiReviewFetcher {
    * 获取指定对局的 AI Review 数据
    *
    * @param gameId - OGS 对局 ID
-   * @param network - NetworkManager 实例（用于 REST API 请求）
+   * @param requestFn - REST 请求函数
    * @returns AI Review 汇总数据，如无 AI review 则返回 null
    */
   async fetch(
@@ -58,6 +58,24 @@ export class OgsAiReviewFetcher {
 
     // 3. 整合数据
     return this.summarize(aiData);
+  }
+
+  /**
+   * 轻量检查：对局是否有 AI review
+   *
+   * 只调用 REST API 检查返回数组是否非空，不做 WebSocket 连接。
+   * 用于在收集棋谱时快速过滤掉没有 AI review 的对局。
+   *
+   * @param gameId - OGS 对局 ID
+   * @param requestFn - REST 请求函数
+   * @returns 是否存在 AI review
+   */
+  async hasAiReview(
+    gameId: number,
+    requestFn: (url: string) => Promise<any>
+  ): Promise<boolean> {
+    const reviews = await this.getAiReviewList(gameId, requestFn);
+    return !!(reviews && reviews.length > 0);
   }
 
   /**

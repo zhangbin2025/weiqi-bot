@@ -19,6 +19,9 @@ interface OgsApiListResponse<T> {
   results: T[];
 }
 
+/** 职业棋手列表缓存（进程级） */
+let proPlayersCache: OgsPlayerInfo[] | null = null;
+
 /**
  * OGS 玩家查询提供者
  */
@@ -35,7 +38,7 @@ export class OgsPlayerProvider {
    */
   async searchPlayer(username: string): Promise<OgsPlayerInfo | null> {
     const url = `${OGS_API_URL}/players?username=${encodeURIComponent(username)}`;
-    const response = await this.network.request<OgsApiListResponse<OgsPlayerInfo>>({
+    const response: { data?: OgsApiListResponse<OgsPlayerInfo> } = await this.network.request<OgsApiListResponse<OgsPlayerInfo>>({
       url,
       method: 'GET',
     });
@@ -60,6 +63,65 @@ export class OgsPlayerProvider {
   async fetchPlayerGames(playerId: number, count: number = 10): Promise<OgsPlayerGame[]> {
     const pageSize = Math.min(count, 50);
     const url = `${OGS_API_URL}/players/${playerId}/games/?ended__isnull=false&ordering=-ended&width=19&height=19&page_size=${pageSize}`;
+
+    const response = await this.network.request<OgsApiListResponse<OgsPlayerGame>>({
+      url,
+      method: 'GET',
+    });
+
+    return (response.data?.results ?? []).slice(0, count);
+  }
+
+  /**
+   * 获取所有职业棋手列表
+   *
+   * OGS API 支持 ?professional=true 过滤，返回约 73 位职业棋手。
+   * 结果使用进程级缓存，职业棋手列表变化极少。
+   *
+   * @returns 职业棋手信息列表
+   */
+  async listProPlayers(): Promise<OgsPlayerInfo[]> {
+    if (proPlayersCache) {
+      return proPlayersCache;
+    }
+
+    const all: OgsPlayerInfo[] = [];
+    let url: string | null = `${OGS_API_URL}/players?professional=true&page_size=100`;
+
+    while (url !== null) {
+      const response: { data?: OgsApiListResponse<OgsPlayerInfo> } = await this.network.request<OgsApiListResponse<OgsPlayerInfo>>({
+        url,
+        method: 'GET',
+      });
+
+      const data: OgsApiListResponse<OgsPlayerInfo> | undefined = response.data;
+      if (!data) break;
+
+      all.push(...data.results);
+      url = data.next;
+    }
+
+    proPlayersCache = all;
+    return all;
+  }
+
+  /**
+   * 按日期范围获取玩家已结束的 19×19 对局列表
+   *
+   * @param playerId - OGS 玩家 ID
+   * @param dateStart - 起始日期（YYYY-MM-DD）
+   * @param dateEnd - 结束日期（YYYY-MM-DD）
+   * @param count - 最大数量
+   * @returns 对局列表
+   */
+  async fetchPlayerGamesByDate(
+    playerId: number,
+    dateStart: string,
+    dateEnd: string,
+    count: number = 10
+  ): Promise<OgsPlayerGame[]> {
+    const pageSize = Math.min(count, 50);
+    const url = `${OGS_API_URL}/players/${playerId}/games/?ended__isnull=false&ordering=-ended&width=19&height=19&ended__gte=${dateStart}&ended__lte=${dateEnd}&page_size=${pageSize}`;
 
     const response = await this.network.request<OgsApiListResponse<OgsPlayerGame>>({
       url,
