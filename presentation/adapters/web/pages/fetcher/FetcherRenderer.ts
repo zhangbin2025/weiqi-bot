@@ -14,7 +14,9 @@ export interface FetcherRendererCallbacks {
   onClearBookmarks: () => Promise<void>;
   onDownload: () => Promise<void>;
   onViewSGF: () => Promise<void>;
+  onLive: () => void;
   onGenerateShareUrl: () => Promise<void>;
+  onSelectLatestView: (url: string) => void;
   onFetchLatest: (source: string, count: number, keyword?: string) => Promise<void>;
   onSelectLatest: (url: string) => void;
 }
@@ -140,9 +142,7 @@ export class FetcherRenderer {
     this.bookmarkCard.onAction((action, data) => { if (action === 'viewBookmark' && data?.['id']) this.cb.onViewBookmark(data['id']); });
     this.resultCard.onAction((action) => {
       if (action === "live") {
-        if (this._currentResult) {
-          this.cb.onViewSGF();
-        }
+        this.cb.onLive();
       } else if (action === "download") {
         this.cb.onDownload();
       } else if (action === "view") {
@@ -366,6 +366,8 @@ export class FetcherRenderer {
     this.latestCard.onAction((action, data) => {
       if (action === 'selectLatest' && data?.['url']) {
         this.cb.onSelectLatest(data['url'] as string);
+      } else if (action === 'viewLatest' && data?.['url']) {
+        this.cb.onSelectLatestView(data['url'] as string);
       }
     });
   }
@@ -390,7 +392,14 @@ export class FetcherRenderer {
       const isSelected = this._selectedLatestUrl === item.url;
       const bg = isSelected ? '#eef2ff' : '';
       const border = isSelected ? 'border-left:3px solid #667eea;padding-left:8px;' : '';
+      const isLiveSource = item.source === 'ogs-live' || item.source === 'yike-live';
       const hoverScript = isSelected ? '' : 'onmouseover="this.style.background=\'#f8f9fa\'" onmouseout="this.style.background=\'\'"';
+      const liveButtons = isLiveSource
+        ? `<div style="display:flex;gap:6px;margin-top:6px;" onclick="event.stopPropagation()">
+            <div data-action="viewLatest" data-url="${item.url}" style="flex:1;background:#f0f0f0;color:#333;padding:6px 8px;border-radius:6px;text-align:center;cursor:pointer;font-size:0.85em;">👁️ 查看</div>
+            <div data-action="selectLatest" data-url="${item.url}" style="flex:1;background:linear-gradient(135deg,#e53e3e 0%,#c53030 100%);color:white;padding:6px 8px;border-radius:6px;text-align:center;cursor:pointer;font-size:0.85em;font-weight:600;">🔴 直播</div>
+          </div>`
+        : '';
       return `<div data-action="selectLatest" data-url="${item.url}" style="padding:10px 0;border-top:1px solid #eee;cursor:pointer;background:${bg};${border}" ${hoverScript}>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
           <span style="font-size:0.8em;font-weight:500;color:#667eea;">${sourceLabel}</span>
@@ -398,6 +407,7 @@ export class FetcherRenderer {
         </div>
         <div style="font-weight:500;color:#333;font-size:0.95em;">${item.title}</div>
         ${subtitle}
+        ${liveButtons}
       </div>`;
     }).join('');
     this.latestCard.setContent(html);

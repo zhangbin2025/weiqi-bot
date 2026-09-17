@@ -41,9 +41,11 @@ export class FetcherPage implements IPage {
       onClearBookmarks: () => this.clearBookmarks(),
       onDownload: () => this.downloadSGF(),
       onViewSGF: () => this.viewSGF(),
+      onLive: () => this.liveWatch(),
       onGenerateShareUrl: () => this.generateShareUrl(),
       onFetchLatest: (source, count, keyword) => this.fetchLatestGames(source, count, keyword),
       onSelectLatest: (url) => this.selectLatestGame(url),
+      onSelectLatestView: (url) => this.viewLatestGame(url),
     };
     this.renderer = new FetcherRenderer(callbacks, config.adapterFactory, this.formatter);
   }
@@ -361,13 +363,6 @@ export class FetcherPage implements IPage {
   private async viewSGF(): Promise<void> {
     if (!this.currentResult?.archiveId) return;
     
-    // 直播模式：跳转到 review 页面，带上 live 参数
-    if (this.isLiveMode && this.liveUrl) {
-      const reviewUrl = "../review/index.html?live=true&url=" + encodeURIComponent(this.liveUrl);
-      window.location.href = reviewUrl;
-      return;
-    }
-    
     // 判断是否是题目（101围棋网 qday 或 q 页面，或 goproblems 死活题）
     const questionPatterns = [
       /101weiqi\.com\/qday\//,
@@ -393,6 +388,56 @@ export class FetcherPage implements IPage {
       const navParams: Record<string, string> = { archiveId: this.currentResult.archiveId, src: srcUrl };
       if (wqmove) navParams['move'] = wqmove;
       this._onNavigate('replay', navParams);
+    }
+  }
+  /** 直播观看：跳转 review 页面，带 live 参数 */
+  private liveWatch(): void {
+    if (this.liveUrl) {
+      const reviewUrl = "../review/index.html?live=true&url=" + encodeURIComponent(this.liveUrl);
+      window.location.href = reviewUrl;
+    }
+  }
+  /** 查看最新列表中的棋谱（打谱模式，不走直播） */
+  private async viewLatestGame(url: string): Promise<void> {
+    this.renderer.setSelectedLatestUrl(url);
+    this.renderer.rerenderLatest();
+    try { sessionStorage.setItem('fetcher_latest_selected', url); } catch { /* ignore */ }
+    this.renderer.showLatestItemLoading(url);
+    try {
+      const result = await this.fetcherApp.fetch(url);
+      this.renderer.showLatestItemLoading(url, false);
+      if (result.success) {
+        this.currentResult = result;
+        this.isLiveMode = !!result.metadata?.isLive;
+        if (this.isLiveMode) this.liveUrl = url;
+        await this.loadBookmarks();
+        // 判断是否是题目
+        const questionPatterns = [
+          /101weiqi\.com\/qday\//,
+          /101weiqi\.com\/q\//,
+          /101weiqi\.cn\/qday\//,
+          /101weiqi\.cn\/q\//,
+        ];
+        const isQuestion = (result.source === 'weiqi101' &&
+                           questionPatterns.some(p => p.test(result.url || ''))) ||
+                           result.source === 'goproblems' ||
+                           result.source === 'ogs-puzzle';
+        const srcUrl = this.filterSrcUrl(result.url);
+        if (!result.archiveId) return;
+        if (isQuestion) {
+          this._onNavigate?.('replay', { archiveId: result.archiveId, move: '0', src: srcUrl });
+        } else {
+          const wqmove = this.extractWqMove(result.url);
+          const navParams: Record<string, string> = { archiveId: result.archiveId, src: srcUrl };
+          if (wqmove) navParams['move'] = wqmove;
+          this._onNavigate?.('replay', navParams);
+        }
+      } else {
+        this.toast.show(result.error || '抓取失败');
+      }
+    } catch (error) {
+      this.renderer.showLatestItemLoading(url, false);
+      console.error('[FetcherPage] viewLatestGame failed:', error);
     }
   }
   private async generateShareUrl(): Promise<void> {
