@@ -395,9 +395,9 @@ export class FetcherRenderer {
       const isLiveSource = item.source === 'ogs-live' || item.source === 'yike-live';
       const hoverScript = isSelected ? '' : 'onmouseover="this.style.background=\'#f8f9fa\'" onmouseout="this.style.background=\'\'"';
       const liveButtons = isLiveSource
-        ? `<div style="display:flex;gap:6px;margin-top:6px;" onclick="event.stopPropagation()">
-            <div data-action="viewLatest" data-url="${item.url}" style="flex:1;background:#f0f0f0;color:#333;padding:6px 8px;border-radius:6px;text-align:center;cursor:pointer;font-size:0.85em;">👁️ 查看</div>
-            <div data-action="selectLatest" data-url="${item.url}" style="flex:1;background:linear-gradient(135deg,#e53e3e 0%,#c53030 100%);color:white;padding:6px 8px;border-radius:6px;text-align:center;cursor:pointer;font-size:0.85em;font-weight:600;">🔴 直播</div>
+        ? `<div style="display:flex;justify-content:flex-end;gap:4px;margin-top:4px;" onclick="event.stopPropagation()">
+            <span data-action="viewLatest" data-url="${item.url}" style="background:#f0f0f0;color:#555;padding:2px 8px;border-radius:10px;cursor:pointer;font-size:0.75em;">👁 查看</span>
+            <span data-action="selectLatest" data-url="${item.url}" style="background:#f0f0f0;color:#e53e3e;padding:2px 8px;border-radius:10px;cursor:pointer;font-size:0.75em;font-weight:600;">🔴 直播</span>
           </div>`
         : '';
       return `<div data-action="selectLatest" data-url="${item.url}" style="padding:10px 0;border-top:1px solid #eee;cursor:pointer;background:${bg};${border}" ${hoverScript}>
