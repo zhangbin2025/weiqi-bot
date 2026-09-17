@@ -240,7 +240,8 @@ export class FetcherPage implements IPage {
           ];
           const isQuestion = (result.source === 'weiqi101' &&
                              questionPatterns.some(p => p.test(result.url || ''))) ||
-                             result.source === 'goproblems';
+                             result.source === 'goproblems' ||
+                             result.source === 'ogs-puzzle';
           const replayLink = isQuestion
             ? `/replay/index.html?archiveId=${result.archiveId}&move=0`
             : (() => {
@@ -327,7 +328,8 @@ export class FetcherPage implements IPage {
         ];
         const isQuestion = (result.source === 'weiqi101' &&
                            questionPatterns.some(p => p.test(result.url || ''))) ||
-                           result.source === 'goproblems';
+                           result.source === 'goproblems' ||
+                             result.source === 'ogs-puzzle';
         const srcUrl = this.filterSrcUrl(result.url);
         if (!result.archiveId) return;
         if (isQuestion) {
@@ -375,7 +377,8 @@ export class FetcherPage implements IPage {
     ];
     const isQuestion = (this.currentResult?.source === 'weiqi101' &&
                        questionPatterns.some(p => p.test(this.currentResult?.url || ''))) ||
-                       this.currentResult?.source === 'goproblems';
+                       this.currentResult?.source === 'goproblems' ||
+                       this.currentResult?.source === 'ogs-puzzle';
     
     // 正常模式：原有逻辑
     if (!this._onNavigate) return;

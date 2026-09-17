@@ -28,6 +28,7 @@ export class FetcherRenderer {
   readonly resultCard: ICard;
   readonly toast: IToast;
   readonly latestPanel: IPanel;
+  readonly categorySelect: ISelect;
   readonly sourceSelect: ISelect;
   readonly countSelect: ISelect;
   readonly keywordInput: IInput;
@@ -55,6 +56,7 @@ export class FetcherRenderer {
     this.toast = factory.createToast();
     this.latestPanel = factory.createPanel();
     const lc = this.latestPanel.asContainer();
+    this.categorySelect = factory.createSelect(lc);
     this.sourceSelect = factory.createSelect(lc);
     this.countSelect = factory.createSelect(lc);
     this.keywordInput = factory.createInput(lc);
@@ -97,17 +99,16 @@ export class FetcherRenderer {
     this.bookmarkPanel.onAction((action) => { if (action === 'clearBookmarks') this.cb.onClearBookmarks(); });
     // 最新标签页
     this.latestPanel.setTitle('📰 最新棋谱');
-    this.sourceSelect.setConfig({
+    // 分类筛选
+    this.categorySelect.setConfig({
       options: [
-        { value: 'foxwq', label: '野狐围棋' },
-        { value: 'weiqi101', label: '101围棋' },
-        { value: 'ogs-live', label: 'OGS在线' },
-        { value: 'yike-live', label: '弈客直播' },
-        { value: 'goproblems', label: 'GoProblems' },
-        { value: 'katago', label: 'KataGo' },
+        { value: 'archive', label: '📠 归档' },
+        { value: 'puzzle', label: '🧩 做题' },
+        { value: 'live', label: '📺 直播' },
       ],
-      value: 'foxwq',
+      value: 'archive',
     });
+    this.updateSourceOptions('archive');
     this.countSelect.setConfig({
       options: [
         { value: '10', label: '10 盘' },
@@ -160,8 +161,53 @@ export class FetcherRenderer {
   }
   setInputValue(value: string): void { this.input.setValue(value); }
 
+  /** 分类 → 来源 映射 */
+  private static readonly CATEGORY_SOURCES: Record<string, Array<{ value: string; label: string }>> = {
+    archive: [
+      { value: 'foxwq', label: '野狐围棋' },
+      { value: 'katago', label: 'KataGo' },
+    ],
+    puzzle: [
+      { value: 'weiqi101', label: '101围棋' },
+      { value: 'ogs-puzzle', label: 'OGS死活题' },
+      { value: 'goproblems', label: 'GoProblems' },
+    ],
+    live: [
+      { value: 'ogs-live', label: 'OGS在线' },
+      { value: 'yike-live', label: '弄客直播' },
+    ],
+  };
+
+  /** 根据分类更新来源下拉框选项 */
+  private _suppressSourceChange = false;
+  private updateSourceOptions(category: string): void {
+    const sources = FetcherRenderer.CATEGORY_SOURCES[category] || [];
+    this._suppressSourceChange = true;
+    this.sourceSelect.setConfig({
+      options: sources,
+      value: sources[0]?.value || '',
+    });
+    this._suppressSourceChange = false;
+  }
+
+  /** 设置最新标签页的分类 */
+  setLatestCategory(category: string): void {
+    this.categorySelect.setValue(category);
+    this.updateSourceOptions(category);
+  }
+
   /** 设置最新标签页的来源 */
-  setLatestSource(source: string): void { this.sourceSelect.setValue(source); }
+  setLatestSource(source: string): void {
+    // 自动检测分类
+    for (const [cat, sources] of Object.entries(FetcherRenderer.CATEGORY_SOURCES)) {
+      if (sources.some(s => s.value === source)) {
+        this.categorySelect.setValue(cat);
+        this.updateSourceOptions(cat);
+        break;
+      }
+    }
+    this.sourceSelect.setValue(source);
+  }
 
   /** 设置最新标签页的棋谱数 */
   setLatestCount(count: string): void { this.countSelect.setValue(count); }
@@ -286,8 +332,18 @@ export class FetcherRenderer {
         this.cb.onFetchLatest(source, count, keyword || undefined);
       }
     });
-    // 下拉框变化时自动刷新
+    // 分类切换时更新来源列表并自动刷新
+    this.categorySelect.onChange((category) => {
+      this.updateSourceOptions(category);
+      const source = this.sourceSelect.getValue() || '';
+      if (!source) return;
+      const count = parseInt(this.countSelect.getValue() || '20', 10);
+      const keyword = this.keywordInput.getValue().trim();
+      this.cb.onFetchLatest(source, count, keyword || undefined);
+    });
+    // 来源下拉框变化时自动刷新
     this.sourceSelect.onChange(() => {
+      if (this._suppressSourceChange) return;
       const source = this.sourceSelect.getValue() || 'foxwq';
       const count = parseInt(this.countSelect.getValue() || '20', 10);
       const keyword = this.keywordInput.getValue().trim();
@@ -326,7 +382,7 @@ export class FetcherRenderer {
     this.latestCard.setVisible(true);
     this._latestItems = items;
     const html = items.map(item => {
-      const sourceLabels: Record<string, string> = { foxwq: '🏆 野狐', weiqi101: '📝 101围棋', 'ogs-live': '🎬 OGS', 'yike-live': '📹 弈客', goproblems: '🧩 GoProblems', katago: '🤖 KataGo' };
+      const sourceLabels: Record<string, string> = { foxwq: '🏆 野狐', weiqi101: '📝 101围棋', 'ogs-live': '🎬 OGS', 'yike-live': '📹 弈客', goproblems: '🧩 GoProblems', 'ogs-puzzle': '🧩 OGS死活题', katago: '🤖 KataGo' };
       const sourceLabel = sourceLabels[item.source] || item.source;
       const subtitle = item.subtitle
         ? `<div style="font-size:0.85em;color:#666;margin-top:4px;">${item.subtitle}</div>`
@@ -393,6 +449,7 @@ export class FetcherRenderer {
   destroy(): void {
     this.tabs.destroy();
     this.queryPanel.destroy();
+    this.categorySelect.destroy();
     this.latestPanel.destroy();
     this.bookmarkPanel.destroy();
     this.resultCard.destroy();

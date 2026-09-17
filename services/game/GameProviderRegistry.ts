@@ -11,7 +11,7 @@ import { ArchiveProvider } from './providers/archive';
 import { RemoteGameProvider } from './providers/remote';
 import { FoxwqProvider } from './providers/foxwq';
 import { FoxwqShareProvider } from './providers/foxwq/FoxwqShareProvider';
-import { OgsProvider } from './providers/ogs';
+import { OgsProvider, OgsPuzzleProvider } from './providers/ogs';
 import { Weiqi101Provider } from './providers/weiqi101';
 import { TxwqProvider } from './providers/txwq';
 import { YikeProvider } from './providers/yike';
@@ -60,6 +60,7 @@ export class GameProviderRegistry {
 
     // REST API Providers（无需 Sniffer，所有环境支持）
     const restProviders = [
+      new OgsPuzzleProvider(network),
       new OgsProvider(network),
       new Weiqi101Provider(network),
       new ShoutanProvider(network),

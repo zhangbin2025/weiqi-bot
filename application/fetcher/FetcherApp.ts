@@ -82,7 +82,7 @@ export class FetcherApp {
 
   /**
    * 获取最新棋谱列表
-   * @param source - 来源 ('foxwq' | 'weiqi101' | 'goproblems' | 'yike-live' | 'ogs-live')
+   * @param source - 来源 ('foxwq' | 'weiqi101' | 'goproblems' | 'ogs-puzzle' | 'yike-live' | 'ogs-live')
    * @param count - 数量
    * @returns 最新棋谱列表
    */
@@ -128,6 +128,21 @@ export class FetcherApp {
         const items = await (provider as any).fetchProblemList(count, kw || undefined);
         return items.map((item: any) => ({
           source: "goproblems",
+          title: item.title,
+          subtitle: item.subtitle,
+          date: item.date,
+          url: item.url,
+        }));
+      } else if (source === "ogs-puzzle") {
+        const foxwq = this.gameService as any;
+        const registry = foxwq?.registry;
+        if (!registry) return [];
+        const providers = registry.getProviders?.();
+        const provider = providers?.get("ogs-puzzle");
+        if (!provider || typeof (provider as any).fetchPuzzleList !== "function") return [];
+        const items = await (provider as any).fetchPuzzleList(count, kw || undefined);
+        return items.map((item: any) => ({
+          source: "ogs-puzzle",
           title: item.title,
           subtitle: item.subtitle,
           date: item.date,

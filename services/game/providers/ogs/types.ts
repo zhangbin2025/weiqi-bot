@@ -255,3 +255,158 @@ export interface OgsPlayerGame {
   /** 结束时间 */
   ended?: string;
 }
+
+// ============================================================================
+// Puzzle 类型定义
+// ============================================================================
+
+/**
+ * OGS Puzzle 分支节点（move_tree 中的每个节点）
+ */
+export interface OgsPuzzleBranch {
+  /** X 坐标 (0-based, -1 = 根节点/pass) */
+  x: number;
+  /** Y 坐标 (0-based, -1 = 根节点/pass) */
+  y: number;
+  /** 是否正解 */
+  correct_answer?: boolean;
+  /** 是否失败 */
+  wrong_answer?: boolean;
+  /** 注释文本 */
+  text?: string;
+  /** 子分支 */
+  branches?: OgsPuzzleBranch[];
+  /** 标记 */
+  marks?: Array<{
+    x: number;
+    y: number;
+    marks: Record<string, unknown>;
+  }>;
+}
+
+/**
+ * OGS Puzzle move_tree 根节点
+ */
+export interface OgsPuzzleMoveTree {
+  /** X 坐标 (-1 = 根节点) */
+  x: number;
+  /** Y 坐标 (-1 = 根节点) */
+  y: number;
+  /** 分支列表 */
+  branches?: OgsPuzzleBranch[];
+  /** 根节点标记 */
+  marks?: Array<{
+    x: number;
+    y: number;
+    marks: Record<string, unknown>;
+  }>;
+}
+
+/**
+ * OGS Puzzle 内部数据（puzzle 字段）
+ */
+export interface OgsPuzzleData {
+  /** 题目名称 */
+  name: string;
+  /** 难度等级 */
+  puzzle_rank: string;
+  /** move_tree 分支树 */
+  move_tree: OgsPuzzleMoveTree;
+  /** 先手方 */
+  initial_player: 'black' | 'white';
+  /** 棋盘宽度 */
+  width: number;
+  /** 棋盘高度 */
+  height: number;
+  /** 模式 */
+  mode: string;
+  /** 题目类型 */
+  puzzle_type: string;
+  /** 题目集合 ID */
+  puzzle_collection: string;
+  /** 初始状态 */
+  initial_state?: {
+    white?: string;
+    black?: string;
+  };
+  /** 题目描述 */
+  puzzle_description?: string;
+  /** 对手移动模式 */
+  puzzle_opponent_move_mode?: 'automatic' | 'manual';
+  /** 玩家移动模式 */
+  puzzle_player_move_mode?: 'free' | 'fixed';
+}
+
+/**
+ * OGS Puzzle 详情（REST API 返回）
+ */
+export interface OgsPuzzleDetail {
+  /** 题目 ID */
+  id: number;
+  /** 排序 */
+  order: number;
+  /** 所有者 */
+  owner?: {
+    id: number;
+    username: string;
+    country?: string;
+    ranking?: number;
+  };
+  /** 题目名称 */
+  name: string;
+  /** 创建时间 */
+  created: string;
+  /** 修改时间 */
+  modified: string;
+  /** 题目内部数据 */
+  puzzle: OgsPuzzleData;
+  /** 是否私有 */
+  private: boolean;
+  /** 棋盘宽度 */
+  width: number;
+  /** 棋盘高度 */
+  height: number;
+  /** 题目类型 */
+  type: string;
+  /** 是否有解答 */
+  has_solution: boolean;
+  /** 评分 */
+  rating?: number;
+  /** 评分人数 */
+  rating_count?: number;
+  /** 难度等级 */
+  rank: number;
+  /** 浏览次数 */
+  view_count?: number;
+  /** 解答次数 */
+  solved_count?: number;
+  /** 尝试次数 */
+  attempt_count?: number;
+  /** 所属集合 */
+  collection?: {
+    id: number;
+    name: string;
+    puzzle_count?: number;
+    min_rank?: number;
+    max_rank?: number;
+  };
+}
+
+/**
+ * OGS Puzzle 列表项
+ */
+export interface OgsPuzzleListItem {
+  id: number;
+  name: string;
+  created: string;
+  modified: string;
+}
+
+/**
+ * OGS Puzzle 列表响应
+ */
+export interface OgsPuzzleListResponse {
+  count: number;
+  next: string | null;
+  results: OgsPuzzleListItem[];
+}

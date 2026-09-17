@@ -6,7 +6,9 @@ export { OgsProvider } from './OgsProvider';
 export { OgsSgfGenerator } from './OgsSgfGenerator';
 export { OgsAiReviewFetcher } from './OgsAiReviewFetcher';
 export { OgsPlayerProvider } from './OgsPlayerProvider';
+export { OgsPuzzleProvider } from './OgsPuzzleProvider';
 export type { IOgsProvider } from './IOgsProvider';
+export type { IOgsPuzzleProvider } from './IOgsPuzzleProvider';
 export type {
   OgsGameResponse,
   OgsGameData,
@@ -20,4 +22,12 @@ export type {
   OgsAiReviewSummary,
   OgsPlayerInfo,
   OgsPlayerGame,
+} from './types';
+export type {
+  OgsPuzzleDetail,
+  OgsPuzzleData,
+  OgsPuzzleMoveTree,
+  OgsPuzzleBranch,
+  OgsPuzzleListItem,
+  OgsPuzzleListResponse,
 } from './types';
