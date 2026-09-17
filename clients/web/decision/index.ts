@@ -86,10 +86,7 @@ async function main() {
     return; // 任务已处理，终止后续逻辑
   }
 
-  // 正常页面加载逻辑
-  console.log('[decision] Normal page load');
-
-  // 生成题目按钮
+  // 生成题目按钮（在 handled 检查之前注册，确保任务链接进入时按钮也可用）
   const generateBtn = document.getElementById('generate-btn');
   generateBtn?.addEventListener('click', async () => {
     const sourceSelect = Select.get('#source-select');
@@ -105,6 +102,9 @@ async function main() {
     // 执行生成任务（前台模式）
     await executeGenerate(decisionApp, favoriteService, date, limit, taskParams.taskId, source);
   });
+
+  // 正常页面加载逻辑
+  console.log('[decision] Normal page load');
 
   // 加载历史记录列表
   await loadHistoryList(favoriteService);
@@ -247,7 +247,17 @@ async function viewFavorite(
     // 切换到历史标签
     const historyTab = document.querySelector('[data-tab="history"]') as HTMLElement;
     historyTab?.click();
-    
+
+    // 滚动到底部，让用户看到结果卡片
+    setTimeout(() => {
+      const statsSection = document.getElementById('stats-section');
+      if (statsSection) {
+        statsSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } else {
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+      }
+    }, 300);
+
   } catch (error) {
     console.error('[decision] 查看收藏失败', error as Error);
     await Dialog.alert('加载收藏失败: ' + (error as Error).message);
