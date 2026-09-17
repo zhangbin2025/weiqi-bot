@@ -20,6 +20,9 @@ export interface GameOgsHelperOptions {
   historyStorage?: IGameHistoryStorage | undefined;
 }
 
+
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
 export class GameOgsHelper {
   private readonly network: NetworkManager;
   private readonly playerProvider: OgsPlayerProvider;
@@ -115,13 +118,27 @@ export class GameOgsHelper {
     const collected: string[] = [];
     let scanned = 0;
 
-    // REST 请求函数（供 hasAiReview 使用）
+    // REST 请求函数（供 hasAiReview 使用），带限流重试
     const requestFn = async (url: string): Promise<any> => {
-      const resp = await this.network.request<any>({
-        url,
-        method: 'GET',
-      });
-      return resp.data;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const resp = await this.network.request<any>({
+            url,
+            method: 'GET',
+          });
+          return resp.data;
+        } catch (e: any) {
+          // 检测限流：429 状态码或 "throttled" 错误信息
+          const msg = String(e?.message || e?.response?.statusText || e);
+          const status = e?.response?.status;
+          if ((status === 429 || msg.includes('throttl')) && attempt < 2) {
+            console.warn(`[GameOgsHelper] Throttled, retrying in 2s... (${attempt + 1}/3)`);
+            await sleep(2000);
+            continue;
+          }
+          throw e;
+        }
+      }
     };
 
     // 2. 遍历职业棋手
@@ -148,6 +165,7 @@ export class GameOgsHelper {
           if (collected.length >= maxCount) break;
 
           if (game.handicap >= 2) continue;  // 跳过让子棋
+          await sleep(300);  // AI review 检查间隔
           scanned++;
           const hasReview = await this.aiReviewFetcher.hasAiReview(game.id, requestFn);
 
@@ -158,6 +176,8 @@ export class GameOgsHelper {
       } catch (e) {
         console.warn(`[GameOgsHelper] Failed to scan pro ${pro.username}:`, e);
       }
+      // 请求间隔，避免 OGS API 限流
+      await sleep(500);
     }
 
     onProgress?.(collected.length, pros.length, `扫描完成：共检查 ${scanned} 盘，收集 ${collected.length} 盘有 AI review`);
