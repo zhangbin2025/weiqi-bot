@@ -99,6 +99,11 @@ async function main() {
     const savedShowOptions = localStorage.getItem('quiz-showOptions');
     state.showOptions = savedShowOptions !== 'false';
 
+    // 从题目数据中读取棋盘尺寸
+    const firstProblem = rawProblems[0];
+    const metaBoardSize = firstProblem?.metadata?.boardSize ?? firstProblem?.metadata?.width ?? 19;
+    state.boardSize = (metaBoardSize === 9 || metaBoardSize === 13 || metaBoardSize === 19) ? metaBoardSize : 19;
+
     initBoard();
     bindEvents();
     loadProblem(0);

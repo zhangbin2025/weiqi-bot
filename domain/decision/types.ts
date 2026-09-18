@@ -56,6 +56,8 @@ export interface IDecisionProblem {
     archiveId?: string | undefined;
     url?: string | undefined;
     gameId?: string | undefined;
+    /** 棋盘尺寸（9/13/19） */
+    boardSize?: number | undefined;
   };
 }
 

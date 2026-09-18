@@ -25,6 +25,8 @@ export interface QuizState {
   soundEnabled: boolean;
   showOptions: boolean; // 是否显示选点标记
   currentMove: number;
+  /** 棋盘尺寸 */
+  boardSize: 9 | 13 | 19;
   
   // 试下状态
   trialMoves: Array<{ x: number; y: number; color: 'B' | 'W' }>;
@@ -54,6 +56,7 @@ export const state: QuizState = {
   soundEnabled: true,
   showOptions: true, // 默认显示选点
   currentMove: 0,
+  boardSize: 19,
   trialMoves: [],
   trialIndex: 0,
   savedMoveBeforeTrial: 0,

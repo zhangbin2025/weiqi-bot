@@ -116,6 +116,29 @@
     .level-tag.high { background: #fff3e0; color: #ef6c00; }
     .level-tag.normal { background: #e8f5e9; color: #2e7d32; }
 
+    /* 导入棋谱 */
+    .import-drop {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 28px 16px;
+      border: 2px dashed #c5cae9;
+      border-radius: 10px;
+      background: #f8f9ff;
+      color: #667eea;
+      cursor: pointer;
+      margin-bottom: 12px;
+      transition: all 0.2s ease;
+      text-align: center;
+    }
+    .import-drop:hover { border-color: #667eea; background: #eef1ff; }
+    .import-drop.has-file { border-style: solid; border-color: #4caf50; color: #2e7d32; background: #f1f8e9; }
+    .import-icon { font-size: 2em; }
+    #import-file-label { font-size: 0.95em; word-break: break-all; }
+    #import-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
     /* 卡片可点击 */
     .card-link {
       text-decoration: none;
@@ -234,6 +257,10 @@
         <span>🎲</span>
         <span>生成题目</span>
       </div>
+      <div class="tab" data-tab="import">
+        <span>📥</span>
+        <span>导入棋谱</span>
+      </div>
       <div class="tab" data-tab="history">
         <span>📋</span>
         <span>历史</span>
@@ -257,6 +284,20 @@
              data-value="20"
              data-options='[{"value":"10","label":"最近 10 盘"},{"value":"20","label":"最近 20 盘"},{"value":"50","label":"最近 50 盘"}]'></div>
         <button id="generate-btn">开始生成</button>
+      </div>
+    </div>
+
+    <!-- 导入棋谱 -->
+    <div id="import-tab" class="tab-content">
+      <div class="card">
+        <h2>📥 导入棋谱生成题目</h2>
+        <p style="color:#666;font-size:0.9em;margin-bottom:12px;">支持野狐、OGS 导出的 SGF 棋谱（需包含 AI 复盘数据）</p>
+        <label id="import-drop" class="import-drop">
+          <input type="file" id="import-file" accept=".sgf" hidden>
+          <span class="import-icon">📄</span>
+          <span id="import-file-label">点击选择 SGF 文件</span>
+        </label>
+        <button id="import-btn" disabled>生成题目</button>
       </div>
     </div>
 

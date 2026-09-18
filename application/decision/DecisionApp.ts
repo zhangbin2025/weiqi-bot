@@ -170,6 +170,72 @@ export class DecisionApp {
       key: favoriteKey,
     };
   }
+  /** 从本地导入的 SGF 内容生成决策题（单个棋谱） */
+  async generateFromSGFContent(
+    sgfContent: string,
+    options?: DecisionGenerateOptions & { fileName?: string },
+  ): Promise<DecisionGenerateResult> {
+    if (!this.decisionService) throw new Error('DecisionService not available');
+    const source = options?.source || 'foxwq';
+
+    // 直接对 SGF 内容生成恶手题
+    const result = await this.decisionService.generateFromSGF(sgfContent, {
+      difficulty: options?.difficulty,
+      phase: options?.phase,
+      blunderFirst: options?.blunderFirst ?? true,
+      blunderOnly: options?.blunderOnly ?? true,
+      source,
+    });
+
+    const allProblems = result.problems;
+    const gameGroups: DecisionGameGroup[] = [];
+
+    // 构造一个虚拟的下载结果，用于复用 buildGameGroup
+    const synthetic: GameServiceResult = {
+      success: true,
+      archiveId: '',
+      sgfContent,
+      source,
+      url: '',
+      metadata: {} as GameServiceResult['metadata'],
+      fromCache: false,
+    };
+    const group = this.buildGameGroup(allProblems, 0, synthetic);
+    if (group) gameGroups.push(group);
+
+    const stats = this.buildStats(allProblems);
+    const label = options?.fileName || '导入棋谱';
+    const favoriteKey = "import_" + Date.now();
+    const favoriteData = {
+      label,
+      source,
+      gamesCount: 1,
+      quizGamesCount: gameGroups.length,
+      problemsCount: allProblems.length,
+      stats,
+      gameGroups,
+      problems: allProblems,
+    };
+    const favoriteId = await this.favoriteService?.addFavorite(
+      'decision_generate',
+      favoriteKey,
+      favoriteData,
+      label,
+    );
+
+    return {
+      gamesCount: 1,
+      quizGamesCount: gameGroups.length,
+      problems: allProblems,
+      gameGroups,
+      stats,
+      generatedAt: Date.now(),
+      favoriteId,
+      category: 'decision_generate',
+      key: favoriteKey,
+    };
+  }
+
   private buildStats(problems: IDecisionProblem[]): DecisionGenerateStats {
     const stats: DecisionGenerateStats = {
       phases: { layout: 0, middle: 0, endgame: 0 },

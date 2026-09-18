@@ -18,12 +18,12 @@ export function initBoard(): void {
   boardRoot.innerHTML = '';
   state.board = new WebBoard(boardRoot);
   state.board.initialize({ 
-    size: 19, 
+    size: state.boardSize, 
     showCoordinates: false, 
     showMoveNumbers: true, 
     theme: 'classic' 
   });
-  state.game = new Game({ size: 19 });
+  state.game = new Game({ size: state.boardSize });
 }
 
 /**
@@ -33,7 +33,7 @@ export function rebuildBoard(position: Move[]): void {
   if (!state.board || !state.game) return;
   
   // 重置棋盘
-  state.game = new Game({ size: 19 });
+  state.game = new Game({ size: state.boardSize });
   
   // 按顺序落子
   for (const move of position) {

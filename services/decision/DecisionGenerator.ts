@@ -60,7 +60,7 @@ export class DecisionGenerator {
       // 阶段筛选
       if (options?.phase && classifyPhase(moveNum) !== options.phase) continue;
 
-      const problem = this.buildProblem(deduped, moveNum, moves, gameInfo, gameLevel, gameId, practicalMove, options, convertedVariations);
+      const problem = this.buildProblem(deduped, moveNum, moves, gameInfo, gameLevel, gameId, practicalMove, options, convertedVariations, gameInfo.boardSize);
       if (problem) problems.push(problem);
     }
 
@@ -170,12 +170,14 @@ export class DecisionGenerator {
       event?: string;
       date?: string;
       result?: string;
+      boardSize?: number;
     },
     gameLevel: string,
     gameId: string,
     practicalMove?: VariationMove,
     genOptions?: DecisionGenerateOptions,
     allVariations?: Record<string, ISGFVariation[]>,
+    boardSize?: number,
   ): IDecisionProblem | null {
     if (vars.length < 2) return null;
 
@@ -316,6 +318,7 @@ export class DecisionGenerator {
         archiveId: genOptions?.archiveId,
         url: genOptions?.url,
         gameId,
+        boardSize: boardSize ?? gameInfo.boardSize ?? 19,
       },
     };
   }

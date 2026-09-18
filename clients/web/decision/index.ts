@@ -80,6 +80,32 @@ async function main() {
     await executeGenerate(decisionApp, favoriteService, date, limit, taskParams.taskId, source);
   });
 
+  // 导入棋谱：选择文件 + 生成恶手题
+  const importFile = document.getElementById('import-file') as HTMLInputElement | null;
+  const importDrop = document.getElementById('import-drop') as HTMLElement | null;
+  const importFileLabel = document.getElementById('import-file-label') as HTMLElement | null;
+  const importBtn = document.getElementById('import-btn') as HTMLButtonElement | null;
+  let importSgfContent: string | null = null;
+  let importFileName = '';
+
+  importFile?.addEventListener('change', async () => {
+    const file = importFile.files?.[0];
+    if (!file) return;
+    importSgfContent = await file.text();
+    importFileName = file.name.replace(/\.sgf$/i, '');
+    if (importFileLabel) importFileLabel.textContent = file.name;
+    importDrop?.classList.add('has-file');
+    if (importBtn) importBtn.disabled = false;
+  });
+
+  importBtn?.addEventListener('click', async () => {
+    if (!importSgfContent) {
+      await Dialog.alert('请先选择 SGF 文件');
+      return;
+    }
+    await executeImport(decisionApp, favoriteService, importSgfContent, importFileName);
+  });
+
   // 解析任务参数
   const taskParams = TaskHelper.parseTaskParams();
   
@@ -138,6 +164,57 @@ function getDateStr(offset: number): string {
   const date = new Date();
   date.setDate(date.getDate() - offset);
   return date.toISOString().slice(0, 10);
+}
+
+/**
+ * 执行导入棋谱生成任务
+ */
+async function executeImport(
+  decisionApp: DecisionApp,
+  favoriteService: any,
+  sgfContent: string,
+  fileName: string,
+): Promise<void> {
+  const progressCard = document.getElementById('progress-card') as HTMLElement;
+  const progressBar = document.getElementById('progress-bar') as HTMLElement;
+  const progressText = document.getElementById('progress-text') as HTMLElement;
+
+  if (progressCard) progressCard.style.display = 'block';
+  if (progressBar) progressBar.style.width = '30%';
+  if (progressText) progressText.textContent = '正在解析棋谱...';
+
+  // 自动识别来源：OGS 胜率注释为黑方视角，需翻转；野狐已是当前方视角
+  const isOgs = /胜率[:\s]*\d+\.?\d*%/.test(sgfContent);
+  const source = isOgs ? 'ogs' : 'foxwq';
+
+  try {
+    const result = await decisionApp.generateFromSGFContent(sgfContent, {
+      source,
+      fileName,
+    });
+
+    if (progressBar) progressBar.style.width = '100%';
+    if (progressText) progressText.textContent = `生成完成！共 ${result.problems.length} 题`;
+
+    // 刷新历史并展示结果
+    await loadHistoryList(favoriteService);
+    showGenerateResult(result);
+
+    // 切换到历史标签，展示新生成的记录
+    (document.querySelector('[data-tab="history"]') as HTMLElement)?.click();
+
+    if (!result.problems.length) {
+      await Dialog.alert('该棋谱未检测到题目，请确认棋谱包含 AI 复盘数据（野狐/OGS 选点胜率）');
+    }
+
+    setTimeout(() => {
+      if (progressCard) progressCard.style.display = 'none';
+    }, 1000);
+  } catch (e) {
+    console.error('导入棋谱生成失败', e instanceof Error ? e : new Error(String(e)));
+    if (progressText) progressText.textContent = '生成失败，请重试';
+    await Dialog.alert('生成失败：' + ((e as Error).message || '未知错误'));
+  }
 }
 
 /**
