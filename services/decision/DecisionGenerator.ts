@@ -23,13 +23,7 @@ export class DecisionGenerator {
   /** 从SGF解析结果生成决策题 */
   generate(sgf: string, options?: DecisionGenerateOptions): IDecisionProblem[] {
     const result = parseSGF(sgf);
-
     const { gameInfo, moves, variations } = result;
-    const gameLevel = determineGameLevel(gameInfo.blackRank, gameInfo.whiteRank);
-    const gameId = gameInfo.gameName || 'unknown';
-    const problems: IDecisionProblem[] = [];
-    const maxCount = options?.maxCount;
-    const blunderOnly = options?.blunderOnly ?? false;
 
     // OGS 的 SGF 胜率是黑方胜率，需转为当前方胜率（与野狐/KataGo 对齐）
     // 转换后所有下游逻辑（checkBlunder/getPracticalWinrate/buildProblem）统一用当前方胜率
@@ -37,6 +31,43 @@ export class DecisionGenerator {
     const convertedVariations = isBlackWinrate
       ? this.convertBlackWinrates(variations, moves)
       : variations;
+
+    // 恶手判定阈值（百分比），默认 20%；可用 blunderThreshold 覆盖基准值
+    const baseThreshold = options?.blunderThreshold ?? 20;
+    // 回退序列：从基准阈值开始，无恶手题则依次回退到 15%、10%
+    const thresholds = options?.blunderThresholds
+      ?? [...new Set([baseThreshold, 15, 10].filter(t => t <= baseThreshold))];
+
+    const blunderOnly = options?.blunderOnly ?? false;
+
+    // 只生成恶手题时：逐个阈值尝试，采用第一个能产出恶手题的阈值
+    if (blunderOnly) {
+      for (const threshold of thresholds) {
+        const problems = this.collectProblems(convertedVariations, moves, gameInfo, options, threshold);
+        if (problems.some(p => p.difficulty === 'blunder')) {
+          return this.finalize(problems, options);
+        }
+      }
+      return []; // 所有阈值均无恶手题
+    }
+
+    // 非恶手题模式：单次生成，用基准阈值判定
+    const problems = this.collectProblems(convertedVariations, moves, gameInfo, options, thresholds[0]!);
+    return this.finalize(problems, options);
+  }
+
+  /** 按给定恶手阈值遍历每一手，收集题目 */
+  private collectProblems(
+    convertedVariations: Record<number, ISGFVariation[]>,
+    moves: VariationMove[],
+    gameInfo: ReturnType<typeof parseSGF>['gameInfo'],
+    options: DecisionGenerateOptions | undefined,
+    blunderThreshold: number,
+  ): IDecisionProblem[] {
+    const gameLevel = determineGameLevel(gameInfo.blackRank, gameInfo.whiteRank);
+    const gameId = gameInfo.gameName || 'unknown';
+    const problems: IDecisionProblem[] = [];
+    const blunderOnly = options?.blunderOnly ?? false;
 
     for (const [moveNumStr, vars] of Object.entries(convertedVariations)) {
       const moveNum = parseInt(moveNumStr, 10);
@@ -46,8 +77,8 @@ export class DecisionGenerator {
       if (deduped.length < 2) continue;
 
       const practicalMove = moves[moveNum];
-      const isBlunderProblem = this.checkBlunder(deduped, practicalMove, moveNum, moves, convertedVariations);
-      
+      const isBlunderProblem = this.checkBlunder(deduped, practicalMove, moveNum, moves, convertedVariations, blunderThreshold);
+
       // 如果设置只生成恶手题，且不是恶手，跳过
       if (blunderOnly && !isBlunderProblem) continue;
 
@@ -60,11 +91,15 @@ export class DecisionGenerator {
       // 阶段筛选
       if (options?.phase && classifyPhase(moveNum) !== options.phase) continue;
 
-      const problem = this.buildProblem(deduped, moveNum, moves, gameInfo, gameLevel, gameId, practicalMove, options, convertedVariations, gameInfo.boardSize);
+      const problem = this.buildProblem(deduped, moveNum, moves, gameInfo, gameLevel, gameId, practicalMove, options, convertedVariations, gameInfo.boardSize, blunderThreshold);
       if (problem) problems.push(problem);
     }
 
-    // 排序：恶手题优先，按手数排序
+    return problems;
+  }
+
+  /** 排序（恶手题优先）并按 maxCount 截断 */
+  private finalize(problems: IDecisionProblem[], options?: DecisionGenerateOptions): IDecisionProblem[] {
     if (options?.blunderFirst ?? true) {
       problems.sort((a, b) => {
         const aB = a.difficulty === 'blunder' ? 0 : 1;
@@ -72,7 +107,7 @@ export class DecisionGenerator {
         return aB !== bB ? aB - bB : a.metadata.moveNumber - b.metadata.moveNumber;
       });
     }
-
+    const maxCount = options?.maxCount;
     return maxCount ? problems.slice(0, maxCount) : problems;
   }
 
@@ -132,7 +167,7 @@ export class DecisionGenerator {
     return undefined;
   }
 
-  /** 检测恶手：实战胜率与最高胜率差 > 20%
+  /** 检测恶手：实战胜率与最高胜率差 > blunderThreshold（默认 20%)
    *  胜率统一为当前方胜率（SGF 生成时已转换），无需区分黑白
    */
   private checkBlunder(
@@ -141,19 +176,20 @@ export class DecisionGenerator {
     moveNum: number,
     moves: VariationMove[],
     allVariations: Record<string, ISGFVariation[]>,
+    blunderThreshold = 20,
   ): boolean {
     if (!practical || !vars.length) return false;
     const maxRate = Math.max(...vars.map(v => v.winrate));
     const pv = vars.find(v => v.firstMove.coord === practical.coord);
 
     if (pv) {
-      return maxRate - pv.winrate > 20;
+      return maxRate - pv.winrate > blunderThreshold;
     }
 
     const practicalRate = this.getPracticalWinrate(moveNum, moves, allVariations, vars);
     if (practicalRate === undefined) return false;
 
-    return maxRate - practicalRate > 20;
+    return maxRate - practicalRate > blunderThreshold;
   }
 
   /** 构造题目 */
@@ -178,6 +214,7 @@ export class DecisionGenerator {
     genOptions?: DecisionGenerateOptions,
     allVariations?: Record<string, ISGFVariation[]>,
     boardSize?: number,
+    blunderThreshold = 20,
   ): IDecisionProblem | null {
     if (vars.length < 2) return null;
 
@@ -290,7 +327,7 @@ export class DecisionGenerator {
 
     const best = decisionOptions[0]!.winrate;
     const second = decisionOptions[1]?.winrate ?? 0;
-    const isBlunderProblem = this.checkBlunder(sorted, practicalMove, moveNum, moves, allVarsMap);
+    const isBlunderProblem = this.checkBlunder(sorted, practicalMove, moveNum, moves, allVarsMap, blunderThreshold);
     // calcDifficulty expects best > second (both from current player's perspective)
     // For white moves, we already sorted ascending, so best < second in black winrate terms
     // Need to pass values where best is the best for current player

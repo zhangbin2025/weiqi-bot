@@ -58,6 +58,8 @@ export class DecisionService implements IDecisionService {
       phase: options?.phase,
       blunderFirst: options?.blunderFirst ?? config.blunderFirst,
       blunderOnly: options?.blunderOnly,
+      blunderThreshold: options?.blunderThreshold,
+      blunderThresholds: options?.blunderThresholds,
       archiveId: options?.archiveId,
       url: options?.url,
       source: options?.source,

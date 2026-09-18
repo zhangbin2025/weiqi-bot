@@ -19,6 +19,10 @@ export interface DecisionGenerateOptions {
   source?: string | undefined;
   /** 是否只生成恶手题（默认 true，OGS 源用 false） */
   blunderOnly?: boolean | undefined;
+  /** 恶手判定胜率差阈值（百分比），默认 20 */
+  blunderThreshold?: number | undefined;
+  /** 恶手阈值回退序列（百分比），默认 [20, 15, 10] */
+  blunderThresholds?: number[] | undefined;
 }
 /** 决策题生成结果 */
 export interface DecisionGenerateStats {
@@ -123,6 +127,8 @@ export class DecisionApp {
         phase: options?.phase,
         blunderFirst: options?.blunderFirst,
         blunderOnly: options?.blunderOnly ?? true,
+        blunderThreshold: options?.blunderThreshold,
+        blunderThresholds: options?.blunderThresholds,
         source: options?.source,
         archiveId: fetchResult.archiveId,
         url: fetchResult.url,
@@ -184,6 +190,8 @@ export class DecisionApp {
       phase: options?.phase,
       blunderFirst: options?.blunderFirst ?? true,
       blunderOnly: options?.blunderOnly ?? true,
+      blunderThreshold: options?.blunderThreshold,
+      blunderThresholds: options?.blunderThresholds,
       source,
     });
 

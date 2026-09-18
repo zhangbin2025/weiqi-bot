@@ -17,6 +17,10 @@ export interface DecisionGenerateOptions {
   blunderFirst?: boolean | undefined;
   /** 只生成恶手题 */
   blunderOnly?: boolean | undefined;
+  /** 恶手判定胜率差阈值（百分比），默认 20 */
+  blunderThreshold?: number | undefined;
+  /** 恶手阈值回退序列（百分比），默认 [20, 15, 10]；仅 blunderOnly 时生效 */
+  blunderThresholds?: number[] | undefined;
   /** 归档ID */
   archiveId?: string | undefined;
   /** 原始URL */
