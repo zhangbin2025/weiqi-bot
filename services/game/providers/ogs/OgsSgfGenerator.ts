@@ -328,8 +328,10 @@ export class OgsSgfGenerator {
 
       if (moveParts.length === 0) continue;
 
-      const wr = (branch.win_rate * 100).toFixed(1);
-      const sc = branch.score.toFixed(1);
+      const wr = branch.win_rate !== undefined ? (branch.win_rate * 100).toFixed(1) : '?';
+      // OGS WebSocket branch 字段名是 score_mean，旧版才是 score；两者都可能缺失
+      const rawScore = branch.score ?? branch.score_mean;
+      const sc = rawScore !== undefined ? rawScore.toFixed(1) : '?';
       const visits = branch.visits || 0;
 
       // 第一个节点带注释，后续着法无注释

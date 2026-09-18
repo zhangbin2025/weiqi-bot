@@ -173,9 +173,12 @@ export interface OgsAiReviewMove {
  */
 export interface OgsAiReviewBranch {
   moves: { x: number; y: number }[];
-  win_rate: number;
-  score: number;
-  visits: number;
+  win_rate?: number;
+  /** 旧版字段名 */
+  score?: number;
+  /** 新版（WebSocket）字段名 */
+  score_mean?: number;
+  visits?: number;
   score_stdev?: number;
 }
 
