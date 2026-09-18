@@ -80,7 +80,7 @@ export class GameOgsHelper {
 
     const games = await this.playerProvider.fetchPlayerGames(player.id, count ?? 10);
     if (games.length === 0) {
-      return [this.createFailedResult(username, '该玩家没有已结束的 19×19 对局')];
+      return [this.createFailedResult(username, '该玩家没有已结束的对局')];
     }
 
     const results: GameServiceResult[] = [];
@@ -107,8 +107,8 @@ export class GameOgsHelper {
    * 收集活跃玩家有 AI review 的对局 URL 列表
    *
    * 策略：
-   * 1. 通过 WebSocket 获取当前 OGS live games 的 19×19 非让子棋活跃玩家（按段位降序）
-   * 2. 对每个活跃玩家，按日期获取已结束的 19×19 ranked 非让子棋对局
+   * 1. 通过 WebSocket 获取当前 OGS live games 的非让子棋活跃玩家（按段位降序）
+   * 2. 对每个活跃玩家，按日期获取已结束的 ranked 非让子棋对局
    * 3. ranked 对局自动有 AI review，无需逐盘检查
    * 4. 抓够 maxCount 条就停
    *
@@ -363,8 +363,8 @@ export class GameOgsHelper {
         gameId: username,
         blackName: '',
         whiteName: '',
-        width: 19,
-        height: 19,
+        width: 0,
+        height: 0,
         komi: 6.5,
         handicap: 0,
         rules: '',

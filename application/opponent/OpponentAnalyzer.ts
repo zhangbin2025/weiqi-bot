@@ -139,25 +139,24 @@ export class OpponentAnalyzer {
       success: r.success,
       hasSgf: !!r.sgfContent,
     })));
-    // 3. 提取 SGF 内容（仅保留 19×19 棋谱）
+    // 3. 提取 SGF 内容
     onProgress?.(75, '提取 SGF 内容');
     const validResults = fetchResults.filter(r => r.success && r.sgfContent);
-    const filtered19x19 = validResults.filter(r => {
+    // 定式发现仅支持 19 路棋盘，分离 19 路和非 19 路棋谱
+    const sgfList19 = validResults.filter(r => {
       const w = r.metadata?.width ?? 19;
       const h = r.metadata?.height ?? 19;
       return w === 19 && h === 19;
-    });
-    if (validResults.length > filtered19x19.length) {
-      const skipped = validResults.length - filtered19x19.length;
-      console.info('[OpponentAnalyzer] 跳过非19路棋谱', { skipped, total: validResults.length });
-      onProgress?.(75, `跳过 ${skipped} 盘非19路棋谱`);
+    }).map(r => r.sgfContent!);
+    const non19Count = validResults.length - sgfList19.length;
+    if (non19Count > 0) {
+      console.info('[OpponentAnalyzer] 非19路棋谱不参与定式分析', { non19Count, total: validResults.length });
     }
-    const sgfList = filtered19x19.map(r => r.sgfContent!);
     // 4. 定式分析
     const josekiResult = { count: 0, patterns: [] as IDiscoveredPattern[] };
-    if (sgfList.length > 0) {
-      onProgress?.(80, '分析定式', `${sgfList.length} 盘棋谱`);
-      const discoverResult = await this.josekiDiscoverService.discoverGames(sgfList, {
+    if (sgfList19.length > 0) {
+      onProgress?.(80, '分析定式', `${sgfList19.length} 盘棋谱`);
+      const discoverResult = await this.josekiDiscoverService.discoverGames(sgfList19, {
         onProgress: (percent, status, detail) => {
           const mappedPercent = 80 + Math.round(percent * 0.15);
           onProgress?.(mappedPercent, status, detail);
@@ -178,8 +177,8 @@ export class OpponentAnalyzer {
           }
         }
       });
-    } else {
-      onProgress?.(100, '无有效棋谱');
+    } else if (sgfList19.length === 0 && validResults.length > 0) {
+      onProgress?.(90, '无19路棋谱可分析定式');
       return {
         foxwqId, userInfo: { uid: foxwqId, nickname: foxwqId },
         games: [], joseki: { count: 0, patterns: [] }, analyzedAt: Date.now(),
@@ -190,7 +189,7 @@ export class OpponentAnalyzer {
       foxwqId,
       userInfo: { uid: foxwqId, nickname: foxwqId },
       games: fetchResults
-        .filter(r => r.success && (r.metadata?.width ?? 19) === 19 && (r.metadata?.height ?? 19) === 19)
+        .filter(r => r.success)
         .map(r => {
           // 从 SGF 内容中提取元数据
           let black = r.metadata.blackName;
