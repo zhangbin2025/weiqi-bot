@@ -82,6 +82,8 @@ export class ReviewPage implements IPage {
   private initialPlayer: PlayerColor | undefined;
   private winrateTrend: Array<{ moveNumber: number; winRate: number; scoreLead: number }> = [];
   private analyzing = false;
+  // 棋盘尺寸
+  private boardSize = 19;
 
   // 框选区域状态
   private hasRegionSelection = false;
@@ -602,9 +604,9 @@ export class ReviewPage implements IPage {
   private async autoSelectCandidate(coordStr: string): Promise<void> {
     // 解析坐标（如 q16 -> x=16, y=3）
     const x = coordStr.charCodeAt(0) - 97;  // a=0, b=1, ...
-    const y = 19 - parseInt(coordStr.substring(1), 10);
+    const y = this.boardSize - parseInt(coordStr.substring(1), 10);
 
-    if (x < 0 || x >= 19 || y < 0 || y >= 19) {
+    if (x < 0 || x >= this.boardSize || y < 0 || y >= this.boardSize) {
       console.warn('[ReviewPage] autoSelectCandidate: 无效坐标', coordStr);
       return;
     }
@@ -777,8 +779,13 @@ export class ReviewPage implements IPage {
       if (state) {
         this.handicapStones = state.handicapStones || [];
         this.initialPlayer = state.initialPlayer;
+        // 非19路棋盘：重新初始化棋盘
+        if (state.boardSize && state.boardSize !== this.boardSize) {
+          this.boardSize = state.boardSize;
+          this.board.initialize({ size: this.boardSize as 9 | 13 | 19, showCoordinates: true });
+        }
         // 初始化基础层时传入让子棋和先手方
-        this.interaction.initializeBaseLayer(this.moves, this.handicapStones, this.initialPlayer);
+        this.interaction.initializeBaseLayer(this.moves, this.handicapStones, this.initialPlayer, this.boardSize);
         this.ui.updateGameInfo(state.gameInfo.black, state.gameInfo.white, state.gameInfo.result);
       }
     }
@@ -897,7 +904,7 @@ export class ReviewPage implements IPage {
   private rebuildBoard(moveNumber: number): void {
     // 清除AI选点圆圈，避免与落子冲突
     this.board.setRecommendationCircles([]);
-    this.game.newGame({ size: 19 });
+    this.game.newGame({ size: this.boardSize });
     
     // 放置让子棋
     if (this.handicapStones.length > 0) {
@@ -1085,7 +1092,7 @@ export class ReviewPage implements IPage {
   /** 坐标转字符串 */
   private coordToString(x: number, y: number): string {
     const letter = String.fromCharCode(97 + x);
-    const number = 19 - y;
+    const number = this.boardSize - y;
     return `${letter}${number}`;
   }
 
@@ -1318,7 +1325,7 @@ export class ReviewPage implements IPage {
         if (pos && pos.length === 2) {
           const x = pos.charCodeAt(0) - 97;
           const y = pos.charCodeAt(1) - 97;
-          if (x >= 0 && x < 19 && y >= 0 && y < 19) {
+          if (x >= 0 && x < this.boardSize && y >= 0 && y < this.boardSize) {
             moves.push({ x, y, color });
           }
         } else if (pos === '' || pos === 'tt') {

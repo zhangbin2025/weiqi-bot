@@ -20,6 +20,8 @@ export class CandidatesPanel {
   private container: HTMLElement;
   private candidates: CandidateMove[] = [];
   private onSelect?: (x: number, y: number, pv?: string[]) => void;
+  /// 棋盘尺寸
+  private boardSize = 19;
   constructor(container: HTMLElement) {
     this.container = container;
     this.setupEventListeners();
@@ -79,7 +81,7 @@ export class CandidatesPanel {
    */
   private coordToString(x: number, y: number): string {
     const letter = String.fromCharCode(97 + x);
-    const number = 19 - y;
+    const number = this.boardSize - y;
     return `${letter}${number}`;
   }
   /**

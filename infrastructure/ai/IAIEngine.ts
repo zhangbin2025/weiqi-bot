@@ -82,6 +82,9 @@ export interface AnalyzeOptions {
   reuseTree?: boolean | undefined;
   /** 所有权模式 */
   ownershipMode?: 'none' | 'root' | 'tree' | undefined;
+  /** 棋盘尺寸（非19路时需指定） */
+  boardXSize?: number;
+  boardYSize?: number;
   /** 进度回调 */
   onProgress?: ((analysis: any) => void) | undefined;
 }

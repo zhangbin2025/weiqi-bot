@@ -54,6 +54,8 @@ export class VariationManager {
   private redoStack: Array<{ x: number; y: number; color: PlayerColor }> = [];
   /** 让子棋 */
   private handicapStones: Array<{ x: number; y: number; color: PlayerColor }> = [];
+  /** 棋盘尺寸 */
+  private boardSize = 19;
   constructor(config: VariationManagerConfig) {
     this.board = config.board;
     this.game = config.game;
@@ -64,9 +66,10 @@ export class VariationManager {
   /**
    * 初始化基础层
    */
-  initializeBaseLayer(moves: Array<{ x: number; y: number; color: PlayerColor }>, handicapStones?: Array<{ x: number; y: number; color: PlayerColor }>): void {
+  initializeBaseLayer(moves: Array<{ x: number; y: number; color: PlayerColor }>, handicapStones?: Array<{ x: number; y: number; color: PlayerColor }>, _initialPlayer?: PlayerColor, boardSize?: number): void {
     this.originalMoves = [...moves];
     this.handicapStones = handicapStones ?? [];
+    if (boardSize) this.boardSize = boardSize;
     const baseLayer: VariationLayer = {
       id: 'base',
       parentId: null,
@@ -247,7 +250,7 @@ export class VariationManager {
     const allMoves = this.getCurrentMoves();
     
     // 重置棋局
-    this.game.newGame({ size: 19 });
+    this.game.newGame({ size: this.boardSize });
     
     // 设置让子棋（使用Game.setHandicapStones方法）
     if (this.handicapStones.length > 0) {

@@ -27,6 +27,7 @@ interface ReviewData {
   analyzing: boolean;
   progress: number;
   initialPlayer?: PlayerColor | undefined;
+  boardSize: number;
 }
 
 export class ReviewService implements IReviewService {
@@ -98,7 +99,8 @@ export class ReviewService implements IReviewService {
     if (info.result) gameInfo.result = info.result;
     // 保存先手方：PL[] 指定的优先，否则让子棋自动白先
     const initialPlayer = info.initialPlayer;
-    this.reviews.set(id, { id, moves, handicapStones, komi, rules, gameInfo, result: null, analyzing: false, progress: 0, initialPlayer });
+    const boardSize = info.boardSize ?? 19;
+    this.reviews.set(id, { id, moves, handicapStones, komi, rules, gameInfo, result: null, analyzing: false, progress: 0, initialPlayer, boardSize });
     return id;
   }
 
@@ -173,7 +175,7 @@ export class ReviewService implements IReviewService {
 
 
     // 重建当前棋盘状态（所有着法都已下）
-    const board = this.rebuildBoard(data.handicapStones, data.moves.slice(0, data.moves.length));
+    const board = this.rebuildBoard(data.handicapStones, data.moves.slice(0, data.moves.length), data.boardSize);
     const moveHistory = data.moves.map((m) => {
       if (m.x < 0 || m.y < 0) return { x: -1, y: -1, player: m.color };
       return { x: m.x, y: m.y, player: m.color };
@@ -195,7 +197,7 @@ export class ReviewService implements IReviewService {
     }
     
     // 重建前一手的棋盘状态
-    const previousBoard = data.moves.length > 0 ? this.rebuildBoard(data.handicapStones, data.moves.slice(0, data.moves.length - 1)) : null;
+    const previousBoard = data.moves.length > 0 ? this.rebuildBoard(data.handicapStones, data.moves.slice(0, data.moves.length - 1), data.boardSize) : null;
     
     // 转换让子棋格式：{ x, y, color } -> { player, x, y }
     const initialStones = data.handicapStones.map(s => ({
@@ -296,7 +298,9 @@ export class ReviewService implements IReviewService {
         includeOwnership: true,
         includePv,
         onResultProgress,
-        initialStones,  // 让子棋的初始棋子
+        initialStones,
+        boardXSize: data.boardSize,
+        boardYSize: data.boardSize,
       });
 
       // 转换为 MoveReview[]
@@ -384,7 +388,7 @@ export class ReviewService implements IReviewService {
         winRateChange,
         isBadMove,
         candidates: turn.topMoves.slice(0, topK).map(tm => {
-          const coord = KataGoQueryBuilder.gtpToMove(tm.move);
+          const coord = KataGoQueryBuilder.gtpToMove(tm.move, data.boardSize);
           return {
             x: coord.x,
             y: coord.y,
@@ -397,7 +401,7 @@ export class ReviewService implements IReviewService {
       };
 
       if (bestMove) {
-        const bestCoord = KataGoQueryBuilder.gtpToMove(bestMove.move);
+        const bestCoord = KataGoQueryBuilder.gtpToMove(bestMove.move, data.boardSize);
         review.betterMove = { x: bestCoord.x, y: bestCoord.y, winRate: bestMove.winRate, scoreLead: bestMove.scoreLead };
       }
 
@@ -495,6 +499,7 @@ export class ReviewService implements IReviewService {
       gameInfo: data.gameInfo, 
       handicapStones: data.handicapStones,
       initialPlayer: data.initialPlayer,
+      boardSize: data.boardSize,
       totalMoves: data.moves.length, 
       analyzing: data.analyzing, 
       progress: data.progress 
@@ -536,8 +541,8 @@ export class ReviewService implements IReviewService {
         // 收集当前位置批次
         const positions = [];
         for (let i = batchStart; i < batchEnd; i++) {
-          const board = this.rebuildBoard(data.handicapStones, data.moves.slice(0, i));
-          const previousBoard = i > 0 ? this.rebuildBoard(data.handicapStones, data.moves.slice(0, i - 1)) : null;
+          const board = this.rebuildBoard(data.handicapStones, data.moves.slice(0, i), data.boardSize);
+          const previousBoard = i > 0 ? this.rebuildBoard(data.handicapStones, data.moves.slice(0, i - 1), data.boardSize) : null;
           const move = data.moves[i]!;
           positions.push({
             board,
@@ -629,10 +634,10 @@ export class ReviewService implements IReviewService {
     }) as any;
     
     // 重建当前棋盘状态（落子前的局面）
-    const board = this.rebuildBoard(data.handicapStones, data.moves.slice(0, index));
+    const board = this.rebuildBoard(data.handicapStones, data.moves.slice(0, index), data.boardSize);
     
     // 重建前一手的棋盘状态
-    const previousBoard = index > 0 ? this.rebuildBoard(data.handicapStones, data.moves.slice(0, index - 1)) : null;
+    const previousBoard = index > 0 ? this.rebuildBoard(data.handicapStones, data.moves.slice(0, index - 1), data.boardSize) : null;
     
     // 转换让子棋格式：{ x, y, color } -> { player, x, y }
     const initialStones = data.handicapStones.map(s => ({
@@ -700,11 +705,12 @@ export class ReviewService implements IReviewService {
    */
   private rebuildBoard(
     handicapStones: Array<{ x: number; y: number; color: PlayerColor }>,
-    moves: Array<{ x: number; y: number; color: PlayerColor }>
+    moves: Array<{ x: number; y: number; color: PlayerColor }>,
+    boardSize: number = 19
   ): BoardState {
     // 使用 Game 类来正确处理围棋规则（包括提子）
     const game = new Game();
-    game.newGame({ size: 19 });
+    game.newGame({ size: boardSize });
     
     // 首先添加让子棋的初始棋子（使用 setHandicapStones 确保正确处理）
     if (handicapStones.length > 0) {
@@ -727,7 +733,7 @@ export class ReviewService implements IReviewService {
         continue;
       }
       
-      if (move.x >= 0 && move.x < 19 && move.y >= 0 && move.y < 19) {
+      if (move.x >= 0 && move.x < boardSize && move.y >= 0 && move.y < boardSize) {
         const beforeState = game.getBoard().getPoint(move.x, move.y);
         const result = game.placeStone(move.x, move.y);
         
@@ -782,6 +788,8 @@ export class ReviewService implements IReviewService {
         includeOwnership: false,
         includePv: false,
         initialStones,
+        boardXSize: data.boardSize,
+        boardYSize: data.boardSize,
       });
       return results.map((r: any, i: number) => ({
         moveNumber: moveIndices[i]! + 1,
@@ -792,8 +800,8 @@ export class ReviewService implements IReviewService {
 
     // Web 端：用 evaluateBatch（神经网络前向传播）
     const positions = moveIndices.map(i => {
-      const board = this.rebuildBoard(data.handicapStones, data.moves.slice(0, i));
-      const previousBoard = i > 0 ? this.rebuildBoard(data.handicapStones, data.moves.slice(0, i - 1)) : null;
+      const board = this.rebuildBoard(data.handicapStones, data.moves.slice(0, i), data.boardSize);
+      const previousBoard = i > 0 ? this.rebuildBoard(data.handicapStones, data.moves.slice(0, i - 1), data.boardSize) : null;
       const move = data.moves[i]!;
       return {
         board,

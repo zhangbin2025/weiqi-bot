@@ -134,6 +134,8 @@ export interface ReviewState {
   totalMoves: number;
   /** 是否正在分析 */
   analyzing: boolean;
+  // 棋盘尺寸（19/13/9等）
+  boardSize: number;
   /** 分析进度 */
   progress: number;
 }

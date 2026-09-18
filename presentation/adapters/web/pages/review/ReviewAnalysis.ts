@@ -321,7 +321,7 @@ export class ReviewAnalysis {
         try {
           const favoriteId = await this.historyManager.saveToHistory(
             sgf,
-            { moveHistory: baseMoves ?? [], board: { size: 19 } },
+            { moveHistory: baseMoves ?? [], board: { size: state.boardSize } },
             { blackName: state.gameInfo.black, whiteName: state.gameInfo.white },
           );
           if (favoriteId) {

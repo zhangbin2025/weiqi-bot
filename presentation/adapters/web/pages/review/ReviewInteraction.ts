@@ -93,6 +93,8 @@ export class ReviewInteraction {
   /** 让子棋 */
   private handicapStones: Array<{ x: number; y: number; color: PlayerColor }> = [];
   private initialPlayer: PlayerColor | undefined;
+  /// 棋盘尺寸
+  private boardSize = 19;
   /** 恢复后的步数（供外部读取） */
   restoredMoveCount = 0;
 
@@ -112,10 +114,11 @@ export class ReviewInteraction {
     });
   }
 
-  initializeBaseLayer(moves: Array<{ x: number; y: number; color: PlayerColor }>, handicapStones?: Array<{ x: number; y: number; color: PlayerColor }>, initialPlayer?: PlayerColor): void {
+  initializeBaseLayer(moves: Array<{ x: number; y: number; color: PlayerColor }>, handicapStones?: Array<{ x: number; y: number; color: PlayerColor }>, initialPlayer?: PlayerColor, boardSize?: number): void {
     this.baseMoves = moves;
     this.handicapStones = handicapStones ?? [];
     this.initialPlayer = initialPlayer;
+    if (boardSize) this.boardSize = boardSize;
     this.variationManager?.initializeBaseLayer(moves);
   }
 
@@ -354,7 +357,7 @@ export class ReviewInteraction {
 
   /** 用保存的着法直接重建棋盘显示 */
   private restoreBoardFromMoves(moves: Array<{ x: number; y: number; color: PlayerColor }>): void {
-    this.game.newGame({ size: 19 });
+    this.game.newGame({ size: this.boardSize });
     
     // 设置让子棋（使用Game.setHandicapStones方法）
     if (this.handicapStones.length > 0) {
@@ -512,8 +515,8 @@ export class ReviewInteraction {
       this.board.clearRecommendationCircles();
       return;
     }
-    const pvY = 19 - parseInt(numberStr, 10);
-    if (pvX >= 0 && pvX < 19 && pvY >= 0 && pvY < 19) {
+    const pvY = this.boardSize - parseInt(numberStr, 10);
+    if (pvX >= 0 && pvX < this.boardSize && pvY >= 0 && pvY < this.boardSize) {
     // 判断下一着颜色：基于当前已有着法数
     const currentMoveCount = (this.variationManager?.getCurrentMoves().length ?? 0);
     const nextColor: PlayerColor = currentMoveCount % 2 === 0 ? 'black' : 'white';
@@ -634,7 +637,7 @@ export class ReviewInteraction {
     }
 
     const canvasRect = canvas.getBoundingClientRect();
-    const boardSize = 19;
+    const boardSize = this.boardSize;
     const cellSize = canvasRect.width / (boardSize + 1);  // 棋盘有 19 条线，加上边距共 20 格
 
     // 使用 toCanvas 的坐标转换公式：cx = (x + 1) * cellSize

@@ -255,6 +255,8 @@ export class AIController implements IAIController {
       rules?: string;
       initialStones?: Array<{ player: PlayerColor; x: number; y: number }>;
       onResultProgress?: (current: number, total: number) => void;
+      boardXSize?: number;
+      boardYSize?: number;
     }
   ): Promise<Array<{
     turnNumber: number;
@@ -284,6 +286,8 @@ export class AIController implements IAIController {
         komi,
         rules: (options?.rules as 'chinese' | 'japanese' | 'korean' | 'tromp-taylor' | 'aga') ?? 'chinese',
       };
+      if (options?.boardXSize !== undefined) gameOpts.boardXSize = options.boardXSize;
+      if (options?.boardYSize !== undefined) gameOpts.boardYSize = options.boardYSize;
       
       // analysisPVLen 必须是 1 到 1000 之间的整数
       // 如果需要 PV，设置为 15；否则不传递（让 KataGo 使用配置文件的默认值）

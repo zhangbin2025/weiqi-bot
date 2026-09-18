@@ -129,8 +129,8 @@ export class KataGoQueryBuilder {
       moves,
       rules: opts.rules ?? 'chinese',
       komi: opts.komi,
-      boardXSize: BOARD_SIZE,
-      boardYSize: BOARD_SIZE,
+      boardXSize: opts.boardXSize ?? BOARD_SIZE,
+      boardYSize: opts.boardYSize ?? BOARD_SIZE,
       // 不指定 analyzeTurns → 只分析最后一手
     };
 
