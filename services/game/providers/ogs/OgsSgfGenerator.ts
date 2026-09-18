@@ -403,15 +403,36 @@ export class OgsSgfGenerator {
    */
   private getHandicapStones(handicap: number, width: number, height: number): string[] {
     const coords: string[] = [];
-    if (width === 19 && height === 19) {
-      const starPoints = [
+    if (width !== height) return coords;
+    const size = width;
+    let starPoints: number[][] = [];
+    if (size === 19) {
+      starPoints = [
         [3, 3], [15, 15], [15, 3], [3, 15], [9, 9],
         [3, 9], [15, 9], [9, 3], [9, 15],
       ];
-      for (let i = 0; i < Math.min(handicap, starPoints.length); i++) {
-        const [x, y] = starPoints[i]!;
-        coords.push(this.coordToSgf(x!, y!, height));
-      }
+    } else if (size === 13) {
+      starPoints = [
+        [3, 3], [9, 9], [9, 3], [3, 9], [6, 6],
+        [3, 6], [9, 6], [6, 3], [6, 9],
+      ];
+    } else if (size === 9) {
+      starPoints = [
+        [2, 2], [6, 6], [6, 2], [2, 6], [4, 4],
+      ];
+    } else {
+      // 其他尺寸：使用通用计算
+      const edge = size >= 11 ? 3 : 2;
+      const mid = Math.floor(size / 2);
+      starPoints = [
+        [edge, edge], [size - 1 - edge, size - 1 - edge],
+        [size - 1 - edge, edge], [edge, size - 1 - edge],
+        [mid, mid],
+      ];
+    }
+    for (let i = 0; i < Math.min(handicap, starPoints.length); i++) {
+      const [x, y] = starPoints[i]!;
+      coords.push(this.coordToSgf(x!, y!, height));
     }
     return coords;
   }

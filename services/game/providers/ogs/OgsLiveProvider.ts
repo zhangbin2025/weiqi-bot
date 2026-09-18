@@ -63,9 +63,8 @@ export class OgsLiveProvider {
    */
   async fetchLiveGames(count: number = 20, keyword?: string, boardSize?: number): Promise<LatestGameItem[]> {
     const { io } = await import("socket.io-client");
-    // 默认只看 19×19 棋谱；多请求一些来补偿被过滤掉的非标准棋盘
-    const targetSize = boardSize ?? 19;
-    const fetchCount = boardSize ? count : Math.min(count * 3, 50);
+    // 获取所有棋盘尺寸的对局
+    const fetchCount = Math.min(count * 2, 50);
 
     return new Promise<LatestGameItem[]>((resolve, reject) => {
       const socket = io("wss://online-go.com", {
@@ -117,8 +116,10 @@ export class OgsLiveProvider {
 
           let games = response.results;
 
-          // 棋盘大小过滤（默认 19×19）
-          games = games.filter((g) => g.width === targetSize && g.height === targetSize);
+          // 按棋盘大小过滤（如果指定了 boardSize）
+          if (boardSize) {
+            games = games.filter((g) => g.width === boardSize && g.height === boardSize);
+          }
 
           // 关键词过滤
           if (keyword && keyword.trim()) {
@@ -134,7 +135,7 @@ export class OgsLiveProvider {
           const items: LatestGameItem[] = games.slice(0, count).map((g) => ({
             source: "ogs-live",
             title: this.formatTitle(g),
-            subtitle: `${g.width}×${g.height}`,
+            subtitle: g.width === g.height ? `${g.width}路` : `${g.width}×${g.height}`,
             date: new Date().toISOString().slice(0, 10),
             url: `https://online-go.com/game/${g.id}`,
           }));

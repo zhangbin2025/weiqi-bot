@@ -54,7 +54,7 @@ export class OgsPlayerProvider {
   }
 
   /**
-   * 获取玩家最近已结束的 19×19 对局列表
+   * 获取玩家最近已结束的对局列表
    *
    * @param playerId - OGS 玩家 ID
    * @param count - 最大数量，默认 10
@@ -62,7 +62,7 @@ export class OgsPlayerProvider {
    */
   async fetchPlayerGames(playerId: number, count: number = 10): Promise<OgsPlayerGame[]> {
     const pageSize = Math.min(count, 50);
-    const url = `${OGS_API_URL}/players/${playerId}/games/?ended__isnull=false&ordering=-ended&width=19&height=19&page_size=${pageSize}`;
+    const url = `${OGS_API_URL}/players/${playerId}/games/?ended__isnull=false&ordering=-ended&page_size=${pageSize}`;
 
     const response = await this.network.request<OgsApiListResponse<OgsPlayerGame>>({
       url,
@@ -106,7 +106,7 @@ export class OgsPlayerProvider {
   }
 
   /**
-   * 按日期范围获取玩家已结束的 19×19 对局列表
+   * 按日期范围获取玩家已结束的对局列表
    *
    * @param playerId - OGS 玩家 ID
    * @param dateStart - 起始日期（YYYY-MM-DD）
@@ -121,7 +121,7 @@ export class OgsPlayerProvider {
     count: number = 10
   ): Promise<OgsPlayerGame[]> {
     const pageSize = Math.min(count, 50);
-    const url = `${OGS_API_URL}/players/${playerId}/games/?ended__isnull=false&ordering=-ended&width=19&height=19&ended__gte=${dateStart}&ended__lte=${dateEnd}&page_size=${pageSize}`;
+    const url = `${OGS_API_URL}/players/${playerId}/games/?ended__isnull=false&ordering=-ended&ended__gte=${dateStart}&ended__lte=${dateEnd}&page_size=${pageSize}`;
 
     const response = await this.network.request<OgsApiListResponse<OgsPlayerGame>>({
       url,
