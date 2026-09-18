@@ -414,6 +414,37 @@ export class ReplayPage implements IPage {
     return { stones, lastMove, blackName, whiteName, moveNumber, turn, size: boardSize, viewBox, labels };
   }
 
+  /**
+   * 获取当前局面的推荐选点（分支子节点），不受 showBranchMarks 开关限制
+   * 返回打乱后的 labels 数组，或 undefined（无分支/仅一个分支时）
+   */
+  getSuggestedMoves(): Array<{ x: number; y: number; letter: string }> | undefined {
+    const node = this.state.getCurrentNode();
+    if (!node?.children || node.children.length <= 1) return undefined;
+
+    const posMap = new Map<string, { x: number; y: number }>();
+    for (const child of node.children) {
+      if (child.coord && child.coord !== 'tt' && child.coord !== 'TT') {
+        const pos = coordToPos(child.coord);
+        if (pos) {
+          const key = `${pos.x},${pos.y}`;
+          if (!posMap.has(key)) {
+            posMap.set(key, { x: pos.x, y: pos.y });
+          }
+        }
+      }
+    }
+    const valid = [...posMap.values()];
+    if (valid.length <= 1) return undefined;
+
+    // shuffle
+    for (let i = valid.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [valid[i]!, valid[j]!] = [valid[j]!, valid[i]!];
+    }
+    return valid.map((pos, i) => ({ x: pos.x, y: pos.y, letter: String.fromCharCode(65 + i) }));
+  }
+
   render(): void {
     this.board.render();
     this.ui.updateGameInfo();

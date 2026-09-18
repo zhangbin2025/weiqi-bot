@@ -162,7 +162,7 @@ async function main() {
         lastMove: printData.lastMove,
         size: printData.size,
         viewBox: printData.viewBox,
-        labels: printData.labels,
+        labels: page.getSuggestedMoves() ?? printData.labels,
       };
 
       await ctx.favoriteService.addFavorite('position', key, favData);

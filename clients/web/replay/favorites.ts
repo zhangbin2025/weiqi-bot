@@ -84,7 +84,8 @@ function renderQRCode(container: HTMLElement, content: string): void {
 function createCard(
   item: IFavoriteItem,
   selectedIds: Set<string>,
-  onCardClick: (item: IFavoriteItem) => void
+  onCardClick: (item: IFavoriteItem) => void,
+  showMoves: boolean
 ): HTMLElement {
   const data = item.data as PositionFavoriteData | undefined;
 
@@ -139,6 +140,7 @@ function createCard(
     lastMove: data.lastMove,
     size: data.size,
     viewBox: data.viewBox,
+    labels: showMoves ? data.labels : undefined,
   });
   card.appendChild(canvas);
 
@@ -170,9 +172,13 @@ async function main() {
   const rowsInput = document.getElementById('rowsInput') as HTMLInputElement;
   const colsInput = document.getElementById('colsInput') as HTMLInputElement;
   const loadMore = document.getElementById('loadMore')!;
+  const menuBtn = document.getElementById('menuBtn')!;
+  const dropdownMenu = document.getElementById('dropdownMenu')!;
+  const showMovesMenuItem = document.getElementById('showMovesMenuItem')!;
 
   let favorites: IFavoriteItem[] = [];
   let multiSelectMode = false;
+  let showMoves = false;
   let selectedIds: Set<string> = new Set();
   let renderedCount = 0;       // 已渲染的卡片数
   const PAGE_SIZE = 12;        // 每次加载的卡片数（延迟渲染）
@@ -250,7 +256,7 @@ async function main() {
 
     for (let i = 0; i < toRender; i++) {
       const item = favorites[renderedCount];
-      const card = createCard(item, selectedIds, onCardClick);
+      const card = createCard(item, selectedIds, onCardClick, showMoves);
       grid.appendChild(card);
       renderedCount++;
     }
@@ -410,6 +416,30 @@ async function main() {
   cancelSelectBtn.addEventListener('click', () => setMultiSelectMode(false));
   printBtn.addEventListener('click', () => handlePrint());
   printSelectedBtn.addEventListener('click', () => printSelected());
+
+  // 三点菜单切换
+  menuBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    dropdownMenu.classList.toggle('visible');
+  });
+  document.addEventListener('click', (e) => {
+    if (!(e.target as HTMLElement).closest('.dropdown')) {
+      dropdownMenu.classList.remove('visible');
+    }
+  });
+
+  // 显示选点切换
+  function toggleShowMoves() {
+    showMoves = !showMoves;
+    showMovesMenuItem.textContent = showMoves ? '🎯 显示选点 ✓' : '🎯 显示选点';
+    // 重新渲染所有卡片
+    rerender();
+  }
+  showMovesMenuItem.addEventListener('click', (e) => {
+    e.stopPropagation();
+    dropdownMenu.classList.remove('visible');
+    toggleShowMoves();
+  });
 
   await loadFavorites();
 }
