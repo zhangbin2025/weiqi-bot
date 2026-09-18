@@ -263,7 +263,9 @@ export class ReplayPageUI {
     }
 
     // OGS 格式: "胜率: 36.1% | 目差: -0.9 | 第1手"
-    const ogsMatch = comment.match(/胜率[:\s]*(\d+\.?\d*)%.*?目差[:\s]*([-\d.]+)/);
+    // 注意：部分 OGS 对局（如 13 路、scores 数组为空）的注释只有胜率没有目差，
+    // 因此目差部分为可选，不能强制匹配，否则会导致副标题无法显示任何胜率。
+    const ogsMatch = comment.match(/胜率[:\s]*(\d+\.?\d*)%(?:.*?目差[:\s]*([-\d.]+))?/);
     if (ogsMatch && ogsMatch[1]) {
       const wr = parseFloat(ogsMatch[1]);
       const scoreLead = ogsMatch[2] ? parseFloat(ogsMatch[2]) : null;
