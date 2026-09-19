@@ -35,3 +35,7 @@ export { SGFWriter } from './SGFWriter';
 
 // ReplayData 转换器
 export { sgfToReplayData, type ReplayData, type ReplayNode, type SGFToReplayOptions } from './SGFToReplay';
+
+// æ­»æ´»é¢æå°è·¯æ°è½¬æ¢ï¼å¬å±æ¨¡åï¼
+export { buildTsumegoMinBoard } from './TsumegoMinBoard';
+export type { TsumegoMinBoardResult, TsumegoMinBoardOptions } from './TsumegoMinBoard';

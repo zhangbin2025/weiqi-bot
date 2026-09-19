@@ -7,6 +7,7 @@ import { MoveNavigator, VariationController, TrialController, CapturedController
 import { WebBoard } from '../../components/Board';
 import { Game } from '../../../../../domain/game';
 import { coordToPos, posToCoord } from '../../../../../domain/sgf';
+import { buildTsumegoMinBoard } from '../../../../../domain/sgf';
 import { BoardRebuilder } from '../../../../core/helpers/BoardRebuilder';
 import { BoardSyncer } from '../../../../core/helpers/BoardSyncer';
 import { ReplayPageState } from './state';
@@ -35,6 +36,8 @@ export class ReplayPage implements IPage {
   private navigationHandler: NavigationHandler;
   private variationHandler: VariationHandler;
   private trialHandler: TrialHandler;
+  /** 死活题最小路数转换结果（成功压缩时非空），用于小棋盘渲染/试下坐标换算 */
+  private minBoardResult: ReturnType<typeof buildTsumegoMinBoard> = null;
   constructor(config: { replayApp: ReplayApp; onNavigate?: (page: string, params?: Record<string, string>) => void }) {
     this.replayApp = config.replayApp;
     this.onNavigate = config.onNavigate;
@@ -175,7 +178,22 @@ export class ReplayPage implements IPage {
    * 从 SGF 内容加载
    */
   loadFromSGF(sgf: string, options?: { defaultMove?: number }): void {
-    this.dataManager.loadFromSGF(sgf, options);
+    // 死活题最小路数转换：将 19 路棋谱中落在局部的死活题，
+    // 平移坐标并截取为以 (0,0) 为原点的最小标准路数 SGF。
+    // 触发条件沿用既有逻辑：存在 AB/AW 摆子（move=0 死活题）且局部明显小于全盘。
+    const remapped = buildTsumegoMinBoard(sgf);
+    this.minBoardResult = remapped;
+    // 自校验：压缩后的 SGF 能被正常解析才采用，否则回退原始 SGF（保证不破坏任何棋谱）
+    let loadSgf = sgf;
+    if (remapped) {
+      const check = this.replayApp.loadFromSGF(remapped.sgf, options);
+      if (check && (check.board_size as number) === remapped.size) {
+        loadSgf = remapped.sgf;
+      } else {
+        this.minBoardResult = null;
+      }
+    }
+    this.dataManager.loadFromSGF(loadSgf, options);
     // 初始化死活题检查器
     this.trialHandler.initTsumegoChecker(this.state.get('replayData'));
     // 加载数据后立即更新 UI（包括滑块的最大值）
@@ -359,7 +377,8 @@ export class ReplayPage implements IPage {
     // 死活题判断：move=0（初始局面）且 SGF 有 initial stones（AB/AW）
     // 定式、对局等其它场景保留整个棋盘
     let viewBox: { minX: number; minY: number; width: number; height: number } | undefined;
-    const isTsumego = moveNumber === 0 && !!(replayData?.handicap_stones && replayData.handicap_stones.length > 0);
+    // 已完成最小路数转换的小棋盘不再做局部裁剪，避免二次裁剪丢失留白
+    const isTsumego = !this.minBoardResult && moveNumber === 0 && !!(replayData?.handicap_stones && replayData.handicap_stones.length > 0);
     if (isTsumego && boardSize >= 13 && stones.length > 0) {
       let minX = 19, maxX = 0, minY = 19, maxY = 0;
       for (const s of stones) {
