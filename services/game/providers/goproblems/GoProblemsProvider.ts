@@ -201,7 +201,7 @@ export class GoProblemsProvider extends BaseProvider implements IGoProblemsProvi
       const boardSize = this.extractBoardSize(sgf);
       const blackStones = this.extractStones(sgf, 'AB');
       const whiteStones = this.extractStones(sgf, 'AW');
-      const isWhiteFirst = detail.playerColor === 'white';
+      const isWhiteFirst = this.resolveWhiteFirst(detail);
 
       // 解析 SGF 树，提取所有答案分支
       const tree = this.parseSgf(sgf);
@@ -540,6 +540,37 @@ export class GoProblemsProvider extends BaseProvider implements IGoProblemsProvi
     return match ? parseInt(match[1]!, 10) : 19;
   }
 
+  /**
+   * 从 SGF 根节点解析 PL[] 属性
+   * goproblems 的 SGF 通常在根节点标记 PL[W] 或 PL[B]
+   */
+  private extractPlayerColor(sgf: string): 'white' | 'black' | null {
+    // 只匹配根节点区域（第一个分支开始之前的部分）
+    // 避免匹配到分支内的 PL[]
+    const rootEnd = sgf.indexOf(')(');
+    const rootSection = rootEnd > 0 ? sgf.substring(0, rootEnd) : sgf;
+    const match = rootSection.match(/PL\[([WB])\]/);
+    if (match) {
+      return match[1] === 'W' ? 'white' : 'black';
+    }
+    return null;
+  }
+
+  /**
+   * 综合判断白方是否先行
+   * 优先使用 API 返回的 playerColor，为空时从 SGF 的 PL[] 属性解析
+   */
+  private resolveWhiteFirst(detail: GoProblemsProblemDetail): boolean {
+    if (detail.playerColor === 'white') return true;
+    if (detail.playerColor === 'black') return false;
+    // API 未返回 playerColor 时，从 SGF 解析 PL[] 属性
+    if (detail.sgf) {
+      const plColor = this.extractPlayerColor(detail.sgf);
+      return plColor === 'white';
+    }
+    return false;
+  }
+
   private extractStones(sgf: string, color: 'AB' | 'AW'): string[] {
     const stones: string[] = [];
     // 匹配 AB[pos1][pos2]... 或 AB[pos1]AB[pos2]...
@@ -585,7 +616,7 @@ export class GoProblemsProvider extends BaseProvider implements IGoProblemsProvi
   private buildMetadata(detail: GoProblemsProblemDetail, problemId: string): GameMetadata {
     const rankStr = this.rankToString(detail.rank);
     const authorName = detail.author?.name || 'GoProblems';
-    const isWhiteFirst = detail.playerColor === 'white';
+    const isWhiteFirst = this.resolveWhiteFirst(detail);
     const moveCount = (detail.sgf.match(/;[BW]\[[a-z]{2}\]/g) || []).length;
     const boardSize = this.extractBoardSize(detail.sgf);
 
