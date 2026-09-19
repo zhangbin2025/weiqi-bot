@@ -417,6 +417,11 @@ export class AIController implements IAIController {
   ) {
     this.ensureInitialized();
 
+    // 从棋盘维度推导棋盘尺寸（BoardState 为 board[y][x] 二维数组）：
+    // 非19路（如 5 路死活题）时必须透传给引擎，否则原生 KataGo 会退回 19 路导致分析错乱
+    const derivedBoardSize =
+      Array.isArray(board) && board.length > 0 ? board.length : undefined;
+
     const options: AnalyzeOptions = {
       modelUrl: this.modelUrl ?? `/models/${this.modelId}.bin.gz`,
       board,
@@ -426,6 +431,11 @@ export class AIController implements IAIController {
       visits,
       maxTimeMs: maxTimeMs ?? 30000,
     };
+
+    if (derivedBoardSize !== undefined) {
+      options.boardXSize = derivedBoardSize;
+      options.boardYSize = derivedBoardSize;
+    }
 
     if (previousBoard) options.previousBoard = previousBoard;
     

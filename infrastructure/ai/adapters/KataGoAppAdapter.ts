@@ -331,7 +331,9 @@ export class KataGoAppAdapter implements IAIEngine {
       throw new Error('No analysis result');
     }
 
-    return KataGoResultParser.parseSingleAnalysis(results[0]! as unknown as string) as unknown as AnalysisResult;
+    // 非19路棋盘：用实际尺寸还原 GTP 坐标（否则 5 路等下法坐标会错位到棋盘外）
+    const boardSize = options.boardXSize ?? options.boardYSize ?? 19;
+    return KataGoResultParser.parseSingleAnalysis(results[0]! as unknown as string, boardSize) as unknown as AnalysisResult;
   }
 
   /**

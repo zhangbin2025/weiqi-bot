@@ -77,22 +77,24 @@ export class KataGoQueryBuilder {
    * {"id":"...", "moves":[["B","Q4"],["W","C16"]...], "rules":"chinese", ...}
    */
   static buildGameAnalysis(opts: AnalyzeGameOptions): object {
+    // 非19路棋盘：GTP 坐标编码必须用实际尺寸，否则 5 路棋谱会被编码成 19 路的行号
+    const boardSize = opts.boardXSize ?? opts.boardYSize ?? BOARD_SIZE;
     const query: Record<string, unknown> = {
       moves: opts.moves.map(m => [
         this.playerToString(m.player),
-        this.moveToGtp(m.x, m.y),
+        this.moveToGtp(m.x, m.y, boardSize),
       ]),
       rules: opts.rules ?? 'chinese',
       komi: opts.komi,
-      boardXSize: opts.boardXSize ?? BOARD_SIZE,
-      boardYSize: opts.boardYSize ?? BOARD_SIZE,
+      boardXSize: boardSize,
+      boardYSize: boardSize,
     };
 
     // 可选字段
     if (opts.initialStones?.length) {
       query['initialStones'] = opts.initialStones.map(s => [
         this.playerToString(s.player),
-        this.moveToGtp(s.x, s.y),
+        this.moveToGtp(s.x, s.y, boardSize),
       ]);
     }
 
@@ -117,11 +119,13 @@ export class KataGoQueryBuilder {
    * 复用 buildGameAnalysis，只分析最后一手
    */
   static buildSinglePosition(opts: AnalyzeOptions): object {
+    // 非19路棋盘：GTP 坐标编码必须用实际尺寸
+    const boardSize = opts.boardXSize ?? opts.boardYSize ?? BOARD_SIZE;
     const moves = opts.moveHistory.map(m => {
       const coord = this.moveToCoord(m as any);
       return [
         this.playerToString((m as any).player as 'black' | 'white'),
-        this.moveToGtp(coord.x, coord.y),
+        this.moveToGtp(coord.x, coord.y, boardSize),
       ];
     });
 
@@ -129,8 +133,8 @@ export class KataGoQueryBuilder {
       moves,
       rules: opts.rules ?? 'chinese',
       komi: opts.komi,
-      boardXSize: opts.boardXSize ?? BOARD_SIZE,
-      boardYSize: opts.boardYSize ?? BOARD_SIZE,
+      boardXSize: boardSize,
+      boardYSize: boardSize,
       // 不指定 analyzeTurns → 只分析最后一手
     };
 
@@ -138,7 +142,7 @@ export class KataGoQueryBuilder {
     if (opts.initialStones?.length) {
       query['initialStones'] = opts.initialStones.map(s => [
         this.playerToString((s as any).player as 'black' | 'white'),
-        this.moveToGtp(s.x, s.y),
+        this.moveToGtp(s.x, s.y, boardSize),
       ]);
     }
 
@@ -162,7 +166,7 @@ export class KataGoQueryBuilder {
       // 生成区域内所有交叉点的 GTP 坐标
       for (let x = xMin; x <= xMax; x++) {
         for (let y = yMin; y <= yMax; y++) {
-          allowedMoves.push(this.moveToGtp(x, y));
+          allowedMoves.push(this.moveToGtp(x, y, boardSize));
         }
       }
       

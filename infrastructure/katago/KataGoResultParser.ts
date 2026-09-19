@@ -135,25 +135,28 @@ export class KataGoResultParser {
 
   /**
    * 解析单局面分析结果（兼容现有 IAIEngine.analyze 返回格式）
+   * @param rawJson KataGo 单行 JSON 响应
+   * @param boardSize 棋盘尺寸（非19路时用于正确还原 GTP 坐标；默认 19）
    */
-  static parseSingleAnalysis(rawJson: string) {
+  static parseSingleAnalysis(rawJson: string, boardSize = 19) {
     const turn = this.parseTurnResult(rawJson);
     if (!turn) {
       console.error('[KataGoResultParser] parseTurnResult returned null');
       throw new Error('Failed to parse analysis result');
     }
 
+    const boardArea = boardSize * boardSize;
     const result = {
       rootWinRate: turn.rootWinRate,
       rootScoreLead: turn.rootScoreLead,
       rootScoreSelfplay: turn.moveInfos[0]?.scoreMean ?? turn.rootScoreLead,
       rootScoreStdev: turn.moveInfos[0]?.scoreStdev ?? 0,
       rootVisits: turn.rootVisits,
-      ownership: turn.ownership ? new Float32Array(turn.ownership) : new Float32Array(361),
-      ownershipStdev: new Float32Array(361),
-      policy: new Float32Array(362),
+      ownership: turn.ownership ? new Float32Array(turn.ownership) : new Float32Array(boardArea),
+      ownershipStdev: new Float32Array(boardArea),
+      policy: new Float32Array(boardArea + 1),
       moves: turn.moveInfos.map(mi => {
-        const coord = KataGoQueryBuilder.gtpToMove(mi.move);
+        const coord = KataGoQueryBuilder.gtpToMove(mi.move, boardSize);
         return {
           x: coord.x,
           y: coord.y,
