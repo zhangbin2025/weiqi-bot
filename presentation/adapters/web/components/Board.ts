@@ -287,6 +287,26 @@ export class WebBoard implements IBoard {
         this.events.onClick?.({ x, y });
       }
     });
+
+    // 桌面环境：鼠标悬停显示下一手棋子预览
+    // 通过 matchMedia('(hover: hover)') 排除触摸设备
+    if (window.matchMedia('(hover: hover)').matches) {
+      this.canvas.addEventListener('mousemove', (e) => {
+        if (this.cellSize === 0) return;
+        const rect = this.canvas.getBoundingClientRect();
+        const x = Math.round((e.clientX - rect.left) / this.cellSize) - 1;
+        const y = Math.round((e.clientY - rect.top) / this.cellSize) - 1;
+        if (x >= 0 && x < this.size && y >= 0 && y < this.size) {
+          this.events.onHover?.({ x, y });
+        } else {
+          this.events.onHover?.(null);
+        }
+      });
+
+      this.canvas.addEventListener('mouseleave', () => {
+        this.events.onHover?.(null);
+      });
+    }
   }
   destroy(): void {
     this.canvas.remove();

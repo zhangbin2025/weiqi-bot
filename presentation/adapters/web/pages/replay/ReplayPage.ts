@@ -161,9 +161,10 @@ export class ReplayPage implements IPage {
     window.addEventListener('downloadSGF', () => {
       this.downloadSGF();
     });
-    // 绑定棋盘点击事件（试下模式）
+    // 绑定棋盘点击事件（试下模式）+ 悬停预览
     this.board.on({
-      onClick: (pos) => this.trialHandler.handleBoardClick(pos.x, pos.y)
+      onClick: (pos) => this.trialHandler.handleBoardClick(pos.x, pos.y),
+      onHover: (pos) => this.handleBoardHover(pos)
     });
     this.state.set('initialized', true);
   }
@@ -226,6 +227,36 @@ export class ReplayPage implements IPage {
     // 设置数据后立即更新 UI
     this.ui.updateGameInfo();
   }
+  /**
+   * 处理棋盘悬停（桌面环境）
+   * 鼠标移到交叉点时显示下一手棋子的半透明预览
+   */
+  private handleBoardHover(pos: { x: number; y: number } | null): void {
+    if (pos === null) {
+      this.board.clearPreviewStone();
+      return;
+    }
+    // 试下模式下不显示预览（避免与实际落子混淆）
+    if (this.trialController.isInTrial()) {
+      this.board.clearPreviewStone();
+      return;
+    }
+    // 分支模式下不显示预览
+    if (this.state.get('inVariation')) {
+      this.board.clearPreviewStone();
+      return;
+    }
+    // 如果该位置已有棋子，不显示预览
+    const stones = this.board.getStones();
+    if (stones.has(`${pos.x},${pos.y}`)) {
+      this.board.clearPreviewStone();
+      return;
+    }
+    // 获取下一手颜色
+    const currentPlayer = this.game.getState().currentPlayer;
+    this.board.setPreviewStone({ x: pos.x, y: pos.y }, currentPlayer);
+  }
+
   /**
    * 切换音效
    */

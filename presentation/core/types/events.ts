@@ -6,8 +6,8 @@ import type { Position } from './board';
 export interface IBoardEvents {
   /** 点击事件 */
   onClick?: (pos: Position) => void;
-  /** 悬停事件 */
-  onHover?: (pos: Position) => void;
+  /** 悬停事件（null 表示鼠标离开棋盘） */
+  onHover?: (pos: Position | null) => void;
   /** 移动事件 */
   onMove?: (from: Position, to: Position) => void;
 }
