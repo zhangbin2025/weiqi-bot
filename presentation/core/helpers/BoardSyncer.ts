@@ -28,6 +28,8 @@ export class BoardSyncer {
     const state = game.getState();
     const gameBoard = game.getBoard();
     const size = gameBoard.size;
+    // 清除 hover 预览棋子（导航到新位置后，旧预览不应保留）
+    board.clearPreviewStone();
     // 同步棋子
     const stones: Array<{ pos: { x: number; y: number }; color: PlayerColor | null }> = [];
     for (let x = 0; x < size; x++) {

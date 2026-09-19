@@ -22,6 +22,8 @@ export class WebBoard implements IBoard {
   private mounted = false;
   private previewStone: { pos: Position; color: PlayerColor } | null = null; // 预览棋子
   private imageRenderer: BoardImageRenderer; // 图片渲染器
+  private lastHoverKey = ''; // 上次 hover 的格子 key，用于去重（避免同一格内 mousemove 重复触发 render）
+  private canvasSize = 0; // 缓存 canvas 尺寸，避免重复重设
   constructor(container?: HTMLElement) {
     this.canvas = document.createElement('canvas');
     this.ctx = this.canvas.getContext('2d')!;
@@ -60,24 +62,26 @@ export class WebBoard implements IBoard {
     const containerWidth = parent?.clientWidth ?? 400;
     // 棋盘宽度 = 容器宽度，完全占满
     const boardWidth = Math.max(300, containerWidth);
-    // 适配高 DPI 设备（Retina 屏幕等）
-    // 使用实际 DPR 以获得最佳清晰度
+    // 适配高 DPI 设备（Retina 屏等）
     const dpr = window.devicePixelRatio || 1;
-    // 设置 canvas 像素尺寸（物理像素）
-    this.canvas.width = boardWidth * dpr;
-    this.canvas.height = boardWidth * dpr;
-    // 设置 canvas CSS 尺寸（CSS 像素）
-    this.canvas.style.width = `${boardWidth}px`;
-    this.canvas.style.height = `${boardWidth}px`;
+    const targetSize = Math.round(boardWidth * dpr);
+    // 只在尺寸变化时才重设 canvas.width/height
+    // 重设会清空整个 canvas 并重置上下文状态，频繁重设会导致性能问题和闪烁
+    if (this.canvasSize !== targetSize) {
+      this.canvasSize = targetSize;
+      this.canvas.width = targetSize;
+      this.canvas.height = targetSize;
+      this.canvas.style.width = boardWidth + 'px';
+      this.canvas.style.height = boardWidth + 'px';
+      this.canvas.style.borderRadius = '8px';
+      this.canvas.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
+      this.canvas.style.margin = '0 auto';
+      this.canvas.style.display = 'block';
+      this.canvas.style.background = '#DCB35C';
+    }
     // 缩放绘图坐标系，使绘制逻辑使用 CSS 像素坐标
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    this.canvas.style.borderRadius = '8px';
-    this.canvas.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
-    this.canvas.style.margin = '0 auto';
-    this.canvas.style.display = 'block';
-    this.canvas.style.background = '#DCB35C';
     // 棋盘格子大小：boardWidth / (size + 1)
-    // 这样网格离棋盘边缘正好相差一格宽度，与野狐围棋一致
     this.cellSize = boardWidth / (this.size + 1);
     this.drawBoard();
     this.drawStones();
@@ -297,13 +301,21 @@ export class WebBoard implements IBoard {
         const x = Math.round((e.clientX - rect.left) / this.cellSize) - 1;
         const y = Math.round((e.clientY - rect.top) / this.cellSize) - 1;
         if (x >= 0 && x < this.size && y >= 0 && y < this.size) {
-          this.events.onHover?.({ x, y });
+          const key = x + ',' + y;
+          if (key !== this.lastHoverKey) {
+            this.lastHoverKey = key;
+            this.events.onHover?.({ x, y });
+          }
         } else {
-          this.events.onHover?.(null);
+          if (this.lastHoverKey !== '') {
+            this.lastHoverKey = '';
+            this.events.onHover?.(null);
+          }
         }
       });
 
       this.canvas.addEventListener('mouseleave', () => {
+        this.lastHoverKey = '';
         this.events.onHover?.(null);
       });
     }
