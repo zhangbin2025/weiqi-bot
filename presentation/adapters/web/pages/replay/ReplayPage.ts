@@ -236,11 +236,6 @@ export class ReplayPage implements IPage {
       this.board.clearPreviewStone();
       return;
     }
-    // 试下模式下不显示预览（避免与实际落子混淆）
-    if (this.trialController.isInTrial()) {
-      this.board.clearPreviewStone();
-      return;
-    }
     // 分支模式下不显示预览
     if (this.state.get('inVariation')) {
       this.board.clearPreviewStone();
