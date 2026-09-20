@@ -220,6 +220,11 @@ export class DecisionGenerator {
 
     const sorted = [...vars].sort((a, b) => b.winrate - a.winrate);
     const rankLabels = ['一选', '二选', '三选', '四选'];
+    /**
+     * 安全取选点标签：rankLabels 只有 4 个条目，实战选点排第 5 名及以后会越界得到 undefined。
+     * 越界时回退为「第N选」，避免界面出现「实战（undefined）」。
+     */
+    const safeRankLabel = (rank: number): string => rankLabels[rank - 1] ?? `第${rank}选`;
     const allVarsMap = allVariations ?? {};
 
     // 检查实战选点是否在 AI 变化图中
@@ -261,7 +266,7 @@ export class DecisionGenerator {
         return {
           position: v.firstMove.coord,
           winrate,
-          label: isThisPractical && practicalRank > 0 ? `实战（${rankLabels[practicalRank - 1]})` : rankLabels[i]!,
+          label: isThisPractical && practicalRank > 0 ? `实战（${safeRankLabel(practicalRank)}）` : safeRankLabel(i + 1),
           variations: v.variation.moves.slice(1, 10).map(m => m.coord),
           isPractical: isThisPractical,
         };
@@ -274,9 +279,9 @@ export class DecisionGenerator {
           const opt = decisionOptions[i]!;
           if (opt.isPractical) {
             practicalRank = i + 1;
-            opt.label = `实战（${rankLabels[i]}）`;
+            opt.label = `实战（${safeRankLabel(i + 1)}）`;
           } else {
-            opt.label = rankLabels[i]!;
+            opt.label = safeRankLabel(i + 1);
           }
         }
       }
@@ -293,7 +298,7 @@ export class DecisionGenerator {
       const aiOptions: IDecisionOption[] = sorted.slice(0, 3).map((v, i) => ({
         position: v.firstMove.coord,
         winrate: v.winrate,
-        label: rankLabels[i]!,
+        label: safeRankLabel(i + 1),
         variations: v.variation.moves.slice(1, 10).map(m => m.coord),
         isPractical: false,
       }));
@@ -320,7 +325,7 @@ export class DecisionGenerator {
           const rank = i + 1;
           opt.label = '实战';
         } else {
-          opt.label = rankLabels[i]!;
+          opt.label = safeRankLabel(i + 1);
         }
       }
     }
