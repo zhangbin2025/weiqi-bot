@@ -45,7 +45,7 @@ export class FetcherApp {
   async getBookmarks(): Promise<FetcherBookmark[]> {
     if (!this.favoriteService) return [];
     const items = await this.favoriteService.getFavorites({ category: this.CATEGORY });
-    return items.map(this.toBookmark);
+    return items.map((i) => this.toBookmark(i));
   }
   async clearBookmarks(): Promise<void> {
     await this.favoriteService?.clear(this.CATEGORY);
