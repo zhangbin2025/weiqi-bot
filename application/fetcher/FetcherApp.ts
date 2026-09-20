@@ -246,7 +246,23 @@ export class FetcherApp {
     };
     const result = item.data?.['result'];
     if (result !== undefined) bookmark.result = result as string;
+    // 外部查看链接：用于收藏列表三点菜单的"查看链接"
+    bookmark.viewUrl = this.toBookmarkViewUrl(bookmark);
     return bookmark;
+  }
+
+  /**
+   * 根据收藏来源计算外部查看链接
+   * 与"最新"标签页保持一致：KataGo 指向归档压缩包，
+   * 其余来源若有 http(s) 可打开链接则直接使用，否则留空（菜单不显示"查看链接"）。
+   */
+  private toBookmarkViewUrl(b: FetcherBookmark): string {
+    const m = b.url.match(/^katago:\/\/date\/(\d{4}-\d{2}-\d{2})/);
+    if (b.source === 'katago' && m) {
+      return 'https://katagoarchive.org/kata1/ratinggames/' + m[1] + 'rating.tar.bz2';
+    }
+    if (/^https?:\/\//i.test(b.url)) return b.url;
+    return '';
   }
   
   /**

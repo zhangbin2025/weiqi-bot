@@ -140,7 +140,19 @@ export class FetcherRenderer {
     }
   }
   bindActions(): void {
-    this.bookmarkCard.onAction((action, data) => { if (action === 'viewBookmark' && data?.['id']) this.cb.onViewBookmark(data['id']); });
+    this.bookmarkCard.onAction((action, data) => {
+      if (action === 'openBookmarkMenu' && data?.['id']) {
+        this.toggleBookmarkMenu(data['id'] as string);
+      } else if (action === 'viewBookmark' && data?.['id']) {
+        this.cb.onViewBookmark(data['id'] as string);
+      } else if (action === 'viewLatest' && data?.['url']) {
+        this.cb.onSelectLatestView(data['url'] as string);
+      } else if (action === 'selectLatest' && data?.['url']) {
+        this.cb.onSelectLatest(data['url'] as string);
+      } else if (action === 'viewUrl' && data?.['url']) {
+        this.cb.onViewUrl(data['url'] as string);
+      }
+    });
     this.resultCard.onAction((action) => {
       if (action === "live") {
         this.cb.onLive();
@@ -397,6 +409,27 @@ export class FetcherRenderer {
     cloned.setAttribute('data-menu', '');
     cloned.style.display = '';
     (cardEl.querySelector('.latest-dots') as HTMLElement | null)?.insertAdjacentElement('afterend', cloned);
+  }
+
+  /**
+   * 收藏列表右上角三点扩展菜单：打开/关闭指定收藏条目的操作菜单
+   */
+  toggleBookmarkMenu(id: string): void {
+    const container = this.bookmarkCard.getContainer?.() as HTMLElement | undefined;
+    if (!container) return;
+    const escapedId = (id || '').replace(/["]/g, '\\$&');
+    const cardEl = container.querySelector('[data-action="viewBookmark"][data-id="' + escapedId + '"]') as HTMLElement | null;
+    if (!cardEl) return;
+    const existing = cardEl.querySelector('div[data-menu]') as HTMLElement | null;
+    container.querySelectorAll('div[data-menu]').forEach((m) => m.remove());
+    if (existing) return; // 已打开则关闭
+    const tpl = cardEl.querySelector('[data-menu-template]') as HTMLElement | null;
+    if (!tpl) return;
+    const cloned = tpl.cloneNode(true) as HTMLElement;
+    cloned.removeAttribute('data-menu-template');
+    cloned.setAttribute('data-menu', '');
+    cloned.style.display = '';
+    (cardEl.querySelector('.bookmark-dots') as HTMLElement | null)?.insertAdjacentElement('afterend', cloned);
   }
 
   /**

@@ -104,32 +104,97 @@ export class FetcherFormatter {
     `;
   }
   /**
-   * 格式化单条收藏记录
+   * 格式化单条收藏记录（与"最新"标签页条目统一样式）
+   * - 右上角三点扩展菜单：打开收藏 + 查看链接（可打开外链时）+ 直播来源额外项
+   * - 卡片主体按来源呈现不同内容；未在"最新"标签页出现的来源回退为"归档棋谱"展示
    */
   formatBookmarkItem(entry: FetcherBookmark): string {
-    const black = entry.black || '未知';
-    const white = entry.white || '未知';
-    const result = formatGameResult(entry.result);
-    const source = this.formatSource(entry.source);
+    const sourceLabels: Record<string, string> = {
+      foxwq: '🏆 野狐', weiqi101: '📝 101围棋', 'ogs-live': '🎬 OGS', 'yike-live': '📹 弈客',
+      goproblems: '🧩 GoProblems', 'ogs-puzzle': '🧩 OGS死活题', katago: '🤖 KataGo',
+    };
+    const sourceLabel = sourceLabels[entry.source] || this.formatSource(entry.source);
     const date = entry.date || '未知时间';
-    const movesCount = entry.movesCount || 0;
-    return `
-      <div data-action="viewBookmark" data-id="${entry.id}" style="padding:10px 0; border-top:1px solid #eee; cursor:pointer;" onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background=''">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-          <span style="display:inline-block; background:linear-gradient(135deg,#667eea 0%,#764ba2 100%); color:white; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:500;">${source}</span>
-          <span style="font-size:0.8em; color:#888;">${date}</span>
-        </div>
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <span style="font-weight:600; color:#333;">⚫ ${black}</span>
-          <span style="color:#999;">vs</span>
-          <span style="font-weight:600; color:#333;">⚪ ${white}</span>
-        </div>
-        <div style="display:flex; justify-content:space-between; margin-top:4px; font-size:0.85em; color:#666;">
-          <span>${result && result !== '-' ? result : ''}</span>
-          <span>${movesCount > 0 ? movesCount + '手' : ''}</span>
-        </div>
+    const title = this.formatBookmarkTitle(entry);
+    const subtitle = this.formatBookmarkSubtitle(entry);
+    const isLiveSource = entry.source === 'ogs-live' || entry.source === 'yike-live';
+
+    const liveMenu = isLiveSource
+      ? `<div data-action="viewLatest" data-url="${entry.url}" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#2d3748;white-space:nowrap;">👁\ufe0f 查看棋谱</div>
+         <div data-action="selectLatest" data-url="${entry.url}" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#c53030;font-weight:600;white-space:nowrap;">🔴 直播棋谱</div>`
+      : '';
+    const linkUrl = this.bookmarkViewUrl(entry);
+    const linkMenuItem = linkUrl
+      ? `<div data-action="viewUrl" data-url="${linkUrl}" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#2d3748;white-space:nowrap;">🔗 查看链接</div>`
+      : '';
+
+    const menu = `
+      <div class="bookmark-dots" data-action="openBookmarkMenu" data-id="${entry.id}"
+           style="position:absolute;top:8px;right:8px;width:24px;height:24px;line-height:22px;text-align:center;border-radius:50%;color:#999;font-size:16px;cursor:pointer;user-select:none;"
+           onmouseover="this.style.background='#f0f0f0'" onmouseout="this.style.background=''">⋮</div>
+      <div data-menu-template style="display:none;position:absolute;top:34px;right:8px;min-width:96px;background:white;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,0.15);z-index:50;overflow:hidden;">
+        <div data-action="viewBookmark" data-id="${entry.id}" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#2d3748;white-space:nowrap;">📂 打开收藏</div>
+        ${liveMenu}
+        ${linkMenuItem}
+      </div>`;
+
+    return `<div data-action="viewBookmark" data-id="${entry.id}" style="position:relative;padding:10px 30px 10px 0;border-top:1px solid #eee;cursor:pointer;" onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background=''">
+      ${menu}
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+        <span style="font-size:0.8em;font-weight:500;color:#667eea;">${sourceLabel}</span>
+        <span style="font-size:0.8em;color:#888;">${date}</span>
       </div>
-    `;
+      <div style="font-weight:500;color:#333;font-size:0.95em;">${title}</div>
+      ${subtitle}
+    </div>`;
+  }
+
+  /**
+   * 收藏卡片标题：统一以"归档棋谱"样式呈现（黑 vs 白）
+   * 直播/死活题等仅在菜单与副标题上区分；未在"最新"标签页出现的来源同样回退此样式
+   */
+  private formatBookmarkTitle(entry: FetcherBookmark): string {
+    const black = entry.black || '黑方';
+    const white = entry.white || '白方';
+    return '⚫ ' + black + ' vs ⚪ ' + white;
+  }
+
+  /**
+   * 收藏"查看链接"目标：与"最新"标签页一致
+   * KataGo 指向归档压缩包；其余来源若有 http(s) 可打开链接则直接用，否则返回空（不显示"查看链接"）
+   */
+  private bookmarkViewUrl(entry: FetcherBookmark): string {
+    const m = entry.url.match(/^katago:\/\/date\/(\d{4}-\d{2}-\d{2})/);
+    if (entry.source === 'katago' && m) {
+      return 'https://katagoarchive.org/kata1/ratinggames/' + m[1] + 'rating.tar.bz2';
+    }
+    if (entry.viewUrl && /^https?:\/\//i.test(entry.viewUrl)) return entry.viewUrl;
+    if (/^https?:\/\//i.test(entry.url)) return entry.url;
+    return '';
+  }
+
+  /**
+   * 收藏卡片副标题：来源专属展示
+   * - 直播来源：显示"直播棋谱 · 可观看战况"
+   * - 死活题来源：显示"死活题"
+   * - 其余（含未在"最新"出现的来源）：结果 + 手数（归档棋谱样式）
+   */
+  private formatBookmarkSubtitle(entry: FetcherBookmark): string {
+    const liveSources = ['ogs-live', 'yike-live'];
+    const puzzleSources = ['goproblems', 'ogs-puzzle'];
+    if (liveSources.includes(entry.source)) {
+      return `<div style="font-size:0.85em;color:#c53030;margin-top:4px;">🔴 直播棋谱 · 可观看战况</div>`;
+    }
+    if (puzzleSources.includes(entry.source)) {
+      return `<div style="font-size:0.85em;color:#666;margin-top:4px;">🧩 死活题</div>`;
+    }
+    const result = formatGameResult(entry.result);
+    const movesCount = entry.movesCount || 0;
+    let extra = '';
+    if (result && result !== '-') extra += result;
+    if (movesCount > 0) extra += (extra ? ' · ' : '') + movesCount + '手';
+    if (!extra) return '';
+    return `<div style="font-size:0.85em;color:#666;margin-top:4px;">${extra}</div>`;
   }
   // ==================== 通用格式化 ====================
   /**

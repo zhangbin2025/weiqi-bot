@@ -53,6 +53,8 @@ export interface FetcherBookmark {
     isLive?: boolean;
     /** 对局是否已结束 */
     isEnded?: boolean;
+    /** 外部查看链接（点击"查看链接"打开；缺省用 url） */
+    viewUrl?: string;
   updatedAt: number;
 }
 /** 分享结果 */
