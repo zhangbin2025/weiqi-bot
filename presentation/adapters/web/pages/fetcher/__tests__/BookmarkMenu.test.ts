@@ -73,12 +73,12 @@ describe('FetcherRenderer 收藏三点菜单（真实 DOM）', () => {
     expect(c.innerHTML).not.toMatch(/2026-09-01\s+\d{1,2}:/);  // 不含时分
   });
 
-  it('死活题收藏副标题含主线分支手数', () => {
+  it('死活题收藏副标题只显示手数（统一格式，不标"死活题"）', () => {
     renderer.renderBookmarks([
       Object.assign({}, archived, { id: 'bp', source: 'goproblems', movesCount: 12 }) as any,
     ]);
     const c = bookmarkContainer();
-    expect(c.innerHTML).toContain('死活题');
+    expect(c.innerHTML).not.toContain('死活题');
     expect(c.innerHTML).toContain('12手');
   });
 

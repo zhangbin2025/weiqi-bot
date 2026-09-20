@@ -177,20 +177,14 @@ export class FetcherFormatter {
   /**
    * 收藏卡片副标题：来源专属展示
    * - 直播来源：显示"直播棋谱 · 可观看战况"
-   * - 死活题来源：显示"死活题"
-   * - 其余（含未在"最新"出现的来源）：结果 + 手数（归档棋谱样式）
+   * - 其余（含死活题、未在"最新"出现的来源）：统一显示 结果 + 手数（无结果则仅手数）
    */
   private formatBookmarkSubtitle(entry: FetcherBookmark): string {
     const liveSources = ['ogs-live', 'yike-live'];
-    const puzzleSources = ['goproblems', 'ogs-puzzle'];
     if (liveSources.includes(entry.source)) {
       return `<div style="font-size:0.85em;color:#c53030;margin-top:4px;">🔴 直播棋谱 · 可观看战况</div>`;
     }
-    if (puzzleSources.includes(entry.source)) {
-      const movesText = entry.movesCount > 0 ? entry.movesCount + '手' : '';
-      const text = movesText ? '🧩 死活题 · ' + movesText : '🧩 死活题';
-      return `<div style="font-size:0.85em;color:#666;margin-top:4px;">${text}</div>`;
-    }
+    // 死活题与其它来源统一：只显示手数（有结果则附带结果），不再单独标"死活题"
     const result = formatGameResult(entry.result);
     const movesCount = entry.movesCount || 0;
     let extra = '';
