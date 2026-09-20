@@ -114,7 +114,8 @@ export class FetcherFormatter {
       goproblems: '🧩 GoProblems', 'ogs-puzzle': '🧩 OGS死活题', katago: '🤖 KataGo',
     };
     const sourceLabel = sourceLabels[entry.source] || this.formatSource(entry.source);
-    const date = entry.date || '未知时间';
+    // 日期统一为抓取（收藏）时间，仅显示年月日，不显示时分秒
+    const date = this.formatDateOnly(entry.date);
     const title = this.formatBookmarkTitle(entry);
     const subtitle = this.formatBookmarkSubtitle(entry);
     const isLiveSource = entry.source === 'ogs-live' || entry.source === 'yike-live';
@@ -186,7 +187,9 @@ export class FetcherFormatter {
       return `<div style="font-size:0.85em;color:#c53030;margin-top:4px;">🔴 直播棋谱 · 可观看战况</div>`;
     }
     if (puzzleSources.includes(entry.source)) {
-      return `<div style="font-size:0.85em;color:#666;margin-top:4px;">🧩 死活题</div>`;
+      const movesText = entry.movesCount > 0 ? entry.movesCount + '手' : '';
+      const text = movesText ? '🧩 死活题 · ' + movesText : '🧩 死活题';
+      return `<div style="font-size:0.85em;color:#666;margin-top:4px;">${text}</div>`;
     }
     const result = formatGameResult(entry.result);
     const movesCount = entry.movesCount || 0;
@@ -232,7 +235,7 @@ export class FetcherFormatter {
     return '刚刚';
   }
   /**
-   * 格式化日期
+   * 格式化日期（含时分秒，用于相对时间回退）
    */
   formatDate(timestamp: number): string {
     const date = new Date(timestamp);
@@ -242,6 +245,27 @@ export class FetcherFormatter {
       hour: '2-digit',
       minute: '2-digit',
     });
+  }
+  /**
+   * 格式化日期（仅年月日，不含时分秒）
+   * 入参可为时间戳数值或已是 YYYY-MM-DD 字符串
+   */
+  formatDateOnly(value: string | number): string {
+    let ts: number;
+    if (typeof value === 'number') {
+      ts = value;
+    } else if (/^\d{4}-\d{2}-\d{2}/.test(value)) {
+      // 已是 YYYY-MM-DD 形式，直接返回日期部分
+      return value.slice(0, 10);
+    } else {
+      const parsed = Date.parse(value);
+      ts = Number.isNaN(parsed) ? Date.now() : parsed;
+    }
+    const date = new Date(ts);
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + d;
   }
   /**
    * 生成对局名称（下载文件名）

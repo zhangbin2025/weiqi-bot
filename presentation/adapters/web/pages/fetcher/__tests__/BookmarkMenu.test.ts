@@ -55,7 +55,7 @@ describe('FetcherRenderer 收藏三点菜单（真实 DOM）', () => {
     source: 'foxwq', black: '柯洁', white: '申真谞', result: 'B+R', date: '2026-09-01',
     movesCount: 210, updatedAt: Date.now() };
 
-  it('每个收藏条目有右上角三点按钮与菜单模板，含 打开收藏 + 查看链接', () => {
+  it('每个收藏条目有右上角三点按钮与菜单模板，含 打开收藏 + 查看链接；日期为抓取时间且只含年月日', () => {
     renderer.renderBookmarks([archived as any]);
     const c = bookmarkContainer();
     expect(c.querySelectorAll('.bookmark-dots').length).toBe(1);
@@ -67,6 +67,19 @@ describe('FetcherRenderer 收藏三点菜单（真实 DOM）', () => {
     expect(c.innerHTML).toContain('柯洁');
     expect(c.innerHTML).toContain('申真谞');
     expect(c.innerHTML).toContain('210手');
+    // 日期为抓取时间且只含年月日（无"未知时间"、无时分秒）
+    expect(c.innerHTML).not.toContain('未知时间');
+    expect(c.innerHTML).toContain('2026-09-01');
+    expect(c.innerHTML).not.toMatch(/2026-09-01\s+\d{1,2}:/);  // 不含时分
+  });
+
+  it('死活题收藏副标题含主线分支手数', () => {
+    renderer.renderBookmarks([
+      Object.assign({}, archived, { id: 'bp', source: 'goproblems', movesCount: 12 }) as any,
+    ]);
+    const c = bookmarkContainer();
+    expect(c.innerHTML).toContain('死活题');
+    expect(c.innerHTML).toContain('12手');
   });
 
   it('直播来源收藏菜单额外含 查看棋谱/直播棋谱', () => {

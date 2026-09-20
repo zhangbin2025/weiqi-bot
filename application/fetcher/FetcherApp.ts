@@ -233,6 +233,8 @@ export class FetcherApp {
     };
   }
   private toBookmark(item: IFavoriteItem): FetcherBookmark {
+    // fetchedAt：收藏（抓取）时间，必定存在；用于列表日期展示，避免显示棋谱实际时间或"未知"
+    const fetchedAt = item.createdAt;
     const bookmark: FetcherBookmark = {
       id: item.id,
       url: (item.data?.['url'] as string) ?? '',  // URL 从 data 中读取
@@ -240,7 +242,7 @@ export class FetcherApp {
       source: (item.data?.['source'] as string) ?? 'unknown',
       black: (item.data?.['black'] as string) ?? '',
       white: (item.data?.['white'] as string) ?? '',
-      date: (item.data?.['date'] as string) ?? '',
+      date: String(fetchedAt),  // 统一用抓取时间（收藏时间），始终有值
       movesCount: (item.data?.['movesCount'] as number) ?? 0,
       updatedAt: item.createdAt,
     };
