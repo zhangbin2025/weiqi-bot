@@ -46,6 +46,7 @@ export class FetcherPage implements IPage {
       onFetchLatest: (source, count, keyword) => this.fetchLatestGames(source, count, keyword),
       onSelectLatest: (url) => this.selectLatestGame(url),
       onSelectLatestView: (url) => this.viewLatestGame(url),
+      onViewUrl: (url) => this.viewUrl(url),
     };
     this.renderer = new FetcherRenderer(callbacks, config.adapterFactory, this.formatter);
   }
@@ -440,6 +441,12 @@ export class FetcherPage implements IPage {
       console.error('[FetcherPage] viewLatestGame failed:', error);
     }
   }
+  /** 直接在新标签页打开条目的原始 URL */
+  private viewUrl(url: string): void {
+    if (!url) return;
+    window.open(url, '_blank', 'noopener');
+  }
+
   private async generateShareUrl(): Promise<void> {
     if (!this.currentResult?.archiveId) return;
     try {

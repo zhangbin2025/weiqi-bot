@@ -44,7 +44,7 @@ export class GoProblemsProvider extends BaseProvider implements IGoProblemsProvi
   ];
 
   async fetchById(problemId: string): Promise<FetchResult> {
-    const url = GOPROBLEMS_BASE_URL + '/' + problemId;
+    const url = GOPROBLEMS_BASE_URL + '/problems/' + problemId;
     return this.fetch(url);
   }
 
@@ -166,7 +166,7 @@ export class GoProblemsProvider extends BaseProvider implements IGoProblemsProvi
             title: 'GP-' + item.id,
             subtitle: subtitleParts.join(' '),
             date: dateStr,
-            url: GOPROBLEMS_BASE_URL + '/' + item.id,
+            url: GOPROBLEMS_BASE_URL + '/problems/' + item.id,
           });
         }
 

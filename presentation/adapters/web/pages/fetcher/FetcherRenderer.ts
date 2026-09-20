@@ -19,6 +19,7 @@ export interface FetcherRendererCallbacks {
   onSelectLatestView: (url: string) => void;
   onFetchLatest: (source: string, count: number, keyword?: string) => Promise<void>;
   onSelectLatest: (url: string) => void;
+  onViewUrl: (url: string) => void;
 }
 export class FetcherRenderer {
   readonly tabs: ITabs;
@@ -364,12 +365,38 @@ export class FetcherRenderer {
     });
     // 卡片点击
     this.latestCard.onAction((action, data) => {
-      if (action === 'selectLatest' && data?.['url']) {
+      if (action === 'openMenu' && data?.['url']) {
+        this.toggleLatestMenu(data['url'] as string);
+      } else if (action === 'selectLatest' && data?.['url']) {
         this.cb.onSelectLatest(data['url'] as string);
       } else if (action === 'viewLatest' && data?.['url']) {
         this.cb.onSelectLatestView(data['url'] as string);
+      } else if (action === 'viewUrl' && data?.['url']) {
+        this.cb.onViewUrl(data['url'] as string);
       }
     });
+  }
+
+  /**
+   * 右上角三点扩展菜单：打开/关闭指定条目的操作菜单
+   */
+  toggleLatestMenu(url: string): void {
+    const container = this.latestCard.getContainer?.() as HTMLElement | undefined;
+    if (!container) return;
+    const escapedUrl = (url || '').replace(/["]/g, '\\$&');
+    const cardEl = container.querySelector('[data-url="' + escapedUrl + '"]') as HTMLElement | null;
+    if (!cardEl) return;
+    const existing = cardEl.querySelector('div[data-menu]') as HTMLElement | null;
+    // 关闭其它已打开的菜单
+    container.querySelectorAll('div[data-menu]').forEach((m) => m.remove());
+    if (existing) return; // 已打开则关闭
+    const tpl = cardEl.querySelector('[data-menu-template]') as HTMLElement | null;
+    if (!tpl) return;
+    const cloned = tpl.cloneNode(true) as HTMLElement;
+    cloned.removeAttribute('data-menu-template');
+    cloned.setAttribute('data-menu', '');
+    cloned.style.display = '';
+    (cardEl.querySelector('.latest-dots') as HTMLElement | null)?.insertAdjacentElement('afterend', cloned);
   }
 
   /**
@@ -393,21 +420,34 @@ export class FetcherRenderer {
       const bg = isSelected ? '#eef2ff' : '';
       const border = isSelected ? 'border-left:3px solid #667eea;padding-left:8px;' : '';
       const isLiveSource = item.source === 'ogs-live' || item.source === 'yike-live';
-      const hoverScript = isSelected ? '' : 'onmouseover="this.style.background=\'#f8f9fa\'" onmouseout="this.style.background=\'\'"';
-      const liveButtons = isLiveSource
-        ? `<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px;">
-            <span data-action="viewLatest" data-url="${item.url}" style="background:#dce4ed;color:#2d3748;padding:4px 12px;border-radius:12px;cursor:pointer;font-size:0.9em;">👁\ufe0f 查看</span>
-            <span data-action="selectLatest" data-url="${item.url}" style="background:#fde8e8;color:#c53030;padding:4px 12px;border-radius:12px;cursor:pointer;font-size:0.9em;font-weight:600;">🔴 直播</span>
-          </div>`
+      // "查看链接"优先使用外部链接（如 KataGo 归档压缩包下载地址）
+      const linkUrl = item.externalUrl || item.url;
+      // 仅当是可打开的 http(s) 链接时才显示"查看链接"（katago:// 等伪协议不显示）
+      const linkMenuItem = /^https?:\/\//i.test(linkUrl)
+        ? `<div data-action="viewUrl" data-url="${linkUrl}" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#2d3748;white-space:nowrap;">🔗 查看链接</div>`
         : '';
-      return `<div data-action="selectLatest" data-url="${item.url}" style="padding:10px 0;border-top:1px solid #eee;cursor:pointer;background:${bg};${border}" ${hoverScript}>
+      const hoverScript = isSelected ? '' : 'onmouseover="this.style.background=\'#f8f9fa\'" onmouseout="this.style.background=\'\'"';
+      // 右上角三点扩展菜单（统一所有条目的操作入口）
+      const liveMenu = isLiveSource
+        ? `<div data-action="viewLatest" data-url="${item.url}" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#2d3748;white-space:nowrap;">👁\ufe0f 查看棋谱</div>
+           <div data-action="selectLatest" data-url="${item.url}" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#c53030;font-weight:600;white-space:nowrap;">🔴 直播棋谱</div>`
+        : '';
+      const menu = `
+        <div class="latest-dots" data-action="openMenu" data-url="${item.url}"
+             style="position:absolute;top:8px;right:8px;width:24px;height:24px;line-height:22px;text-align:center;border-radius:50%;color:#999;font-size:16px;cursor:pointer;user-select:none;"
+             onmouseover="this.style.background='#f0f0f0'" onmouseout="this.style.background=''">⋮</div>
+        <div data-menu-template style="display:none;position:absolute;top:34px;right:8px;min-width:96px;background:white;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,0.15);z-index:50;overflow:hidden;">
+          ${liveMenu}
+          ${linkMenuItem}
+        </div>`;
+      return `<div data-action="selectLatest" data-url="${item.url}" style="position:relative;padding:10px 30px 10px 0;border-top:1px solid #eee;cursor:pointer;background:${bg};${border}" ${hoverScript}>
+        ${menu}
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
           <span style="font-size:0.8em;font-weight:500;color:#667eea;">${sourceLabel}</span>
           <span style="font-size:0.8em;color:#888;">${item.date}</span>
         </div>
         <div style="font-weight:500;color:#333;font-size:0.95em;">${item.title}</div>
         ${subtitle}
-        ${liveButtons}
       </div>`;
     }).join('');
     this.latestCard.setContent(html);

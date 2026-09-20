@@ -79,4 +79,6 @@ export interface LatestGameItem {
   date: string;
   /** 抓取URL */
   url: string;
+  /** 可选的外部链接（点击"查看链接"时打开；缺省则使用 url 字段） */
+  externalUrl?: string;
 }

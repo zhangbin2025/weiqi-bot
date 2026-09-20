@@ -166,7 +166,7 @@ export class FetcherApp {
 
         // 获取日期列表，逐日展开棋谱
         const dates = await archiveProvider.listArchiveDates();
-        const results: Array<{ source: string; title: string; subtitle: string; date: string; url: string }> = [];
+        const results: Array<{ source: string; title: string; subtitle: string; date: string; url: string; externalUrl?: string }> = [];
 
         for (const entry of dates) {
           if (results.length >= count) break;
@@ -181,6 +181,8 @@ export class FetcherApp {
                 subtitle: hash,
                 date: entry.date,
                 url: "katago://date/" + entry.date + "/" + i,
+                // 直接链接当天的 KataGo 归档压缩包下载地址
+                externalUrl: entry.url,
               });
             }
           } catch (e) {
