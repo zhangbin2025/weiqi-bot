@@ -102,6 +102,45 @@ describe('OgsProvider', () => {
       expect(result.sgfContent).toContain('B[pd]');
     });
 
+    it('handicap=1 自由让子不应吞掉第一手黑棋（回归 #90838326）', async () => {
+      (mockNetwork.request as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        data: {
+          id: 90838326,
+          gamedata: {
+            width: 19,
+            height: 19,
+            komi: 0.5,
+            handicap: 1,
+            free_handicap_placement: true,
+            initial_player: 'black',
+            rules: 'japanese',
+            moves: [[15, 3], [16, 5], [13, 2]],
+            initial_state: { black: '', white: '' },
+          },
+          players: {
+            black: { username: 'zenhfxz', ranking: 31 },
+            white: { username: 'scheissegal', ranking: 32 },
+          },
+          started: '2026-09-19T06:39:32Z',
+          outcome: 'Resignation',
+          black_lost: false,
+          white_lost: true,
+        },
+        status: 200,
+        ok: true,
+      } as IResponse<OgsGameResponse>);
+
+      const result = await provider.fetch(
+        'https://online-go.com/game/90838326'
+      );
+
+      expect(result.success).toBe(true);
+      const sgf = result.sgfContent!;
+      expect(sgf).toContain('B[pd]');
+      expect(sgf).toMatch(/RU\[JP\];B\[pd\];W\[qf\]/);
+      expect(sgf).not.toContain('HA[1]');
+      expect(sgf).not.toContain('AB[');
+    });
     it('应该处理无效 URL', async () => {
       const result = await provider.fetch('https://invalid-url.com');
 

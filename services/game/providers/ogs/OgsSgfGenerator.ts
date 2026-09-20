@@ -35,9 +35,11 @@ export class OgsSgfGenerator {
     const moves = this.trimTrailingPasses(rawMoves);
 
     // 处理自由让子：前 handicap 手全是黑棋，提取为 AB[] 而非正常着法
+    // 注意：handicap===1 在 OGS 中并非真正让子（无 AB 石，仅是 initial_player=black），
+    // 必须用 >=2 判断，否则会把真实的第一手黑棋误当作让子石吃掉。
     let handicapStones: string[] = [];
     let playMoves = moves;
-    if (gamedata.free_handicap_placement && gamedata.handicap > 0) {
+    if (gamedata.free_handicap_placement && gamedata.handicap >= 2) {
       const hc = gamedata.handicap;
       for (let i = 0; i < hc && i < moves.length; i++) {
         const m = moves[i]!;
@@ -48,8 +50,8 @@ export class OgsSgfGenerator {
       playMoves = moves.slice(hc); // 让子后的着法
     }
 
-    // 让子棋后第一手的颜色：自由让子时白方先行
-    const firstMoveColor = gamedata.free_handicap_placement && gamedata.handicap > 0
+    // 让子棋后第一手的颜色：自由让子(>=2子)时白方先行
+    const firstMoveColor = gamedata.free_handicap_placement && gamedata.handicap >= 2
       ? 'W'
       : (gamedata.initial_player || 'black') === 'white' ? 'W' : 'B';
 
