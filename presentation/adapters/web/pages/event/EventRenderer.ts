@@ -155,17 +155,17 @@ export class EventRenderer {
   /** 导入面板：空闲态 */
   private renderImportIdle(): void {
     this.importCard.setContent(`
-      <div style="text-align:center;padding:30px 20px;">
-        <div style="font-size:3em;margin-bottom:16px;opacity:0.5;">📄</div>
-        <p style="color:#666;margin-bottom:20px;">选择PDF对阵表文件导入</p>
-        <button id="pdf-choose-btn" style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:white;border:none;padding:14px 40px;border-radius:12px;font-size:16px;font-weight:500;cursor:pointer;box-shadow:0 4px 15px rgba(102,126,234,0.4);">选择PDF文件</button>
+      <p class="import-hint">支持 PDF 对阵表文件，可多选</p>
+      <div id="pdf-drop" class="import-drop">
+        <span class="import-icon">📄</span>
+        <span class="import-label">点击选择 PDF 文件（可多选）</span>
       </div>
     `);
     this.importCard.render();
-    // 绑定按钮
+    // 绑定点击：触发隐藏的文件选择
     setTimeout(() => {
-      const btn = document.getElementById('pdf-choose-btn');
-      if (btn) btn.addEventListener('click', () => this.fileInput?.click());
+      const drop = document.getElementById('pdf-drop');
+      if (drop) drop.addEventListener('click', () => this.fileInput?.click());
     }, 0);
   }
 

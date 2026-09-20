@@ -107,25 +107,7 @@
       margin-top: 4px;
     }
 
-    /* 文件选择 */
-    .file-input { display: none; }
-    .file-label {
-      display: block;
-      padding: 16px;
-      border: 2px dashed #e0e0e0;
-      border-radius: 8px;
-      text-align: center;
-      cursor: pointer;
-      color: #666;
-      transition: all 0.2s;
-      margin-bottom: 12px;
-    }
-    .file-label:hover { border-color: #667eea; color: #667eea; }
-    .file-name {
-      margin-top: 8px;
-      font-size: 0.9em;
-      color: #333;
-    }
+    /* 文件选择：样式已抽取到 shared/shell.css（.import-drop/.import-icon/.import-label/.import-hint） */
 
     /* 历史记录 */
     .history-list {
@@ -249,10 +231,11 @@
     <div id="upload-tab" class="tab-content">
       <div class="card">
         <h2>📁 导入棋谱</h2>
-        <input type="file" id="sgf-file-input" class="file-input" accept=".sgf">
-        <label for="sgf-file-input" class="file-label">
-          📄 点击选择 SGF 文件
-          <div id="file-name" class="file-name"></div>
+        <p class="import-hint">支持 SGF 棋谱文件（需包含 AI 复盘数据）</p>
+        <label id="sgf-drop" class="import-drop">
+          <input type="file" id="sgf-file-input" accept=".sgf" hidden>
+          <span class="import-icon">📄</span>
+          <span id="sgf-file-label" class="import-label">点击选择 SGF 文件</span>
         </label>
         <button id="upload-btn" disabled>开始分析</button>
       </div>

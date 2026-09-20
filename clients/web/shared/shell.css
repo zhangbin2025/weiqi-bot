@@ -164,6 +164,29 @@ button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* ===== 导入文件区（三页统一：decision/joseki/event） ===== */
+.import-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 28px 16px;
+  border: 2px dashed #c5cae9;
+  border-radius: 10px;
+  background: #f8f9ff;
+  color: #667eea;
+  cursor: pointer;
+  margin-bottom: 12px;
+  transition: all 0.2s ease;
+  text-align: center;
+}
+.import-drop:hover { border-color: #667eea; background: #eef1ff; }
+.import-drop.has-file { border-style: solid; border-color: #4caf50; color: #2e7d32; background: #f1f8e9; }
+.import-icon { font-size: 2em; }
+.import-drop .import-label { font-size: 0.95em; word-break: break-all; }
+.import-hint { color: #666; font-size: 0.9em; margin-bottom: 12px; }
 footer {
   text-align: center;
   padding: 20px;

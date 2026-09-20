@@ -154,13 +154,16 @@ export class JosekiDiscoverPage implements IPage {
 
   private handleFileSelect(e: Event): void {
     const file = (e.target as HTMLInputElement).files?.[0];
-    const fileNameEl = document.getElementById('file-name');
+    const fileNameEl = document.getElementById('sgf-file-label');
+    const dropEl = document.getElementById('sgf-drop');
     const uploadBtn = document.getElementById('upload-btn') as HTMLButtonElement;
     if (file) {
       if (fileNameEl) fileNameEl.textContent = file.name;
+      dropEl?.classList.add('has-file');
       if (uploadBtn) uploadBtn.disabled = false;
     } else {
-      if (fileNameEl) fileNameEl.textContent = '';
+      if (fileNameEl) fileNameEl.textContent = '点击选择 SGF 文件';
+      dropEl?.classList.remove('has-file');
       if (uploadBtn) uploadBtn.disabled = true;
     }
   }
