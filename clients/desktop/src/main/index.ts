@@ -7,6 +7,7 @@ import * as path from 'path';
 import { AssetServer } from './server/asset-server';
 import { BridgeRouter } from './ipc/bridge-router';
 import { AppConfig } from './config';
+import { setMainWindow } from './window-registry';
 
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
@@ -342,7 +343,10 @@ function createMainWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+    setMainWindow(null);
   });
+
+  setMainWindow(mainWindow);
 }
 
 /**

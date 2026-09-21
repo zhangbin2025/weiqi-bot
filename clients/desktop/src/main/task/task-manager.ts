@@ -5,6 +5,7 @@
  */
 
 import { BrowserWindow, Notification, shell } from 'electron';
+import { getMainWindow } from '../window-registry';
 import * as path from 'path';
 import { TaskStore, TaskEntity } from './task-store';
 import { ScheduleManager } from './schedule-manager';
@@ -561,8 +562,13 @@ export class TaskManager {
     
     // 点击通知 -> 聚焦窗口并导航到结果页面
     notification.on('click', () => {
-      // 查找主窗口（托盘模式下可能被隐藏，需要主动显示）
-      const window = BrowserWindow.getAllWindows().find(w => !w.isDestroyed());
+      // 聚焦单例主窗口，避免使用 getAllWindows() 误选隐藏的 worker / sniffer 窗口
+      let window = getMainWindow();
+      if (!window || window.isDestroyed()) {
+        // 兜底：托盘模式下主窗口可能已销毁，回退到任意可见窗口，否则任一未销毁窗口
+        window = BrowserWindow.getAllWindows().find(w => w.isVisible() && !w.isDestroyed())
+          || BrowserWindow.getAllWindows().find(w => !w.isDestroyed()) || null;
+      }
       if (window) {
         if (!window.isVisible()) window.show();
         if (window.isMinimized()) window.restore();
@@ -639,7 +645,12 @@ export class TaskManager {
     const failNotifId = taskId + '_fail';
     this.notifications.set(failNotifId, failNotification);
     failNotification.on('click', () => {
-      const window = BrowserWindow.getAllWindows().find(w => !w.isDestroyed());
+      // 聚焦单例主窗口，避免使用 getAllWindows() 误选隐藏的 worker / sniffer 窗口
+      let window = getMainWindow();
+      if (!window || window.isDestroyed()) {
+        window = BrowserWindow.getAllWindows().find(w => w.isVisible() && !w.isDestroyed())
+          || BrowserWindow.getAllWindows().find(w => !w.isDestroyed()) || null;
+      }
       if (window) {
         if (!window.isVisible()) window.show();
         if (window.isMinimized()) window.restore();
