@@ -5,6 +5,7 @@
 import { BaseProvider } from '../base/BaseProvider';
 import type { FetchResult, PerformanceTiming, GameMetadata } from '../base/types';
 import type { IGoProblemsProvider } from './IGoProblemsProvider';
+import { buildTsumegoMinBoard } from '../../../../domain/sgf';
 import type {
   GoProblemsProblemDetail,
   GoProblemsListItem,
@@ -82,8 +83,15 @@ export class GoProblemsProvider extends BaseProvider implements IGoProblemsProvi
         return this.createErrorResult(url, '题目未包含 SGF 数据', timing);
       }
 
-      const convertedSgf = this.convertTo101Format(detail.sgf, detail);
+      const convertedRaw = this.convertTo101Format(detail.sgf, detail);
+      // 死活题：抓取即转换为最小标准路数小棋盘，归档即小棋盘（非局部题自动回退原 SGF）
+      const minBoard = buildTsumegoMinBoard(convertedRaw);
+      const convertedSgf = minBoard ? minBoard.sgf : convertedRaw;
       const metadata = this.buildMetadata(detail, problemId);
+      if (minBoard) {
+        metadata.width = minBoard.size;
+        metadata.height = minBoard.size;
+      }
 
       timing.total = this.now() - startTime;
 

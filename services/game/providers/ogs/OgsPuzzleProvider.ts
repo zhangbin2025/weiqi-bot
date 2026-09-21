@@ -18,6 +18,7 @@
 import { BaseProvider } from '../base/BaseProvider';
 import type { FetchResult, PerformanceTiming, GameMetadata } from '../base/types';
 import type { IOgsPuzzleProvider } from './IOgsPuzzleProvider';
+import { buildTsumegoMinBoard } from '../../../../domain/sgf';
 import type {
   OgsPuzzleDetail,
   OgsPuzzleMoveTree,
@@ -81,10 +82,17 @@ export class OgsPuzzleProvider extends BaseProvider implements IOgsPuzzleProvide
       }
 
       const sgfStart = this.now();
-      const sgfContent = this.convertTo101Format(detail);
+      const sgfRaw = this.convertTo101Format(detail);
+      // 死活题：抓取即转换为最小标准路数小棋盘，归档即小棋盘（非局部题自动回退原 SGF）
+      const minBoard = buildTsumegoMinBoard(sgfRaw);
+      const sgfContent = minBoard ? minBoard.sgf : sgfRaw;
       timing.sgfGeneration = this.now() - sgfStart;
 
       const metadata = this.buildMetadata(detail, puzzleId);
+      if (minBoard) {
+        metadata.width = minBoard.size;
+        metadata.height = minBoard.size;
+      }
 
       timing.total = this.now() - startTime;
 

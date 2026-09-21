@@ -9,6 +9,7 @@ import type { Weiqi101PlayInfo } from './types';
 import { Weiqi101WsHelper } from './Weiqi101WsHelper';
 import { Weiqi101SgfGenerator } from './Weiqi101SgfGenerator';
 import { Weiqi101Parser } from './Weiqi101Parser';
+import { buildTsumegoMinBoard } from '../../../../domain/sgf';
 
 /** 101围棋网基础 URL */
 const WEIQI101_BASE_URL = 'https://www.101weiqi.com';
@@ -136,7 +137,10 @@ export class Weiqi101Provider extends BaseProvider implements IWeiqi101Provider 
 
       // 生成SGF
       const sgfStart = this.now();
-      const sgfContent = this.sgfGenerator.generateQuestion(questionData);
+      const sgfRaw = this.sgfGenerator.generateQuestion(questionData);
+      // 死活题：抓取即转换为最小标准路数小棋盘，归档即小棋盘（非局部题自动回退原 SGF）
+      const minBoard = buildTsumegoMinBoard(sgfRaw);
+      const sgfContent = minBoard ? minBoard.sgf : sgfRaw;
       timing.sgfGeneration = this.now() - sgfStart;
 
       // 计算手数：主分支（第一个答案）的手数
@@ -158,8 +162,8 @@ export class Weiqi101Provider extends BaseProvider implements IWeiqi101Provider 
           whiteName: questionData.levelname + ' ' + questionData.qtypename,
           blackRank: questionData.levelname,
           whiteRank: '',
-          width: questionData.lu,
-          height: questionData.lu,
+          width: (minBoard ? minBoard.size : questionData.lu),
+          height: (minBoard ? minBoard.size : questionData.lu),
           komi: questionData.daotiemu || 0,
           handicap: questionData.rangzi || 0,
           rules: 'chinese',
