@@ -87,7 +87,7 @@ async function main() {
 
     // 3. 创建定式挑战服务
   const quizService = new JosekiQuizService(loader, async () => ({
-    defaultDifficulty: 'easy',
+    defaultDifficulty: 'medium',
     maxQuestions: 20,
   }));
 

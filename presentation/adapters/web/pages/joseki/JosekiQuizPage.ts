@@ -37,7 +37,7 @@ export class JosekiQuizPage implements IPage {
   private dataManager: QuizDataManager;
   // 状态
   private currentTab: QuizTab = 'challenge';
-  private currentDifficulty: Difficulty = 'easy';
+  private currentDifficulty: Difficulty = 'medium';
   private mode: QuizMode = 'explore';
   private targetMoves: TargetMove[] = [];
   private userMoves: TargetMove[] = [];
