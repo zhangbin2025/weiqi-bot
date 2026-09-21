@@ -569,19 +569,19 @@ ${linksHtml}`;
   - 示例: <a href="#" onclick="quickSend('定式'); return false;">定式</a>
 
 - 🎯 **[实战选点](../decision/index.html)**
-  - 决策训练
+  - 决策训练,形势判断
   - 示例: <a href="#" onclick="quickSend('选点'); return false;">选点</a>
 
 - 📋 **[记录棋谱](../recorder/index.html)**
-  - 记录对局
+  - 记录对局,摆子出题
   - 示例: <a href="#" onclick="quickSend('记谱'); return false;">记谱</a>
 
 - 🏆 **[查询赛事](../event/index.html)**
-  - 云比赛查询
+  - 云比赛查询,实时排行
   - 示例: <a href="#" onclick="quickSend('比赛'); return false;">比赛</a>
 
 - 📥 **[抓取棋谱](../fetcher/index.html)**
-  - 从分享链接抓取棋谱、死活题
+  - 从分享链接抓谱,直播,做题
   - 示例: <a href="../fetcher/index.html">抓谱</a> <a href="#" onclick="quickSend('直播'); return false;">直播</a> <a href="#" onclick="quickSend('死活'); return false;">死活</a>
 
 ---
