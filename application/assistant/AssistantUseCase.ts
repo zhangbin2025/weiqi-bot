@@ -564,7 +564,7 @@ ${linksHtml}`;
   - AI复盘棋局
   - 示例: <a href="#" onclick="quickSend('复盘'); return false;">复盘</a>
 
-- 📝 **[学习定式](../joseki/explore.html)**
+- 📝 **[学习定式](../joseki/index.html)**
   - 探索/发现/挑战定式
   - 示例: <a href="#" onclick="quickSend('定式'); return false;">定式</a>
 
