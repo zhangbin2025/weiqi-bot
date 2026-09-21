@@ -54,11 +54,9 @@ function updateHeader(problem: any): void {
   
   const blackName = meta.playerBlack || '黑棋';
   const whiteName = meta.playerWhite || '白棋';
-  const blackRank = meta.blackRank ? ` (${meta.blackRank})` : '';
-  const whiteRank = meta.whiteRank ? ` (${meta.whiteRank})` : '';
   
-  setText('blackName', `${blackName}${blackRank}`);
-  setText('whiteName', `${whiteName}${whiteRank}`);
+  setText('blackName', blackName);
+  setText('whiteName', whiteName);
   setText('phaseLabel', getPhaseText(problem.phase));
   setText('levelLabel', getLevelText(meta.gameLevel || 'normal'));
   

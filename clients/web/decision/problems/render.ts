@@ -131,9 +131,13 @@ function renderGameCard(group: GameGroup, groupIndex: number, readMarkSet: Set<s
       <div class="quiz-card${visited}">
         <div class="quiz-header">
           <span class="players">
-            <span class="stone-icon stone-black"></span>${escapeHtml(black)}${group.blackRank ? `<span class="rank">${escapeHtml(group.blackRank)}</span>` : ''}
+            <span class="player">
+              <span class="stone-icon stone-black"></span><span class="pname">${escapeHtml(black)}</span>${group.blackRank ? `<span class="rank">${escapeHtml(group.blackRank)}</span>` : ''}
+            </span>
             <span class="vs">vs</span>
-            <span class="stone-icon stone-white"></span>${escapeHtml(white)}${group.whiteRank ? `<span class="rank">${escapeHtml(group.whiteRank)}</span>` : ''}
+            <span class="player">
+              <span class="stone-icon stone-white"></span><span class="pname">${escapeHtml(white)}</span>${group.whiteRank ? `<span class="rank">${escapeHtml(group.whiteRank)}</span>` : ''}
+            </span>
           </span>
         </div>
         <div class="event">${escapeHtml(event)}</div>
