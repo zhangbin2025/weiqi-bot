@@ -59,5 +59,3 @@ export {
   type DecisionQuizPageConfig,
   type DecisionScore,
 } from './decision';
-// 认证页面
-export { AuthPage, type IAuthPageConfig } from './auth/AuthPage';
