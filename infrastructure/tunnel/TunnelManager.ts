@@ -10,6 +10,7 @@
  */
 
 import { TunnelClient } from './TunnelClient';
+import { LocalStorageAdapter } from '../storage/adapters/web/LocalStorageAdapter';
 import type { ITunnelConfig, TunnelConnectionState } from './types';
 import { DEFAULT_TUNNEL_CONFIG } from './types';
 
@@ -24,8 +25,28 @@ export class TunnelManager {
   private client: TunnelClient | null = null;
   private connecting: Promise<TunnelClient | null> | null = null;
   private stateCallbacks: Array<(state: TunnelConnectionState) => void> = [];
+  /** 配置存储适配器（统一走 infrastructure 封装，命名空间 weiqi-bot） */
+  private readonly storage = new LocalStorageAdapter('weiqi-bot');
+  /** 配置内存缓存，保持 loadConfig/isClientMode 同步语义不变 */
+  private config: ITunnelConfig = { ...DEFAULT_TUNNEL_CONFIG };
 
-  private constructor() {}
+  private constructor() {
+    // 同步填充配置缓存：createAIEngine 等同步上下文需即时读到正确 mode
+    this.config = this.readConfigSync();
+  }
+
+  /** 同步从存储读取配置（localStorage 本身同步，绕开 async 包装） */
+  private readConfigSync(): ITunnelConfig {
+    try {
+      const stored = this.storage.readSync<ITunnelConfig>(STORAGE_KEY);
+      if (stored) {
+        return { ...DEFAULT_TUNNEL_CONFIG, ...stored };
+      }
+    } catch {
+      // ignore
+    }
+    return { ...DEFAULT_TUNNEL_CONFIG };
+  }
 
   static getInstance(): TunnelManager {
     if (!TunnelManager.instance) {
@@ -44,18 +65,29 @@ export class TunnelManager {
     }
   }
 
-  /** 读取 localStorage 配置 */
-  loadConfig(): ITunnelConfig {
+  /** 主动从存储重新加载配置到内存缓存（备用：配置被外部修改后可调用） */
+  async reload(): Promise<void> {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        return { ...DEFAULT_TUNNEL_CONFIG, ...parsed };
-      }
+      await this.storage.initialize();
+      const stored = await this.storage.read<ITunnelConfig>(STORAGE_KEY);
+      this.config = stored
+        ? { ...DEFAULT_TUNNEL_CONFIG, ...stored }
+        : { ...DEFAULT_TUNNEL_CONFIG };
     } catch {
       // ignore
     }
-    return { ...DEFAULT_TUNNEL_CONFIG };
+  }
+
+  /** 读取配置（同步，返回内存缓存） */
+  loadConfig(): ITunnelConfig {
+    return this.config;
+  }
+
+  /** 保存配置：写入存储并同步更新内存缓存 */
+  async saveConfig(config: ITunnelConfig): Promise<void> {
+    await this.storage.initialize();
+    await this.storage.write(STORAGE_KEY, config);
+    this.config = { ...config };
   }
 
   /** 当前是否为客户端模式 */

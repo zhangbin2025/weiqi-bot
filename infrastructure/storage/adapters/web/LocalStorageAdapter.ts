@@ -76,6 +76,27 @@ export class LocalStorageAdapter implements IKeyValueStorageAdapter {
       return data as unknown as T;
     }
   }
+  /**
+   * 同步读取数据
+   * @description localStorage 本身是同步 API，封装层默认走 async 仅为统一接口。
+   *              隧道配置需要在同步上下文（如 createAIEngine 工厂）里即时读取，
+   *              故提供同步版本，绕开 async 包装，行为与 read() 一致。
+   */
+  readSync<T>(key: string): T | null {
+    if (!this.isAvailable()) {
+      return null;
+    }
+    const fullKey = this.getFullKey(key);
+    const data = localStorage.getItem(fullKey);
+    if (data === null) {
+      return null;
+    }
+    try {
+      return JSON.parse(data) as T;
+    } catch {
+      return data as unknown as T;
+    }
+  }
 
   /**
    * 写入数据

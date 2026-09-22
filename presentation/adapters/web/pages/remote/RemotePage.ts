@@ -15,6 +15,7 @@ import { DebugRpcHandler } from '../../../../../infrastructure/tunnel/DebugRpcHa
 import { DebugService } from '../../../../../services/debug/DebugService';
 import { createAIEngine } from '../../../../../infrastructure/ai';
 import { TunnelClient } from '../../../../../infrastructure/tunnel/TunnelClient';
+import { TunnelManager } from '../../../../../infrastructure/tunnel/TunnelManager';
 import { GameService, GameHistoryStorage } from '../../../../../services/game';
 import { createGameArchiveCache, createGameHistoryIndex, createGameFileStorage } from '../../../../../clients/web/shared/storage';
 import { AppSnifferProvider } from '../../../../../infrastructure/network/adapters/app/AppSnifferProvider';
@@ -29,12 +30,8 @@ import type {
 } from '../../../../../infrastructure/tunnel/types';
 import { DEFAULT_TUNNEL_CONFIG } from '../../../../../infrastructure/tunnel/types';
 import { LocalStorageCacheAdapter } from '../../../../../infrastructure/storage/adapters/web/LocalStorageCacheAdapter';
-import { LocalStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/LocalStorageAdapter';
 import type { ICacheStorageAdapter } from '../../../../../infrastructure/storage/interfaces/ICacheStorage';
 import type { ISnifferProvider } from '../../../../../infrastructure/network/interfaces/ISnifferProvider';
-
-/** localStorage 配置键名（与 TunnelManager 保持一致） */
-const STORAGE_KEY = 'weiqi-tunnel-config';
 
 /** 缓存 namespace */
 const CACHE_NAMESPACE = 'weiqi-tunnel';
@@ -82,7 +79,6 @@ export class RemotePage {
   private gameService: GameService | null = null;
   private client: TunnelClient | null = null;
   private cache: ICacheStorageAdapter;
-  private readonly configStorage = new LocalStorageAdapter('weiqi-bot');
   private currentMode: TunnelMode = 'none';
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
   private passwordVisible = false;
@@ -107,7 +103,7 @@ export class RemotePage {
     this.bindGlobalEvents();
 
     // 加载配置
-    this.editConfig = await this.loadConfig();
+    this.editConfig = this.loadConfig();
     this.currentMode = this.editConfig.mode;
 
     // 渲染页面骨架
@@ -132,24 +128,14 @@ export class RemotePage {
 
   // ─── 配置管理 ───
 
-  /** 读取配置 */
-  private async loadConfig(): Promise<ITunnelConfig> {
-    try {
-      await this.configStorage.initialize();
-      const stored = await this.configStorage.read<ITunnelConfig>(STORAGE_KEY);
-      if (stored) {
-        return { ...DEFAULT_TUNNEL_CONFIG, ...stored };
-      }
-    } catch {
-      // ignore
-    }
-    return { ...DEFAULT_TUNNEL_CONFIG };
+  /** 读取配置（委托 TunnelManager，保持与读取方同一来源） */
+  private loadConfig(): ITunnelConfig {
+    return TunnelManager.getInstance().loadConfig();
   }
 
-  /** 保存配置 */
+  /** 保存配置（委托 TunnelManager，写入后可被 createAIEngine 立即读取） */
   private async saveConfig(config: ITunnelConfig): Promise<void> {
-    await this.configStorage.initialize();
-    await this.configStorage.write(STORAGE_KEY, config);
+    await TunnelManager.getInstance().saveConfig(config);
   }
 
   // ─── 缓存管理 ───
@@ -460,7 +446,7 @@ export class RemotePage {
   /** 显示配置弹窗 */
   private async showConfigDialog(): Promise<void> {
     this.toggleCommandMenu();
-    this.editConfig = await this.loadConfig();
+    this.editConfig = this.loadConfig();
     this.passwordVisible = false;
     this.renderConfigDialog();
   }
