@@ -187,7 +187,7 @@ export class FetcherRenderer {
     ],
     live: [
       { value: 'ogs-live', label: 'OGS在线' },
-      { value: 'yike-live', label: '弄客直播' },
+      { value: 'yike-live', label: '弈客直播' },
     ],
   };
 
