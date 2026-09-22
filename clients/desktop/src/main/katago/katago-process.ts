@@ -239,6 +239,29 @@ export class KataGoProcess {
   }
 
   /**
+   * 等待进程真正退出
+   *
+   * 用于切换模型时确保旧进程已完全关闭，再启动新进程。
+   * 否则旧进程（5s 后才被 kill）会与新进程争用 GPU/OpenCL，
+   * 导致新进程 tuning 变慢、首次落子迟迟不来。
+   *
+   * @param timeoutMs 超时兜底（默认 8s，留足 shutdown 的 5s + 余量）
+   */
+  waitForExit(timeoutMs = 8000): Promise<void> {
+    return new Promise((resolve) => {
+      if (!this.process || !this.isRunning) {
+        resolve();
+        return;
+      }
+      const timer = setTimeout(() => resolve(), timeoutMs);
+      this.process.once('exit', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+  }
+
+  /**
    * 处理 stdout 行
    */
   private handleLine(line: string) {

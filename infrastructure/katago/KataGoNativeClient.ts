@@ -169,7 +169,16 @@ export class KataGoNativeClient {
    * 关闭 KataGo 进程
    */
   async shutdown(): Promise<void> {
-    prompt('katago:shutdown');
+    const message = 'katago:shutdown';
+    // Desktop 端走异步 IPC 通道（electronAPI.bridgeAsync），让主进程真正等待
+    // 旧进程退出后再返回，避免切换模型时新进程撞上仍在运行的旧进程。
+    // App / Web 端无该 API，回退到同步 prompt（App 端已在 Kotlin 侧实现"等退出"）。
+    const api = typeof window !== 'undefined' ? (window as any).electronAPI : undefined;
+    if (api && typeof api.bridgeAsync === 'function') {
+      await api.bridgeAsync(message);
+    } else {
+      prompt(message);
+    }
     this.running = false;
     // 标记：预期会收到旧进程的 exit 通知，不要误判为新进程启动失败
     this.expectingExit = true;

@@ -26,7 +26,7 @@ export class KatagoHandler {
 
   constructor(private window: BrowserWindow) {}
 
-  handle(message: string): string {
+  handle(message: string): string | Promise<string> {
     const withoutPrefix = message.substring(this.prefix.length);
     const colonIdx = withoutPrefix.indexOf(':');
     const command = colonIdx > 0 ? withoutPrefix.substring(0, colonIdx) : withoutPrefix;
@@ -134,10 +134,25 @@ export class KatagoHandler {
 
   // ========== katago:shutdown ==========
 
-  private handleShutdown(): string {
+  /**
+   * katago:shutdown — 关闭 KataGo 进程
+   *
+   * 必须等旧进程真正退出后才返回 ok（与 Android 端对称）。
+   *
+   * 原因：切换模型时 TS 层会先 shutdown 再 start。KataGoProcess.shutdown()
+   * 内部是 fire-and-forget（关 stdin 后 5s 才 kill），如果这里同步返回 ok，
+   * TS 层以为已关闭，立刻 start，旧 katago.exe 仍在后台跑，会与新进程争用
+   * GPU/OpenCL，导致新进程 tuning 变慢、首次落子迟迟不来。
+   *
+   * 本方法返回 Promise，配合 preload 的 bridge-async 通道，
+   * 等旧进程 onExit 真正触发后再 resolve，保证「完全关闭 → 启动 → 等新 ready」时序。
+   */
+  private async handleShutdown(): Promise<string> {
     const proc = KatagoHandler.globalProcess;
     if (proc) {
       proc.shutdown();
+      // 等待旧进程真正退出（最多 8s，shutdown 内部 5s 后会强制 kill）
+      await proc.waitForExit(8000);
       KatagoHandler.globalProcess = null;
       KatagoHandler.currentModelPath = null;
     }
