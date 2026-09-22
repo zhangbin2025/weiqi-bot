@@ -23,6 +23,7 @@ import { KataGoQueryBuilder } from '../../katago/KataGoQueryBuilder';
 import { KataGoResultParser } from '../../katago/KataGoResultParser';
 import type { NetworkManager } from '../../network/core/NetworkManager';
 import { DEFAULT_REMOTE_BASE } from '../../network/core/ServerConfig';
+import { LocalStorageAdapter } from '../../storage/adapters/web/LocalStorageAdapter';
 
 /**
  * KataGo App 适配器
@@ -38,6 +39,7 @@ export class KataGoAppAdapter implements IAIEngine {
   private client = getKataGoNativeClient();
   private engineInfo: EngineInfo = { backend: null, modelName: null };
   private initialized = false;
+  private readonly modelStorage = new LocalStorageAdapter('weiqi-model');
 
   /**
    * 创建 KataGo App 适配器
@@ -444,7 +446,8 @@ export class KataGoAppAdapter implements IAIEngine {
     }
     // 追加用户保存的自定义模型偏好
     try {
-      const savedUrl = localStorage.getItem('custom-model-url');
+      await this.modelStorage.initialize();
+      const savedUrl = await this.modelStorage.read<string>('custom-model-url');
       if (savedUrl && (savedUrl.startsWith('http://') || savedUrl.startsWith('https://'))) {
         // 避免重复
         if (!result.some(m => m.id === 'custom')) {

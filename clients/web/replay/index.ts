@@ -6,6 +6,7 @@
 import { WebBootstrap } from '../shared/Bootstrap';
 import { ReplayPage } from '../../../presentation/adapters/web/pages/replay';
 import { createReplayDeps } from '../shared/deps/replay';
+import { SessionStorageAdapter } from '../../../infrastructure/storage/adapters/web/SessionStorageAdapter';
 
 /**
  * 简单 hash 函数（djb2），用于收藏 key 去重
@@ -63,11 +64,14 @@ function showToast(message: string, linkText?: string, linkHref?: string) {
   }, 3000);
 }
 
+const sessionStore = new SessionStorageAdapter('weiqi-bot');
+
 async function main() {
   const ctx = await WebBootstrap.init({
     containerId: 'page-root',
   });
 
+  await sessionStore.initialize();
   const { replayApp } = await createReplayDeps(ctx);
 
   const page = new ReplayPage({
@@ -127,9 +131,9 @@ async function main() {
       alert('当前没有棋盘数据');
       return;
     }
-    sessionStorage.setItem('replay-print-data', JSON.stringify(printData));
+    await sessionStore.write('replay-print-data', printData);
     const { content } = await getQrContent();
-    sessionStorage.setItem('replay-print-source-url', content);
+    await sessionStore.write('replay-print-source-url', content);
     window.location.href = './print-preview.html';
   });
 

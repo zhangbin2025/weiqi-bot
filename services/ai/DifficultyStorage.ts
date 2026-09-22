@@ -3,6 +3,7 @@
  */
 
 import type { CustomDifficulty } from './types';
+import { LocalStorageAdapter } from '../../infrastructure/storage/adapters/web/LocalStorageAdapter';
 
 const STORAGE_KEY = 'weiqi-custom-difficulties';
 
@@ -10,15 +11,16 @@ const STORAGE_KEY = 'weiqi-custom-difficulties';
  * 难度配置存储服务
  */
 export class DifficultyStorage {
+  private readonly storage = new LocalStorageAdapter('weiqi-bot');
+
   /**
    * 加载所有自定义难度配置
    */
   async load(): Promise<CustomDifficulty[]> {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (!stored) return [];
-      
-      const configs = JSON.parse(stored) as CustomDifficulty[];
+      await this.storage.initialize();
+      const configs = await this.storage.read<CustomDifficulty[]>(STORAGE_KEY);
+      if (!configs) return [];
       // 按创建时间倒序排序
       return configs.sort((a, b) => b.createdAt - a.createdAt);
     } catch (error) {
@@ -32,6 +34,7 @@ export class DifficultyStorage {
    */
   async save(config: CustomDifficulty): Promise<void> {
     try {
+      await this.storage.initialize();
       const configs = await this.load();
       
       // 检查是否已存在（更新）
@@ -42,7 +45,7 @@ export class DifficultyStorage {
         configs.unshift(config); // 新配置放前面
       }
       
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(configs));
+      await this.storage.write(STORAGE_KEY, configs);
     } catch (error) {
       console.error('[DifficultyStorage] 保存失败:', error);
       throw error;
@@ -54,9 +57,10 @@ export class DifficultyStorage {
    */
   async delete(id: string): Promise<void> {
     try {
+      await this.storage.initialize();
       const configs = await this.load();
       const filtered = configs.filter(c => c.id !== id);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+      await this.storage.write(STORAGE_KEY, filtered);
     } catch (error) {
       console.error('[DifficultyStorage] 删除失败:', error);
       throw error;
@@ -68,12 +72,13 @@ export class DifficultyStorage {
    */
   async update(id: string, updates: Partial<CustomDifficulty>): Promise<void> {
     try {
+      await this.storage.initialize();
       const configs = await this.load();
       const index = configs.findIndex(c => c.id === id);
       
       if (index >= 0) {
         configs[index] = { ...configs[index]!, ...updates };
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(configs));
+        await this.storage.write(STORAGE_KEY, configs);
       }
     } catch (error) {
       console.error('[DifficultyStorage] 更新失败:', error);
@@ -85,6 +90,6 @@ export class DifficultyStorage {
    * 生成唯一 ID
    */
   static generateId(): string {
-    return `difficulty_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `difficulty_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
   }
 }

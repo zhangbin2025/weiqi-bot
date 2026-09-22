@@ -29,6 +29,7 @@ import type {
 } from '../../../../../infrastructure/tunnel/types';
 import { DEFAULT_TUNNEL_CONFIG } from '../../../../../infrastructure/tunnel/types';
 import { LocalStorageCacheAdapter } from '../../../../../infrastructure/storage/adapters/web/LocalStorageCacheAdapter';
+import { LocalStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/LocalStorageAdapter';
 import type { ICacheStorageAdapter } from '../../../../../infrastructure/storage/interfaces/ICacheStorage';
 import type { ISnifferProvider } from '../../../../../infrastructure/network/interfaces/ISnifferProvider';
 
@@ -81,6 +82,7 @@ export class RemotePage {
   private gameService: GameService | null = null;
   private client: TunnelClient | null = null;
   private cache: ICacheStorageAdapter;
+  private readonly configStorage = new LocalStorageAdapter('weiqi-bot');
   private currentMode: TunnelMode = 'none';
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
   private passwordVisible = false;
@@ -105,7 +107,7 @@ export class RemotePage {
     this.bindGlobalEvents();
 
     // 加载配置
-    this.editConfig = this.loadConfig();
+    this.editConfig = await this.loadConfig();
     this.currentMode = this.editConfig.mode;
 
     // 渲染页面骨架
@@ -131,12 +133,12 @@ export class RemotePage {
   // ─── 配置管理 ───
 
   /** 读取配置 */
-  private loadConfig(): ITunnelConfig {
+  private async loadConfig(): Promise<ITunnelConfig> {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
+      await this.configStorage.initialize();
+      const stored = await this.configStorage.read<ITunnelConfig>(STORAGE_KEY);
       if (stored) {
-        const parsed = JSON.parse(stored);
-        return { ...DEFAULT_TUNNEL_CONFIG, ...parsed };
+        return { ...DEFAULT_TUNNEL_CONFIG, ...stored };
       }
     } catch {
       // ignore
@@ -145,8 +147,9 @@ export class RemotePage {
   }
 
   /** 保存配置 */
-  private saveConfig(config: ITunnelConfig): void {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+  private async saveConfig(config: ITunnelConfig): Promise<void> {
+    await this.configStorage.initialize();
+    await this.configStorage.write(STORAGE_KEY, config);
   }
 
   // ─── 缓存管理 ───
@@ -299,8 +302,8 @@ export class RemotePage {
   }
 
   /** 应用配置（保存 + 重启） */
-  private applyConfig(config: ITunnelConfig): void {
-    this.saveConfig(config);
+  private async applyConfig(config: ITunnelConfig): Promise<void> {
+    await this.saveConfig(config);
     this.editConfig = { ...config };
     this.stopTunnel();
 
@@ -455,9 +458,9 @@ export class RemotePage {
   // ─--- 配置弹窗 ─---
 
   /** 显示配置弹窗 */
-  private showConfigDialog(): void {
+  private async showConfigDialog(): Promise<void> {
     this.toggleCommandMenu();
-    this.editConfig = this.loadConfig();
+    this.editConfig = await this.loadConfig();
     this.passwordVisible = false;
     this.renderConfigDialog();
   }
@@ -589,7 +592,7 @@ export class RemotePage {
 
     // 保存按钮
     const saveBtn = dialog.querySelector('#cfgSaveBtn') as HTMLButtonElement;
-    saveBtn?.addEventListener('click', () => {
+    saveBtn?.addEventListener('click', async () => {
       const pwdInput = dialog.querySelector('#cfgPassword') as HTMLInputElement;
       const password = pwdInput.value.trim();
       const mode = this.editConfig.mode;
@@ -600,7 +603,7 @@ export class RemotePage {
       }
 
       const newConfig: ITunnelConfig = { ...this.editConfig, password };
-      this.applyConfig(newConfig);
+      await this.applyConfig(newConfig);
       overlay.remove();
     });
   }
@@ -670,7 +673,7 @@ export class RemotePage {
   /** 绑定全局事件 */
   private bindGlobalEvents(): void {
     (window as any).toggleCommandMenu = () => this.toggleCommandMenu();
-    (window as any).showConfigDialog = () => this.showConfigDialog();
+    (window as any).showConfigDialog = async () => this.showConfigDialog();
     (window as any).manualRefresh = () => { this.toggleCommandMenu(); this.doRefresh(); };
     (window as any).switchTab = (tab: string) => this.switchTab(tab);
   }

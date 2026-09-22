@@ -8,6 +8,7 @@ import { DebugService } from '../../../services/debug/DebugService';
 import { Dialog } from '../shared/ui';
 import { WebFileExporter } from '../../../infrastructure/utils/export/WebFileExporter';
 import { TunnelManager } from '../../../infrastructure/tunnel/TunnelManager';
+import { SessionStorageAdapter } from '../../../infrastructure/storage/adapters/web/SessionStorageAdapter';
 
 /** 日志筛选条件 */
 interface LogFilter {
@@ -25,6 +26,9 @@ async function main() {
 
   const debugService = new DebugService();
 
+  // 加载远程模式状态
+  await loadRemoteMode();
+
   // 渲染日志页面
   await renderLogs(debugService);
 
@@ -37,13 +41,32 @@ function isClientMode(): boolean {
 }
 
 /** 读取远程勾选状态 */
+let remoteModeValue = false;
+
+async function loadRemoteMode(): Promise<boolean> {
+  try {
+    const adapter = new SessionStorageAdapter('weiqi-bot');
+    await adapter.initialize();
+    const val = await adapter.read<string>(REMOTE_CHECK_KEY);
+    remoteModeValue = val === 'true';
+    return remoteModeValue;
+  } catch {
+    return false;
+  }
+}
+
 function isRemoteMode(): boolean {
-  return sessionStorage.getItem(REMOTE_CHECK_KEY) === 'true';
+  return remoteModeValue;
 }
 
 /** 保存远程勾选状态 */
-function setRemoteMode(enabled: boolean): void {
-  sessionStorage.setItem(REMOTE_CHECK_KEY, enabled ? 'true' : 'false');
+async function setRemoteMode(enabled: boolean): Promise<void> {
+  remoteModeValue = enabled;
+  try {
+    const adapter = new SessionStorageAdapter('weiqi-bot');
+    await adapter.initialize();
+    await adapter.write(REMOTE_CHECK_KEY, enabled ? 'true' : 'false');
+  } catch { /* ignore */ }
 }
 
 /**
@@ -182,7 +205,7 @@ async function renderLogs(debugService: DebugService, filter?: LogFilter) {
   // 绑定远程切换勾选框
   document.getElementById('remote-toggle')?.addEventListener('change', async (e) => {
     const checked = (e.target as HTMLInputElement).checked;
-    setRemoteMode(checked);
+    await setRemoteMode(checked);
     await renderLogs(debugService);
   });
 

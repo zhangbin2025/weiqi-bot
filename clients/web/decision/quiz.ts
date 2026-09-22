@@ -4,6 +4,7 @@
  */
 
 import { WebBootstrap } from '../shared/Bootstrap';
+import { LocalStorageAdapter } from '../../../infrastructure/storage/adapters/web/LocalStorageAdapter';
 import { WebBoard } from '../../../presentation/adapters/web/components/Board';
 import { WebAudioPlayer } from '../../../infrastructure/audio/WebAudioPlayer';
 import { ExportService } from '../../../services/export/ExportService';
@@ -95,8 +96,15 @@ async function main() {
     const start = Math.min(problemIndex, normalized.length - 1);
     state.problems = normalized.slice(start).concat(normalized.slice(0, start));
 
-    // 从 localStorage 读取显示选点的设置
-    const savedShowOptions = localStorage.getItem('quiz-showOptions');
+    // 从 localStorage 读取显示选点的设置（通过封装适配器）
+    const quizStore = new LocalStorageAdapter('weiqi-bot');
+    let savedShowOptions: string | null = null;
+    try {
+      await quizStore.initialize();
+      savedShowOptions = await quizStore.read<string>('quiz-showOptions');
+    } catch {
+      savedShowOptions = null;
+    }
     state.showOptions = savedShowOptions !== 'false';
 
     // 从题目数据中读取棋盘尺寸

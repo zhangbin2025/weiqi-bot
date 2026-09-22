@@ -5,6 +5,8 @@ import type { Group, AgainstPlanResult } from '../../../../../services/event/typ
 import type { RankingResult } from '../../../../../domain/ranking';
 import type { PlayerRanking, RankingMode } from '../../../../../domain/ranking/types';
 import { GroupSelector } from '../../../../../domain/ranking/GroupSelector';
+import { SessionStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/SessionStorageAdapter';
+import { LocalStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/LocalStorageAdapter';
 import { Select, type SelectInstance } from '@ui';
 export interface EventDetailRendererCallbacks {
   onGroupChange: (groupId: string) => void;
@@ -28,6 +30,8 @@ export class EventDetailRenderer {
   private activeGroupId: string = '';
   private highlightedPlayerName: string = '';
   private rankingMode: RankingMode = 'default';
+  private readonly sessionStore = new SessionStorageAdapter('weiqi-bot');
+  private readonly localStore = new LocalStorageAdapter('weiqi-bot');
   private selectInstance?: SelectInstance | undefined;
   constructor(
     private readonly cb: EventDetailRendererCallbacks,
@@ -40,20 +44,22 @@ export class EventDetailRenderer {
     this.overlay = factory.createOverlay();
     this.toast = factory.createToast();
   }
-  initialize(): void {
+  async initialize(): Promise<void> {
     // 页面渲染时直接在这里渲染标签按钮
     this.renderTabs();
     // 从 sessionStorage 恢复上次选中的棋手（从等级分页面返回时）
     try {
-      const saved = sessionStorage.getItem('event-detail-highlight');
+      await this.sessionStore.initialize();
+      const saved = await this.sessionStore.read<string>('event-detail-highlight');
       if (saved) {
         this.highlightedPlayerName = saved;
-        sessionStorage.removeItem('event-detail-highlight');
+        await this.sessionStore.delete('event-detail-highlight');
       }
     } catch { /* ignore */ }
     // 从 localStorage 恢复上次选择的排名模式
     try {
-      const savedMode = localStorage.getItem('event-ranking-mode');
+      await this.localStore.initialize();
+      const savedMode = await this.localStore.read<string>('event-ranking-mode');
       if (savedMode === 'default' || savedMode === 'directWin' || savedMode === 'simple') {
         this.rankingMode = savedMode;
       }
@@ -64,7 +70,7 @@ export class EventDetailRenderer {
       if (link) {
         const m = link.href.match(/player\/?\?name=([^&]+)/);
         if (m && m[1]) {
-          try { sessionStorage.setItem('event-detail-highlight', decodeURIComponent(m[1])); } catch { /* ignore */ }
+          this.sessionStore.write('event-detail-highlight', decodeURIComponent(m[1])).catch(() => { /* ignore */ });
         }
       }
     });
@@ -74,7 +80,7 @@ export class EventDetailRenderer {
       if (action === 'playerClick' && data?.['name']) {
         const name = String(data['name']);
         // 记住选中的棋手，用于从等级分页面返回时恢复高亮
-        try { sessionStorage.setItem('event-detail-highlight', name); } catch { /* ignore */ }
+        this.sessionStore.write('event-detail-highlight', name).catch(() => { /* ignore */ });
         this.cb.onPlayerClick(name);
       }
       if (action === 'showOpponents' && data?.['name']) this.cb.onShowOpponents(String(data['name']));
@@ -359,7 +365,7 @@ export class EventDetailRenderer {
         menu.remove();
         document.removeEventListener('click', closeHandler);
         this.rankingMode = m.value;
-        try { localStorage.setItem('event-ranking-mode', m.value); } catch { /* ignore */ }
+        this.localStore.write('event-ranking-mode', m.value).catch(() => { /* ignore */ });
         this.cb.onRankingModeChange(m.value);
       });
       item.addEventListener('mouseenter', () => { item.style.background = 'rgba(59,130,246,0.08)'; });

@@ -7,6 +7,7 @@ import type { HMPlayPage } from '../HMPlayPage';
 import type { GameOptions } from '../HMPlayPage';
 import type { DifficultyConfig } from '@services/ai/types';
 import { DefaultModelService } from '@services/model';
+import { LocalStorageAdapter } from '../../../../../../infrastructure/storage/adapters/web/LocalStorageAdapter';
 
 /**
  * 事件绑定配置
@@ -22,6 +23,7 @@ export interface HMEventBinderConfig {
  */
 export class HMEventBinder {
   private config: HMEventBinderConfig;
+  private readonly diffStore = new LocalStorageAdapter('weiqi-hm-difficulty');
 
   constructor(config: HMEventBinderConfig) {
     this.config = config;
@@ -147,13 +149,13 @@ export class HMEventBinder {
     const configDifficultyBtn = document.getElementById('configDifficultyBtn');
 
     // 加载已保存的难度配置
-    this.loadDifficultyOptions();
+    void this.loadDifficultyOptions();
 
     // 难度选择变化
-    difficultySelect?.addEventListener('change', () => {
+    difficultySelect?.addEventListener('change', async () => {
       // 保存选择的难度
       const selectedValue = difficultySelect.value;
-      localStorage.setItem('weiqi-selected-difficulty', selectedValue);
+      await this.writeSelectedDifficulty(selectedValue);
     });
 
     // 打开配置弹框
@@ -189,19 +191,19 @@ export class HMEventBinder {
     });
 
     // 开始对局
-    startGameBtn?.addEventListener('click', () => {
-      const options = this.getOptionsFromDialog();
+    startGameBtn?.addEventListener('click', async () => {
+      const options = await this.getOptionsFromDialog();
       this.config.onStartGame(options);
     });
 
     // 加载已保存的自定义难度
-    this.loadDifficultyOptions();
+    void this.loadDifficultyOptions();
   }
 
   /**
    * 从对话框获取选项
    */
-  private getOptionsFromDialog(): GameOptions {
+  private async getOptionsFromDialog(): Promise<GameOptions> {
     const colorRow = document.getElementById('colorRow');
     const handicapRow = document.getElementById('handicapRow');
     const rulesRow = document.getElementById('rulesRow');
@@ -228,8 +230,7 @@ export class HMEventBinder {
       };
     } else {
       // 从本地存储加载配置
-      const stored = localStorage.getItem('weiqi-custom-difficulties');
-      const difficulties = stored ? JSON.parse(stored) : [];
+      const difficulties = await this.readDifficulties();
       const found = difficulties.find((d: any) => d.id === difficultyValue);
       if (found) {
         difficultyConfig = {
@@ -265,26 +266,25 @@ export class HMEventBinder {
   /**
    * 加载难度选项到下拉框
    */
-  private loadDifficultyOptions(): void {
+  private async loadDifficultyOptions(): Promise<void> {
     const select = document.getElementById('difficultySelect') as HTMLSelectElement;
     if (!select) return;
-    
+
     // 清空现有选项
     select.innerHTML = '<option value="default">默认</option>';
-    
+
     // 加载已保存的配置
-    const stored = localStorage.getItem('weiqi-custom-difficulties');
-    const difficulties = stored ? JSON.parse(stored) : [];
-    
+    const difficulties = await this.readDifficulties();
+
     difficulties.forEach((d: any) => {
       const option = document.createElement('option');
       option.value = d.id;
       option.textContent = d.label;
       select.appendChild(option);
     });
-    
+
     // 恢复上次选择的难度
-    const lastSelected = localStorage.getItem('weiqi-selected-difficulty');
+    const lastSelected = await this.readSelectedDifficulty();
     if (lastSelected) {
       select.value = lastSelected;
     }
@@ -315,8 +315,8 @@ export class HMEventBinder {
     });
     
     // 保存按钮
-    saveBtn?.addEventListener('click', () => {
-      this.saveNewDifficulty();
+    saveBtn?.addEventListener('click', async () => {
+      await this.saveNewDifficulty();
       const dialog = document.getElementById('difficultyConfigDialog');
       if (dialog) dialog.style.display = 'none';
     });
@@ -361,7 +361,7 @@ export class HMEventBinder {
     }
     
     // 加载已保存的配置列表
-    this.loadSavedDifficultyList();
+    void this.loadSavedDifficultyList();
     
     dialog.style.display = 'flex';
   }
@@ -369,7 +369,7 @@ export class HMEventBinder {
   /**
    * 保存新难度配置
    */
-  private saveNewDifficulty(): void {
+  private async saveNewDifficulty(): Promise<void> {
     const visitsSlider = document.getElementById('configVisitsSlider') as HTMLInputElement;
     const noiseSlider = document.getElementById('configNoiseSlider') as HTMLInputElement;
     const nnRandomize = document.getElementById('configNnRandomize') as HTMLInputElement;
@@ -381,8 +381,7 @@ export class HMEventBinder {
     const customLabel = labelInput?.value?.trim();
     
     // 加载已保存的配置
-    const stored = localStorage.getItem('weiqi-custom-difficulties');
-    const difficulties = stored ? JSON.parse(stored) : [];
+    const difficulties = await this.readDifficulties();
     
     let label: string;
     let existingIndex = -1;
@@ -419,30 +418,29 @@ export class HMEventBinder {
       }
     }
     
-    localStorage.setItem('weiqi-custom-difficulties', JSON.stringify(difficulties));
-    
+    await this.writeDifficulties(difficulties);
+
     // 刷新下拉框和列表
-    this.loadDifficultyOptions();
-    this.loadSavedDifficultyList();
-    
+    void this.loadDifficultyOptions();
+    void this.loadSavedDifficultyList();
+
     // 选中新保存的配置
     const select = document.getElementById('difficultySelect') as HTMLSelectElement;
     if (select) {
       select.value = newConfig.id;
-      localStorage.setItem('weiqi-selected-difficulty', newConfig.id);
+      await this.writeSelectedDifficulty(newConfig.id);
     }
   }
 
   /**
    * 加载已保存的配置列表
    */
-  private loadSavedDifficultyList(): void {
+  private async loadSavedDifficultyList(): Promise<void> {
     const container = document.getElementById('savedDifficultyList');
     if (!container) return;
-    
-    const stored = localStorage.getItem('weiqi-custom-difficulties');
-    const difficulties = stored ? JSON.parse(stored) : [];
-    
+
+    const difficulties = await this.readDifficulties();
+
     if (difficulties.length === 0) {
       container.innerHTML = '<div style="color: #999; font-size: 14px; text-align: center; padding: 20px;">暂无保存的配置</div>';
       return;
@@ -463,16 +461,16 @@ export class HMEventBinder {
     
     // 绑定按钮事件
     container.querySelectorAll('.item-btn.load').forEach(btn => {
-      btn.addEventListener('click', (e) => {
+      btn.addEventListener('click', async (e) => {
         const id = (e.target as HTMLElement).getAttribute('data-id');
-        this.loadDifficultyToForm(id!);
+        await this.loadDifficultyToForm(id!);
       });
     });
-    
+
     container.querySelectorAll('.item-btn.delete').forEach(btn => {
-      btn.addEventListener('click', (e) => {
+      btn.addEventListener('click', async (e) => {
         const id = (e.target as HTMLElement).getAttribute('data-id');
-        this.deleteDifficulty(id!);
+        await this.deleteDifficulty(id!);
       });
     });
   }
@@ -480,9 +478,8 @@ export class HMEventBinder {
   /**
    * 加载配置到表单
    */
-  private loadDifficultyToForm(id: string): void {
-    const stored = localStorage.getItem('weiqi-custom-difficulties');
-    const difficulties = stored ? JSON.parse(stored) : [];
+  private async loadDifficultyToForm(id: string): Promise<void> {
+    const difficulties = await this.readDifficulties();
     const config = difficulties.find((d: any) => d.id === id);
     
     if (!config) return;
@@ -513,15 +510,62 @@ export class HMEventBinder {
   /**
    * 删除配置
    */
-  private deleteDifficulty(id: string): void {
-    const stored = localStorage.getItem('weiqi-custom-difficulties');
-    let difficulties = stored ? JSON.parse(stored) : [];
-    
+  private async deleteDifficulty(id: string): Promise<void> {
+    let difficulties = await this.readDifficulties();
+
     difficulties = difficulties.filter((d: any) => d.id !== id);
-    localStorage.setItem('weiqi-custom-difficulties', JSON.stringify(difficulties));
-    
+    await this.writeDifficulties(difficulties);
+
     // 刷新列表和下拉框
-    this.loadSavedDifficultyList();
-    this.loadDifficultyOptions();
+    void this.loadSavedDifficultyList();
+    void this.loadDifficultyOptions();
+  }
+
+
+  // ===== 封装的 localStorage 访问（走 infrastructure 适配器）=====
+  private async ensureStore(): Promise<void> {
+    await this.diffStore.initialize();
+  }
+
+  private async readDifficulties(): Promise<any[]> {
+    try {
+      await this.ensureStore();
+      const stored = await this.diffStore.read<string>('weiqi-custom-difficulties');
+      if (!stored) return [];
+      try {
+        return JSON.parse(stored) as any[];
+      } catch {
+        return [];
+      }
+    } catch {
+      return [];
+    }
+  }
+
+  private async writeDifficulties(difficulties: any[]): Promise<void> {
+    try {
+      await this.ensureStore();
+      await this.diffStore.write('weiqi-custom-difficulties', JSON.stringify(difficulties));
+    } catch {
+      // 存储不可用时静默失败
+    }
+  }
+
+  private async readSelectedDifficulty(): Promise<string | null> {
+    try {
+      await this.ensureStore();
+      return await this.diffStore.read<string>('weiqi-selected-difficulty');
+    } catch {
+      return null;
+    }
+  }
+
+  private async writeSelectedDifficulty(value: string): Promise<void> {
+    try {
+      await this.ensureStore();
+      await this.diffStore.write('weiqi-selected-difficulty', value);
+    } catch {
+      // 存储不可用时静默失败
+    }
   }
 }

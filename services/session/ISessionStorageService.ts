@@ -40,6 +40,14 @@ export interface ISessionStorageService {
   has(key: string): Promise<boolean>;
 
   /**
+   * 列出所有键
+   * @param pattern - 可选通配模式（支持 * 和 ?）
+   * @ai-example
+   * const keys = await sessionStorageService.listKeys();
+   */
+  listKeys(pattern?: string): Promise<string[]>;
+
+  /**
    * 清空所有数据
    * @ai-example
    * await sessionStorageService.clear();

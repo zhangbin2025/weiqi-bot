@@ -202,15 +202,15 @@ export class MMPlayService implements IMMPlayService {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    this.draftManager.save(draft);
+    await this.draftManager.save(draft);
   }
 
   async loadDraft(): Promise<MMPlayDraft | null> {
-    return this.draftManager.load();
+    return await this.draftManager.load();
   }
 
   async clearDraft(): Promise<void> {
-    this.draftManager.clear();
+    await this.draftManager.clear();
   }
 
   async restoreFromDraft(draft: MMPlayDraft): Promise<void> {

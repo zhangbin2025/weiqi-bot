@@ -4,18 +4,21 @@
 
 import type { MMPlayDraft } from './MMPlayDraftTypes';
 import { MM_PLAY_DRAFT_KEY } from './MMPlayDraftTypes';
+import { LocalStorageAdapter } from '../../../infrastructure/storage/adapters/web/LocalStorageAdapter';
 
 /**
  * AI自对弈草稿管理器
  */
 export class MMPlayDraftManager {
+  private readonly storage = new LocalStorageAdapter('weiqi-mm-play');
+
   /**
    * 保存草稿
    */
-  save(draft: MMPlayDraft): void {
+  async save(draft: MMPlayDraft): Promise<void> {
     try {
-      const json = JSON.stringify(draft);
-      localStorage.setItem(MM_PLAY_DRAFT_KEY, json);
+      await this.storage.initialize();
+      await this.storage.write(MM_PLAY_DRAFT_KEY, draft);
     } catch (error) {
       console.error('[MMPlayDraftManager] 保存草稿失败', error);
     }
@@ -24,14 +27,10 @@ export class MMPlayDraftManager {
   /**
    * 加载草稿
    */
-  load(): MMPlayDraft | null {
+  async load(): Promise<MMPlayDraft | null> {
     try {
-      const json = localStorage.getItem(MM_PLAY_DRAFT_KEY);
-      if (!json) {
-        return null;
-      }
-      const draft = JSON.parse(json) as MMPlayDraft;
-      return draft;
+      await this.storage.initialize();
+      return await this.storage.read<MMPlayDraft>(MM_PLAY_DRAFT_KEY);
     } catch (error) {
       console.error('[MMPlayDraftManager] 加载草稿失败', error);
       return null;
@@ -41,9 +40,10 @@ export class MMPlayDraftManager {
   /**
    * 清除草稿
    */
-  clear(): void {
+  async clear(): Promise<void> {
     try {
-      localStorage.removeItem(MM_PLAY_DRAFT_KEY);
+      await this.storage.initialize();
+      await this.storage.delete(MM_PLAY_DRAFT_KEY);
     } catch (error) {
       console.error('[MMPlayDraftManager] 清除草稿失败', error);
     }

@@ -5,6 +5,7 @@
 import type { HHPlayApp } from '../../../../../../application/play';
 import type { IToast } from '../../../../../core/interfaces';
 import type { PlayerColor } from '../../../../../core/types';
+import { LocalStorageAdapter } from '../../../../../../infrastructure/storage/adapters/web/LocalStorageAdapter';
 /** 房间配置 */
 export interface RoomConfig {
   name: string;
@@ -25,8 +26,24 @@ export interface HHRoomControllerConfig {
   hhPlayApp: HHPlayApp;
   toast: IToast;
 }
-/** 玩家名称缓存 */
-let playerNameCache: string = (typeof localStorage !== 'undefined' ? localStorage.getItem('weiqi-player-name') : null) ?? '';
+/** 玩家名称缓存（通过封装适配器异步加载） */
+const playerNameStore = new LocalStorageAdapter('weiqi-bot');
+let playerNameCache = '';
+let playerNameLoaded = false;
+
+/**
+ * 初始化玩家名称缓存（需在页面初始化时 await 调用一次）
+ */
+export async function initPlayerNameCache(): Promise<void> {
+  if (playerNameLoaded) return;
+  try {
+    await playerNameStore.initialize();
+    playerNameCache = (await playerNameStore.read<string>('weiqi-player-name')) ?? '';
+  } catch {
+    playerNameCache = '';
+  }
+  playerNameLoaded = true;
+}
 /**
  * 生成随机名称
  */
@@ -44,9 +61,15 @@ export function getPlayerNameCache(): string {
 /**
  * 设置玩家名称缓存
  */
-export function setPlayerNameCache(name: string): void {
+export async function setPlayerNameCache(name: string): Promise<void> {
   playerNameCache = name;
-  localStorage.setItem('weiqi-player-name', name);
+  playerNameLoaded = true;
+  try {
+    await playerNameStore.initialize();
+    await playerNameStore.write('weiqi-player-name', name);
+  } catch {
+    // 存储不可用时静默失败
+  }
 }
 /**
  * 房间控制器
@@ -65,7 +88,7 @@ export class HHRoomController {
    */
   async createRoom(config: RoomConfig): Promise<RoomInfo> {
     const name = config.name || generateRandomName();
-    setPlayerNameCache(name);
+    await setPlayerNameCache(name);
     const actualColor = config.color === 'random'
       ? (Math.random() > 0.5 ? 'black' : 'white')
       : config.color;
@@ -105,7 +128,7 @@ export class HHRoomController {
     };
   }> {
     const playerName = name || generateRandomName();
-    setPlayerNameCache(playerName);
+    await setPlayerNameCache(playerName);
     if (!roomId || roomId.length !== 6) {
       this.toast.warning('请输入6位房间ID');
       throw new Error('请输入6位房间ID');
@@ -128,7 +151,7 @@ export class HHRoomController {
    * 确认加入房间
    */
   async confirmJoin(name: string): Promise<{ color: PlayerColor }> {
-    setPlayerNameCache(name);
+    await setPlayerNameCache(name);
     try {
       const player = await this.hhPlayApp.confirmJoin(name);
       this.toast.success('加入成功，对局开始！');

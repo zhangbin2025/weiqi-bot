@@ -94,7 +94,7 @@ export class JosekiExplorePage implements IPage {
     }
     this.bindEvents();
     await this.showFirstMoveBranches();
-    this.uiHelper.checkPassHint(() => this.board.getPassMarkPosition());
+    await this.uiHelper.checkPassHint(() => this.board.getPassMarkPosition());
     this.initialized = true;
   }
   private bindEvents(): void {
@@ -209,7 +209,7 @@ export class JosekiExplorePage implements IPage {
           return { x, y, color: c.color, sgf: c.coord, heat: c.heat, isPass };
         });
         this.board.setBranches(branches);
-        this.uiHelper.checkPassHint(() => this.board.getPassMarkPosition());
+        await this.uiHelper.checkPassHint(() => this.board.getPassMarkPosition());
       }
       this.board.render();
       // 检查是否已收藏

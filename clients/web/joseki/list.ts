@@ -9,14 +9,16 @@ import { createGameDeps } from '../shared/deps/game';
 import { JosekiDiscoverProvider } from '../../../presentation/adapters/web/pages/common/JosekiDiscoverProvider';
 import { OpponentJosekiListProvider } from '../../../presentation/adapters/web/pages/common/OpponentJosekiListProvider';
 import { SessionService } from '../../../services/session';
+import { SessionStorageAdapter } from '../../../infrastructure/storage/adapters/web/SessionStorageAdapter';
 
+const sessionStore = new SessionStorageAdapter('weiqi-bot');
 const SCROLL_KEY = 'joseki_list_scroll_to';
 const LAST_VIEWED_KEY = 'joseki_last_viewed_id';
 
 /**
  * 滚动并高亮指定定式卡片
  */
-function scrollToPattern(patternId: string): void {
+async function scrollToPattern(patternId: string): Promise<void> {
   const card = document.querySelector(`.joseki-card[data-id="${patternId}"]`);
   if (card) {
     // 滚动到卡片（居中显示）
@@ -26,30 +28,34 @@ function scrollToPattern(patternId: string): void {
     // 3秒后移除高亮
     setTimeout(() => card.classList.remove('highlight'), 3000);
     // 清除标记
-    sessionStorage.removeItem(SCROLL_KEY);
+    try { await sessionStore.delete(SCROLL_KEY); } catch { /* ignore */ }
   }
 }
 
 /**
  * 检查并执行滚动定位
  */
-function checkAndScroll(): void {
-  const patternId = sessionStorage.getItem(SCROLL_KEY);
-  if (patternId) {
-    // 等待渲染完成
-    setTimeout(() => scrollToPattern(patternId), 100);
-  }
+async function checkAndScroll(): Promise<void> {
+  try {
+    await sessionStore.initialize();
+    const patternId = await sessionStore.read<string>(SCROLL_KEY);
+    if (patternId) {
+      // 等待渲染完成
+      setTimeout(() => { scrollToPattern(patternId); }, 100);
+    }
+  } catch { /* ignore */ }
 }
 
 /**
  * 存储最后查看的卡片ID
  */
-function storeLastViewedId(patternId: string): void {
-  sessionStorage.setItem(LAST_VIEWED_KEY, patternId);
+async function storeLastViewedId(patternId: string): Promise<void> {
+  try { await sessionStore.write(LAST_VIEWED_KEY, patternId); } catch { /* ignore */ }
 }
 
 async function main() {
   // 1. 初始化 Shell 上下文
+  await sessionStore.initialize();
   const ctx = await WebBootstrap.init({
     containerId: 'page-root',
   });
@@ -77,11 +83,11 @@ async function main() {
     gameService,
     onNavigate: async (pageId, params) => {
       // 在跳转前，检查是否有最后查看的卡片ID
-      const lastViewedId = sessionStorage.getItem(LAST_VIEWED_KEY);
+      const lastViewedId = await sessionStore.read<string>(LAST_VIEWED_KEY);
       if (lastViewedId) {
         // 转移到滚动标记
-        sessionStorage.setItem(SCROLL_KEY, lastViewedId);
-        sessionStorage.removeItem(LAST_VIEWED_KEY);
+        await sessionStore.write(SCROLL_KEY, lastViewedId);
+        await sessionStore.delete(LAST_VIEWED_KEY);
       }
       
       if (pageId === 'joseki/explore') {
@@ -119,16 +125,16 @@ async function main() {
   page.render();
 
   // 10. 检查是否需要滚动定位
-  checkAndScroll();
+  await checkAndScroll();
 
   // 11. 监听卡片点击事件（事件委托）
-  document.addEventListener('click', (e) => {
+  document.addEventListener('click', async (e) => {
     const target = e.target as HTMLElement;
     const card = target.closest('.joseki-card');
     if (card) {
       const patternId = card.getAttribute('data-id');
       if (patternId) {
-        storeLastViewedId(patternId);
+        await storeLastViewedId(patternId);
       }
     }
   }, true); // 使用捕获阶段，确保在 renderer 的事件之前触发
@@ -140,7 +146,7 @@ async function main() {
     if (event.persisted) {
       await page.refreshReadMarks();
       // 重新检查滚动定位
-      checkAndScroll();
+      await checkAndScroll();
     }
   });
 

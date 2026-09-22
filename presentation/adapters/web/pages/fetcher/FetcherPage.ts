@@ -10,6 +10,7 @@ import { FetcherFormatter } from './FetcherFormatter';
 import { detectClipboardUrl } from './utils/clipboardDetector';
 import { TaskHelper } from '../../../../../clients/web/shared/task-helper';
 import { buildArchiveUrl } from '../../../../../domain/sgf/SGFUtils';
+import { SessionStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/SessionStorageAdapter';
 export interface FetcherPageConfig {
   fetcherApp: FetcherApp;
   adapterFactory: IAdapterFactory;
@@ -24,6 +25,7 @@ export class FetcherPage implements IPage {
   private formatter: FetcherFormatter;
   private _onNavigate?: (page: string, params?: Record<string, string>) => void;
   private sessionService?: ISessionService;
+  private readonly sessionStore = new SessionStorageAdapter('weiqi-bot');
   private initialized = false;
   private bookmarks: FetcherBookmark[] = [];
   private currentResult: FetcherResult | undefined;
@@ -59,24 +61,22 @@ export class FetcherPage implements IPage {
     await this.checkClipboardForUrl();
     // 恢复缓存的最新棋谱列表及查询条件
     try {
-      const cached = sessionStorage.getItem('fetcher_latest_items');
-      if (cached) {
-        const items = JSON.parse(cached);
-        if (Array.isArray(items) && items.length > 0) {
-          // 恢复查询条件
-          const cachedSource = sessionStorage.getItem('fetcher_latest_source');
-          const cachedCount = sessionStorage.getItem('fetcher_latest_count');
-          const cachedKeyword = sessionStorage.getItem('fetcher_latest_keyword');
-          if (cachedSource) this.renderer.setLatestSource(cachedSource);
-          if (cachedCount) this.renderer.setLatestCount(cachedCount);
-          if (cachedKeyword) this.renderer.setLatestKeyword(cachedKeyword);
-          // 恢复选中状态
-          const selectedUrl = sessionStorage.getItem('fetcher_latest_selected');
-          this.renderer.setSelectedLatestUrl(selectedUrl);
-          this.renderer.renderLatestGames(items);
-          // 切换到最新标签页
-          this.renderer.switchToLatestTab();
-        }
+      await this.sessionStore.initialize();
+      const cached = await this.sessionStore.read<any[]>('fetcher_latest_items');
+      if (cached && Array.isArray(cached) && cached.length > 0) {
+        // 恢复查询条件
+        const cachedSource = await this.sessionStore.read<string>('fetcher_latest_source');
+        const cachedCount = await this.sessionStore.read<string>('fetcher_latest_count');
+        const cachedKeyword = await this.sessionStore.read<string>('fetcher_latest_keyword');
+        if (cachedSource) this.renderer.setLatestSource(cachedSource);
+        if (cachedCount) this.renderer.setLatestCount(cachedCount);
+        if (cachedKeyword) this.renderer.setLatestKeyword(cachedKeyword);
+        // 恢复选中状态
+        const selectedUrl = await this.sessionStore.read<string>('fetcher_latest_selected');
+        this.renderer.setSelectedLatestUrl(selectedUrl);
+        this.renderer.renderLatestGames(cached);
+        // 切换到最新标签页
+        this.renderer.switchToLatestTab();
       }
     } catch { /* ignore */ }
     this.initialized = true;
@@ -284,15 +284,15 @@ export class FetcherPage implements IPage {
       const items = await this.fetcherApp.fetchLatestGames(source, count, keyword);
       this.renderer.showLatestLoading(false);
       // 新查询：清除旧选中状态
-      try { sessionStorage.removeItem('fetcher_latest_selected'); } catch { /* ignore */ }
+      try { await this.sessionStore.delete('fetcher_latest_selected'); } catch { /* ignore */ }
       this.renderer.setSelectedLatestUrl(null);
       this.renderer.renderLatestGames(items);
       // 缓存到 sessionStorage，页面返回时恢复
       try {
-        sessionStorage.setItem('fetcher_latest_items', JSON.stringify(items));
-        sessionStorage.setItem('fetcher_latest_source', source);
-        sessionStorage.setItem('fetcher_latest_count', String(count));
-        sessionStorage.setItem('fetcher_latest_keyword', keyword || '');
+        await this.sessionStore.write('fetcher_latest_items', items);
+        await this.sessionStore.write('fetcher_latest_source', source);
+        await this.sessionStore.write('fetcher_latest_count', String(count));
+        await this.sessionStore.write('fetcher_latest_keyword', keyword || '');
       } catch { /* ignore */ }
     } catch (error) {
       this.renderer.showLatestLoading(false);
@@ -306,7 +306,7 @@ export class FetcherPage implements IPage {
   private async selectLatestGame(url: string): Promise<void> {
     this.renderer.setSelectedLatestUrl(url);
     this.renderer.rerenderLatest();
-    try { sessionStorage.setItem('fetcher_latest_selected', url); } catch { /* ignore */ }
+    try { await this.sessionStore.write('fetcher_latest_selected', url); } catch { /* ignore */ }
     // 在条目上显示加载状态
     this.renderer.showLatestItemLoading(url);
     try {
@@ -402,7 +402,7 @@ export class FetcherPage implements IPage {
   private async viewLatestGame(url: string): Promise<void> {
     this.renderer.setSelectedLatestUrl(url);
     this.renderer.rerenderLatest();
-    try { sessionStorage.setItem('fetcher_latest_selected', url); } catch { /* ignore */ }
+    try { await this.sessionStore.write('fetcher_latest_selected', url); } catch { /* ignore */ }
     this.renderer.showLatestItemLoading(url);
     try {
       const result = await this.fetcherApp.fetch(url);

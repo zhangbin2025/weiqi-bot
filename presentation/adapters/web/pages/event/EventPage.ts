@@ -12,6 +12,7 @@ import type { IKeyValueStorageAdapter } from '../../../../../infrastructure/stor
 import { EventRenderer } from './EventRenderer';
 import { PdfMatchParser } from '../../../../../services/pdf/PdfMatchParser';
 import { PdfEventService } from '../../../../../services/event/PdfEventService';
+import { SessionStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/SessionStorageAdapter';
 
 type EventTab = 'query' | 'import' | 'recent';
 
@@ -44,6 +45,7 @@ export class EventPage implements IPage {
   // PDF 导入
   private pdfParser = new PdfMatchParser();
   private pdfService = new PdfEventService();
+  private readonly sessionStore = new SessionStorageAdapter('weiqi-bot');
 
   constructor(config: EventPageConfig) {
     this.eventQuerier = config.eventQuerier;
@@ -151,10 +153,11 @@ export class EventPage implements IPage {
       const eventId = id.slice(4);
       const event = await this.pdfService.getEvent(eventId);
       if (event && event.groups.length > 0) {
-        sessionStorage.setItem('pdf-event-detail', JSON.stringify({
+        await this.sessionStore.initialize();
+        await this.sessionStore.write('pdf-event-detail', {
           eventId: event.id,
           groupId: event.groups[0]!.id,
-        }));
+        });
         if (this.onNavigate) {
           this.onNavigate('event/detail', { source: 'pdf', title: event.title });
         }

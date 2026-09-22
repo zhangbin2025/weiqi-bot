@@ -19,23 +19,12 @@ export class SessionPageCache implements IPageCache {
 
   /** 从 sessionStorage 恢复缓存到内存（需在页面初始化时调用） */
   async init(): Promise<void> {
-    // 直接遍历 sessionStorage，恢复 event-detail-* 相关的缓存
-    const namespace = 'weiqi-bot';
-    const prefix = `${namespace}:event-detail-`;
-    for (let i = 0; i < sessionStorage.length; i++) {
-      const fullKey = sessionStorage.key(i);
-      if (fullKey && fullKey.startsWith(prefix)) {
-        const key = fullKey.substring(namespace.length + 1); // 去掉 "weiqi-bot:" 前缀
-        const raw = sessionStorage.getItem(fullKey);
-        if (raw) {
-          try {
-            // SessionStorageAdapter 写入时做了 JSON.stringify，需要 parse 取出原始字符串
-            const parsed = JSON.parse(raw);
-            this.cache.set(key, typeof parsed === 'string' ? parsed : raw);
-          } catch {
-            this.cache.set(key, raw);
-          }
-        }
+    // 通过封装的 SessionStorageService 恢复 event-detail-* 相关的缓存
+    const keys = await this.sessionService.listKeys('event-detail-*');
+    for (const key of keys) {
+      const value = await this.sessionService.get<string>(key);
+      if (value !== null && value !== undefined) {
+        this.cache.set(key, String(value));
       }
     }
   }
@@ -48,7 +37,7 @@ export class SessionPageCache implements IPageCache {
   }
 
   /**
-   * 设置缓存（同步写入内存，异步保存到 sessionStorage）
+   * 设置缓存（同步写入内存，异步保存到 session storage）
    */
   set(key: string, value: string): void {
     this.cache.set(key, value);
@@ -57,7 +46,7 @@ export class SessionPageCache implements IPageCache {
   }
 
   /**
-   * 删除缓存（同步删除内存，异步删除 sessionStorage）
+   * 删除缓存（同步删除内存，异步删除 session storage）
    */
   remove(key: string): void {
     this.cache.delete(key);

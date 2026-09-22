@@ -6,6 +6,7 @@
 
 import { BoardCanvasRenderer } from '../shared/print/BoardCanvasRenderer';
 import { PrintManager } from '../shared/print/PrintManager';
+import { SessionStorageAdapter } from '../../../infrastructure/storage/adapters/web/SessionStorageAdapter';
 
 interface PrintPosition {
   stones: Array<{ x: number; y: number; color: 'black' | 'white' }>;
@@ -31,19 +32,22 @@ declare global {
   }
 }
 
-function loadData(): PrintPosition | null {
+const sessionStore = new SessionStorageAdapter('weiqi-bot');
+
+async function loadData(): Promise<PrintPosition | null> {
   try {
-    const raw = sessionStorage.getItem('replay-print-data');
-    if (!raw) return null;
-    return JSON.parse(raw) as PrintPosition;
+    await sessionStore.initialize();
+    const data = await sessionStore.read<PrintPosition>('replay-print-data');
+    return data;
   } catch {
     return null;
   }
 }
 
-function getSourceUrl(): string | null {
+async function getSourceUrl(): Promise<string | null> {
   try {
-    return sessionStorage.getItem('replay-print-source-url');
+    await sessionStore.initialize();
+    return await sessionStore.read<string>('replay-print-source-url');
   } catch {
     return null;
   }
@@ -125,8 +129,7 @@ function renderGrid(data: PrintPosition, rows: number, cols: number): void {
   }
 }
 
-function main(): void {
-  const data = loadData();
+async function main(): Promise<void> {
   if (!data) {
     const container = document.getElementById('thumbnails');
     if (container) {
@@ -139,7 +142,7 @@ function main(): void {
   renderPrintHeader(data);
 
   // 生成二维码（sourceUrl 已在 replay 页面异步查好存入 sessionStorage）
-  const sourceUrl = getSourceUrl();
+  const sourceUrl = await getSourceUrl();
   if (sourceUrl) {
     renderQRCode(sourceUrl);
   } else {
@@ -180,4 +183,4 @@ function main(): void {
   });
 }
 
-main();
+main().catch(console.error);

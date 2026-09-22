@@ -4,6 +4,7 @@
  * @module presentation/core/helpers/ReplayHelper
  */
 import type { ReplayData, ReplayNode } from '../../../domain/sgf';
+import { LocalStorageAdapter } from '../../../infrastructure/storage/adapters/web/LocalStorageAdapter';
 /** SGF 解析结果 */
 export interface SGFParseResult {
   tree: SGFNode;
@@ -266,33 +267,33 @@ export class ReplayHelper {
    * @param data - Replay 数据
    * @returns localStorage key
    */
-  static saveToLocalStorage(data: ReplayData): string {
+  static async saveToLocalStorage(data: ReplayData): Promise<string> {
+    const adapter = new LocalStorageAdapter('weiqi-bot');
+    await adapter.initialize();
     const key = `${ReplayHelper.STORAGE_PREFIX}${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    localStorage.setItem(key, JSON.stringify(data));
+    await adapter.write(key, data);
     // 清理过期数据（超过 1 小时）
-    ReplayHelper.cleanExpiredData();
+    await ReplayHelper.cleanExpiredData();
     return key;
   }
   /**
    * 清理过期的 localStorage 数据
    */
-  static cleanExpiredData(): void {
+  static async cleanExpiredData(): Promise<void> {
+    const adapter = new LocalStorageAdapter('weiqi-bot');
+    await adapter.initialize();
     const now = Date.now();
     const maxAge = 60 * 60 * 1000; // 1 小时
-    const keysToRemove: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith(ReplayHelper.STORAGE_PREFIX)) {
-        const parts = key.split('_');
-        if (parts.length >= 2) {
-          const timestamp = parseInt(parts[1]!);
-          if (!isNaN(timestamp) && (now - timestamp) > maxAge) {
-            keysToRemove.push(key);
-          }
+    const keys = await adapter.listKeys(`${ReplayHelper.STORAGE_PREFIX}*`);
+    for (const key of keys) {
+      const parts = key.split('_');
+      if (parts.length >= 2) {
+        const timestamp = parseInt(parts[1]!);
+        if (!isNaN(timestamp) && (now - timestamp) > maxAge) {
+          await adapter.delete(key);
         }
       }
     }
-    keysToRemove.forEach(key => localStorage.removeItem(key));
   }
   private static readonly STORAGE_PREFIX = 'replay_';
 }

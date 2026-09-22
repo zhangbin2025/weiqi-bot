@@ -373,7 +373,7 @@ export class HMPlayService implements IHMPlayService {
     }
     
     // 清除草稿（对局结束）
-    this.draftManager.clear();
+    await this.draftManager.clear();
     this.notifier.notifyGameEnd(finalWinner ?? 'black', finalReason);
   }
 
@@ -415,21 +415,21 @@ export class HMPlayService implements IHMPlayService {
       updatedAt: Date.now(),
     };
     
-    this.draftManager.save(draft);
+    await this.draftManager.save(draft);
   }
 
   /**
    * 加载草稿
    */
   async loadDraft(): Promise<HMPlayDraft | null> {
-    return this.draftManager.load();
+    return await this.draftManager.load();
   }
 
   /**
    * 清除草稿
    */
   async clearDraft(): Promise<void> {
-    this.draftManager.clear();
+    await this.draftManager.clear();
   }
 
   /**

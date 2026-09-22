@@ -11,6 +11,7 @@ import { GroupSelector } from '../../../../../domain/ranking/GroupSelector';
 import { RankingCalculator } from '../../../../../domain/ranking/RankingCalculator';
 import { PdfEventService } from '../../../../../services/event/PdfEventService';
 import { EventDetailRenderer } from './EventDetailRenderer';
+import { SessionStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/SessionStorageAdapter';
 
 export interface EventDetailPageConfig {
   eventQuerier: EventQuerier;
@@ -44,6 +45,7 @@ export class EventDetailPage implements IPage {
   private init = false; private renderer: EventDetailRenderer;
   private rankingMode: RankingMode = 'default';
   private pdfService = new PdfEventService();
+  private readonly sessionStore = new SessionStorageAdapter('weiqi-bot');
 
   /** PDF 模式：pdfGroupId → 数字 id 映射 */
   private pdfGroupMap = new Map<number, string>();
@@ -67,7 +69,7 @@ export class EventDetailPage implements IPage {
 
   async initialize(): Promise<void> {
     if (this.init) return;
-    this.renderer.initialize(); this.renderer.bindActions();
+    await this.renderer.initialize(); this.renderer.bindActions();
     await this.pdfService.init();
     this.init = true;
   }
@@ -86,14 +88,15 @@ export class EventDetailPage implements IPage {
   }
 
   private async loadPdfData(): Promise<void> {
-    const raw = sessionStorage.getItem('pdf-event-detail');
+    await this.sessionStore.initialize();
+    const raw = await this.sessionStore.read<string>('pdf-event-detail');
     if (!raw) {
       this.renderer.renderError('缺少导入数据，请返回重新操作');
       return;
     }
 
     try {
-      const ref: PdfEventDetailRef = JSON.parse(raw);
+      const ref = raw as unknown as PdfEventDetailRef;
       const event = await this.pdfService.getEvent(ref.eventId);
       if (!event) {
         this.renderer.renderError('导入数据已丢失，请重新导入');

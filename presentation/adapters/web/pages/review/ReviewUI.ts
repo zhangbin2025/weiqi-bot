@@ -8,6 +8,7 @@ import { ModelSelector } from '../../components/ModelSelector';
 import { DefaultModelService } from '../../../../../services/model';
 import { WebToast } from '../../components/Toast';
 import type { ModelConfig } from '../../../../../services/model/types';
+import { LocalStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/LocalStorageAdapter';
 
 /** 将任意值 HTML escape 后嵌入 attribute */
 export function attrEscape(s: string): string {
@@ -68,6 +69,7 @@ export class ReviewUI {
   private configVisits = 15;  // 默认分析局面用
   private modelManager: any = null;  // ModelManagementService 引用
   private readonly CONFIG_KEY = 'review-config';
+  private readonly configStorage = new LocalStorageAdapter('weiqi-bot');
 
   // 音效
   private soundEnabled = true;
@@ -618,10 +620,10 @@ export class ReviewUI {
 
   async loadConfig(): Promise<void> {
     try {
-      const saved = localStorage.getItem(this.CONFIG_KEY);
+      await this.configStorage.initialize();
+      const saved = await this.configStorage.read<{ visits: number }>(this.CONFIG_KEY);
       if (saved) {
-        const config = JSON.parse(saved);
-        this.configVisits = config.visits ?? 15;
+        this.configVisits = saved.visits ?? 15;
       }
     } catch (error) {
       console.error('加载配置失败', error as Error | undefined);
@@ -642,7 +644,8 @@ export class ReviewUI {
       const config = {
         visits: this.configVisits,
       };
-      localStorage.setItem(this.CONFIG_KEY, JSON.stringify(config));
+      await this.configStorage.initialize();
+      await this.configStorage.write(this.CONFIG_KEY, config);
     } catch (error) {
       console.error('保存配置失败', error as Error | undefined);
     }

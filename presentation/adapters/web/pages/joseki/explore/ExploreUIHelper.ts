@@ -2,6 +2,7 @@
  * 定式探索 UI 辅助工具
  * @description 处理统计更新、格式化、弹窗显示
  */
+import { LocalStorageAdapter } from '../../../../../../infrastructure/storage/adapters/web/LocalStorageAdapter';
 /** 胜率统计 */
 export interface WinrateStats {
   delta: number;
@@ -66,11 +67,19 @@ export class ExploreUIHelper {
     }, 800);
   }
   /** 检查并显示脱先提示（首次） */
-  checkPassHint(getPassMarkPosition: () => { x: number; y: number } | null): void {
+  async checkPassHint(getPassMarkPosition: () => { x: number; y: number } | null): Promise<void> {
     const passMark = getPassMarkPosition();
     if (!passMark) return;
-    if (localStorage.getItem('joseki_pass_hinted')) return;
-    localStorage.setItem('joseki_pass_hinted', 'true');
+    let hinted = false;
+    try {
+      const adapter = new LocalStorageAdapter('weiqi-bot');
+      await adapter.initialize();
+      hinted = (await adapter.exists('joseki_pass_hinted'));
+      if (hinted) return;
+      await adapter.write('joseki_pass_hinted', 'true');
+    } catch {
+      // 存储不可用时直接展示提示
+    }
     const hint = document.getElementById('pass-hint');
     if (!hint) return;
     hint.style.position = 'fixed';

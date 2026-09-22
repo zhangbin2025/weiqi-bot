@@ -106,7 +106,7 @@ export class LiveModeManager {
     console.info('[LiveModeManager] 进入直播模式', { url: liveUrl });
 
     // 尝试从缓存恢复
-    const cachedArchiveId = loadLiveArchiveId(liveUrl);
+    const cachedArchiveId = await loadLiveArchiveId(liveUrl);
     if (cachedArchiveId) {
       console.info('[LiveModeManager] 从缓存恢复:', cachedArchiveId);
       this.previousArchiveId = cachedArchiveId;
@@ -164,7 +164,7 @@ export class LiveModeManager {
       // 分析成功才保存缓存
       const currentArchiveId = this.analysis.getCurrentArchiveId();
       if (currentArchiveId) {
-        saveLiveArchiveId(liveUrl, currentArchiveId);
+        await saveLiveArchiveId(liveUrl, currentArchiveId);
         this.previousArchiveId = currentArchiveId;
       }
     } catch (error) {
@@ -411,7 +411,7 @@ export class LiveModeManager {
 
       // 更新缓存
       if (this.liveUrl) {
-        saveLiveArchiveId(this.liveUrl, result.archiveId);
+        await saveLiveArchiveId(this.liveUrl, result.archiveId);
       }
 
       // 棋局结束后处理：着法已更新到棋盘，现在停止刷新

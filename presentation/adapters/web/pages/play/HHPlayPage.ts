@@ -11,7 +11,7 @@ import type { PlayerColor, Position } from '../../../../core/types';
 import type { HHPlayDraft } from '../../../../../services/play/hh/DraftTypes';
 import { HHDialogRenderer } from './HHDialogRenderer';
 import { renderHHState, renderStatus, updateButtons, type HHRenderState } from './HHPlayRenderer';
-import { HHRoomController, generateRandomName, getPlayerNameCache, setPlayerNameCache } from './controllers/HHRoomController';
+import { HHRoomController, generateRandomName, getPlayerNameCache, setPlayerNameCache, initPlayerNameCache } from './controllers/HHRoomController';
 import { HHGameController } from './controllers/HHGameController';
 import { HHOpponentHandler } from './controllers/HHOpponentHandler';
 import { HHDraftController } from './controllers/HHDraftController';
@@ -94,6 +94,7 @@ export class HHPlayPage implements IPage {
   }
   async initialize(): Promise<void> {
     if (this.initialized) return;
+    await initPlayerNameCache();
     this.board.initialize({ size: 19, showCoordinates: true });
     this.board.on({
       onClick: (pos: Position) => this.handleMove(pos),
@@ -155,7 +156,7 @@ export class HHPlayPage implements IPage {
   // ========== 房间操作 ==========
   private async handleCreateRoom(name: string, color: 'black' | 'white' | 'random', handicap: number, timeLimit: number): Promise<void> {
     this.myName = name;
-    setPlayerNameCache(name);
+    await setPlayerNameCache(name);
     this.showLoadingOverlay('创建房间中...');
     try {
       const roomInfo = await this.roomController.createRoom({ name, color, handicap, timeLimit });
@@ -183,6 +184,7 @@ export class HHPlayPage implements IPage {
     try {
       const result = await this.roomController.joinRoom(id || '', playerName);
       this.myName = playerName;
+    await setPlayerNameCache(playerName);
       this.hideLoadingOverlay();
       if (result.roomInfo) {
         this.showJoinConfirmDialog(result.roomInfo, id || '');

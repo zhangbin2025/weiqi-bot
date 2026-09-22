@@ -11,6 +11,7 @@ import type { StorageBrowserService } from '../../services/storage/StorageBrowse
 import type { PerformanceBrowserService } from '../../services/performance/PerformanceBrowserService';
 import type { IDialog } from '../../presentation/core/interfaces/IDialog';
 import { DEFAULT_REMOTE_BASE, buildRemoteUrl } from '../../infrastructure/network/core/ServerConfig';
+import { LocalStorageAdapter } from '../../infrastructure/storage/adapters/web/LocalStorageAdapter';
 
 /**
  * 命令处理器配置
@@ -46,6 +47,7 @@ export class CommandHandler {
   private storageBrowserService: StorageBrowserService | undefined;
   private performanceBrowserService: PerformanceBrowserService | undefined;
   private dialog: IDialog | undefined;
+  private katagoDebugStorage = new LocalStorageAdapter('weiqi-bot');
 
   constructor(config: CommandHandlerConfig) {
     this.messageRenderer = config.messageRenderer;
@@ -804,10 +806,10 @@ export class CommandHandler {
     const action = args[0]?.toLowerCase();
     
     if (action === 'on') {
-      localStorage.setItem('KATAGO_DEBUG', 'true');
+      await this.katagoDebugStorage.initialize(); await this.katagoDebugStorage.write('KATAGO_DEBUG', 'true');
       await this.renderMessage('🐛 调试模式已开启\n\nKatago Worker 日志将被记录，可在调试页面查看');
     } else if (action === 'off') {
-      localStorage.setItem('KATAGO_DEBUG', 'false');
+      await this.katagoDebugStorage.initialize(); await this.katagoDebugStorage.write('KATAGO_DEBUG', 'false');
       await this.renderMessage('🐛 调试模式已关闭');
     } else {
       // 默认：显示消息并倒计时跳转

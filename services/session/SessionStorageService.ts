@@ -43,6 +43,10 @@ export class SessionStorageService implements ISessionStorageService {
     return await this.storage.exists(key);
   }
 
+  async listKeys(pattern?: string): Promise<string[]> {
+    return await this.storage.listKeys(pattern);
+  }
+
   async clear(): Promise<void> {
     await this.storage.clear();
   }
