@@ -6,7 +6,6 @@ import { ReplayApp } from '../ReplayApp';
 import type { IExportService, ExportResult } from '../../../services/export';
 import type { IAudioPlayer, SoundType } from '../../../infrastructure/audio';
 import type { IGameService } from '../../../services/game/IGameService';
-import type { ILogger } from '../../../infrastructure/logger/types';
 // Mock factories
 const createMockExportService = (): IExportService => ({
   exportSGF: vi.fn(),
@@ -21,18 +20,6 @@ const createMockAudioPlayer = (): IAudioPlayer => ({
   getVolume: vi.fn(),
 });
 
-const createMockLogger = () => ({
-  debug: vi.fn(),
-  info: vi.fn(),
-  warn: vi.fn(),
-  error: vi.fn(),
-  withContext: vi.fn(),
-  setLevel: vi.fn(),
-  enable: vi.fn(),
-  disable: vi.fn(),
-  getConfig: vi.fn(),
-  name: 'test-logger',
-});
 const createMockGameService = (): IGameService => ({
   fetch: vi.fn(),
   fetchMany: vi.fn(),
@@ -48,7 +35,6 @@ const validSGF = `(;GM[1]FF[4]SZ[19]PB[Black]PW[White]RE[B+R];B[pd];W[dd])`;
 describe('ReplayApp', () => {
   let mockExportService: IExportService;
   let mockAudioPlayer: IAudioPlayer;
-  let mockLogger: ILogger;
   let mockGameService: IGameService;
   let replayApp: ReplayApp;
   beforeEach(() => {

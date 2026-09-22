@@ -6,15 +6,8 @@ import { ProgressTracker } from '../ProgressTracker';
 import type { IProgressEvent } from '../types';
 describe('ProgressTracker', () => {
   let tracker: ProgressTracker;
-  let mockLogger: { debug: ReturnType<typeof vi.fn>; info: ReturnType<typeof vi.fn>; warn: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
   beforeEach(() => {
-    mockLogger = {
-      debug: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
-      error: vi.fn(),
-    };
-    tracker = new ProgressTracker(mockLogger);
+    tracker = new ProgressTracker();
   });
   describe('report - 记录进度', () => {
     it('应记录进度事件', () => {

@@ -120,7 +120,6 @@ async function main() {
   // 8. 创建页面
   const page = new JosekiQuizPage({
     quizApp,
-    logger: ctx.logger,
     audioPlayer,
   });
 

@@ -1,21 +1,17 @@
 // FunctionRegistry.ts - 函数注册表
 import type { AIFunction, ExecutionContext, FunctionDefinition } from './types';
-import type { ILogger } from '../../infrastructure/logger/types';
 /**
  * 函数注册表
  * 管理所有可被 AI 调用的函数
  */
 export class FunctionRegistry {
   private functions: Map<string, AIFunction> = new Map();
-  constructor(logger: ILogger) {
-    this.logger = logger;
-  }
   /**
    * 注册单个函数
    */
   register(fn: AIFunction): void {
     if (this.functions.has(fn.name)) {
-      this.logger.warn(`Function "${fn.name}" already registered, overwriting`);
+      console.warn(`Function "${fn.name}" already registered, overwriting`);
     }
     this.functions.set(fn.name, fn);
   }

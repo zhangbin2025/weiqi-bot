@@ -54,7 +54,7 @@ export const analysisFunctions: AIFunction[] = [
       visits: { type: 'number', description: 'AI计算量', default: 100 },
     },
     execute: async (params, context) => {
-      context?.logger?.info('Starting review', { sgf: params.sgf?.substring(0, 50) });
+      console.info('Starting review', { sgf: params.sgf?.substring(0, 50) });
       context?.ui?.openPage('/review', { sgf: params.sgf, visits: params.visits ?? 100 });
       return { success: true, page: '/review' };
     },

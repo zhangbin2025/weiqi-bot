@@ -35,7 +35,7 @@ export const josekiFunctions: AIFunction[] = [
       count: { type: 'number', description: '题目数量', default: 10 },
     },
     execute: async (params, context) => {
-      context?.logger?.info('Starting joseki quiz', { source: params.source, count: params.count });
+      console.info('Starting joseki quiz', { source: params.source, count: params.count });
       context?.ui?.openPage('/joseki/quiz', { source: params.source, count: params.count ?? 10 });
       return { success: true, page: '/joseki/quiz' };
     },
@@ -49,7 +49,7 @@ export const josekiFunctions: AIFunction[] = [
       date: { type: 'string', description: '日期（今天/昨天）' },
     },
     execute: async (params, context) => {
-      context?.logger?.info('Discovering joseki', params);
+      console.info('Discovering joseki', params);
       context?.ui?.openPage('/joseki/discover', params);
       return { success: true, page: '/joseki/discover' };
     },

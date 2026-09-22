@@ -50,20 +50,6 @@ const createMockExportService = (): IExportService => ({
   exportJSON: vi.fn(),
 });
 
-const createMockLogger = (): ILogger => ({
-  debug: vi.fn(),
-  info: vi.fn(),
-  warn: vi.fn(),
-  error: vi.fn(),
-  withContext: vi.fn(),
-  setLevel: vi.fn(),
-  enable: vi.fn(),
-  disable: vi.fn(),
-  getConfig: vi.fn(),
-  name: 'test-logger',
-});
-
-import type { ILogger } from '../../../infrastructure/logger/types';
 // Sample mock board
 const createMockBoard = () => ({
   size: 19,
@@ -89,7 +75,6 @@ describe('RecorderApp', () => {
   let mockGameService: IGameService;
   let mockFavoriteService: IFavoriteService;
   let mockExportService: IExportService;
-  let mockLogger: ILogger;
   let mockHistoryManager: RecorderHistoryManager;
   beforeEach(() => {
     vi.clearAllMocks();

@@ -61,7 +61,6 @@ async function main() {
   // 8. 创建页面
   const page = new FetcherPage({
     fetcherApp,
-    logger: ctx.logger,
     adapterFactory: ctx.adapterFactory,
     sessionService,
     onNavigate: (pageId, params) => {

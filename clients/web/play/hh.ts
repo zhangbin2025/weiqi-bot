@@ -105,7 +105,6 @@ async function main() {
   // 7. 创建页面
   const page = new HHPlayPage({
     hhPlayApp,
-    logger: ctx.logger,
     onNavigate: (pageId: string) => {
       if (pageId === 'home') {
         window.location.replace(getWebRoot() + 'index.html');

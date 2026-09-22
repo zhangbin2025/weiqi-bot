@@ -86,7 +86,6 @@ async function main() {
   // 9. 创建 MMPlayPage
   const page = new MMPlayPage({
     mmPlayApp,
-    logger: ctx.logger,
     kataGoEngine,
     historyManager,
     modelManager,

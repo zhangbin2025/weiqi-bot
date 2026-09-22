@@ -21,7 +21,7 @@ async function main() {
   const urlParams = Object.fromEntries(new URLSearchParams(window.location.search).entries());
 
   const page = new EventListPage({
-    eventQuerier: querier, logger: ctx.logger,
+    eventQuerier: querier,
     adapterFactory: ctx.adapterFactory, formatter,
     pageCache: new SessionPageCache(ctx.sessionStorageService),
     onNavigate: (dest, params) => {

@@ -2,12 +2,10 @@
 import { FunctionRegistry } from './FunctionRegistry';
 import { ProgressTracker } from './ProgressTracker';
 import type { IAITask, IProgressEvent } from './types';
-import type { ILogger } from '../../infrastructure/logger/types';
 /** 任务编排器配置 */
 export interface TaskOrchestratorConfig {
   registry: FunctionRegistry;
   progressTracker?: ProgressTracker;
-  logger: ILogger;
 }
 /**
  * 任务编排器
@@ -17,7 +15,6 @@ export class TaskOrchestrator {
   private tasks: Map<string, IAITask> = new Map();
   private progressTracker: ProgressTracker;
   private registry: FunctionRegistry;
-  private logger: ILogger;
   private onTaskComplete?: (task: IAITask) => void;
   private onTaskFailed?: (task: IAITask, error: Error) => void;
   private onProgress?: (event: IProgressEvent) => void;
@@ -25,7 +22,6 @@ export class TaskOrchestrator {
   constructor(config: TaskOrchestratorConfig) {
     this.registry = config.registry;
     this.progressTracker = config.progressTracker ?? new ProgressTracker();
-    this.logger = config.logger;
   }
   setOnTaskComplete(callback: (task: IAITask) => void): void {
     this.onTaskComplete = callback;
@@ -44,20 +40,19 @@ export class TaskOrchestrator {
       const result = await this.registry.execute(intent, params, {
         userId,
         taskId: task.id,
-        logger: this.logger,
         onProgress: (p: number, msg: string) => this.updateProgress(task.id, p, msg),
       } as any);
       task.status = 'completed';
       task.result = result;
       task.completedAt = Date.now();
-      this.logger.info(`Task completed: ${task.id}`);
+      console.info(`Task completed: ${task.id}`);
       this.onTaskComplete?.(task);
       return result;
     } catch (error) {
       task.status = 'failed';
       task.error = String(error);
       task.completedAt = Date.now();
-      this.logger.error(`Task failed: ${task.id}`, error as Error);
+      console.error(`Task failed: ${task.id}`, error as Error);
       this.onTaskFailed?.(task, error as Error);
       throw error;
     }
@@ -65,7 +60,7 @@ export class TaskOrchestrator {
   executeLongRunning(intent: string, params: any, userId: string, notifyOnComplete = false): IAITask {
     const task = this.createTask('long-running', intent, params, userId);
     task.notifyOnComplete = notifyOnComplete;
-    this.logger.info(`Starting long task: ${task.id}`);
+    console.info(`Starting long task: ${task.id}`);
     this.runLongTask(task).catch(() => { /* handled in runLongTask */ });
     return task;
   }
@@ -76,7 +71,7 @@ export class TaskOrchestrator {
     }
     task.status = 'cancelled';
     task.completedAt = Date.now();
-    this.logger.info(`Task cancelled: ${taskId}`);
+    console.info(`Task cancelled: ${taskId}`);
     return true;
   }
   getTask(taskId: string): IAITask | undefined {
@@ -121,7 +116,6 @@ export class TaskOrchestrator {
       const result = await this.registry.execute(task.intent, task.params, {
         userId: task.userId,
         taskId: task.id,
-        logger: this.logger,
         onProgress: (p: number, msg: string) => this.updateProgress(task.id, p, msg),
       } as any);
       if ((task.status as string) === 'cancelled') return;

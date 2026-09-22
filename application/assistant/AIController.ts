@@ -4,13 +4,11 @@ import { FunctionRegistry } from './FunctionRegistry';
 import { IntentProcessor } from './IntentProcessor';
 import { TaskOrchestrator } from './TaskOrchestrator';
 import type { AIResponse, UserIntent } from './types';
-import type { ILogger } from '../../infrastructure/logger/types';
 /** AI 控制器配置 */
 export interface AIControllerConfig {
   llmClient: ILLMClient;
   registry: FunctionRegistry;
   orchestrator: TaskOrchestrator;
-  logger: ILogger;
 }
 /**
  * AI 控制器
@@ -20,13 +18,11 @@ export class AIController {
   private registry: FunctionRegistry;
   private intentProcessor: IntentProcessor;
   private orchestrator: TaskOrchestrator;
-  private logger: ILogger;
 
   constructor(config: AIControllerConfig) {
     this.registry = config.registry;
     this.orchestrator = config.orchestrator;
-    this.logger = config.logger;
-    this.intentProcessor = new IntentProcessor(config.llmClient, this.logger);
+    this.intentProcessor = new IntentProcessor(config.llmClient);
   }
   /**
    * 对话处理

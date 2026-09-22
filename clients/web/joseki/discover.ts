@@ -66,7 +66,6 @@ async function main() {
   // 7. 创建页面
   const page = new JosekiDiscoverPage({
     discoverApp,
-    logger: ctx.logger,
     onNavigate: (pageId, params) => {
       if (pageId === 'joseki/list') {
         window.location.href = `list.html?${new URLSearchParams(params).toString()}`;

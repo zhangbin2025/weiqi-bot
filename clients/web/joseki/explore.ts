@@ -94,7 +94,7 @@ async function main() {
   // 5. 创建已读标记服务
   const storage = new LocalStorageAdapter('weiqi-joseki');
   await storage.initialize();
-  const readMarkService = new ReadMarkService(storage, ctx.logger);
+  const readMarkService = new ReadMarkService(storage);
 
   // 6. 创建音效播放器
   const audioPlayer = new WebAudioPlayer();
@@ -110,7 +110,6 @@ async function main() {
     exploreApp,
     readMarkService,
     sessionService,
-    logger: ctx.logger,
     onNavigate: (pageId, params) => {
       if (pageId === 'joseki/list') {
         window.location.href = `list.html?${new URLSearchParams(params).toString()}`;

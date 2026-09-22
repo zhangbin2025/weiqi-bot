@@ -6,16 +6,7 @@ import { TaskOrchestrator } from '../TaskOrchestrator';
 import { FunctionRegistry } from '../FunctionRegistry';
 import { ProgressTracker } from '../ProgressTracker';
 import type { AIFunction } from '../types';
-import type { ILogger } from '../../../infrastructure/logger/types';
 
-const createMockLogger = (): ILogger => ({
-  debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(),
-  withContext: vi.fn().mockReturnThis(), setLevel: vi.fn(),
-  enable: vi.fn(), disable: vi.fn(), getConfig: vi.fn().mockReturnValue({}),
-  name: 'test-logger',
-});
-
-const logger = createMockLogger();
 describe('TaskOrchestrator', () => {
   let registry: FunctionRegistry;
   let progressTracker: ProgressTracker;
@@ -47,10 +38,10 @@ describe('TaskOrchestrator', () => {
     execute: vi.fn().mockRejectedValue(new Error('任务执行失败')),
   };
   beforeEach(() => {
-    registry = new FunctionRegistry(logger);
+    registry = new FunctionRegistry();
     registry.registerAll([immediateFunction, longRunningFunction, failingFunction]);
-    progressTracker = new ProgressTracker(logger);
-    orchestrator = new TaskOrchestrator({ registry, progressTracker, logger });
+    progressTracker = new ProgressTracker();
+    orchestrator = new TaskOrchestrator({ registry, progressTracker });
     vi.useFakeTimers();
   });
   afterEach(() => {
@@ -81,7 +72,7 @@ describe('TaskOrchestrator', () => {
       const task = orchestrator.getUserTasks('user-1')[0];
       expect(task.status).toBe('failed');
       expect(task.error).toContain('任务执行失败');
-      expect(logger.error).toHaveBeenCalledWith(
+      expect(console.error).toHaveBeenCalledWith(
         expect.stringContaining('Task failed'),
         expect.any(Error)
       );
@@ -114,7 +105,7 @@ describe('TaskOrchestrator', () => {
     });
     it('长时任务应记录启动日志', () => {
       orchestrator.executeLongRunning('long_running_task', {}, 'user-1');
-      expect(logger.info).toHaveBeenCalledWith(
+      expect(console.info).toHaveBeenCalledWith(
         expect.stringContaining('Starting long task')
       );
     });
@@ -139,7 +130,7 @@ describe('TaskOrchestrator', () => {
     it('取消任务应记录日志', async () => {
       const task = orchestrator.executeLongRunning('long_running_task', {}, 'user-1');
       orchestrator.cancelTask(task.id);
-      expect(logger.info).toHaveBeenCalledWith(
+      expect(console.info).toHaveBeenCalledWith(
         expect.stringContaining('Task cancelled')
       );
     });
@@ -175,7 +166,7 @@ describe('TaskOrchestrator', () => {
       expect(orchestrator.getProgressTracker()).toBe(progressTracker);
     });
     it('未提供时应创建默认跟踪器', () => {
-      const newOrchestrator = new TaskOrchestrator({ registry, logger });
+      const newOrchestrator = new TaskOrchestrator({ registry });
       expect(newOrchestrator.getProgressTracker()).toBeInstanceOf(ProgressTracker);
     });
   });

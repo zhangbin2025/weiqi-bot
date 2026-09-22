@@ -18,7 +18,6 @@ async function main() {
 
   const page = new PlayerPage({
     playerQuerier: querier,
-    logger: ctx.logger,
     adapterFactory: ctx.adapterFactory,
     formatter,
   });

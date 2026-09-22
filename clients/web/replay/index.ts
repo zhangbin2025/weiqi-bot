@@ -72,7 +72,6 @@ async function main() {
 
   const page = new ReplayPage({
     replayApp,
-    logger: ctx.logger,
     onNavigate: (pageId: string) => {
       if (pageId === 'home') {
         window.location.replace('../index.html');

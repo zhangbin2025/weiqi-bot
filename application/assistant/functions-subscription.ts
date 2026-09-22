@@ -35,7 +35,7 @@ export const subscriptionFunctions: AIFunction[] = [
       keyword: { type: 'string', description: '赛事关键词', required: true },
     },
     execute: async (params, context) => {
-      context?.logger?.info('Subscribing event', { keyword: params.keyword });
+      console.info('Subscribing event', { keyword: params.keyword });
       const events = await context?.services.event?.search(params.keyword);
       if (events?.total) {
         context?.notification?.notify(`找到 ${events.total} 个相关赛事`);
@@ -50,7 +50,7 @@ export const subscriptionFunctions: AIFunction[] = [
       mode: { type: 'string', enum: ['live', 'offline'], description: '记谱模式', default: 'offline' },
     },
     execute: async (params, context) => {
-      context?.logger?.info('Starting recorder', { mode: params.mode });
+      console.info('Starting recorder', { mode: params.mode });
       context?.ui?.openPage('/recorder', { mode: params.mode ?? 'offline' });
       return { success: true, page: '/recorder' };
     },

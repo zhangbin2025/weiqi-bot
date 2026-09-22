@@ -50,7 +50,6 @@ export interface FunctionParameter {
 export interface ExecutionContext {
   userId: string;
   taskId?: string;
-    // 新增：日志记录器
   onProgress?: (progress: number, message: string) => void;
   services: {
     player: IPlayerService;

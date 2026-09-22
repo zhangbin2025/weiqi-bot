@@ -4,23 +4,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { FunctionRegistry } from '../FunctionRegistry';
 import type { AIFunction, ExecutionContext } from '../types';
-import type { ILogger } from '../../../infrastructure/logger/types';
 
-const createMockLogger = (): ILogger => ({
-  debug: vi.fn(),
-  info: vi.fn(),
-  warn: vi.fn(),
-  error: vi.fn(),
-  withContext: vi.fn().mockReturnThis(),
-  setLevel: vi.fn(),
-  enable: vi.fn(),
-  disable: vi.fn(),
-  getConfig: vi.fn().mockReturnValue({}),
-  name: 'test-logger',
-});
-
-const logger = createMockLogger();
-const context: ExecutionContext = { userId: 'test-user', logger };
+const context: ExecutionContext = { userId: 'test-user' };
 describe('FunctionRegistry', () => {
   let registry: FunctionRegistry;
   const mockFunction: AIFunction = {
@@ -40,7 +25,7 @@ describe('FunctionRegistry', () => {
     isLongRunning: true,
   };
   beforeEach(() => {
-    registry = new FunctionRegistry(logger);
+    registry = new FunctionRegistry();
     vi.clearAllMocks();
   });
   describe('register - 注册函数', () => {
@@ -48,12 +33,14 @@ describe('FunctionRegistry', () => {
       registry.register(mockFunction);
       expect(registry.has('test_function')).toBe(true);
     });
-    it('重复注册应覆盖并调用 logger.warn', () => {
+    it('重复注册应覆盖并调用 console.warn', () => {
+      const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       registry.register(mockFunction);
       registry.register(mockFunction);
-      expect(logger.warn).toHaveBeenCalledWith(
+      expect(spy).toHaveBeenCalledWith(
         expect.stringContaining('already registered')
       );
+      spy.mockRestore();
     });
     it('批量注册应注册所有函数', () => {
       registry.registerAll([mockFunction, mockLongRunningFunction]);

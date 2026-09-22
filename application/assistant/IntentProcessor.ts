@@ -1,7 +1,6 @@
 // IntentProcessor.ts - 意图处理器
 import type { ILLMClient } from '../../infrastructure/utils/llm/types';
 import type { UserIntent, EntityDictionaries } from './types';
-import type { ILogger } from '../../infrastructure/logger/types';
 /** 默认实体词典 */
 export const DEFAULT_ENTITY_DICTS: EntityDictionaries = {
   players: [
@@ -22,7 +21,6 @@ export class IntentProcessor {
   private entityDicts: EntityDictionaries;
   constructor(
     private llmClient: ILLMClient,
-    private logger: ILogger,
     config?: { entityDictionaries?: Partial<EntityDictionaries> }
   ) {
     this.entityDicts = { ...DEFAULT_ENTITY_DICTS, ...config?.entityDictionaries };
@@ -34,10 +32,10 @@ export class IntentProcessor {
     try {
       const { intent, confidence } = await this.llmClient.classifyIntent(text);
       const entities = this.extractEntities(text);
-      this.logger.debug(`Intent: ${intent}, confidence: ${confidence}`);
+      console.debug(`Intent: ${intent}, confidence: ${confidence}`);
       return { intent, confidence, entities, rawText: text };
     } catch (error) {
-      this.logger.error('Intent processing failed', error as Error);
+      console.error('Intent processing failed', error as Error);
       return { intent: 'unknown', confidence: 0, entities: {}, rawText: text };
     }
   }
@@ -54,7 +52,7 @@ export class IntentProcessor {
   addPlayer(name: string): void {
     if (!this.entityDicts.players.includes(name)) {
       this.entityDicts.players.push(name);
-      this.logger.info(`Player added: ${name}`);
+      console.info(`Player added: ${name}`);
     }
   }
   /**

@@ -8,16 +8,7 @@ import { TaskOrchestrator } from '../TaskOrchestrator';
 import { ProgressTracker } from '../ProgressTracker';
 import type { ILLMClient, IntentResult } from '../../../infrastructure/utils/llm/types';
 import type { AIFunction } from '../types';
-import type { ILogger } from '../../../infrastructure/logger/types';
 
-const createMockLogger = (): ILogger => ({
-  debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(),
-  withContext: vi.fn().mockReturnThis(), setLevel: vi.fn(),
-  enable: vi.fn(), disable: vi.fn(), getConfig: vi.fn().mockReturnValue({}),
-  name: 'test-logger',
-});
-
-const logger = createMockLogger();
 describe('AIController', () => {
   let mockLLMClient: ILLMClient;
   let registry: FunctionRegistry;
@@ -40,7 +31,7 @@ describe('AIController', () => {
       extractEntities: vi.fn(),
       isAvailable: vi.fn().mockResolvedValue(true),
     };
-    registry = new FunctionRegistry(logger);
+    registry = new FunctionRegistry();
     const testFunctions: AIFunction[] = [
       {
         name: 'download_game',
@@ -69,13 +60,12 @@ describe('AIController', () => {
       },
     ];
     registry.registerAll(testFunctions);
-    const progressTracker = new ProgressTracker(logger);
-    orchestrator = new TaskOrchestrator({ registry, progressTracker, logger });
+    const progressTracker = new ProgressTracker();
+    orchestrator = new TaskOrchestrator({ registry, progressTracker });
     controller = new AIController({
       llmClient: mockLLMClient,
       registry,
       orchestrator,
-      logger,
     });
   });
   describe('chat - 对话处理', () => {
@@ -96,7 +86,7 @@ describe('AIController', () => {
       mockLLMClient.classifyIntent = vi.fn().mockResolvedValue({
         intent: 'unknown_intent', confidence: 0.6,
       });
-      controller = new AIController({ llmClient: mockLLMClient, registry, orchestrator, logger });
+      controller = new AIController({ llmClient: mockLLMClient, registry, orchestrator });
       const response = await controller.chat('某个未知操作', 'user-1');
       expect(response.text).toContain('暂时不支持');
     });
@@ -106,7 +96,7 @@ describe('AIController', () => {
       mockLLMClient.classifyIntent = vi.fn().mockResolvedValue({
         intent: 'long_running_task', confidence: 0.9,
       });
-      controller = new AIController({ llmClient: mockLLMClient, registry, orchestrator, logger });
+      controller = new AIController({ llmClient: mockLLMClient, registry, orchestrator });
       const response = await controller.chat('执行长时间任务', 'user-1');
       expect(response.text).toContain('这可能需要几分钟');
       expect(response.action?.type).toBe('start_task');
@@ -151,7 +141,7 @@ describe('AIController', () => {
       mockLLMClient.classifyIntent = vi.fn().mockResolvedValue({
         intent: 'long_running_task', confidence: 0.9,
       });
-      controller = new AIController({ llmClient: mockLLMClient, registry, orchestrator, logger });
+      controller = new AIController({ llmClient: mockLLMClient, registry, orchestrator });
       const response = await controller.chat('执行任务', 'user-1');
       const taskId = response.action?.taskId;
       expect(taskId).toBeDefined();
@@ -171,7 +161,7 @@ describe('AIController', () => {
       mockLLMClient.classifyIntent = vi.fn().mockResolvedValue({
         intent: 'download_game', confidence: 0.4,
       });
-      controller = new AIController({ llmClient: mockLLMClient, registry, orchestrator, logger });
+      controller = new AIController({ llmClient: mockLLMClient, registry, orchestrator });
       const response = await controller.chat('某个操作', 'user-1');
       expect(response.text).toContain('不太确定');
     });
@@ -179,7 +169,7 @@ describe('AIController', () => {
       mockLLMClient.classifyIntent = vi.fn().mockResolvedValue({
         intent: 'download_game', confidence: 0.85,
       });
-      controller = new AIController({ llmClient: mockLLMClient, registry, orchestrator, logger });
+      controller = new AIController({ llmClient: mockLLMClient, registry, orchestrator });
       const response = await controller.chat('下载操作', 'user-1');
       expect(response.text).toContain('执行完成');
     });

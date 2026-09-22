@@ -19,7 +19,6 @@ async function main() {
   // 3. 创建页面
   const page = new RecorderPage({
     recorderApp,
-    logger: ctx.logger,
     onNavigate: (pageId: string) => {
       if (pageId === 'home') {
         window.location.replace('../index.html');

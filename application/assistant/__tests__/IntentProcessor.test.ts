@@ -4,16 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { IntentProcessor, DEFAULT_ENTITY_DICTS } from '../IntentProcessor';
 import type { ILLMClient, IntentResult } from '../../../infrastructure/utils/llm/types';
-import type { ILogger } from '../../../infrastructure/logger/types';
 
-const createMockLogger = (): ILogger => ({
-  debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(),
-  withContext: vi.fn().mockReturnThis(), setLevel: vi.fn(),
-  enable: vi.fn(), disable: vi.fn(), getConfig: vi.fn().mockReturnValue({}),
-  name: 'test-logger',
-});
-
-const logger = createMockLogger();
 describe('IntentProcessor', () => {
   let mockLLMClient: ILLMClient;
   let processor: IntentProcessor;
@@ -37,7 +28,7 @@ describe('IntentProcessor', () => {
       extractEntities: vi.fn(),
       isAvailable: vi.fn().mockResolvedValue(true),
     };
-    processor = new IntentProcessor(mockLLMClient, logger);
+    processor = new IntentProcessor(mockLLMClient);
   });
   describe('process - 意图处理', () => {
     it('应返回意图识别结果', async () => {
@@ -55,7 +46,7 @@ describe('IntentProcessor', () => {
       const result = await processor.process('测试文本');
       expect(result.intent).toBe('unknown');
       expect(result.confidence).toBe(0);
-      expect(logger.error).toHaveBeenCalledWith(
+      expect(console.error).toHaveBeenCalledWith(
         'Intent processing failed', expect.any(Error)
       );
     });
@@ -160,7 +151,7 @@ describe('IntentProcessor', () => {
   });
   describe('动态实体词典', () => {
     it('应支持自定义实体词典', async () => {
-      const customProcessor = new IntentProcessor(mockLLMClient, logger, {
+      const customProcessor = new IntentProcessor(mockLLMClient, {
         entityDictionaries: { players: ['自定义棋手'] },
       });
       const result = await customProcessor.process('查询自定义棋手信息');

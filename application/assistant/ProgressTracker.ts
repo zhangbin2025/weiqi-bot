@@ -7,9 +7,6 @@ import type { IProgressEvent } from './types';
 export class ProgressTracker {
   private events: Map<string, IProgressEvent[]> = new Map();
   private listeners: Map<string, Array<(event: IProgressEvent) => void>> = new Map();
-  constructor(logger: ILogger) {
-    this.logger = logger;
-  }
   /**
    * 记录进度
    */

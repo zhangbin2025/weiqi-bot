@@ -8,9 +8,6 @@ export { StorageConfigSchema } from './StorageConfigSchema';
 export type { INetworkConfig } from './NetworkConfigSchema';
 export { NetworkConfigSchema } from './NetworkConfigSchema';
 
-export type { ILoggerConfig } from './LoggerConfigSchema';
-export { LoggerConfigSchema, LogLevel, LogTransportType } from './LoggerConfigSchema';
-
 export type { IModelConfig } from './ModelConfigSchema';
 export { ModelConfigSchema } from './ModelConfigSchema';
 

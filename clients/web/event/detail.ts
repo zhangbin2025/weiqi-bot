@@ -24,7 +24,7 @@ async function main() {
   await pageCache.init(); // 从 sessionStorage 恢复缓存到内存
 
   const page = new EventDetailPage({
-    eventQuerier: querier, logger: ctx.logger,
+    eventQuerier: querier,
     adapterFactory: ctx.adapterFactory, formatter,
     pageCache,
     onNavigate: (dest) => {
