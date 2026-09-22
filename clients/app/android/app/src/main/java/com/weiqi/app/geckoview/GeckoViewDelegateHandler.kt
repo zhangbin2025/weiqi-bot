@@ -191,9 +191,8 @@ class GeckoViewDelegateHandler(
         val newSession = GeckoSession()
         callbacks.setGeckoSession(newSession)
         
-        // 重新设置代理
+        // 重新设置代理（setupDelegates 内部已包含 setupPromptDelegate，无需重复注册）
         setupDelegates(newSession)
-        setupPromptDelegate(newSession)
         
         try {
             val runtime = callbacks.getGeckoRuntime()

@@ -104,6 +104,8 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoView.
         private val SERVER_URL: String get() = AppConfig.localServerUrl
         private val HOME_URL: String get() = AppConfig.homeUrl
         private const val KEY_LAST_URL = "lastLoadedUrl"
+        // 兜底背景色：compositor 未及时出图时透出此色，避免黑屏
+        private val FALLBACK_COLOR = Color.parseColor("#FFFFFF")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -121,7 +123,8 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoView.
         setContentView(R.layout.activity_main)
 
         geckoView = findViewById(R.id.geckoView)
-        geckoView.setBackgroundColor(Color.TRANSPARENT)
+        // C) 非透明兜底色：Surface 尚未出图时透出白色而非黑屏
+        geckoView.setBackgroundColor(FALLBACK_COLOR)
         
         initTaskManager()
         
@@ -524,7 +527,11 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoView.
         // ========== 阶段3：显示页面 ==========
         val urlToLoad = pendingDetailUrl ?: lastLoadedUrl ?: HOME_URL
         lastLoadedUrl = urlToLoad
-        geckoSession?.loadUri(urlToLoad)
+        if (geckoSession?.isOpen == true) {
+            geckoSession?.loadUri(urlToLoad)
+        } else {
+            Logger.w(TAG, "Session not open when loading main page; deferring to onStart")
+        }
         pendingDetailUrl = null
 
         Handler(Looper.getMainLooper()).postDelayed({
@@ -555,33 +562,86 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoView.
         }
     }
 
+    /**
+     * onStart：确保 session 与 GeckoView 处于 active 状态。
+     *
+     * - 若 session 未 open（如被系统回收后重建），重新 open 并加载最后浏览的 URL。
+     * - 若已 open，仅确保 view/session 的 active 标志为 true（GeckoView 会自行恢复 Surface）。
+     *
+     * 注意：不在此时主动 reload 当前已显示的页面，避免与底层 compositor 的
+     * Surface 重挂时序竞争（这正是此前黑屏的非必现根因）。
+     */
+    override fun onStart() {
+        super.onStart()
+
+        val session = geckoSession
+        val runtime = geckoRuntime
+        if (session == null || runtime == null) {
+            Logger.w(TAG, "onStart: session/runtime null, skip")
+            return
+        }
+
+        if (!session.isOpen) {
+            try {
+                val urlToLoad = lastLoadedUrl ?: HOME_URL
+                session.open(runtime)
+                // 重新挂载 session 到 view（reopen 后 view 的引用仍有效，这里确保一致）
+                geckoView.setSession(session)
+                session.loadUri(urlToLoad)
+                Logger.i(TAG, "onStart: session reopened, loading $urlToLoad")
+            } catch (e: Exception) {
+                Logger.e(TAG, "onStart: failed to reopen session", e)
+            }
+        } else {
+            // 已 open：仅将 session 标记为 active，信任 GeckoView 自行恢复界面
+            // （GeckoView.setActive 为包内可见，此处只使用公开的 GeckoSession.setActive）
+            session.setActive(true)
+        }
+    }
+
     override fun onResume() {
         super.onResume()
-        
+
         AppStateManager.setForeground(true)
-        
+
         // 不在 onResume 时检查调度，定时任务完全由 WorkManager 管理
         // App 启动/恢复只恢复 WorkManager 调度（在 WeiqiApp.onCreate 中已完成）
-        
-        if (geckoSession != null && geckoRuntime != null) {
-            if (geckoSession?.isOpen == false) {
-                try {
-                    geckoSession?.open(geckoRuntime!!)
-                    val urlToLoad = lastLoadedUrl ?: HOME_URL
-                    geckoSession?.loadUri(urlToLoad)
-                } catch (e: Exception) {
-                    Logger.e(TAG, "Failed to reopen session", e)
-                }
-            } else {
-                geckoSession?.loadUri("javascript:void(0)")
+
+        // A) 移除原先的 javascript:void(0) reload 分支：
+        // 当 session 仍 open 时不做任何 reload，由 GeckoView 自身恢复 Surface。
+        // 仅在 session 未 open 时（理论上 onStart 已处理）兜底 reopen。
+        val session = geckoSession
+        if (session != null && !session.isOpen && geckoRuntime != null) {
+            try {
+                val urlToLoad = lastLoadedUrl ?: HOME_URL
+                session.open(geckoRuntime!!)
+                geckoView.setSession(session)
+                session.loadUri(urlToLoad)
+            } catch (e: Exception) {
+                Logger.e(TAG, "Failed to reopen session in onResume", e)
             }
         }
     }
-    
+
     override fun onPause() {
         super.onPause()
-        
+
         AppStateManager.setForeground(false)
+    }
+
+    override fun onStop() {
+        super.onStop()
+
+        // B) 对称地让 session 进入 inactive，释放前台合成资源，
+        // 但不 close session —— 保留页面状态，回来时 onStart 直接恢复。
+        val session = geckoSession
+        if (session != null && session.isOpen) {
+            try {
+                session.setActive(false)
+            } catch (e: Exception) {
+                Logger.w(TAG, "onStop: setActive(false) failed", e)
+            }
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
