@@ -516,12 +516,48 @@ class KataGoBridgeHandler(
 
     // ========== katago:shutdown ==========
 
+    /**
+     * katago:shutdown — 关闭 KataGo 进程
+     *
+     * 必须等旧进程真正退出后才返回 ok。
+     *
+     * 原因：切换模型时 TS 层会先 shutdown 再 start。KataGoProcess.shutdown()
+     * 内部会 waitFor(5s) 等待进程退出，但如果本方法在 launch(IO) 里调完 shutdown
+     * 就立刻回 ok，TS 层的 start() 会撞上仍在运行的旧进程（导致 MODEL_SWITCH_WITH_RUNNING_PROCESS
+     * 或新进程 ready 被旧进程串扰）。这里通过 onExit 回调解耦 suspend 等待，
+     * 保证「完全关闭 → 才允许 start → 再等新 ready」的时序。
+     */
     private fun handleShutdown(
         prompt: GeckoSession.PromptDelegate.TextPrompt,
         result: GeckoResult<GeckoSession.PromptDelegate.PromptResponse>
     ) {
         lifecycleScope.launch(Dispatchers.IO) {
-            globalKataGoProcess?.shutdown()
+            val proc = globalKataGoProcess
+            if (proc == null || !proc.isRunning) {
+                // 没有进程（或已经停止），直接返回成功
+                globalKataGoProcess = null
+                currentModelPath = null
+                val resp = JSONObject().put("ok", true)
+                result.complete(prompt.confirm(resp.toString()))
+                return@launch
+            }
+
+            // 用 onExit 回调等待进程真正退出（shutdown 内部会 waitFor 最多 5s）
+            // 注意：这里故意不链式调用原来的 onExit（handleStart 里注册的那个会触发
+            // SYSTEM→BUNDLED 回退启动）。主动关闭不应触发回退，否则会多起一个进程。
+            val exited = kotlinx.coroutines.CompletableDeferred<Unit>()
+            proc.onExit = { _ ->
+                if (!exited.isCompleted) exited.complete(Unit)
+            }
+            proc.shutdown()
+
+            // 等待退出（最多等 8s，留足 shutdown 的 5s waitFor + 余量；超时则强制继续）
+            try {
+                kotlinx.coroutines.withTimeout(8000) { exited.await() }
+            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                Logger.w(TAG, "Shutdown wait timed out, proceeding anyway")
+            }
+
             globalKataGoProcess = null
             currentModelPath = null
             val resp = JSONObject().put("ok", true)
