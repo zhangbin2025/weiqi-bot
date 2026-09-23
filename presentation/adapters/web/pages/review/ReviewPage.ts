@@ -205,7 +205,10 @@ export class ReviewPage implements IPage {
 
     this.analysis.setConfigVisits(this.ui.getConfigVisits());
     this.board.initialize({ size: 19, showCoordinates: true });
-    this.board.on({ onClick: (pos) => this.handleBoardClick(pos.x, pos.y) });
+    this.board.on({
+      onClick: (pos) => this.handleBoardClick(pos.x, pos.y),
+      onHover: (pos) => this.handleBoardHover(pos),
+    });
     this.interaction.initVariationManager();
     this.ui.setupComponents();
     this.ui.bindEvents();
@@ -1149,6 +1152,31 @@ export class ReviewPage implements IPage {
 
     this.interaction.handleBoardClick(x, y);
   }
+  /**
+   * 处理棋盘悬停：在落点显示半透明预览棋子，指示将要落子的颜色（与 replay 体验一致）
+   */
+  private handleBoardHover(pos: { x: number; y: number } | null): void {
+    if (pos === null) {
+      this.board.clearPreviewStone();
+      return;
+    }
+    // recommendation/variation 模式棋盘上有 AI 候选圆圈或引导序列，悬停预览会与之冲突，不显示
+    // trial 模式已进入自由试下（候选圆圈已清空），可按下一手颜色显示预览
+    const mode = this.interaction.getMode();
+    if (mode !== 'normal' && mode !== 'trial') {
+      this.board.clearPreviewStone();
+      return;
+    }
+    // 已有棋子的位置不显示预览
+    if (this.board.getStones().has(`${pos.x},${pos.y}`)) {
+      this.board.clearPreviewStone();
+      return;
+    }
+    // 颜色取当前该走的一方（与试下实际落子使用的 currentPlayer 一致，已处理让子/pass）
+    const color = this.game.getState().currentPlayer;
+    this.board.setPreviewStone({ x: pos.x, y: pos.y }, color);
+  }
+
   private handleKeyDown(event: KeyboardEvent): void {
     if (this.analyzing) {
       event.preventDefault();
