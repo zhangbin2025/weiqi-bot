@@ -1160,10 +1160,17 @@ export class ReviewPage implements IPage {
       this.board.clearPreviewStone();
       return;
     }
-    // recommendation/variation 模式棋盘上有 AI 候选圆圈或引导序列，悬停预览会与之冲突，不显示
+    // recommendation 模式棋盘上有多个 AI 候选圆圈，悬停预览会与之冲突，不显示
+    // variation 模式只有单个引导圆圈：除该圆圈所在点外，其它空交叉点也显示半透明预览，
+    // 指示将要落子的颜色（与试下实际落子使用的 currentPlayer 一致，已处理让子/pass）
     // trial 模式已进入自由试下（候选圆圈已清空），可按下一手颜色显示预览
     const mode = this.interaction.getMode();
-    if (mode !== 'normal' && mode !== 'trial') {
+    if (mode === 'recommendation') {
+      this.board.clearPreviewStone();
+      return;
+    }
+    // variation 模式下，引导圆圈（下一步）所在位置不显示预览，避免与圆圈重叠
+    if (mode === 'variation' && this.board.getClickedRecommendation(pos.x, pos.y)) {
       this.board.clearPreviewStone();
       return;
     }
