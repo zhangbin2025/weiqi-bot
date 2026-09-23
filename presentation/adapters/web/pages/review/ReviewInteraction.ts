@@ -119,7 +119,8 @@ export class ReviewInteraction {
     this.handicapStones = handicapStones ?? [];
     this.initialPlayer = initialPlayer;
     if (boardSize) this.boardSize = boardSize;
-    this.variationManager?.initializeBaseLayer(moves);
+    // 同步让子棋/先手方/棋盘尺寸，保证变化图 rebuildBoard 时 currentPlayer 与基础层一致
+    this.variationManager?.initializeBaseLayer(moves, this.handicapStones, this.initialPlayer, this.boardSize);
   }
 
   // ========== 状态查询 ==========

@@ -54,6 +54,10 @@ export class VariationManager {
   private redoStack: Array<{ x: number; y: number; color: PlayerColor }> = [];
   /** 让子棋 */
   private handicapStones: Array<{ x: number; y: number; color: PlayerColor }> = [];
+  /** 先手方（PL[] 指定的优先，否则让子棋自动白先）
+   * 必须保存并在 rebuildBoard 时恢复：newGame 默认黑先，
+   * 若不恢复会让 currentPlayer 错一色，导致提示变化路径时半透明预览棋子颜色显示错误 */
+  private initialPlayer: PlayerColor | undefined;
   /** 棋盘尺寸 */
   private boardSize = 19;
   constructor(config: VariationManagerConfig) {
@@ -66,9 +70,10 @@ export class VariationManager {
   /**
    * 初始化基础层
    */
-  initializeBaseLayer(moves: Array<{ x: number; y: number; color: PlayerColor }>, handicapStones?: Array<{ x: number; y: number; color: PlayerColor }>, _initialPlayer?: PlayerColor, boardSize?: number): void {
+  initializeBaseLayer(moves: Array<{ x: number; y: number; color: PlayerColor }>, handicapStones?: Array<{ x: number; y: number; color: PlayerColor }>, initialPlayer?: PlayerColor, boardSize?: number): void {
     this.originalMoves = [...moves];
     this.handicapStones = handicapStones ?? [];
+    this.initialPlayer = initialPlayer;
     if (boardSize) this.boardSize = boardSize;
     const baseLayer: VariationLayer = {
       id: 'base',
@@ -260,6 +265,11 @@ export class VariationManager {
         color: stone.color === 'black' ? 'B' as const : 'W' as const
       }));
       this.game.setHandicapStones(handicapStones);
+    }
+    // 恢复先手方（覆盖 newGame 默认黑先 / 让子默认白先），
+    // 与 ReviewPage.rebuildBoard 保持一致，避免 currentPlayer 错一色
+    if (this.initialPlayer) {
+      this.game.setInitialPlayer(this.initialPlayer);
     }
     
     // 放置所有着法
