@@ -149,7 +149,51 @@ function bindEvents(): void {
   
   document.getElementById('backToParentBtn')?.addEventListener('click', handleBackToParent);
 
-  getBoard()?.on({ onClick: (pos) => handleBoardClick(pos.x, pos.y) });
+  getBoard()?.on({
+    onClick: (pos) => handleBoardClick(pos.x, pos.y),
+    onHover: (pos) => handleBoardHover(pos),
+  });
+
+  // 鼠标移出棋盘时清掉预览
+  document.getElementById('board-root')?.addEventListener('mouseleave', () => {
+    getBoard()?.clearPreviewStone();
+  });
+}
+
+/**
+ * 处理棋盘悬停：在落点显示半透明预览棋子，指示将要落子的颜色（与 replay 体验一致）
+ */
+function handleBoardHover(pos: { x: number; y: number } | null): void {
+  const board = getBoard();
+  if (!board) return;
+  if (pos === null) {
+    board.clearPreviewStone();
+    return;
+  }
+  // 已有棋子的位置不显示预览
+  if (board.getStones().has(`${pos.x},${pos.y}`)) {
+    board.clearPreviewStone();
+    return;
+  }
+  const problem = state.problems[state.currentIndex];
+  if (!problem) {
+    board.clearPreviewStone();
+    return;
+  }
+  if (state.currentState === STATE_MAIN) {
+    // 主状态：提示当前该走的一方（题目 turn）
+    const color: 'black' | 'white' = problem.turn === 'B' ? 'black' : 'white';
+    board.setPreviewStone({ x: pos.x, y: pos.y }, color);
+  } else if (state.currentState === STATE_TRYPLAY) {
+    // 试下模式：提示试下下一步（在题目局面 turn 基础上按已落子数交替）
+    const base: 'B' | 'W' = problem.turn === 'B' ? 'B' : 'W';
+    const next: 'B' | 'W' = (state.trialIndex % 2 === 0 ? base : (base === 'B' ? 'W' : 'B')) as 'B' | 'W';
+    const color: 'black' | 'white' = next === 'B' ? 'black' : 'white';
+    board.setPreviewStone({ x: pos.x, y: pos.y }, color);
+  } else {
+    // 变化图模式：已有固定着法序列，不显示预览
+    board.clearPreviewStone();
+  }
 }
 
 function handleBoardClick(x: number, y: number): void {
