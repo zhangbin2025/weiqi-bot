@@ -295,9 +295,9 @@ export class Weiqi101Provider extends BaseProvider implements IWeiqi101Provider 
       url: string;
     }> = [];
 
-    // 无关键字时只需抓第一页（通常一页有足够数量）
-    // 有关键字时需要翻页直到凑够 count
-    const maxPages = kw ? 50 : 1;
+    // 每页仅约 24 题（3 个日期块 × 每日 8 题），因此无论是否有关键字都必须翻页
+    // 才能凑够 maxCount；50 页为安全上限（可覆盖 ~1200 题）
+    const maxPages = 50;
 
     try {
       for (let page = 1; page <= maxPages; page++) {
