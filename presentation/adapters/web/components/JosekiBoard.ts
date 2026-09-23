@@ -83,6 +83,9 @@ export class JosekiBoard {
   private currentMoves: Array<{ x: number; y: number; color: PlayerColor; isPass?: boolean }> = [];
   private branches: JosekiBranch[] = [];
   private clickHandler?: (pos: { x: number; y: number }) => void;
+  private hoverHandler?: (pos: { x: number; y: number } | null) => void;
+  private previewStone: { x: number; y: number; color: PlayerColor } | null = null;
+  private lastHoverKey = '';
   private passMark: { cx: number; cy: number; radius: number } | undefined;
   private readonly startX = BOARD_SIZE - DISPLAY_SIZE; // 6
   private readonly startY = 0;
@@ -166,14 +169,27 @@ export class JosekiBoard {
     this.canvas.width = w * this.dpr;
     this.canvas.height = w * this.dpr;
   }
-  on(handlers: { onClick?: (pos: { x: number; y: number }) => void }): void {
+  on(handlers: { onClick?: (pos: { x: number; y: number }) => void; onHover?: (pos: { x: number; y: number } | null) => void }): void {
     if (handlers.onClick) {
       this.clickHandler = handlers.onClick;
       this.canvas.addEventListener('click', this.handleClick.bind(this));
     }
+    if (handlers.onHover) {
+      this.hoverHandler = handlers.onHover;
+      // 桌面环境：鼠标悬停交叉点时由外部显示半透明预览棋子
+      // 通过 matchMedia('(hover: hover)') 排除触摸设备
+      if (window.matchMedia('(hover: hover)').matches) {
+        this.canvas.addEventListener('mousemove', this.handleHover.bind(this));
+        this.canvas.addEventListener('mouseleave', () => {
+          this.lastHoverKey = '';
+          this.hoverHandler?.(null);
+        });
+      }
+    }
   }
   setMoves(moves: Array<{ x: number; y: number; color: PlayerColor; isPass?: boolean }>): void {
     this.currentMoves = moves;
+    this.previewStone = null;
     this.rebuildBoard();
     this.render();
   }
@@ -184,6 +200,8 @@ export class JosekiBoard {
   clear(): void {
     this.currentMoves = [];
     this.branches = [];
+    this.previewStone = null;
+    this.lastHoverKey = '';
     this.initBoard();
     this.render();
   }
@@ -290,6 +308,8 @@ export class JosekiBoard {
     }
     // 分支标记
     this.drawBranches(ctx, logicalSize, padding, gridSize);
+    // 悬停半透明预览棋子
+    this.drawPreviewStone(ctx, padding, gridSize, stoneRadius);
     // 手数标记（最后一手）
     if (this.currentMoves.length > 0) {
       const lastMove = this.currentMoves[this.currentMoves.length - 1];
@@ -467,6 +487,63 @@ export class JosekiBoard {
     }
     this.clickHandler({ x: boardX, y: boardY });
     this.audioPlayer?.play('stone');
+  }
+  /**
+   * 绘制悬停预览的半透明棋子
+   * 颜色由调用方通过 setPreviewStone 决定，这里只负责渲染
+   */
+  private drawPreviewStone(ctx: CanvasRenderingContext2D, padding: number, gridSize: number, stoneRadius: number): void {
+    if (!this.previewStone) return;
+    const { x, y, color } = this.previewStone;
+    const displayX = x - this.startX;
+    const displayY = y - this.startY;
+    if (displayX < 0 || displayX >= DISPLAY_SIZE || displayY < 0 || displayY >= DISPLAY_SIZE) return;
+    const cx = padding + displayX * gridSize;
+    const cy = padding + displayY * gridSize;
+    const originalAlpha = ctx.globalAlpha;
+    ctx.globalAlpha = 0.5;
+    this.drawStone(ctx, cx, cy, stoneRadius, color);
+    ctx.globalAlpha = originalAlpha;
+  }
+  /** 鼠标移动 -> 计算棋盘坐标 -> 回调 onHover */
+  private handleHover(e: MouseEvent): void {
+    if (!this.hoverHandler) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const canvasX = e.clientX - rect.left;
+    const canvasY = e.clientY - rect.top;
+    const logicalSize = rect.width;
+    const padding = logicalSize * 0.05;
+    const gridSize = (logicalSize - padding * 2) / (DISPLAY_SIZE - 1);
+    const localX = Math.round((canvasX - padding) / gridSize);
+    const localY = Math.round((canvasY - padding) / gridSize);
+    if (localX < 0 || localX >= DISPLAY_SIZE || localY < 0 || localY >= DISPLAY_SIZE) {
+      if (this.lastHoverKey !== '') {
+        this.lastHoverKey = '';
+        this.hoverHandler(null);
+      }
+      return;
+    }
+    const boardX = this.startX + localX;
+    const boardY = this.startY + localY;
+    const key = boardX + ',' + boardY;
+    if (key !== this.lastHoverKey) {
+      this.lastHoverKey = key;
+      this.hoverHandler({ x: boardX, y: boardY });
+    }
+  }
+  /** 指定交叉点是否已有棋子 */
+  hasStone(x: number, y: number): boolean {
+    return !!this.board?.[y]?.[x];
+  }
+  /** 设置悬停预览棋子（半透明） */
+  setPreviewStone(pos: { x: number; y: number }, color: PlayerColor): void {
+    this.previewStone = { x: pos.x, y: pos.y, color };
+    this.render();
+  }
+  /** 清除悬停预览棋子 */
+  clearPreviewStone(): void {
+    this.previewStone = null;
+    this.render();
   }
   destroy(): void {
     this.canvas.remove();

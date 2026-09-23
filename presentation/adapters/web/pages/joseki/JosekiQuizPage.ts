@@ -67,7 +67,10 @@ export class JosekiQuizPage implements IPage {
     if (container) container.appendChild(this.board.canvas);
     this.board.initialize();
     // 绑定棋盘点击
-    this.board.on({ onClick: (pos) => this.handleBoardClick(pos) });
+    this.board.on({
+      onClick: (pos) => this.handleBoardClick(pos),
+      onHover: (pos) => this.handleBoardHover(pos),
+    });
     // 绑定按钮事件
     this.bindEvents();
     // 加载历史
@@ -216,6 +219,31 @@ export class JosekiQuizPage implements IPage {
     await this.historyPanel.loadHistory();
   }
   // ========== 点击处理 ==========
+  /**
+   * 处理棋盘悬停
+   * 仅挑战模式：用户自己摆定式，在空交叉点显示半透明预览棋子指示落点与颜色
+   */
+  private handleBoardHover(pos: { x: number; y: number } | null): void {
+    if (this.mode !== 'challenge' || pos === null) {
+      this.board.clearPreviewStone();
+      return;
+    }
+    // 已有棋子的位置不显示预览
+    if (this.board.hasStone(pos.x, pos.y)) {
+      this.board.clearPreviewStone();
+      return;
+    }
+    // 注意：挑战模式中 AI 回合会自动落子并推进 challengeMode 的 currentIndex，
+    // 页面的 this.currentIndex 不会随之更新，因此必须以挑战模式的实时状态为准。
+    const state = this.challengeMode.getState();
+    const target = this.targetMoves[state.currentIndex];
+    // 仅用户回合显示预览（AI 回合由挑战模式自动落子）
+    if (!target || target.isPass || target.color !== state.userColor) {
+      this.board.clearPreviewStone();
+      return;
+    }
+    this.board.setPreviewStone({ x: pos.x, y: pos.y }, target.color);
+  }
   private handleBoardClick(pos: { x: number; y: number }): void {
     if (this.mode === 'explore') {
       const result = this.exploreMode.handleClick(pos, this.targetMoves, this.currentIndex);
