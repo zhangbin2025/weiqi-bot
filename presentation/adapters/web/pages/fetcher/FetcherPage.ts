@@ -45,7 +45,7 @@ export class FetcherPage implements IPage {
       onViewSGF: () => this.viewSGF(),
       onLive: () => this.liveWatch(),
       onGenerateShareUrl: () => this.generateShareUrl(),
-      onFetchLatest: (source, count, keyword) => this.fetchLatestGames(source, count, keyword),
+      onFetchLatest: (source, keyword) => this.fetchLatestGames(source, keyword),
       onSelectLatest: (url) => this.selectLatestGame(url),
       onSelectLatestView: (url) => this.viewLatestGame(url),
       onViewUrl: (url) => this.viewUrl(url),
@@ -66,15 +66,19 @@ export class FetcherPage implements IPage {
       if (cached && Array.isArray(cached) && cached.length > 0) {
         // 恢复查询条件
         const cachedSource = await this.sessionStore.read<string>('fetcher_latest_source');
-        const cachedCount = await this.sessionStore.read<string>('fetcher_latest_count');
         const cachedKeyword = await this.sessionStore.read<string>('fetcher_latest_keyword');
+        const cachedDisplayed = await this.sessionStore.read<number>('fetcher_latest_displayed');
         if (cachedSource) this.renderer.setLatestSource(cachedSource);
-        if (cachedCount) this.renderer.setLatestCount(cachedCount);
         if (cachedKeyword) this.renderer.setLatestKeyword(cachedKeyword);
         // 恢复选中状态
         const selectedUrl = await this.sessionStore.read<string>('fetcher_latest_selected');
         this.renderer.setSelectedLatestUrl(selectedUrl);
         this.renderer.renderLatestGames(cached);
+        // 恢复浏览位置（在首次渲染之后，避免被重置为 10）
+        if (cachedDisplayed) {
+          this.renderer.setLatestDisplayed(cachedDisplayed);
+          this.renderer.rerenderLatest();
+        }
         // 切换到最新标签页
         this.renderer.switchToLatestTab();
       }
@@ -113,8 +117,7 @@ export class FetcherPage implements IPage {
     if (params['source'] && !params['url']) {
       this.renderer.switchToLatestTab();
       this.renderer.setLatestSource(params['source'] as string);
-      const count = this.renderer.getLatestCount();
-      this.fetchLatestGames(params['source'] as string, count);
+      this.fetchLatestGames(params['source'] as string);
     }
   }
   render(): void { this.renderer.render(); }
@@ -278,10 +281,15 @@ export class FetcherPage implements IPage {
   /**
    * 获取最新棋谱列表
    */
-  private async fetchLatestGames(source: string, count: number, keyword?: string): Promise<void> {
+  private async fetchLatestGames(source: string, keyword?: string): Promise<void> {
     this.renderer.showLatestLoading(true);
     try {
-      const items = await this.fetcherApp.fetchLatestGames(source, count, keyword);
+      // 一次拉取 LATEST_FETCH_MAX 作为本地切片池子，前端默认展示前 10 盘、滑到底再 +10
+      const items = await this.fetcherApp.fetchLatestGames(
+        source,
+        FetcherRenderer.LATEST_FETCH_MAX,
+        keyword,
+      );
       this.renderer.showLatestLoading(false);
       // 新查询：清除旧选中状态
       try { await this.sessionStore.delete('fetcher_latest_selected'); } catch { /* ignore */ }
@@ -291,8 +299,8 @@ export class FetcherPage implements IPage {
       try {
         await this.sessionStore.write('fetcher_latest_items', items);
         await this.sessionStore.write('fetcher_latest_source', source);
-        await this.sessionStore.write('fetcher_latest_count', String(count));
         await this.sessionStore.write('fetcher_latest_keyword', keyword || '');
+        await this.sessionStore.write('fetcher_latest_displayed', this.renderer.getLatestDisplayed());
       } catch { /* ignore */ }
     } catch (error) {
       this.renderer.showLatestLoading(false);

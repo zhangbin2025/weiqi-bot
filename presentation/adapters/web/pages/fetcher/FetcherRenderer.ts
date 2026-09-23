@@ -17,7 +17,8 @@ export interface FetcherRendererCallbacks {
   onLive: () => void;
   onGenerateShareUrl: () => Promise<void>;
   onSelectLatestView: (url: string) => void;
-  onFetchLatest: (source: string, count: number, keyword?: string) => Promise<void>;
+  /** 拉取最新列表（数量由渲染器统一控制为 LATEST_FETCH_MAX 池子大小） */
+  onFetchLatest: (source: string, keyword?: string) => Promise<void>;
   onSelectLatest: (url: string) => void;
   onViewUrl: (url: string) => void;
 }
@@ -33,14 +34,31 @@ export class FetcherRenderer {
   readonly latestPanel: IPanel;
   readonly categorySelect: ISelect;
   readonly sourceSelect: ISelect;
-  readonly countSelect: ISelect;
   readonly keywordInput: IInput;
   readonly latestCard: ICard;
   private overlay: IOverlay;
   private qrDialog: WebQRCodeDialog;
+  // —— 最新列表分页（本地切片）常量 ——
+  /** 初始展示条数 */
+  static readonly LATEST_PAGE_INIT = 10;
+  /** 每次加载更多追加的条数 */
+  static readonly LATEST_PAGE_STEP = 10;
+  /** 底层一次拉取的最大条数（本地切片的总池子） */
+  static readonly LATEST_FETCH_MAX = 100;
+  /** 滑到底后模拟异步刷新的延迟（ms），给用户"加载中"的体感 */
+  static readonly LATEST_LOAD_DELAY = 450;
+
   private hasResult = false;
   private _latestItems: LatestGameItem[] = [];
+  /** 当前已展示的最新棋谱条数（初始 10，滑到底 +10） */
+  private _displayedLatest = FetcherRenderer.LATEST_PAGE_INIT;
   private _selectedLatestUrl: string | null = null;
+  /** 加载更多时的底部哨兵节点（用于移除/复用） */
+  private _loadMoreSentinel: HTMLElement | null = null;
+  private _io: IntersectionObserver | null = null;
+  /** 是否正在加载下一页（加锁防止 IntersectionObserver 连发瞬间爆开） */
+  private _loadingMore = false;
+  private _loadMoreTimer: ReturnType<typeof setTimeout> | null = null;
   private _currentResult: FetcherResult | undefined;
   constructor(
     private readonly cb: FetcherRendererCallbacks,
@@ -61,7 +79,6 @@ export class FetcherRenderer {
     const lc = this.latestPanel.asContainer();
     this.categorySelect = factory.createSelect(lc);
     this.sourceSelect = factory.createSelect(lc);
-    this.countSelect = factory.createSelect(lc);
     this.keywordInput = factory.createInput(lc);
     this.latestCard = factory.createCard(lc);
     this.overlay = new WebOverlay();
@@ -112,15 +129,6 @@ export class FetcherRenderer {
       value: 'archive',
     });
     this.updateSourceOptions('archive');
-    this.countSelect.setConfig({
-      options: [
-        { value: '10', label: '10 盘' },
-        { value: '20', label: '20 盘' },
-        { value: '30', label: '30 盘' },
-        { value: '50', label: '50 盘' },
-      ],
-      value: '20',
-    });
     this.keywordInput.setConfig({
       type: 'text',
       placeholder: '关键字过滤（棋手/赛事/难度等）',
@@ -222,12 +230,11 @@ export class FetcherRenderer {
     this.sourceSelect.setValue(source);
   }
 
-  /** 设置最新标签页的棋谱数 */
-  setLatestCount(count: string): void { this.countSelect.setValue(count); }
-
-  /** 获取最新标签页的棋谱数 */
-  getLatestCount(): number {
-    return parseInt(this.countSelect.getValue() || '20', 10);
+  /** 设置最新标签页的浏览位置（已展示条数） */
+  getLatestDisplayed(): number { return this._displayedLatest; }
+  /** 设置已展示条数（用于页面返回恢复；夹紧到合法范围） */
+  setLatestDisplayed(n: number): void {
+    this._displayedLatest = Math.max(FetcherRenderer.LATEST_PAGE_INIT, Math.min(n, this._latestItems.length || n));
   }
 
   /** 设置最新标签页的关键字 */
@@ -340,9 +347,8 @@ export class FetcherRenderer {
     this.latestPanel.onAction((action) => {
       if (action === 'refreshLatest') {
         const source = this.sourceSelect.getValue() || 'foxwq';
-        const count = parseInt(this.countSelect.getValue() || '20', 10);
         const keyword = this.keywordInput.getValue().trim();
-        this.cb.onFetchLatest(source, count, keyword || undefined);
+        this.cb.onFetchLatest(source, keyword || undefined);
       }
     });
     // 分类切换时更新来源列表并自动刷新
@@ -350,30 +356,21 @@ export class FetcherRenderer {
       this.updateSourceOptions(category);
       const source = this.sourceSelect.getValue() || '';
       if (!source) return;
-      const count = parseInt(this.countSelect.getValue() || '20', 10);
       const keyword = this.keywordInput.getValue().trim();
-      this.cb.onFetchLatest(source, count, keyword || undefined);
+      this.cb.onFetchLatest(source, keyword || undefined);
     });
     // 来源下拉框变化时自动刷新
     this.sourceSelect.onChange(() => {
       if (this._suppressSourceChange) return;
       const source = this.sourceSelect.getValue() || 'foxwq';
-      const count = parseInt(this.countSelect.getValue() || '20', 10);
       const keyword = this.keywordInput.getValue().trim();
-      this.cb.onFetchLatest(source, count, keyword || undefined);
-    });
-    this.countSelect.onChange(() => {
-      const source = this.sourceSelect.getValue() || 'foxwq';
-      const count = parseInt(this.countSelect.getValue() || '20', 10);
-      const keyword = this.keywordInput.getValue().trim();
-      this.cb.onFetchLatest(source, count, keyword || undefined);
+      this.cb.onFetchLatest(source, keyword || undefined);
     });
     // 关键字输入框回车触发搜索
     this.keywordInput.onEnter((value) => {
       const source = this.sourceSelect.getValue() || 'foxwq';
-      const count = parseInt(this.countSelect.getValue() || '20', 10);
       const keyword = value.trim();
-      this.cb.onFetchLatest(source, count, keyword || undefined);
+      this.cb.onFetchLatest(source, keyword || undefined);
     });
     // 卡片点击
     this.latestCard.onAction((action, data) => {
@@ -442,8 +439,16 @@ export class FetcherRenderer {
       return;
     }
     this.latestCard.setVisible(true);
+    const isNewData = items !== this._latestItems;
     this._latestItems = items;
-    const html = items.map(item => {
+    if (isNewData) {
+      // 新查询/新批次：默认只展示前 LATEST_PAGE_INIT 盘，滑到底再追加
+      this._displayedLatest = Math.min(FetcherRenderer.LATEST_PAGE_INIT, items.length);
+    } else {
+      // 同一批数据（如点击高亮重绘）：保持当前浏览进度
+      this._displayedLatest = Math.min(this._displayedLatest, items.length);
+    }
+    const html = this._latestItems.slice(0, this._displayedLatest).map(item => {
       const sourceLabels: Record<string, string> = { foxwq: '🏆 野狐', weiqi101: '📝 101围棋', 'ogs-live': '🎬 OGS', 'yike-live': '📹 弈客', goproblems: '🧩 GoProblems', 'ogs-puzzle': '🧩 OGS死活题', katago: '🤖 KataGo' };
       const sourceLabel = sourceLabels[item.source] || item.source;
       const subtitle = item.subtitle
@@ -485,6 +490,109 @@ export class FetcherRenderer {
     }).join('');
     this.latestCard.setContent(html);
     this.latestCard.render();
+    // 挂载"加载更多"哨兵，滑到底自动追加
+    this.attachLoadMoreSentinel();
+  }
+
+  /**
+   * 在列表底部挂载 IntersectionObserver 哨兵：滑到底自动加载更多（+10 盘）
+   * 若运行环境无 IntersectionObserver（如 jsdom 测试），则直接全量展示并跳过懒加载。
+   */
+  private attachLoadMoreSentinel(): void {
+    // 已无更多可展示：移除哨兵与 observer
+    if (this._displayedLatest >= this._latestItems.length) {
+      this.disposeLatestObserver();
+      return;
+    }
+    const el = this.latestCard.getContainer?.() as HTMLElement | undefined;
+    if (!el) return;
+    // 运行环境不支持 IntersectionObserver（部分测试/jsdom）时不启用懒加载
+    if (typeof IntersectionObserver === 'undefined') {
+      // 不支持懒加载则一次性全量展示（已渲染为前10盘，这里补渲染全量）
+      this._displayedLatest = this._latestItems.length;
+      this.renderLatestGames(this._latestItems);
+      return;
+    }
+    // 复用/创建底部哨兵节点
+    let sentinel = this._loadMoreSentinel;
+    if (!sentinel || !el.contains(sentinel)) {
+      sentinel = document.createElement('div');
+      sentinel.setAttribute('data-latest-sentinel', '');
+      sentinel.style.cssText = 'height:1px;';
+      el.appendChild(sentinel);
+      this._loadMoreSentinel = sentinel;
+    }
+    // 重建 observer（先断开旧的）
+    this._io?.disconnect();
+    this._io = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          this.loadMoreLatest();
+          break;
+        }
+      }
+    }, { root: null, rootMargin: '200px', threshold: 0 });
+    this._io.observe(sentinel);
+  }
+
+  /**
+   * 滑到底加载更多：先显示底部"加载中"spinner，短暂延迟后再追加 LATEST_PAGE_STEP 盘。
+   * 纯本地切片，但保留异步刷新的体感；加载期间加锁，避免 IntersectionObserver
+   * 在未填满视口时连发导致列表瞬间全部展开。
+   */
+  private loadMoreLatest(): void {
+    if (this._loadingMore) return;
+    if (this._displayedLatest >= this._latestItems.length) {
+      // 已全部展示，自动停止
+      this.disposeLatestObserver();
+      return;
+    }
+    this._loadingMore = true;
+    // 暂停观察，避免加载期间反复触发
+    this._io?.disconnect();
+    this.showLatestLoadingMore(true);
+    this._loadMoreTimer = setTimeout(() => {
+      this._loadMoreTimer = null;
+      this._displayedLatest = Math.min(
+        this._displayedLatest + FetcherRenderer.LATEST_PAGE_STEP,
+        this._latestItems.length,
+      );
+      this._loadingMore = false;
+      // 重渲染会重建哨兵/observer；到底时由 attachLoadMoreSentinel 自动清理
+      this.renderLatestGames(this._latestItems);
+    }, FetcherRenderer.LATEST_LOAD_DELAY);
+  }
+
+  /** 底部"加载更多"spinner 的显示/隐藏 */
+  showLatestLoadingMore(show: boolean): void {
+    const el = this.latestCard.getContainer?.() as HTMLElement | undefined;
+    if (!el) return;
+    const existing = el.querySelector('[data-latest-loading]') as HTMLElement | null;
+    if (show) {
+      if (existing) return;
+      const spinner = document.createElement('div');
+      spinner.setAttribute('data-latest-loading', '');
+      spinner.style.cssText = 'text-align:center;padding:16px;';
+      spinner.innerHTML = '<div style="width:24px;height:24px;border:3px solid #e0e0e0;border-top-color:#667eea;border-radius:50%;margin:0 auto 6px;animation:fetcher-spin 1s linear infinite;"></div><p style="color:#888;font-size:0.85em;margin:0;">加载中...</p>';
+      el.appendChild(spinner);
+    } else if (existing) {
+      existing.remove();
+    }
+  }
+
+  /** 清理 IntersectionObserver、哨兵与待执行的加载定时器 */
+  private disposeLatestObserver(): void {
+    this._io?.disconnect();
+    this._io = null;
+    if (this._loadMoreTimer !== null) {
+      clearTimeout(this._loadMoreTimer);
+      this._loadMoreTimer = null;
+    }
+    this._loadingMore = false;
+    if (this._loadMoreSentinel) {
+      this._loadMoreSentinel.remove();
+      this._loadMoreSentinel = null;
+    }
   }
 
   /**
@@ -492,6 +600,7 @@ export class FetcherRenderer {
    */
   showLatestLoading(show: boolean): void {
     if (show) {
+      this.disposeLatestObserver();
       this.latestCard.setVisible(true);
       this.latestCard.setTitle('⏳ 加载中...');
       this.latestCard.setContent('<div style="text-align:center;padding:30px;"><div style="width:30px;height:30px;border:3px solid #e0e0e0;border-top-color:#667eea;border-radius:50%;margin:0 auto 8px;animation:fetcher-spin 1s linear infinite;"></div><p style="color:#888;font-size:0.9em;">正在获取棋谱列表...</p></div><style>@keyframes fetcher-spin{to{transform:rotate(360deg)}}</style>');
@@ -539,6 +648,7 @@ export class FetcherRenderer {
     this.toast.destroy();
     this.overlay.destroy();
     this.qrDialog.destroy();
+    this.disposeLatestObserver();
     this.hasResult = false;
     this._currentResult = undefined;
   }
