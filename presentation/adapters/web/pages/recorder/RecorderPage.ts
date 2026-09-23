@@ -38,7 +38,10 @@ export class RecorderPage implements IPage {
   async initialize(): Promise<void> {
     if (this.initialized) return;
     this.board.initialize({ size: this.boardSize, showCoordinates: false });
-    this.board.on({ onClick: (pos) => this.handleStoneClick(pos) });
+    this.board.on({
+      onClick: (pos) => this.handleStoneClick(pos),
+      onHover: (pos) => this.handleBoardHover(pos),
+    });
 
     try {
       const draftResult = await this.recorderApp.loadDraft();
@@ -73,6 +76,32 @@ export class RecorderPage implements IPage {
         this.renderBoard();
       }
     }
+  }
+
+  /**
+   * 处理棋盘悬停：在落点显示半透明预览棋子，指示将要落子的颜色（与 replay 体验一致）
+   */
+  private handleBoardHover(pos: { x: number; y: number } | null): void {
+    if (pos === null) {
+      this.board.clearPreviewStone();
+      return;
+    }
+    // 已有棋子的位置不显示预览
+    const stones = this.board.getStones();
+    if (stones.has(`${pos.x},${pos.y}`)) {
+      this.board.clearPreviewStone();
+      return;
+    }
+    // 摆子模式下的橡皮擦工具：是消除而非落子，不显示预览
+    if (this.mode === 'setup' && this.setupTool === 'eraser') {
+      this.board.clearPreviewStone();
+      return;
+    }
+    // 颜色：对局模式取当前执棋方；摆子模式取当前摆子颜色
+    const color: PlayerColor = this.mode === 'setup'
+      ? (this.setupColor === 'B' ? 'black' : 'white')
+      : this.recorderApp.getState().currentPlayer;
+    this.board.setPreviewStone({ x: pos.x, y: pos.y }, color);
   }
 
   private renderBoard(): void {
