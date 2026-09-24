@@ -511,6 +511,15 @@ export class ReviewService implements IReviewService {
     return data ? data.moves : null;
   }
 
+  /**
+   * 获取完整逐手分析（含候选选点 candidates）。
+   * 供棋力评估与持久化候选数据使用。无分析结果时返回 null。
+   */
+  getFullMoves(reviewId: string): MoveReview[] | null {
+    const data = this.getReview(reviewId);
+    return data?.result?.moves ?? null;
+  }
+
   appendMoves(reviewId: string, newMoves: Array<{ x: number; y: number; color: PlayerColor }>): void {
     const data = this.getReview(reviewId);
     data.moves = [...data.moves, ...newMoves];

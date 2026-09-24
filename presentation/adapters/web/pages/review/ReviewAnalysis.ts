@@ -13,6 +13,11 @@ import { RecorderHistoryManager } from '../../../../../application/recorder/Reco
 import { TaskHelper } from '../../../../../clients/web/shared/task-helper';
 import { TunnelManager } from '../../../../../infrastructure/tunnel/TunnelManager';
 
+/** 两位小数四舍五入，压缩存储体积 */
+function round2(v: number): number {
+  return Math.round(v * 100) / 100;
+}
+
 /** 分析编排回调 */
 export interface AnalysisCallbacks {
   onProgress: (show: boolean) => void;
@@ -29,6 +34,8 @@ export interface AnalysisCompleteResult {
   totalMoves: number;
   badMoves: BadMove[];
   winrateTrend: Array<{ moveNumber: number; winRate: number; scoreLead: number }>;
+  /** 紧凑候选选点（按着法索引对齐），用于棋力评估 */
+  moveCandidates?: Array<Array<{ x: number; y: number; wr: number; sl: number; v: number }>>;
   moves: Array<{ x: number; y: number; color: PlayerColor }>;
 }
 
@@ -442,12 +449,22 @@ export class ReviewAnalysis {
       const badMoves = this.reviewApp.getBadMoves(this.reviewId);
       // 如果提供了 winrateTrend，使用提供的；否则从 reviewApp 获取
       const winrateTrend = winrateTrendOverride ?? this.reviewApp.getWinRateTrend(this.reviewId);
+      // 紧凑候选选点：仅保留坐标+胜率+目差+访问量（去除 pv，体积可控）
+      const fullMoves = this.reviewApp.getFullMoves(this.reviewId);
+      const moveCandidates = fullMoves
+        ? fullMoves.map((mv) =>
+            (mv.candidates ?? []).slice(0, 5).map((c) => ({
+              x: c.x, y: c.y, wr: round2(c.winRate), sl: round2(c.scoreLead), v: c.visits,
+            })),
+          )
+        : [];
       const data = {
         blackName: state.gameInfo.black,
         whiteName: state.gameInfo.white,
         totalMoves: state.totalMoves,
         badMoves,
         winrateTrend,
+        moveCandidates,
         analyzedAt: Date.now(),
       };
       await this.favoriteService.addFavorite('review_data', this.currentArchiveId, data);
@@ -473,6 +490,7 @@ export class ReviewAnalysis {
         totalMoves: data['totalMoves'] as number,
         badMoves: (data['badMoves'] as BadMove[]) ?? [],
         winrateTrend: (data['winrateTrend'] as Array<{ moveNumber: number; winRate: number; scoreLead: number }>) ?? [],
+        moveCandidates: (data['moveCandidates'] as Array<Array<{ x: number; y: number; wr: number; sl: number; v: number }>>) ?? [],
         moves,
       });
       return true;

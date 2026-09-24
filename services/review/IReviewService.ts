@@ -122,6 +122,12 @@ export interface IReviewService {
   getMoves(reviewId: string): Array<{ x: number; y: number; color: PlayerColor }> | null;
 
   /**
+   * 获取完整逐手分析（含候选选点 candidates）
+   * @param reviewId - 复盘 ID
+   */
+  getFullMoves(reviewId: string): MoveReview[] | null;
+
+  /**
    * 销毁复盘
    * @param reviewId - 复盘 ID
    */

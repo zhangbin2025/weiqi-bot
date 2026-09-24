@@ -27,6 +27,7 @@ import { showLoading as showModelLoading, updateProgress as updateModelProgress,
 import { ReviewInteraction, type PageMode } from './ReviewInteraction';
 import { ReviewAnalysis, type AnalysisCompleteResult } from './ReviewAnalysis';
 import { ReviewUI } from './ReviewUI';
+import { estimateStrength, type StrengthReport } from '../../../../../services/strength';
 import { LiveModeManager } from './LiveModeManager';
 
 /** 复盘页面配置 */
@@ -84,6 +85,11 @@ export class ReviewPage implements IPage {
   private handicapStones: Array<{ x: number; y: number; color: PlayerColor }> = [];
   private initialPlayer: PlayerColor | undefined;
   private winrateTrend: Array<{ moveNumber: number; winRate: number; scoreLead: number }> = [];
+  /** 已分析棋谱的紧凑候选选点（用于棋力评估） */
+  private moveCandidates: Array<Array<{ x: number; y: number; wr: number; sl: number; v: number }>> = [];
+  /** 对局双方姓名 */
+  private blackName = '';
+  private whiteName = '';
   private analyzing = false;
   // 棋盘尺寸
   private boardSize = 19;
@@ -167,6 +173,7 @@ export class ReviewPage implements IPage {
       onHandleKeyDown: (e) => this.handleKeyDown(e),
       onToggleLiveRecommendations: () => this.toggleLiveRecommendations(),
       onRefreshIntervalChange: (seconds) => this.liveModeManager?.setRefreshInterval(seconds),
+      onEvaluateStrength: () => this.handleEvaluateStrength(),
       onToggleRegionSelection: () => {
         if (this.hasRegionSelection) {
           // 清除框选
@@ -439,6 +446,69 @@ export class ReviewPage implements IPage {
     if (enabled) {
       this.reviewApp.initializeAudio();
     }
+  }
+
+  /**
+   * 评估棋力：基于已分析数据二次计算（不触发新 AI 请求）
+   */
+  private handleEvaluateStrength(): void {
+    const reviewId = this.analysis.getReviewId();
+    let report: StrengthReport;
+    if (reviewId) {
+      const full = this.reviewApp.getFullMoves(reviewId);
+      if (full && full.length > 0) {
+        report = estimateStrength({ kind: 'live', moves: full, blackName: this.blackName, whiteName: this.whiteName });
+      } else {
+        report = this.buildSavedStrengthReport();
+      }
+    } else {
+      report = this.buildSavedStrengthReport();
+    }
+    void this.showStrengthDialog(report);
+  }
+
+  private buildSavedStrengthReport(): StrengthReport {
+    return estimateStrength({
+      kind: 'saved',
+      data: { winrateTrend: this.winrateTrend, moveCandidates: this.moveCandidates, totalMoves: this.totalMoves },
+      blackName: this.blackName,
+      whiteName: this.whiteName,
+    });
+  }
+
+  private showStrengthDialog(report: StrengthReport): void {
+    const confMap: Record<string, string> = { high: '高', medium: '中', low: '低' };
+    const card = (est: StrengthReport['black'], isBlack: boolean): string => {
+      const name = isBlack ? this.blackName : this.whiteName;
+      const cand = est.hasCandidateData ? '' : '（选点命中：样本不足）';
+      const side = name || (isBlack ? '黑方' : '白方');
+      return (
+        '<div class="strength-card">' +
+          '<div class="strength-side">' + side + '</div>' +
+          '<div class="strength-rank">' + est.label + '</div>' +
+          '<div class="strength-meta">综合分 ' + est.score + ' · 可信度 ' + confMap[est.confidence] + cand + '</div>' +
+          '<div class="strength-bars">' +
+            '<div class="sbar"><span>AI选点命中</span><b>' + Math.round(est.signals.agreeTop5 * 100) + '%</b></div>' +
+            '<div class="sbar"><span>失误率</span><b>' + Math.round(est.signals.mistakeRate * 100) + '%</b></div>' +
+            '<div class="sbar"><span>严重失误</span><b>' + Math.round(est.signals.severeRate * 100) + '%</b></div>' +
+          '</div>' +
+        '</div>'
+      );
+    };
+    const overlay = document.createElement('div');
+    overlay.className = 'strength-dialog-overlay';
+    overlay.innerHTML =
+      '<div class="dialog-content strength-dialog">' +
+        '<h3>棋力评估</h3>' +
+        '<div class="strength-grid">' + card(report.black, true) + card(report.white, false) + '</div>' +
+        '<div class="strength-note">基于已分析数据估算，仅供参考（野狐段位口径）。</div>' +
+        '<div class="dialog-btn-group"><button class="dialog-confirm" data-act="ok">知道了</button></div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (e) => {
+      const t = e.target as HTMLElement;
+      if (t === overlay || t.getAttribute('data-act') === 'ok') overlay.remove();
+    });
   }
 
   async analyzeCurrentPosition(): Promise<void> {
@@ -776,6 +846,7 @@ export class ReviewPage implements IPage {
   private handleAnalysisComplete(result: AnalysisCompleteResult): void {
     this.totalMoves = result.totalMoves;
     this.winrateTrend = result.winrateTrend;
+    this.moveCandidates = result.moveCandidates ?? [];
     if (result.moves.length > 0) {
       this.moves = result.moves;
     }
@@ -795,6 +866,8 @@ export class ReviewPage implements IPage {
         // 初始化基础层时传入让子棋和先手方
         this.interaction.initializeBaseLayer(this.moves, this.handicapStones, this.initialPlayer, this.boardSize);
         this.ui.updateGameInfo(state.gameInfo.black, state.gameInfo.white, state.gameInfo.result);
+        this.blackName = state.gameInfo.black;
+        this.whiteName = state.gameInfo.white;
       }
     }
     

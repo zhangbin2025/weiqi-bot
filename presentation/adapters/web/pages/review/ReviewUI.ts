@@ -31,6 +31,8 @@ export interface UICallbacks {
   onToggleLiveRecommendations?: () => void;
   onRefreshIntervalChange?: (seconds: number) => void;
   onToggleRegionSelection?: () => void;
+  /** 评估棋力 */
+  onEvaluateStrength?: () => void;
 }
 
 /**
@@ -175,6 +177,11 @@ export class ReviewUI {
     });
     document.addEventListener('click', () => this.closeMenu());
     this.regionSelectBtnEl?.addEventListener('click', () => {      this.closeMenu();      this.callbacks.onToggleRegionSelection?.();    });
+    const strengthBtnEl = document.getElementById('strengthBtn');
+    strengthBtnEl?.addEventListener('click', () => {
+      this.closeMenu();
+      this.callbacks.onEvaluateStrength?.();
+    });
   }
 
   private toggleMenu(): void {
