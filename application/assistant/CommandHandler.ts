@@ -47,7 +47,8 @@ export class CommandHandler {
   private storageBrowserService: StorageBrowserService | undefined;
   private performanceBrowserService: PerformanceBrowserService | undefined;
   private dialog: IDialog | undefined;
-  private katagoDebugStorage = new LocalStorageAdapter('weiqi-bot');
+  // 不指定 namespace：KATAGO_DEBUG 需写入裸键，供 weiqi-worker 直接读取
+  private katagoDebugStorage = new LocalStorageAdapter();
 
   constructor(config: CommandHandlerConfig) {
     this.messageRenderer = config.messageRenderer;

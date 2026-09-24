@@ -21,9 +21,11 @@ export class LocalStorageAdapter implements IKeyValueStorageAdapter {
   readonly type = StorageAdapterType.LocalStorage;
 
   /**
-   * @param namespace - 命名空间，用于隔离不同应用的数据
+   * @param namespace - 命名空间，用于隔离不同应用的数据。
+   *                    省略时使用裸键（不加前缀、不 JSON 序列化），
+   *                    以便与其他直接读写 localStorage 的模块共享数据。
    */
-  constructor(private readonly namespace: string) {
+  constructor(private readonly namespace?: string) {
     this.name = `localStorage:${namespace}`;
   }
 
@@ -103,7 +105,9 @@ export class LocalStorageAdapter implements IKeyValueStorageAdapter {
    */
   async write<T>(key: string, data: T): Promise<void> {
     const fullKey = this.getFullKey(key);
-    const serialized = JSON.stringify(data);
+    // 不指定 namespace 时，按原始字符串写入（不 JSON 序列化），
+    // 以兼容直接读写 localStorage 裸键的场景（如 KataGo 调试开关）。
+    const serialized = this.namespace === undefined ? String(data) : JSON.stringify(data);
     localStorage.setItem(fullKey, serialized);
   }
 
@@ -128,7 +132,9 @@ export class LocalStorageAdapter implements IKeyValueStorageAdapter {
    */
   async listKeys(pattern?: string): Promise<string[]> {
     const keys: string[] = [];
-    const prefix = `${this.namespace}:`;
+    // 不指定 namespace 时，prefix 为空字符串，匹配所有键；
+    // 否则使用 namespace: 作为前缀。
+    const prefix = this.namespace === undefined ? '' : `${this.namespace}:`;
 
     for (let i = 0; i < localStorage.length; i++) {
       const fullKey = localStorage.key(i);
@@ -162,7 +168,7 @@ export class LocalStorageAdapter implements IKeyValueStorageAdapter {
    * 获取完整键名（带命名空间）
    */
   private getFullKey(key: string): string {
-    return `${this.namespace}:${key}`;
+    return this.namespace === undefined ? key : `${this.namespace}:${key}`;
   }
 
   /**
