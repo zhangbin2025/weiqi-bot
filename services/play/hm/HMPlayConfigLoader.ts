@@ -37,7 +37,7 @@ export class HMPlayConfigLoader {
   private getDefaultConfig(): IHMPlayServiceConfig {
     return {
       defaultDifficulty: 'medium',
-      defaultModelId: 'katago-small',
+      defaultModelId: 'g170-b10c128',
       defaultVisits: { easy: 50, medium: 100, hard: 200 },
       defaultNoUndo: false,
     };

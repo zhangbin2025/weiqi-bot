@@ -39,6 +39,8 @@ export function transformModelConfig(modelConfig: IModelConfig | undefined): Mod
         recommended: m.recommended ?? [],
         difficulty: m.difficulty ?? [],
         features: m.features,
+        ...(m.remote !== undefined ? { remote: m.remote } : {}),
+        ...(m.allowCrossSite !== undefined ? { allowCrossSite: m.allowCrossSite } : {}),
       };
     }),
     metadata: modelConfig.metadata,

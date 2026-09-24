@@ -45,7 +45,7 @@ export const HMPlayConfigSchema: IConfigSchemaDefinition<IHMPlayServiceConfig> =
     type: 'string',
     required: false,
     description: '默认 AI 模型 ID',
-    defaultValue: 'katago-small',
+    defaultValue: 'g170-b10c128',
   },
   defaultVisits: {
     type: 'object',

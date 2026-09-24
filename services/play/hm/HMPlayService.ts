@@ -463,7 +463,7 @@ export class HMPlayService implements IHMPlayService {
     }
 
     // 检查并初始化 AI Controller（如果需要）
-    const modelId = draft.modelId ?? 'katago-small';
+    const modelId = draft.modelId ?? 'g170-b10c128';
     // 优先使用草稿中保存的 URL，其次使用页面传入的，最后 fallback
     const resolvedModelUrl = draft.modelUrl ?? modelUrl ?? `/models/${modelId}.bin.gz`;
     if (!this.aiController.isInitialized()) {

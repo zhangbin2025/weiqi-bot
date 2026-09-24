@@ -26,7 +26,7 @@ import type { IMMPlayConfig as IRuntimeConfig } from '../../../infrastructure/co
  * AI 自对弈服务
  * @ai-example
  * const service = new MMPlayService(katagoEngine);
- * await service.setup({ modelId: 'katago-small', visits: 100, speed: 'normal' });
+ * await service.setup({ modelId: 'g170-b10c128', visits: 100, speed: 'normal' });
  * service.setCallbacks({ onMove: (x, y, color, num) => console.log(num) });
  * await service.start();
  */
@@ -72,7 +72,7 @@ export class MMPlayService implements IMMPlayService {
 
     // 合并配置
     const mergedConfig: IMMPlayConfig = {
-      modelId: config.modelId ?? this.runtimeConfig?.defaultModelId ?? 'katago-small',
+      modelId: config.modelId ?? this.runtimeConfig?.defaultModelId ?? 'g170-b10c128',
       visits: config.visits,
       speed: config.speed,
     };
@@ -195,7 +195,7 @@ export class MMPlayService implements IMMPlayService {
       gameEnded: state.gameEnded,
       blackScore: state.blackScore,
       whiteScore: state.whiteScore,
-      modelId: this.config?.modelId ?? 'katago-small',
+      modelId: this.config?.modelId ?? 'g170-b10c128',
       ...(this.currentModelUrl && { modelUrl: this.currentModelUrl }), // 保存自定义模型 URL
       visits: this.config?.visits ?? 100,
       speed: this.config?.speed ?? 'normal',

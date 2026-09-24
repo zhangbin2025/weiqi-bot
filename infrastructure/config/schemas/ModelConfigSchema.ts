@@ -33,6 +33,10 @@ export interface IModelConfig {
     blocks: number;
     /** 是否为默认模型 */
     isDefault: boolean;
+    /** 是否为远程模型（需联网下载，受站点来源限制） */
+    remote?: boolean;
+    /** 是否允许跨站下载（仅 App 环境或同站点可用，其它站点禁用） */
+    allowCrossSite?: boolean;
     /** 推荐场景 */
     recommended?: string[];
     /** 支持的难度 */
@@ -131,6 +135,16 @@ export const ModelConfigSchema: IConfigSchemaDefinition<IModelConfig> = {
           type: 'boolean',
           required: true,
           description: '是否为默认模型',
+        },
+        remote: {
+          type: 'boolean',
+          required: false,
+          description: '是否为远程模型（需联网下载，受站点来源限制）',
+        },
+        allowCrossSite: {
+          type: 'boolean',
+          required: false,
+          description: '是否允许跨站下载（仅 App 环境或同站点可用）',
         },
         recommended: {
           type: 'array',

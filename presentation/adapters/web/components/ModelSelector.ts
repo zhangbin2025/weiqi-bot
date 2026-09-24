@@ -52,6 +52,46 @@ export class ModelSelector {
   }
 
   /**
+   * 判断远程模型在当前环境是否可用
+   *
+   * - App 环境（WeiqiApp）：请求的远程站点即 bot.weiqi.lol，可直接下载 → 可用
+   * - 纯 Web：仅当页面运行在与模型同源的站点（如 bot.weiqi.lol）时可用
+   * - 其它站点：禁用（选项变灰，不可选）
+   */
+  private isRemoteModelAvailable(model: ModelConfig): boolean {
+    // 非跨站限制模型始终可用
+    if (!model.allowCrossSite) return true;
+    // App 环境可用
+    if (this.isAppEnvironment) return true;
+    // 无 window（测试等）默认可用
+    if (typeof window === 'undefined') return true;
+    // 纯 Web：同站点可用
+    try {
+      const modelHost = new URL(model.url, window.location.href).hostname;
+      return modelHost === window.location.hostname;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * 确保当前选中的模型在当前环境可用；若不可用则回退到第一个可用模型
+   */
+  private ensureAvailableSelection(): void {
+    if (!this.selectedModelId) return;
+    const selected = this.models.find(m => m.id === this.selectedModelId);
+    if (selected && !this.isRemoteModelAvailable(selected)) {
+      const fallback =
+        this.models.find(m => this.isRemoteModelAvailable(m) && m.isDefault) ||
+        this.models.find(m => this.isRemoteModelAvailable(m));
+      if (fallback) {
+        console.info('[ModelSelector] 当前模型在当前环境不可用，回退到:', fallback.id);
+        this.selectedModelId = fallback.id;
+      }
+    }
+  }
+
+  /**
    * 加载模型列表
    */
   async loadModels(): Promise<void> {
@@ -110,6 +150,9 @@ export class ModelSelector {
         this.selectedModelId = defaultModel.id;
       }
     }
+
+    // 若选中模型在当前环境不可用（如跨站远程模型），回退到可用模型
+    this.ensureAvailableSelection();
   }
 
   /**
@@ -150,6 +193,9 @@ export class ModelSelector {
         this.selectedModelId = defaultModel.id;
       }
     }
+
+    // 若选中模型在当前环境不可用（如跨站远程模型），回退到可用模型
+    this.ensureAvailableSelection();
   }
 
   /**
@@ -160,13 +206,21 @@ export class ModelSelector {
     const ro = this.isRemoteMode; // readonly flag
 
     const modelOptionsHtml = this.models.filter(m => !(ro && m.id === 'custom')).map(model => {
-      const isSelected = model.id === this.selectedModelId;
+      // 跨站远程模型：当前环境不可用时禁用并变灰
+      const available = this.isRemoteModelAvailable(model);
+      const isSelected = model.id === this.selectedModelId && available;
+      const disabled = ro || !available;
+      const cursor = disabled ? 'not-allowed' : 'pointer';
+      const labelStyle = `display: flex; align-items: center; gap: 8px; padding: 8px 0; cursor: ${cursor};${!available ? ' opacity: 0.45;' : ''}`;
+      const hint = !available
+        ? `<div style="font-size: 11px; color: #f59e0b; margin: 0 0 4px 24px;">仅支持 App 或 bot.weiqi.lol 站点使用</div>`
+        : '';
       return `
-        <label style="display: flex; align-items: center; gap: 8px; padding: 8px 0; ${ro ? '' : 'cursor: pointer;'}">
-          <input type="radio" name="aiModel" value="${model.id}" ${isSelected ? 'checked' : ''} ${ro ? 'disabled' : ''} style="width: auto; ${ro ? 'opacity: 0.6;' : ''}">
+        <label style="${labelStyle}">
+          <input type="radio" name="aiModel" value="${model.id}" ${isSelected ? 'checked' : ''} ${disabled ? 'disabled' : ''} style="width: auto; ${disabled ? 'opacity: 0.6;' : ''}">
           <span style="flex: 1; font-size: 13px;">${model.name}</span>
           <span style="font-size: 12px; color: #999; text-align: right; min-width: 50px;">${model.size}</span>
-        </label>
+        </label>${hint}
       `;
     }).join('');
 

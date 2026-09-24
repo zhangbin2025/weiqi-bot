@@ -78,7 +78,7 @@ export class ReviewModelManager {
   ): Promise<ModelLoadResult> {
     // 获取默认模型配置
     const models = await this.modelService.getModels();
-    const targetModelId = modelId || models[0]?.id || 'katago-small';
+    const targetModelId = modelId || models[0]?.id || 'g170-b10c128';
     const model = await this.findModel(targetModelId);
 
     if (!model) {

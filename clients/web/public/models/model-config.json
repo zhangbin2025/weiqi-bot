@@ -24,33 +24,35 @@
       }
     },
     {
-      "id": "katago-small",
-      "name": "KataGo b6c96",
-      "description": "6块96通道网络，适合移动端和快速分析",
-      "url": "models/katago-small.bin.gz",
-      "size": "3.7MB",
-      "sizeBytes": 3879731,
-      "version": "g170",
-      "blocks": 6,
-      "channels": 96,
+      "id": "kata1-b18c384nbt",
+      "name": "KataGo b18c384nbt",
+      "description": "18块384通道网络，棋力更强，需联网从 bot.weiqi.lol 下载",
+      "url": "https://bot.weiqi.lol/models/kata1-b18c384nbt-s9996604416-d4316597426.bin.gz",
+      "size": "93.4MB",
+      "sizeBytes": 97898094,
+      "version": "kata1",
+      "blocks": 18,
+      "channels": 384,
       "default": false,
-      "recommended": ["mobile", "desktop", "beginner", "intermediate"],
-      "difficulty": ["easy", "medium", "hard"],
+      "remote": true,
+      "allowCrossSite": true,
+      "recommended": ["desktop", "advanced"],
+      "difficulty": ["hard"],
       "features": {
-        "fastInference": true,
-        "lowMemory": true
+        "fastInference": false,
+        "lowMemory": false
       },
       "nativeModel": {
-        "url": "models/katago-small.bin.gz",
-        "filename": "katago-small.bin.gz",
-        "sizeBytes": 3879731
+        "url": "https://bot.weiqi.lol/models/kata1-b18c384nbt-s9996604416-d4316597426.bin.gz",
+        "filename": "kata1-b18c384nbt-s9996604416-d4316597426.bin.gz",
+        "sizeBytes": 97898094
       }
     }
   ],
   "metadata": {
-    "version": "1.5.0",
-    "lastUpdated": "2026-06-29",
+    "version": "1.6.0",
+    "lastUpdated": "2026-09-24",
     "source": "https://katagotraining.org/",
-    "note": "所有模型已内置，无需外部下载"
+    "note": "内置模型可离线使用；远程模型需联网从 bot.weiqi.lol 下载（仅 App 或 bot.weiqi.lol 站点可用）"
   }
 }
