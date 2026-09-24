@@ -19,6 +19,7 @@ import { formatOk, formatError, formatTextOutput, extractDebug, type FormatType,
 import { runFetchCommand } from './commands/fetch';
 import { runOpponentCommand } from './commands/opponent';
 import { runDecisionCommand } from './commands/decision';
+import { runReviewCommand } from './commands/review';
 import { createCliContext } from './bootstrap';
 
 const HELP = `
@@ -33,6 +34,7 @@ commands:
   joseki            定式发现
   opponent          对手分析
   decision          实战选点题生成
+  review            本地棋谱远程 AI 复盘(纯客户端)
 
 global options:
   --format FORMAT   输出格式: json | text (default: json)
@@ -54,6 +56,7 @@ subcommand help:
   joseki --help     显示 joseki 命令帮助
   opponent --help   显示 opponent 命令帮助
   decision --help   显示 decision 命令帮助
+  review --help     显示 review 命令帮助
 `;
 
 /** 从参数中提取 --format 并返回剩余参数 */
@@ -122,6 +125,9 @@ async function main(): Promise<void> {
       break;
     case 'decision':
       result = await runDecisionCommand(subArgs, ctx);
+      break;
+    case 'review':
+      result = await runReviewCommand(subArgs, ctx);
       break;
     case 'help':
     case '--help':

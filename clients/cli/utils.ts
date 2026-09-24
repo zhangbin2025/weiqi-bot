@@ -62,6 +62,8 @@ export function formatTextOutput(result: CliResult): string {
     case 'opponent-history': return formatOpponentHistoryText(result.data as any);
     case 'opponent-help': return result.data as string;
     case 'decision-generate': return formatDecisionGenerateText(result.data as any);
+    case 'review-analyze': return formatReviewAnalyzeText(result.data as any);
+    case 'review-help': return result.data as string;
     case 'decision-help': return result.data as string;
     default: return JSON.stringify(result.data, null, 2);
   }
