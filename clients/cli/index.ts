@@ -100,7 +100,10 @@ async function main(): Promise<void> {
   const { debug, rest: afterDebug } = extractDebug(rawArgs);
   const { format, rest: args } = extractFormat(afterDebug);
   const command = args[0];
-  const subArgs = args.slice(1);
+  // review 命令自行解析 --debug（用于连接日志），其他命令移除 --debug 避免被当未知参数
+  const subArgs = command === 'review'
+    ? args.slice(1)
+    : args.slice(1).filter(a => a !== '--debug');
 
   // 创建上下文，debug 模式下注册 NetworkLoggerPlugin
   const ctx = await createCliContext(debug);

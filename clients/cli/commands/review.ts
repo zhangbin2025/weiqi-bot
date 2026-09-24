@@ -176,7 +176,6 @@ async function runAnalyze(args: ReviewArgs, ctx: CliContext): Promise<CliResult>
 
     const engine = new CliRemoteKataGoEngine(args.signaling, args.password);
     if (args.debug) console.error('[review] 连接远程服务端...');
-    await engine.connect();
     await engine.init();
     const engineInfo = engine.getEngineInfo();
     if (args.debug) console.error('[review] 引擎信息:', JSON.stringify(engineInfo));

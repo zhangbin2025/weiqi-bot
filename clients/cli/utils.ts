@@ -3,10 +3,14 @@
  * @module clients/cli/utils
  */
 
-/** 从参数中提取 --debug 并返回剩余参数 */
+/**
+ * 检测 --debug flag 是否存在，但不从参数中移除。
+ * 各子命令自行解析 --debug（如 review.ts 的 parseArgs），
+ * 这样 --debug 既能被全局 debug 逻辑使用，也能传递给子命令。
+ */
 export function extractDebug(args: string[]): { debug: boolean; rest: string[] } {
-  const rest: string[] = args.filter(a => a !== '--debug');
-  return { debug: rest.length < args.length, rest };
+  const debug = args.includes('--debug');
+  return { debug, rest: args };
 }
 
 /** 成功输出（JSON 模式） */
