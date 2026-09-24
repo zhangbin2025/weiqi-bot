@@ -74,6 +74,9 @@ export class ReviewPage implements IPage {
   private savedLiveCircles: RecommendationCircle[] = [];
   private showingLiveRecommendations = false;
 
+  // 自动播放令牌：每次启动播放递增，旧播放检测到 token 不匹配则自行终止
+  private autoPlayToken = 0;
+
   // 状态
   private totalMoves = 0;
   private currentMove = 0;
@@ -234,6 +237,8 @@ export class ReviewPage implements IPage {
           setTotalMoves: (total) => { this.totalMoves = total; },
           setHandicapStones: (stones) => { this.handicapStones = stones; },
           showLiveRecommendations: (moveIndex) => this.showLiveRecommendations(moveIndex),
+          autoplayTo: (fromMove, toMove) => this.autoplayTo(fromMove, toMove),
+          stopAutoPlay: () => this.stopAutoPlay(),
           onAnalysisComplete: (result) => this.handleAnalysisComplete(result),
         },
       );
@@ -830,6 +835,77 @@ export class ReviewPage implements IPage {
     }
   }
 
+
+  /**
+   * 自动播放新增着法（直播刷新时调用）
+   * 从 fromMove 逐手播放到 toMove，总时长上限 10 秒，超时直接跳到最新。
+   * @param fromMove 播放起始手数（旧棋谱的总手数）
+   * @param toMove   播放结束手数（新棋谱的总手数）
+   */
+  async autoplayTo(fromMove: number, toMove: number): Promise<void> {
+    const count = toMove - fromMove;
+    if (count <= 0) {
+      this.goToMove(toMove);
+      return;
+    }
+
+    // 超过 80 手：直接跳到最新，播放也无意义
+    if (count > 80) {
+      console.info('[ReviewPage] autoplay: 新增', count, '手过多，直接跳到最新');
+      this.goToMove(toMove);
+      return;
+    }
+
+    const MAX_TOTAL_MS = 10000; // 总时长上限 10s
+    const PER_MOVE_MS   = 500;  // 自然节奏
+    const MIN_PER_MOVE  = 120;  // 单步最短间隔
+    const perMove = Math.max(MIN_PER_MOVE, Math.min(PER_MOVE_MS, Math.floor(MAX_TOTAL_MS / count)));
+
+    const token = ++this.autoPlayToken;
+    const startTs = Date.now();
+    console.info('[ReviewPage] autoplay:', count, '手, perMove:', perMove, 'ms');
+
+    return new Promise<void>((resolve) => {
+      let i = fromMove;
+      const step = () => {
+        // 被新的播放或 stopAutoPlay 打断
+        if (token !== this.autoPlayToken) {
+          console.info('[ReviewPage] autoplay: 被打断，终止');
+          return resolve();
+        }
+        // 直播已停止，直接跳到最新
+        if (!this.liveModeManager?.isActive()) {
+          this.goToMove(toMove);
+          return resolve();
+        }
+        i++;
+        this.goToMove(i);
+        // 音效跟随
+        if (this.ui.isSoundEnabled() && i <= this.moves.length) {
+          const m = this.moves[i - 1];
+          if (m) {
+            this.reviewApp.playSound(m.x < 0 || m.y < 0 ? 'pass' : 'stone');
+          }
+        }
+        if (i >= toMove) {
+          return resolve();
+        }
+        // 超时兜底：直接跳到最新
+        if (Date.now() - startTs >= MAX_TOTAL_MS) {
+          console.info('[ReviewPage] autoplay: 超时，直接跳到最新');
+          this.goToMove(toMove);
+          return resolve();
+        }
+        setTimeout(step, perMove);
+      };
+      setTimeout(step, perMove);
+    });
+  }
+
+  /** 打断正在进行的自动播放 */
+  stopAutoPlay(): void {
+    this.autoPlayToken++;
+  }
 
   /**
    * 直播模式：显示最后一手棋的AI选点

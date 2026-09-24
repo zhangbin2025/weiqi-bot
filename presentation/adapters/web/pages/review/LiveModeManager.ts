@@ -46,6 +46,10 @@ export interface LiveModeCallbacks {
   setHandicapStones: (stones: Array<{ x: number; y: number; color: PlayerColor }>) => void;
   /** 显示直播AI选点（返回 Promise，等待分析完成） */
   showLiveRecommendations: (moveIndex: number) => Promise<void>;
+  /** 自动播放新增着法（fromMove → toMove），最多 10 秒 */
+  autoplayTo: (fromMove: number, toMove: number) => Promise<void>;
+  /** 打断正在进行的自动播放 */
+  stopAutoPlay: () => void;
   /** 分析完成回调 */
   onAnalysisComplete: (result: AnalysisCompleteResult) => void;
 }
@@ -200,6 +204,8 @@ export class LiveModeManager {
       clearTimeout(this.liveInterval);
       this.liveInterval = undefined;
     }
+    // 打断正在进行的自动播放
+    this.callbacks.stopAutoPlay();
     this.isLiveMode = false;
     this.liveFetchFailCount = 0;
     console.info('[LiveModeManager] 停止直播模式');
@@ -639,10 +645,14 @@ export class LiveModeManager {
     await this.analysis.saveReviewData(this.callbacks.getWinrateTrend());
     console.info('[LiveModeManager] 已保存新复盘数据');
 
-    // 更新视图
+    // 更新视图：自动播放新增着法（最多 10 秒，超时直接跳到最新）
     const currentMove = this.callbacks.getCurrentMove();
     const oldTotalMoves = fromMove;
     if (currentMove === oldTotalMoves - 1 || currentMove === oldTotalMoves) {
+      // 从当前位置逐手播放到最新手
+      await this.callbacks.autoplayTo(fromMove, toMove);
+    } else {
+      // 用户不在末尾，直接跳到最新
       this.callbacks.goToMove(toMove);
     }
 
@@ -671,6 +681,8 @@ export class LiveModeManager {
    * @description 当检测到悔棋或棋谱完全变化时调用
    */
   private async resetAndReload(sgf: string, archiveId: string): Promise<void> {
+    // 打断正在进行的自动播放（悔棋/重置场景）
+    this.callbacks.stopAutoPlay();
     // 先销毁旧的 reviewId，避免内存泄漏
     const oldReviewId = this.analysis.getReviewId();
     if (oldReviewId) {
