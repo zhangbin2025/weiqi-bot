@@ -5,9 +5,9 @@
 import type { IGameEndMessage, IMoveMessage, IPassMessage, PlayerColor } from './types';
 
 /** 分片大小（64KB） */
-const CHUNK_SIZE = 64 * 1024;
+const CHUNK_SIZE = 16 * 1024;  // 16KB per chunk (safe for werift)
 /** 分片阈值（超过则分片） */
-const CHUNK_THRESHOLD = 50 * 1024;
+const CHUNK_THRESHOLD = 10 * 1024;  // >10KB triggers chunking
 
 /** 分片接收缓冲 */
 interface ChunkBuffer {
@@ -45,8 +45,21 @@ export class ChunkReceiver {
   }
 }
 
-/** 分片发送：大消息拆成多个 chunk */
-function sendChunked(dc: RTCDataChannel, msg: any): void {
+/** 等待 DC buffer 排空 */
+function waitForDrain(dc: RTCDataChannel, maxWait = 5000): Promise<void> {
+  return new Promise((resolve) => {
+    if (dc.bufferedAmount < 65536) return resolve();
+    const start = Date.now();
+    const check = () => {
+      if (dc.bufferedAmount < 65536 || Date.now() - start > maxWait) return resolve();
+      setTimeout(check, 5);
+    };
+    check();
+  });
+}
+
+/** 分片发送：大消息拆成多个 chunk，带流控 */
+async function sendChunked(dc: RTCDataChannel, msg: any): Promise<void> {
   const json = JSON.stringify(msg);
   if (json.length <= CHUNK_THRESHOLD) {
     dc.send(json);
@@ -55,8 +68,10 @@ function sendChunked(dc: RTCDataChannel, msg: any): void {
   const chunkId = "chunk-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
   const total = Math.ceil(json.length / CHUNK_SIZE);
   dc.send(JSON.stringify({ type: "chunk-start", chunkId, total, size: json.length }));
+  await waitForDrain(dc);
   for (let i = 0; i < total; i++) {
     dc.send(JSON.stringify({ type: "chunk-data", chunkId, index: i, data: json.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE) }));
+    if (dc.bufferedAmount > 65536) await waitForDrain(dc);
   }
   dc.send(JSON.stringify({ type: "chunk-end", chunkId }));
 }
