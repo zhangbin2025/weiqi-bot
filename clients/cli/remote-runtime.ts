@@ -186,7 +186,18 @@ class CliTunnel {
     this.pc = pc;
 
     pc.onicecandidate = () => { /* 非 trickle：候选随 answer 一起发 */ };
-    pc.onconnectionstatechange = () => this.log('P2P state:', pc.connectionState);
+pc.onconnectionstatechange = () => {
+      const state = pc.connectionState;
+      this.log("P2P state:", state);
+      if (state === "failed" || state === "disconnected" || state === "closed") {
+        for (const [, p] of this.pending) {
+          clearTimeout(p.timer);
+          p.reject(new Error("P2P 连接断开: " + state));
+        }
+        this.pending.clear();
+        this.authed = false;
+      }
+    };
     pc.ondatachannel = (e: any) => this.setupDataChannel(e.channel);
 
     await pc.setRemoteDescription(new WeriftRTCSessionDescription(offer.sdp, offer.type));
@@ -205,6 +216,18 @@ class CliTunnel {
       this.send({ type: 'auth', password: this.cfg.password });
     };
     dc.onmessage = (ev: any) => this.onDataMessage(ev.data);
+    dc.onclose = () => {
+      this.log("DC CLOSED");
+      for (const [id, p] of this.pending) {
+        clearTimeout(p.timer);
+        p.reject(new Error("数据通道已关闭"));
+      }
+      this.pending.clear();
+      this.authed = false;
+    };
+    dc.onerror = (e: any) => {
+      this.log("DC ERROR:", e?.message ?? e);
+    };
   }
 
   private async onDataMessage(data: any): Promise<void> {
