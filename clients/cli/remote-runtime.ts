@@ -266,6 +266,8 @@ class CliTunnel {
   }
 
   private teardown(): void {
+    // 先移除回调，避免 close 时触发 onconnectionstatechange 打印误导性日志
+    if (this.pc) this.pc.onconnectionstatechange = null;
     try { this.dc?.close?.(); } catch { /* ignore */ }
     try { this.pc?.close?.(); } catch { /* ignore */ }
     try { this.ws?.close?.(); } catch { /* ignore */ }
