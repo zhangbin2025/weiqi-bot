@@ -2,6 +2,7 @@
  * CLI 输出格式化工具
  * @module clients/cli/utils
  */
+import { formatReviewAnalyzeText } from "./commands/review";
 
 /**
  * 检测 --debug flag 是否存在，但不从参数中移除。
