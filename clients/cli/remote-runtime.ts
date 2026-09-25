@@ -315,13 +315,13 @@ export class CliRemoteKataGoEngine {
       throw new Error("服务端无可用模型");
     }
     const modelUrl = chosen.url ?? `/models/${chosen.id}.bin.gz`;
-    console.error(`[review-katago] 服务端引擎未初始化，发送 init RPC, model=${chosen.id} url=${modelUrl}`);
+    if (this.debug) console.error(`[review-katago] 服务端引擎未初始化，发送 init RPC, model=${chosen.id} url=${modelUrl}`);
     await this.tunnel.call("katago", "init", { modelUrl }, undefined, 600_000);
     // 重新从服务端拉取引擎信息
     const fresh = (await this.tunnel.call("katago", "getEngineInfo", undefined)) as EngineInfo;
     if (fresh) (this.tunnel as any).engineInfo = fresh;
     info = this.tunnel.getEngineInfo();
-    console.error("[review-katago] 服务端引擎就绪:", JSON.stringify(info));
+    if (this.debug) console.error("[review-katago] 服务端引擎就绪:", JSON.stringify(info));
   }
 
   getEngineInfo(): EngineInfo { return this.tunnel.getEngineInfo(); }

@@ -224,14 +224,12 @@ async function runAnalyze(args: ReviewArgs, ctx: CliContext): Promise<CliResult>
 }
 
 export async function runReviewCommand(args: string[], ctx: CliContext): Promise<CliResult> {
-  console.error('[review] runReviewCommand sub=', args[0]);
   const sub = args[0] ?? '';
   if (sub === 'help' || sub === '--help' || sub === '-h') {
     return { ok: true, command: 'review-help', data: REVIEW_HELP };
   }
   if (sub === 'analyze') {
     const parsed = parseArgs(args.slice(1));
-    console.error('[review] parsed sgf=', parsed.sgf, 'debug=', parsed.debug);
     return runAnalyze(parsed, ctx);
   }
   return { ok: false, command: 'review', error: `未知子命令: ${sub}\n${REVIEW_HELP}` };
