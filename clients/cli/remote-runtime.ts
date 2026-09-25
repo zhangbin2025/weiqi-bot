@@ -307,15 +307,15 @@ export class CliRemoteKataGoEngine {
       // 服务端已有模型，直接用
       return;
     }
-    // 服务端未加载模型，先查服务端可用模型列表，选默认模型
+    // 服务端未加载模型，先查服务端可用模型列表
     const models = (await this.tunnel.call("katago", "listModels", undefined)) as ModelInfo[];
-    const defaultModel = models.find(m => m.isDefault) ?? models[0];
-    if (!defaultModel) {
+    // 优先选服务端当前选中的模型，其次默认模型，再退到第一个
+    const chosen = models.find(m => m.isCurrent) ?? models.find(m => m.isDefault) ?? models[0];
+    if (!chosen) {
       throw new Error("服务端无可用模型");
     }
-    // modelUrl 来自服务端配置（相对路径或绝对路径）
-    const modelUrl = defaultModel.url ?? `/models/${defaultModel.id}.bin.gz`;
-    console.error(`[review-katago] 服务端引擎未初始化，发送 init RPC, model=${defaultModel.id} url=${modelUrl}`);
+    const modelUrl = chosen.url ?? `/models/${chosen.id}.bin.gz`;
+    console.error(`[review-katago] 服务端引擎未初始化，发送 init RPC, model=${chosen.id} url=${modelUrl}`);
     await this.tunnel.call("katago", "init", { modelUrl }, undefined, 600_000);
     // 重新从服务端拉取引擎信息
     const fresh = (await this.tunnel.call("katago", "getEngineInfo", undefined)) as EngineInfo;

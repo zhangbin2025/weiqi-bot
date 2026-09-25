@@ -161,6 +161,8 @@ async function main(): Promise<void> {
       process.stderr.write(`[debug] ${i + 1}. ${mark} ${e.request.method} ${e.request.url} ${dur}ms ${provider}${errStr}\n`);
     }
   }
+  // 确保进程退出（werift 可能有未清理的定时器）
+  process.exit(0);
 }
 
 main().catch((e: unknown) => {
