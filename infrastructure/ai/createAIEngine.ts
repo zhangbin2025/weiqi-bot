@@ -12,22 +12,10 @@
  */
 
 import type { IAIEngine } from './IAIEngine';
+import { createKataGoWebAdapter } from './adapters/KataGoWebAdapter';
+import { createKataGoRemoteAdapter } from './adapters/KataGoRemoteAdapter';
 import type { NetworkManager } from '../network/core/NetworkManager';
 import { TunnelManager } from '../tunnel/TunnelManager';
-
-
-// Lazy module loader: works in Node (require) and browser (bundled ESM)
-function lazyRequire(modPath: string): any {
-  if (typeof require !== 'undefined') {
-    return require(modPath);
-  }
-  // Browser: Vite bundles these as ESM, but createAIEngine is sync.
-  // The modules are already loaded via static imports in the bundle.
-  // Access them through a global registry set up by the bundler.
-  const globalMods = (globalThis as any).__weiqi_modules__;
-  if (globalMods && globalMods[modPath]) return globalMods[modPath];
-  throw new Error('Cannot load module: ' + modPath);
-}
 
 let cachedEngine: IAIEngine | null = null;
 
@@ -59,7 +47,6 @@ export function createAIEngine(networkManager?: NetworkManager): IAIEngine {
   // 优先：远程隧道客户端模式（检查 localStorage 配置）
   if (TunnelManager.getInstance().isClientMode()) {
     console.log('[AIEngineFactory] Tunnel client mode detected, using KataGoRemoteAdapter');
-    const { createKataGoRemoteAdapter } = lazyRequire("./adapters/KataGoRemoteAdapter");
     cachedEngine = createKataGoRemoteAdapter();
     return cachedEngine!;
   }
@@ -71,8 +58,7 @@ export function createAIEngine(networkManager?: NetworkManager): IAIEngine {
     console.log('[AIEngineFactory] App environment detected, using KataGoAppAdapter');
     cachedEngine = createKataGoAppAdapter(networkManager);
   } else {
-    console.log("[AIEngineFactory] Web environment detected, using KataGoWebAdapter");
-    const { createKataGoWebAdapter } = lazyRequire("./adapters/KataGoWebAdapter");
+    console.log('[AIEngineFactory] Web environment detected, using KataGoWebAdapter');
     cachedEngine = createKataGoWebAdapter();
   }
 
@@ -96,7 +82,6 @@ export function resetAIEngine(): void {
 export function forceUseWebAdapter(): IAIEngine {
   console.log('[AIEngineFactory] Force using WebAdapter (fallback from native)');
   resetAIEngine();
-  const { createKataGoWebAdapter } = lazyRequire("./adapters/KataGoWebAdapter");
   cachedEngine = createKataGoWebAdapter();
   return cachedEngine!;
 }
