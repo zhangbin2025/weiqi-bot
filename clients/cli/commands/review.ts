@@ -162,11 +162,18 @@ async function runAnalyze(args: ReviewArgs, ctx: CliContext): Promise<CliResult>
       topK: args.topK,
     };
 
-    const result = await reviewService.analyzeGameBatch(reviewId, options, {
-      onProgress: (p) => {
-        process.stderr.write(`\r[review] 分析进度 ${p.current ?? 0}/${p.total ?? 0} (${p.percentage ?? 0}%)`);
-      },
-    });
+    // 超时保护：分析超时后报错退出，避免永久卡住
+    const ANALYZE_TIMEOUT = 1_800_000; // 30 分钟
+    const result = await Promise.race([
+      reviewService.analyzeGameBatch(reviewId, options, {
+        onProgress: (p) => {
+          process.stderr.write(`\r[review] 分析进度 ${p.current ?? 0}/${p.total ?? 0} (${p.percentage ?? 0}%)`);
+        },
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(分析超时)), ANALYZE_TIMEOUT)
+      ),
+    ]);
     process.stderr.write('\n');
 
     // 6. 整理输出
