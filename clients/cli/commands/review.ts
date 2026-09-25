@@ -154,7 +154,7 @@ async function runAnalyze(args: ReviewArgs, ctx: CliContext): Promise<CliResult>
     if (args.debug) console.error('[review] 引擎信息:', JSON.stringify(engineInfo));
 
     // 默认胜率图：native 后端 visits=1，其它 visits=0（与 Web 端 review 一致）
-    const isNative = engineInfo.backend === native;
+    const isNative = engineInfo.backend === 'native';
     const visits = args.visits >= 0 ? args.visits : (isNative ? 1 : 0);
     const options: ReviewOptions = {
       visits,
