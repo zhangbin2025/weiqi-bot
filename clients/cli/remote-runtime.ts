@@ -296,8 +296,25 @@ export class CliRemoteKataGoEngine {
     }
   }
 
-  /** review.ts 调 engine.init()，等价于 connect */
-  async init(): Promise<void> { await this.connect(); }
+  /** AIController 调 engine.init(options)，远程模式：连接 + 确保服务端引擎就绪 */
+  async init(options?: any): Promise<void> {
+    if (!this.tunnel.isConnected) {
+      await this.connect();
+    }
+    // 检查服务端引擎是否已初始化
+    let info = this.tunnel.getEngineInfo();
+    if (!info.modelName) {
+      // 服务端未加载模型，发 init RPC
+      const modelUrl = options?.modelUrl ?? "/models/g170-b10c128.bin.gz";
+      console.error("[review-katago] 服务端引擎未初始化，发送 init RPC, model=" + modelUrl);
+      await this.tunnel.call("katago", "init", { modelUrl }, undefined, 600_000);
+      // 重新从服务端拉取引擎信息
+      const fresh = (await this.tunnel.call("katago", "getEngineInfo", undefined)) as EngineInfo;
+      if (fresh) (this.tunnel as any).engineInfo = fresh;
+      info = this.tunnel.getEngineInfo();
+      console.error("[review-katago] 服务端引擎就绪:", JSON.stringify(info));
+    }
+  }
 
   getEngineInfo(): EngineInfo { return this.tunnel.getEngineInfo(); }
 

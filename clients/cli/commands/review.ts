@@ -134,10 +134,12 @@ async function runAnalyze(args: ReviewArgs, ctx: CliContext): Promise<CliResult>
     // 1. 创建远程引擎（IAIEngine 实现）
     const engine = new CliRemoteKataGoEngine(args.signaling, args.password, args.debug);
     if (args.debug) console.error('[review] 连接远程服务端...');
-    await engine.init();
+    
 
     // 2. 创建 AIController，注入远程引擎
     const ai = new AIController(engine);
+    // 远程模式：init 只做连接（已连接），传占位 modelId
+    await ai.init("g170-b10c128", "/models/g170-b10c128.bin.gz");
 
     // 3. 创建 ReviewService，注入 AIController + SGFParser
     const sgfParser = new SGFParser();
