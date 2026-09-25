@@ -426,17 +426,6 @@ export class CliRemoteKataGoEngine {
   getEngineInfo(): EngineInfo { return this.tunnel.getEngineInfo(); }
 
 
-  async analyzeGame(options: any): Promise<any[]> {
-    const serializable: any = { ...options };
-    delete serializable.onResultProgress;
-    const onProgress = options.onResultProgress
-      ? (data: unknown) => {
-          const p = data as { current: number; total: number };
-          options.onResultProgress(p.current, p.total);
-        }
-      : undefined;
-    return this.tunnel.call('katago', 'analyzeGame', serializable, onProgress, 1_800_000) as Promise<any[]>;
-  }
 
   async analyze(options: AnalyzeOptions): Promise<any> {
     const serializable: any = { ...options };
