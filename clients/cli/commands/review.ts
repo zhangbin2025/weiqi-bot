@@ -1,25 +1,20 @@
 /**
- * review 命令 — 本地棋谱远程 AI 复盘(纯客户端)
+ * review 命令 — 本地棋谱远程 AI 复盘
  * @module clients/cli/commands/review
  *
- * 通过 WebRTC 隧道连接远程服务端 KataGo 算力,分析本地/下载的棋谱。
- * 基本功能对齐 clients/web/review,但:
- *   - 算力来自远程(KataGoRemoteEngine),本地不跑 KataGo;
- *   - 默认只做整盘快速评估(胜率曲线 + 每手候选选点概览),不逐手深算;
- *   - 提供「分析局面」:对任意一手指定局面获取 AI 推荐选点(深算)。
+ * 复用 ReviewService + AIController + CliRemoteKataGoEngine（IAIEngine 远程实现）。
+ * 分析逻辑（quick/deep、恶手检测、胜率图、候选选点）全部走 ReviewService，
+ * 与 Web 端 review 页面共用同一套代码。
  */
 
 import * as fs from 'fs';
-import * as path from 'path';
 import type { CliContext } from '../bootstrap';
 import type { CliResult } from '../utils';
 import { CliRemoteKataGoEngine } from '../remote-runtime';
+import { AIController } from '../../../services/ai/AIController';
+import { ReviewService } from '../../../services/review/ReviewService';
 import { SGFParser } from '../../../domain/sgf/SGFParser';
-import { KataGoQueryBuilder } from '../../../infrastructure/katago/KataGoQueryBuilder';
-import type { GameTurnAnalysis } from '../../../infrastructure/ai/IAIEngine';
-import { sgfColorToPlayerColor } from '../../../domain/primitives';
-
-console.error('[review] MODULE LOADED');
+import type { ReviewOptions } from '../../../services/review/types';
 
 const DEFAULT_SIGNALING = 'wss://api.weiqi.lol/ws/signal';
 const DEFAULT_PASSWORD = "";
@@ -27,7 +22,7 @@ const DEFAULT_PASSWORD = "";
 const REVIEW_HELP = `
 usage: review <command> [options]
 
-本地棋谱远程 AI 复盘(纯客户端,算力来自远程 KataGo 服务端)
+本地棋谱远程 AI 复盘(算力来自远程 KataGo 服务端)
 
 commands:
   analyze <sgf路径|棋谱URL>   分析一盘棋(整盘快速评估 + 胜率图)
@@ -78,7 +73,7 @@ function parseArgs(args: string[]): ReviewArgs {
     else if (a === '--signaling' && args[i + 1]) res.signaling = args[++i];
     else if (a === '--visits' && args[i + 1]) res.visits = parseInt(args[++i], 10) || 0;
     else if (a === '--top-k' && args[i + 1]) res.topK = parseInt(args[++i], 10) || 5;
-    else if (a === '--mode' && args[i + 1]) res.mode = args[++i] as 'quick' | 'deep';
+    else if (a === '--mode' && args[i + 1]) res.mode = args[i + 1] as 'quick' | 'deep';
     else if (a === '--analyze-move' && args[i + 1]) res.analyzeMoves.push(parseInt(args[++i], 10));
     else if (a === '--format' && args[i + 1]) res.format = args[++i] as 'json' | 'text';
     else if (a === '--debug') res.debug = true;
@@ -88,7 +83,7 @@ function parseArgs(args: string[]): ReviewArgs {
 }
 
 /** 取 SGF:本地文件直接读;URL 用 GameService 下载 */
-async function resolveSgf(sgfArg: string, ctx: CliContext, debug: boolean): Promise<string> {
+async function resolveSgf(sgfArg: string, ctx: CliContext): Promise<string> {
   if (fs.existsSync(sgfArg)) {
     return fs.readFileSync(sgfArg, 'utf-8');
   }
@@ -100,37 +95,6 @@ async function resolveSgf(sgfArg: string, ctx: CliContext, debug: boolean): Prom
     return r.sgfContent;
   }
   throw new Error('找不到棋谱: ' + sgfArg + ' (请提供本地路径或 http(s) URL)');
-}
-
-/** 解析 SGF 为着法列表 + 元信息 */
-function parseSgf(sgf: string) {
-  const parsed = new SGFParser().parse(sgf);
-  const info = parsed.gameInfo;
-  const moves = parsed.moves.map((m: any) => {
-    if (!m.coord || m.coord.length < 2 || m.coord === 'tt') {
-      return { x: -1, y: -1, color: sgfColorToPlayerColor(m.color as 'B' | 'W') };
-    }
-    return {
-      x: m.coord.charCodeAt(0) - 97,
-      y: m.coord.charCodeAt(1) - 97,
-      color: sgfColorToPlayerColor(m.color as 'B' | 'W'),
-    };
-  });
-  const parsedKomi = parseFloat(info.komi);
-  const komi = Number.isNaN(parsedKomi) ? 7.5 : parsedKomi;
-  return { moves, komi, info, boardSize: info.boardSize ?? 19 };
-}
-
-/** 重建某手之前的棋盘(用于单局面深算) */
-function rebuildBoard(moves: Array<{ x: number; y: number; color: any }>, upto: number, size: number): Uint8Array {
-  const board = new Uint8Array(size * size); // 0 empty, 1 black, 2 white
-  const idx = (x: number, y: number) => y * size + x;
-  for (let i = 0; i < upto && i < moves.length; i++) {
-    const m = moves[i];
-    if (m.x < 0 || m.y < 0) continue; // pass
-    board[idx(m.x, m.y)] = m.color === 'black' ? 1 : 2;
-  }
-  return board;
 }
 
 /** 坐标转中文棋谱坐标(如 Q16) */
@@ -165,93 +129,90 @@ function renderWinRateChart(perMove: Array<{ n: number; color: string; bwr: numb
 
 async function runAnalyze(args: ReviewArgs, ctx: CliContext): Promise<CliResult> {
   try {
-    if (args.debug) console.error('[review] runAnalyze start, sgf=', args.sgf);
-    const sgf = await resolveSgf(args.sgf, ctx, args.debug);
-    if (args.debug) console.error('[review] sgf loaded, len=', sgf.length);
-    const { moves, komi, info, boardSize } = parseSgf(sgf);
+    const sgf = await resolveSgf(args.sgf, ctx);
 
-    if (moves.length === 0) {
-      return { ok: false, command: 'review', error: '棋谱无着法' };
-    }
-
-    const engine = new CliRemoteKataGoEngine(args.signaling, args.password);
+    // 1. 创建远程引擎（IAIEngine 实现）
+    const engine = new CliRemoteKataGoEngine(args.signaling, args.password, args.debug);
     if (args.debug) console.error('[review] 连接远程服务端...');
     await engine.init();
+
+    // 2. 创建 AIController，注入远程引擎
+    const ai = new AIController(engine);
+
+    // 3. 创建 ReviewService，注入 AIController + SGFParser
+    const sgfParser = new SGFParser();
+    const reviewService = new ReviewService(ai, sgfParser);
+
+    // 4. 加载棋谱
+    const reviewId = await reviewService.loadFromSGF(sgf);
+    if (args.debug) console.error('[review] 棋谱已加载, reviewId=', reviewId);
+
+    // 5. 分析（复用 ReviewService.analyzeGameBatch）
     const engineInfo = engine.getEngineInfo();
     if (args.debug) console.error('[review] 引擎信息:', JSON.stringify(engineInfo));
 
-    // 整盘批量分析(快速)
-    if (args.debug) console.error(`[review] 整盘分析 ${moves.length} 手...`);
-    const analyzeTurns = Array.from({ length: moves.length }, (_, i) => i);
-    const gameOpts: any = {
-      moves: moves.map((m) => ({ player: m.color, x: m.x, y: m.y })),
-      komi,
-      rules: 'chinese',
-      analyzeTurns,
-      includeOwnership: false,
-      analysisPVLen: 0,
-      boardXSize: boardSize,
-      boardYSize: boardSize,
-      onResultProgress: (c: number, t: number) => {
-        if (c % Math.max(1, Math.floor(t / 20)) === 0 || c === t) {
-          process.stderr.write(`\r[review] 分析进度 ${c}/${t}`);
-        }
-      },
+    const options: ReviewOptions = {
+      visits: args.visits,
+      mode: args.mode,
+      topK: args.topK,
     };
-    const turns: GameTurnAnalysis[] = await engine.analyzeGame(gameOpts);
+
+    const result = await reviewService.analyzeGameBatch(reviewId, options, {
+      onProgress: (p) => {
+        process.stderr.write(`\r[review] 分析进度 ${p.current ?? 0}/${p.total ?? 0} (${p.percentage ?? 0}%)`);
+      },
+    });
     process.stderr.write('\n');
 
-    // 整理每手胜率/目差 + 候选选点
-    const perMove = turns.map((t, i) => {
-      const m = moves[i];
-      return {
-        n: i + 1,
-        color: m.color,
-        bwr: t.rootWinRate,
-        sl: t.rootScoreLead,
-        topMoves: t.moveInfos.slice(0, args.topK).map((mi) => {
-          const c = KataGoQueryBuilder.gtpToMove(mi.move, boardSize);
-          return { label: coordToLabel(c.x, c.y, boardSize), winRate: mi.winrate, scoreLead: mi.scoreLead, visits: mi.visits };
-        }),
-      };
-    });
+    // 6. 整理输出
+    const badMoves = reviewService.getBadMoves(reviewId);
+    const winrateTrend = reviewService.getWinRateTrend(reviewId);
+    const state = reviewService.getState(reviewId);
 
-    // 额外深算指定手(默认不逐手深算,避免慢)
+    const perMove = result.moves.map((m) => ({
+      n: m.moveNumber,
+      color: m.color,
+      bwr: m.winRate,
+      sl: m.scoreLead,
+      topMoves: (m as any).candidates?.slice(0, args.topK).map((c: any) => ({
+        label: coordToLabel(c.x, c.y, state?.boardSize ?? 19),
+        winRate: c.winRate,
+        scoreLead: c.scoreLead,
+        visits: c.visits,
+      })) ?? [],
+    }));
+
+    // 额外深算指定手
     const deepByMove: Record<number, any> = {};
     for (const mvNum of args.analyzeMoves) {
-      if (mvNum < 1 || mvNum > moves.length) continue;
-      const i = mvNum - 1;
-      const board = rebuildBoard(moves, i, boardSize);
-      const prevBoard = i > 0 ? rebuildBoard(moves, i - 1, boardSize) : null;
-      const currentPlayer = moves[i].color;
-      const moveHistory = moves.slice(0, i).map((m) => ({ x: m.x, y: m.y, player: m.color }));
-      const opts: any = {
-        board,
-        previousBoard: prevBoard,
-        currentPlayer,
-        moveHistory,
-        komi,
-        topK: args.topK,
+      if (mvNum < 1 || mvNum > result.moves.length) continue;
+      const r = await reviewService.analyzePosition(reviewId, mvNum - 1, {
         visits: args.visits > 0 ? args.visits : 100,
+        topK: args.topK,
         includePv: true,
-        analysisPVLen: 15,
-        boardXSize: boardSize,
-        boardYSize: boardSize,
-      };
-      const r = await engine.analyze(opts as any);
-      deepByMove[mvNum] = r;
+      });
+      if (r) {
+        deepByMove[mvNum] = r;
+      }
     }
 
-    const result: any = {
-      gameInfo: { black: info.black, white: info.white, komi, result: info.result },
-      totalMoves: moves.length,
+    const output: any = {
+      gameInfo: state?.gameInfo ?? { black: '?', white: '?', komi: 7.5, result: '' },
+      totalMoves: result.totalMoves,
       engineInfo,
+      analysis: result.analysis,
       perMove,
+      badMoves: badMoves.map(b => ({
+        moveNumber: b.moveNumber,
+        severity: b.severity,
+        winRateChange: b.winRateChange,
+        label: coordToLabel(b.x, b.y, state?.boardSize ?? 19),
+      })),
       deepByMove,
     };
 
     engine.disconnect();
-    return { ok: true, command: 'review-analyze', data: result };
+    return { ok: true, command: 'review-analyze', data: output };
   } catch (e) {
     return { ok: false, command: 'review', error: e instanceof Error ? e.message : String(e) };
   }
@@ -277,28 +238,33 @@ export function formatReviewAnalyzeText(data: any): string {
   const g = data.gameInfo || {};
   lines.push(`=== 复盘分析: ${g.black ?? '?'} vs ${g.white ?? '?'} (${data.totalMoves}手) ===`);
   if (g.komi !== undefined) lines.push(`贴目: ${g.komi}  结果: ${g.result ?? '未知'}`);
+  if (data.analysis) {
+    lines.push(`模式: ${data.analysis.mode}  visits: ${data.analysis.visits}  耗时: ${data.analysis.analysisTime?.toFixed(1)}s`);
+  }
   lines.push('');
   lines.push(renderWinRateChart(data.perMove));
+  if (data.badMoves && data.badMoves.length > 0) {
+    lines.push('');
+    lines.push(`=== 恶手 (${data.badMoves.length}) ===`);
+    for (const b of data.badMoves) {
+      const sev = b.severity === 'severe' ? '严重' : b.severity === 'moderate' ? '中等' : '轻微';
+      const delta = (b.winRateChange * 100).toFixed(1);
+      lines.push(`  #${b.moveNumber} ${b.label} [${sev}] 胜率变化: ${delta}%`);
+    }
+  }
   lines.push('');
-  lines.push('=== 每手 AI 候选选点(前' + (data.perMove[0]?.topMoves?.length ?? 0) + ') ===');
+  lines.push('=== 每手 AI 候选选点 ===');
   for (const mv of data.perMove) {
-    const top = mv.topMoves
-      .map((t: any) => `${t.label}(${(t.winRate * 100).toFixed(1)}%/+${t.scoreLead.toFixed(1)})`)
-      .join('  ');
+    const top = (mv.topMoves ?? []).slice(0, 5).map((t: any) => `${t.label}(${(t.winRate * 100).toFixed(1)}%/${t.scoreLead.toFixed(1)})`).join('  ');
     lines.push(`#${mv.n} ${mv.color === 'black' ? '黑' : '白'}: ${top}`);
   }
   const deepKeys = Object.keys(data.deepByMove || {});
   if (deepKeys.length > 0) {
     lines.push('');
-    lines.push('=== 深算指定局面(AI 推荐选点) ===');
+    lines.push('=== 深算指定局面 ===');
     for (const k of deepKeys) {
       const d = data.deepByMove[k];
-      const items = (d.moveInfos || d.candidates || []).slice(0, 5).map((mi: any) => {
-        const label = mi.move ? coordToLabel(...Object.values(KataGoQueryBuilder.gtpToMove(mi.move, 19))) : mi.label;
-        const wr = (mi.winrate ?? mi.winRate) * 100;
-        const sl = (mi.scoreLead ?? mi.scoreLead).toFixed(1);
-        return `${label}(${wr}%/+${sl})`;
-      }).join('  ');
+      const items = (d.candidates || []).slice(0, 5).map((c: any) => `${coordToLabel(c.x, c.y, 19)}(${(c.winRate * 100).toFixed(1)}%/${c.scoreLead.toFixed(1)})`).join('  ');
       lines.push(`第${k}手局面 → ${items}`);
     }
   }

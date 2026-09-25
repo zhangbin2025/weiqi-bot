@@ -1,6 +1,10 @@
 /**
  * @fileoverview AI 模块主入口
  * @description 导出 AI 引擎接口和适配器
+ *
+ * 注意：适配器（KataGoWebAdapter/KataGoAppAdapter/KataGoRemoteAdapter）
+ * 不在此处静态导出，避免拉入浏览器/原生依赖。
+ * 如需使用，直接 from './adapters/KataGoXxxAdapter' 动态 require。
  */
 
 // 导出接口
@@ -15,26 +19,6 @@ export type {
   GameTurnAnalysis,
   ModelInfo,
 } from './IAIEngine';
-
-// 导出 Web 适配器
-export { 
-  KataGoWebAdapter, 
-  createKataGoWebAdapter,
-  KataGoCanceledError,
-  isKataGoCanceledError,
-} from './adapters/KataGoWebAdapter';
-
-// 导出 App 适配器
-export {
-  KataGoAppAdapter,
-  createKataGoAppAdapter,
-} from './adapters/KataGoAppAdapter';
-
-// 导出远程适配器
-export {
-  KataGoRemoteAdapter,
-  createKataGoRemoteAdapter,
-} from './adapters/KataGoRemoteAdapter';
 
 // 导出引擎工厂
 export {

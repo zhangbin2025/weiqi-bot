@@ -302,10 +302,12 @@ export class CliRemoteKataGoEngine {
   getEngineInfo(): EngineInfo { return this.tunnel.getEngineInfo(); }
 
   async analyzeGame(options: AnalyzeGameOptions): Promise<GameTurnAnalysis[]> {
+    const serializable: any = { ...options };
+    delete serializable.onResultProgress;
     return (await this.tunnel.call(
       'katago',
       'analyzeGame',
-      options,
+      serializable,
       (data: unknown) => {
         const d = data as { current: number; total: number };
         options.onResultProgress?.(d.current, d.total);
@@ -315,7 +317,9 @@ export class CliRemoteKataGoEngine {
   }
 
   async analyze(options: AnalyzeOptions): Promise<any> {
-    return this.tunnel.call('katago', 'analyze', options, undefined, 600_000);
+    const serializable: any = { ...options };
+    delete serializable.onProgress;
+    return this.tunnel.call('katago', 'analyze', serializable, undefined, 600_000);
   }
 
   async evaluate(options: any): Promise<any> { return this.tunnel.call('katago', 'evaluate', options); }

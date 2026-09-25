@@ -12,8 +12,6 @@
  */
 
 import type { IAIEngine } from './IAIEngine';
-import { createKataGoWebAdapter } from './adapters/KataGoWebAdapter';
-import { createKataGoRemoteAdapter } from './adapters/KataGoRemoteAdapter';
 import type { NetworkManager } from '../network/core/NetworkManager';
 import { TunnelManager } from '../tunnel/TunnelManager';
 
@@ -47,6 +45,7 @@ export function createAIEngine(networkManager?: NetworkManager): IAIEngine {
   // 优先：远程隧道客户端模式（检查 localStorage 配置）
   if (TunnelManager.getInstance().isClientMode()) {
     console.log('[AIEngineFactory] Tunnel client mode detected, using KataGoRemoteAdapter');
+    const { createKataGoRemoteAdapter } = require("./adapters/KataGoRemoteAdapter");
     cachedEngine = createKataGoRemoteAdapter();
     return cachedEngine!;
   }
@@ -58,7 +57,7 @@ export function createAIEngine(networkManager?: NetworkManager): IAIEngine {
     console.log('[AIEngineFactory] App environment detected, using KataGoAppAdapter');
     cachedEngine = createKataGoAppAdapter(networkManager);
   } else {
-    console.log('[AIEngineFactory] Web environment detected, using KataGoWebAdapter');
+    const { createKataGoWebAdapter } = require("./adapters/KataGoWebAdapter");
     cachedEngine = createKataGoWebAdapter();
   }
 
@@ -81,7 +80,7 @@ export function resetAIEngine(): void {
  */
 export function forceUseWebAdapter(): IAIEngine {
   console.log('[AIEngineFactory] Force using WebAdapter (fallback from native)');
-  resetAIEngine();
+  const { createKataGoWebAdapter } = require("./adapters/KataGoWebAdapter");
   cachedEngine = createKataGoWebAdapter();
   return cachedEngine!;
 }
