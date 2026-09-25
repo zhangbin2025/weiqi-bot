@@ -4,6 +4,63 @@
 
 import type { IGameEndMessage, IMoveMessage, IPassMessage, PlayerColor } from './types';
 
+/** 分片大小（64KB） */
+const CHUNK_SIZE = 64 * 1024;
+/** 分片阈值（超过则分片） */
+const CHUNK_THRESHOLD = 50 * 1024;
+
+/** 分片接收缓冲 */
+interface ChunkBuffer {
+  total: number;
+  size: number;
+  parts: string[];
+  received: number;
+}
+
+/** 分片接收器：合并分片消息 */
+export class ChunkReceiver {
+  private buffers = new Map<string, ChunkBuffer>();
+
+  /** 处理收到的消息，返回完整消息或 null（分片未齐） */
+  process(msg: any): any | null {
+    if (msg.type === "chunk-start") {
+      this.buffers.set(msg.chunkId, { total: msg.total, size: msg.size, parts: new Array(msg.total), received: 0 });
+      return null;
+    }
+    if (msg.type === "chunk-data") {
+      const buf = this.buffers.get(msg.chunkId);
+      if (!buf) return null;
+      buf.parts[msg.index] = msg.data;
+      buf.received++;
+      return null;
+    }
+    if (msg.type === "chunk-end") {
+      const buf = this.buffers.get(msg.chunkId);
+      if (!buf) return null;
+      this.buffers.delete(msg.chunkId);
+      const json = buf.parts.join("");
+      try { return JSON.parse(json); } catch { return null; }
+    }
+    return msg; // 非分片消息
+  }
+}
+
+/** 分片发送：大消息拆成多个 chunk */
+function sendChunked(dc: RTCDataChannel, msg: any): void {
+  const json = JSON.stringify(msg);
+  if (json.length <= CHUNK_THRESHOLD) {
+    dc.send(json);
+    return;
+  }
+  const chunkId = "chunk-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+  const total = Math.ceil(json.length / CHUNK_SIZE);
+  dc.send(JSON.stringify({ type: "chunk-start", chunkId, total, size: json.length }));
+  for (let i = 0; i < total; i++) {
+    dc.send(JSON.stringify({ type: "chunk-data", chunkId, index: i, data: json.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE) }));
+  }
+  dc.send(JSON.stringify({ type: "chunk-end", chunkId }));
+}
+
 /** WebRTC 配置 */
 export interface IPeerConnectionConfig {
   iceServers?: Array<{

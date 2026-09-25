@@ -16,6 +16,64 @@ interface ITunnelConfig {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** 分片大小（64KB） */
+const CHUNK_SIZE = 64 * 1024;
+/** 分片阈值（超过则分片） */
+const CHUNK_THRESHOLD = 50 * 1024;
+
+/** 分片接收缓冲 */
+interface ChunkBuffer {
+  total: number;
+  size: number;
+  parts: string[];
+  received: number;
+}
+
+/** 分片接收器 */
+class ChunkReceiver {
+  private buffers = new Map<string, ChunkBuffer>();
+
+  process(msg: any): any | null {
+    if (msg.type === chunk-start) {
+      this.buffers.set(msg.chunkId, { total: msg.total, size: msg.size, parts: new Array(msg.total), received: 0 });
+      return null;
+    }
+    if (msg.type === chunk-data) {
+      const buf = this.buffers.get(msg.chunkId);
+      if (!buf) return null;
+      buf.parts[msg.index] = msg.data;
+      buf.received++;
+      return null;
+    }
+    if (msg.type === chunk-end) {
+      const buf = this.buffers.get(msg.chunkId);
+      if (!buf) return null;
+      this.buffers.delete(msg.chunkId);
+      const json = buf.parts.join();
+      try { return JSON.parse(json); } catch { return null; }
+    }
+    return msg;
+  }
+}
+
+/** 分片发送 */
+function sendChunked(dc: any, msg: any): void {
+  const json = JSON.stringify(msg);
+  if (json.length <= CHUNK_THRESHOLD) {
+    dc.send(json);
+    return;
+  }
+  const chunkId = chunk- + Date.now() + - + Math.random().toString(36).slice(2, 8);
+  const total = Math.ceil(json.length / CHUNK_SIZE);
+  dc.send(JSON.stringify({ type: chunk-start, chunkId, total, size: json.length }));
+  for (let i = 0; i < total; i++) {
+    dc.send(JSON.stringify({ type: chunk-data, chunkId, index: i, data: json.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE) }));
+  }
+  dc.send(JSON.stringify({ type: chunk-end, chunkId }));
+}
+
+
+
 function waitForIceGatheringComplete(pc: any, timeoutMs = 5000): Promise<void> {
   return new Promise((resolve) => {
     if (pc.iceGatheringState === 'complete') return resolve();
@@ -349,6 +407,18 @@ export class CliRemoteKataGoEngine {
 
   getEngineInfo(): EngineInfo { return this.tunnel.getEngineInfo(); }
 
+
+  async analyzeGame(options: any): Promise<any[]> {
+    const serializable: any = { ...options };
+    delete serializable.onResultProgress;
+    const onProgress = options.onResultProgress
+      ? (data: unknown) => {
+          const p = data as { current: number; total: number };
+          options.onResultProgress(p.current, p.total);
+        }
+      : undefined;
+    return this.tunnel.call('katago', 'analyzeGame', serializable, onProgress, 1_800_000) as Promise<any[]>;
+  }
 
   async analyze(options: AnalyzeOptions): Promise<any> {
     const serializable: any = { ...options };
