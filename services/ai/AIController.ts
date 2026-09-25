@@ -4,7 +4,7 @@
  */
 
 import type { IAIEngine, AnalyzeOptions, ModelInfo } from '../../infrastructure/ai';
-import { forceUseWebAdapter } from '../../infrastructure/ai';
+// forceUseWebAdapter 改为 dynamic import，避免 CLI 环境静态加载 @weiqi/worker
 import type { BoardState, PlayerColor } from '../../domain';
 import type { IAIController } from './IAIController';
 import type { Difficulty, DifficultyConfig, IAnalysisResult, IMoveAnalysis } from './types';
@@ -78,6 +78,7 @@ export class AIController implements IAIController {
         }
         
         console.warn('[AIController] Native KataGo unavailable, fallback to WebAdapter');
+        const { forceUseWebAdapter } = await import('../../infrastructure/ai/createAIEngine');
         this.engine = forceUseWebAdapter();
         await this.engine.init({
           modelUrl: this.modelUrl!,

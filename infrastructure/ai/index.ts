@@ -25,5 +25,4 @@ export {
   createAIEngine,
   isAppEnvironment,
   resetAIEngine,
-  forceUseWebAdapter,
 } from './createAIEngine';
