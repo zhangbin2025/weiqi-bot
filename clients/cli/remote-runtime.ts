@@ -4,10 +4,8 @@ import {
 } from 'werift';
 
 import type {
-  AnalyzeGameOptions,
   AnalyzeOptions,
   EngineInfo,
-  GameTurnAnalysis,
   ModelInfo,
 } from '../../../infrastructure/ai/IAIEngine';
 
@@ -351,20 +349,6 @@ export class CliRemoteKataGoEngine {
 
   getEngineInfo(): EngineInfo { return this.tunnel.getEngineInfo(); }
 
-  async analyzeGame(options: AnalyzeGameOptions): Promise<GameTurnAnalysis[]> {
-    const serializable: any = { ...options };
-    delete serializable.onResultProgress;
-    return (await this.tunnel.call(
-      'katago',
-      'analyzeGame',
-      serializable,
-      (data: unknown) => {
-        const d = data as { current: number; total: number };
-        options.onResultProgress?.(d.current, d.total);
-      },
-      1_800_000,
-    )) as GameTurnAnalysis[];
-  }
 
   async analyze(options: AnalyzeOptions): Promise<any> {
     const serializable: any = { ...options };
