@@ -30,7 +30,7 @@ commands:
 options:
   --password ***          隧道密码(默认 111111)
   --signaling <url>       信令服务器(默认 wss://api.weiqi.lol/ws/signal)
-  --visits <n>            深算算力(0=快速批量评估,默认 0)
+  --visits <n>            算力(native默认1,其它默认0;指定局面深算默认15)
   --top-k <n>             候选选点数(默认 5)
   --mode quick|deep       分析模式(默认 quick)
   --analyze-move <n>      额外深算某一手(如 23);可多次
@@ -60,7 +60,7 @@ function parseArgs(args: string[]): ReviewArgs {
     sgf: '',
     password: DEFAULT_PASSWORD,
     signaling: DEFAULT_SIGNALING,
-    visits: 0,
+    visits: -1,  // -1 = 自动：native→1, 其它→0
     topK: 5,
     mode: 'quick',
     analyzeMoves: [],
@@ -153,8 +153,11 @@ async function runAnalyze(args: ReviewArgs, ctx: CliContext): Promise<CliResult>
     const engineInfo = engine.getEngineInfo();
     if (args.debug) console.error('[review] 引擎信息:', JSON.stringify(engineInfo));
 
+    // 默认胜率图：native 后端 visits=1，其它 visits=0（与 Web 端 review 一致）
+    const isNative = engineInfo.backend === native;
+    const visits = args.visits >= 0 ? args.visits : (isNative ? 1 : 0);
     const options: ReviewOptions = {
-      visits: args.visits,
+      visits,
       mode: args.mode,
       topK: args.topK,
     };
@@ -189,7 +192,7 @@ async function runAnalyze(args: ReviewArgs, ctx: CliContext): Promise<CliResult>
     for (const mvNum of args.analyzeMoves) {
       if (mvNum < 1 || mvNum > result.moves.length) continue;
       const r = await reviewService.analyzePosition(reviewId, mvNum - 1, {
-        visits: args.visits > 0 ? args.visits : 100,
+        visits: args.visits >= 0 ? args.visits : 15,
         topK: args.topK,
         includePv: true,
       });
