@@ -297,23 +297,31 @@ export class CliRemoteKataGoEngine {
   }
 
   /** AIController 调 engine.init(options)，远程模式：连接 + 确保服务端引擎就绪 */
-  async init(options?: any): Promise<void> {
+  async init(_options?: any): Promise<void> {
     if (!this.tunnel.isConnected) {
       await this.connect();
     }
     // 检查服务端引擎是否已初始化
     let info = this.tunnel.getEngineInfo();
-    if (!info.modelName) {
-      // 服务端未加载模型，发 init RPC
-      const modelUrl = options?.modelUrl ?? "/models/g170-b10c128.bin.gz";
-      console.error("[review-katago] 服务端引擎未初始化，发送 init RPC, model=" + modelUrl);
-      await this.tunnel.call("katago", "init", { modelUrl }, undefined, 600_000);
-      // 重新从服务端拉取引擎信息
-      const fresh = (await this.tunnel.call("katago", "getEngineInfo", undefined)) as EngineInfo;
-      if (fresh) (this.tunnel as any).engineInfo = fresh;
-      info = this.tunnel.getEngineInfo();
-      console.error("[review-katago] 服务端引擎就绪:", JSON.stringify(info));
+    if (info.modelName) {
+      // 服务端已有模型，直接用
+      return;
     }
+    // 服务端未加载模型，先查服务端可用模型列表，选默认模型
+    const models = (await this.tunnel.call("katago", "listModels", undefined)) as ModelInfo[];
+    const defaultModel = models.find(m => m.isDefault) ?? models[0];
+    if (!defaultModel) {
+      throw new Error("服务端无可用模型");
+    }
+    // modelUrl 来自服务端配置（相对路径或绝对路径）
+    const modelUrl = defaultModel.url ?? `/models/${defaultModel.id}.bin.gz`;
+    console.error(`[review-katago] 服务端引擎未初始化，发送 init RPC, model=${defaultModel.id} url=${modelUrl}`);
+    await this.tunnel.call("katago", "init", { modelUrl }, undefined, 600_000);
+    // 重新从服务端拉取引擎信息
+    const fresh = (await this.tunnel.call("katago", "getEngineInfo", undefined)) as EngineInfo;
+    if (fresh) (this.tunnel as any).engineInfo = fresh;
+    info = this.tunnel.getEngineInfo();
+    console.error("[review-katago] 服务端引擎就绪:", JSON.stringify(info));
   }
 
   getEngineInfo(): EngineInfo { return this.tunnel.getEngineInfo(); }
