@@ -3,6 +3,13 @@
  *
  * 标定表集中在此，便于后续调参（不改逻辑）。
  * dan 口径对齐野狐：>=20 为业 N 段（N = dan - 20），见 services formatDan。
+ *
+ * 锚点基于54盘野狐AI对局数据标定：
+ * - dan=12 (野狐2级) → 目标 score ~35
+ * - dan=22 (野狐2段) → 目标 score ~55-65
+ * - dan=24 (野狐4段) → 目标 score ~75
+ * - dan=26 (野狐6段) → 目标 score ~85
+ * - dan=29 (野狐9段) → 目标 score ~95
  */
 
 import type { StrengthSignals } from './types';
@@ -12,13 +19,16 @@ import type { StrengthSignals } from './types';
  * dan 越大越强：20=1段，21=2段 ... 29=9段；<20 为级位（10=1级）。
  */
 export const SCORE_TO_DAN_ANCHORS: Array<[number, number]> = [
-  [0, 12],
-  [20, 15],
-  [35, 20],
-  [50, 23],
-  [65, 25],
-  [80, 27],
-  [90, 28],
+  [0, 10],
+  [20, 14],
+  [35, 18],
+  [50, 21],
+  [60, 22],
+  [70, 23],
+  [78, 24],
+  [85, 25],
+  [90, 26],
+  [95, 28],
   [100, 29],
 ];
 

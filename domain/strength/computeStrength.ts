@@ -24,6 +24,11 @@ function rankOf(move: PlayerMoveInput): number {
   return 0;
 }
 
+function clamp01(v: number): number {
+  if (Number.isNaN(v)) return 0;
+  return Math.max(0, Math.min(1, v));
+}
+
 /**
  * 计算胜率序列波动率（0-1 归一）。
  * 采用相邻手胜率绝对变化的平均值，再按经验上界归一。
@@ -41,9 +46,54 @@ function calcVolatility(moves: PlayerMoveInput[]): number {
   return clamp01(meanAbsDelta / 0.2);
 }
 
-function clamp01(v: number): number {
-  if (Number.isNaN(v)) return 0;
-  return Math.max(0, Math.min(1, v));
+/**
+ * 胜率平滑度（0-1）：相邻胜率变化 ≤0.05 的手数占比。
+ * 阈值 0.05：高段对局大部分手胜率变化 <5%，低段对局常有 5-10% 的波动。
+ */
+function calcSmoothness(moves: PlayerMoveInput[]): number {
+  if (moves.length < 2) return 1;
+  const rates = moves.map((m) => clamp01(m.winRate));
+  let smoothCount = 0;
+  for (let i = 1; i < rates.length; i++) {
+    if (Math.abs(rates[i]! - rates[i - 1]!) <= 0.05) smoothCount++;
+  }
+  return smoothCount / (rates.length - 1);
+}
+
+/**
+ * 优势稳定性（0-1）：胜率穿越 0.5（优势切换）次数的归一补值。
+ * 强棋手一旦领先不易被翻盘，优势切换少。
+ */
+function calcStability(moves: PlayerMoveInput[]): number {
+  if (moves.length < 2) return 1;
+  const rates = moves.map((m) => clamp01(m.winRate));
+  let switches = 0;
+  for (let i = 1; i < rates.length; i++) {
+    const prev = rates[i - 1]!;
+    const curr = rates[i]!;
+    // 胜率从 >0.5 跌到 ≤0.5，或从 ≤0.5 涨到 >0.5
+    if ((prev > 0.5 && curr <= 0.5) || (prev <= 0.5 && curr > 0.5)) {
+      switches++;
+    }
+  }
+  // 经验上界：切换次数 / 总间隔，>0.3 归一为 0
+  const switchRate = switches / (rates.length - 1);
+  return clamp01(1 - switchRate / 0.3);
+}
+
+/**
+ * 大幅下落率（0-1）：胜率单手下降 >0.08 的手数占比。
+ * 阈值 0.08：高段棋手极少单手丢 8%+ 胜率，低段棋手常见。
+ */
+function calcLargeDropRate(moves: PlayerMoveInput[]): number {
+  if (moves.length < 2) return 0;
+  const rates = moves.map((m) => clamp01(m.winRate));
+  let largeDrops = 0;
+  for (let i = 1; i < rates.length; i++) {
+    const delta = rates[i]! - rates[i - 1]!;
+    if (delta < -0.08) largeDrops++;
+  }
+  return largeDrops / (rates.length - 1);
 }
 
 /**
@@ -63,6 +113,9 @@ export function computeStrengthSignals(moves: PlayerMoveInput[]): StrengthSignal
       moderateRate: 0,
       minorRate: 0,
       volatility: 0,
+      smoothness: 0,
+      stability: 0,
+      largeDropRate: 0,
     };
   }
 
@@ -93,7 +146,6 @@ export function computeStrengthSignals(moves: PlayerMoveInput[]): StrengthSignal
   }
 
   const denom = candidateSamples > 0 ? candidateSamples : 1;
-  const v = calcVolatility(moves);
 
   return {
     samples,
@@ -105,6 +157,9 @@ export function computeStrengthSignals(moves: PlayerMoveInput[]): StrengthSignal
     severeRate: severe / samples,
     moderateRate: moderate / samples,
     minorRate: minor / samples,
-    volatility: v,
+    volatility: calcVolatility(moves),
+    smoothness: calcSmoothness(moves),
+    stability: calcStability(moves),
+    largeDropRate: calcLargeDropRate(moves),
   };
 }
