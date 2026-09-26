@@ -425,7 +425,7 @@ export class TunnelServer {
         this.recordRpc(msg.service, msg.method, duration);
         this.log('info', 'RPC: ' + msg.service + '.' + msg.method + ' (' + duration + 'ms)');
 
-        const jsonResult = JSON.stringify(result);
+        const jsonResult = JSON.stringify(result) ?? 'null';
         if (jsonResult.length < STREAM_THRESHOLD) {
           // 小结果，直接 rpc-response
           this.send({ type: 'rpc-response', id: msg.id, result });
@@ -487,7 +487,7 @@ export class TunnelServer {
 
     // 如果 handler 返回了最终 result，作为最后一个 chunk 发送
     if (result !== undefined) {
-      const jsonResult = JSON.stringify(result);
+      const jsonResult = JSON.stringify(result) ?? '';
       if (jsonResult.length > 0) {
         await this.waitForDrain();
         const chunkMsg: IRpcStreamChunkMessage = {
