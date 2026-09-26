@@ -51,6 +51,7 @@ class CliTunnel {
   private authed = false;
   private rpcId = 0;
   private pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; onProgress?: (d: unknown) => void; timer: ReturnType<typeof setTimeout> }>();
+  private streamBuffers = new Map<string, { chunks: Map<number, string>; orderedChunks: string[]; totalSize: number | undefined; receivedSize: number; useOrderedMode: boolean }>();
   private engineInfo: EngineInfo = { backend: 'remote', modelName: null };
 
   private gotReady = false;
@@ -193,6 +194,7 @@ pc.onconnectionstatechange = () => {
           p.reject(new Error("P2P 连接断开: " + state));
         }
         this.pending.clear();
+        this.streamBuffers.clear();
         this.authed = false;
       }
     };
@@ -221,6 +223,7 @@ pc.onconnectionstatechange = () => {
         p.reject(new Error("数据通道已关闭"));
       }
       this.pending.clear();
+      this.streamBuffers.clear();
       this.authed = false;
     };
     dc.onerror = (e: any) => {
@@ -232,6 +235,8 @@ pc.onconnectionstatechange = () => {
     let msg: any;
     try { msg = JSON.parse(typeof data === 'string' ? data : Buffer.from(data).toString('utf-8')); }
     catch { return; }
+    if (!msg || !msg.type) return;
+    try {
     switch (msg.type) {
       case 'auth-ok':
         this.authed = true;
@@ -255,10 +260,82 @@ pc.onconnectionstatechange = () => {
         this.pending.get(msg.id)?.onProgress?.(msg.data);
         break;
       }
+      case 'rpc-stream-start': {
+        this.streamBuffers.set(msg.id, {
+          chunks: new Map(),
+          orderedChunks: [],
+          totalSize: msg.totalSize,
+          receivedSize: 0,
+          useOrderedMode: false,
+        });
+        break;
+      }
+      case 'rpc-stream-chunk': {
+        const buf = this.streamBuffers.get(msg.id);
+        if (!buf) break;
+        if (typeof msg.data !== 'string') { console.error('[CliTunnel] rpc-stream-chunk: msg.data is not string, type=', typeof msg.data, 'seq=', msg.seq); break; }
+        buf.receivedSize += msg.data.length;
+        if (msg.seq === -1) {
+          buf.useOrderedMode = true;
+          buf.orderedChunks.push(msg.data);
+        } else {
+          buf.chunks.set(msg.seq, msg.data);
+        }
+        break;
+      }
+      case 'rpc-stream-end': {
+        const buf = this.streamBuffers.get(msg.id);
+        if (!buf) break;
+        this.streamBuffers.delete(msg.id);
+        const p = this.pending.get(msg.id);
+        if (!p) break;
+        clearTimeout(p.timer);
+        this.pending.delete(msg.id);
+        if (msg.error) {
+          p.reject(new Error(msg.error));
+        } else {
+          try {
+            const jsonStr = buf.useOrderedMode
+              ? buf.orderedChunks.join('')
+              : Array.from(buf.chunks.keys()).sort((a, b) => a - b)
+                  .map(seq => buf.chunks.get(seq)!).join('');
+            p.resolve(JSON.parse(jsonStr));
+          } catch (e) {
+            p.reject(new Error('stream parse error: ' + (e as Error).message));
+          }
+        }
+        break;
+      }
       case 'ping':
         this.send({ type: 'pong' });
         break;
     }
+    } catch (e) {
+      this.log('warn', 'onDataMessage error: ' + (e instanceof Error ? e.message : String(e)) + ' msg.type=' + msg?.type);
+    }
+  }
+
+  private waitForDrain(): Promise<void> {
+    if (!this.dc || this.dc.bufferedAmount < 64 * 1024) return Promise.resolve();
+    return new Promise((resolve) => {
+      let resolved = false;
+      const handler = () => {
+        if (resolved) return;
+        resolved = true;
+        try { this.dc?.removeEventListener('bufferedAmountLow', handler); } catch { /* ignore */ }
+        resolve();
+      };
+      try {
+        this.dc.bufferedAmountLowThreshold = 16 * 1024;
+        this.dc.addEventListener('bufferedAmountLow', handler);
+      } catch { resolved = true; resolve(); return; }
+      setTimeout(() => {
+        if (resolved) return;
+        resolved = true;
+        try { this.dc?.removeEventListener('bufferedAmountLow', handler); } catch { /* ignore */ }
+        resolve();
+      }, 10_000);
+    });
   }
 
   private send(obj: any): void {
@@ -349,6 +426,18 @@ export class CliRemoteKataGoEngine {
 
   getEngineInfo(): EngineInfo { return this.tunnel.getEngineInfo(); }
 
+
+  async analyzeGame(options: any): Promise<any[]> {
+    const serializable: any = { ...options };
+    delete serializable.onResultProgress;
+    const onProgress = options.onResultProgress
+      ? (data: unknown) => {
+          const p = data as { current: number; total: number };
+          options.onResultProgress(p.current, p.total);
+        }
+      : undefined;
+    return this.tunnel.call('katago', 'analyzeGame', serializable, onProgress, 1_800_000) as Promise<any[]>;
+  }
 
   async analyze(options: AnalyzeOptions): Promise<any> {
     const serializable: any = { ...options };

@@ -114,6 +114,29 @@ export class PeerConnection {
     return this.pc?.connectionState ?? 'closed';
   }
 
+  /** 当前 DataChannel 缓冲区待发送字节数 */
+  get bufferedAmount(): number {
+    return this.dataChannel?.bufferedAmount ?? 0;
+  }
+
+  /**
+   * 注册缓冲区低水位回调，用于流控。
+   * 当 bufferedAmount 降到 threshold 以下时触发回调。
+   * 调用后会设置 bufferedAmountLowThreshold 并绑定 onbufferedamountlow。
+   */
+  onBufferedAmountLow(callback: () => void, threshold: number = 8192): void {
+    if (!this.dataChannel) return;
+    this.dataChannel.bufferedAmountLowThreshold = threshold;
+    this.dataChannel.onbufferedamountlow = () => callback();
+  }
+
+  /** 清除缓冲区低水位回调 */
+  clearBufferedAmountLow(): void {
+    if (this.dataChannel) {
+      this.dataChannel.onbufferedamountlow = null;
+    }
+  }
+
   close(): void {
     this.dataChannel?.close();
     this.pc?.close();

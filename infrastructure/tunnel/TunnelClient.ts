@@ -27,6 +27,9 @@ import type {
   IAuthResultMessage,
   IRpcResponseMessage,
   IRpcProgressMessage,
+  IRpcStreamStartMessage,
+  IRpcStreamChunkMessage,
+  IRpcStreamEndMessage,
   LogEntry,
   TunnelLogLevel,
   RpcStat,
@@ -58,6 +61,15 @@ interface PendingRequest {
   timer: ReturnType<typeof setTimeout>;
 }
 
+/** 流式传输接收缓冲区 */
+interface StreamBuffer {
+  chunks: Map<number, string>;  // seq → data（自动分片模式）
+  orderedChunks: string[];       // 按到达顺序（handler 主动推流模式）
+  totalSize: number | undefined;            // 预估总字节数
+  receivedSize: number;          // 已接收字节数
+  useOrderedMode: boolean;       // true = handler 主动推流（seq=-1），false = 自动分片
+}
+
 export class TunnelClient {
   private signaling: SignalingClient;
   private peerConnection: PeerConnection | null = null;
@@ -68,6 +80,7 @@ export class TunnelClient {
   private stateCallbacks: TunnelStateCallback[] = [];
 
   private pendingRequests = new Map<string, PendingRequest>();
+  private streamBuffers = new Map<string, StreamBuffer>();
   private requestIdCounter = 0;
 
   private reconnectDelay = INITIAL_RECONNECT_DELAY;
@@ -376,6 +389,15 @@ export class TunnelClient {
       case 'rpc-progress':
         this.handleRpcProgress(msg as IRpcProgressMessage);
         break;
+      case 'rpc-stream-start':
+        this.handleStreamStart(msg as IRpcStreamStartMessage);
+        break;
+      case 'rpc-stream-chunk':
+        this.handleStreamChunk(msg as IRpcStreamChunkMessage);
+        break;
+      case 'rpc-stream-end':
+        this.handleStreamEnd(msg as IRpcStreamEndMessage);
+        break;
       case 'pong':
         // 心跳响应
         break;
@@ -401,6 +423,66 @@ export class TunnelClient {
   private handleRpcProgress(msg: IRpcProgressMessage): void {
     const pending = this.pendingRequests.get(msg.id);
     pending?.onProgress?.(msg.data);
+  }
+
+  /** 流式响应开始 */
+  private handleStreamStart(msg: IRpcStreamStartMessage): void {
+    this.streamBuffers.set(msg.id, {
+      chunks: new Map(),
+      orderedChunks: [],
+      totalSize: msg.totalSize,
+      receivedSize: 0,
+      useOrderedMode: false,
+    });
+  }
+
+  /** 接收流式数据块 */
+  private handleStreamChunk(msg: IRpcStreamChunkMessage): void {
+    const buf = this.streamBuffers.get(msg.id);
+    if (!buf) return;
+    buf.receivedSize += msg.data.length;
+
+    if (msg.seq === -1) {
+      // handler 主动推流模式，按到达顺序拼装
+      buf.useOrderedMode = true;
+      buf.orderedChunks.push(msg.data);
+    } else {
+      // 自动分片模式，按 seq 排序
+      buf.chunks.set(msg.seq, msg.data);
+    }
+  }
+
+  /** 流式响应结束，拼装所有 chunk 并 resolve */
+  private handleStreamEnd(msg: IRpcStreamEndMessage): void {
+    const buf = this.streamBuffers.get(msg.id);
+    if (!buf) return;
+    this.streamBuffers.delete(msg.id);
+
+    const pending = this.pendingRequests.get(msg.id);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.pendingRequests.delete(msg.id);
+
+    if (msg.error) {
+      pending.reject(new Error(msg.error));
+      return;
+    }
+
+    try {
+      let jsonStr: string;
+      if (buf.useOrderedMode) {
+        jsonStr = buf.orderedChunks.join('');
+      } else {
+        // 按 seq 顺序拼接
+        const sortedSeqs = Array.from(buf.chunks.keys()).sort((a, b) => a - b);
+        jsonStr = sortedSeqs.map(seq => buf.chunks.get(seq)!).join('');
+      }
+      const result = JSON.parse(jsonStr);
+      pending.resolve(result);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      pending.reject(new Error('流式响应解析失败: ' + errMsg));
+    }
   }
 
   private send(msg: TunnelMessage): void {
@@ -436,6 +518,7 @@ export class TunnelClient {
       pending.reject(new Error(reason));
     }
     this.pendingRequests.clear();
+    this.streamBuffers.clear();
   }
 
   private generateRequestId(): string {

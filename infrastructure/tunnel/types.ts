@@ -18,7 +18,10 @@ export type TunnelMessageType =
   | 'rpc-request'   // 客户端 → 服务端：RPC 请求
   | 'rpc-response'  // 服务端 → 客户端：RPC 响应
   | 'rpc-progress'  // 服务端 → 客户端：进度更新
-  | 'rpc-cancel'    // 客户端 → 服务端：取消请求
+  | 'rpc-cancel'       // 客户端 → 服务端：取消请求
+  | 'rpc-stream-start'  // 服务端 → 客户端：流式响应开始
+  | 'rpc-stream-chunk'  // 服务端 → 客户端：流式数据块
+  | 'rpc-stream-end'    // 服务端 → 客户端：流式响应结束
   | 'ping'          // 心跳
   | 'pong';         // 心跳响应
 
@@ -70,6 +73,29 @@ export interface IRpcCancelMessage extends ITunnelMessage {
   id: string;
 }
 
+/** 流式响应开始 — 服务端通知客户端即将发送分块数据 */
+export interface IRpcStreamStartMessage extends ITunnelMessage {
+  type: 'rpc-stream-start';
+  id: string;           // 与 rpc-request.id 对应
+  totalSize?: number;   // 预估总字节数（可选，用于进度条）
+  meta?: unknown;       // 元数据（可选）
+}
+
+/** 流式数据块 */
+export interface IRpcStreamChunkMessage extends ITunnelMessage {
+  type: 'rpc-stream-chunk';
+  id: string;
+  seq: number;          // 块序号，从 0 开始
+  data: string;         // 分块数据（JSON 片段）
+}
+
+/** 流式响应结束 */
+export interface IRpcStreamEndMessage extends ITunnelMessage {
+  type: 'rpc-stream-end';
+  id: string;
+  error?: string;       // 如果流被中断，错误信息
+}
+
 /** 心跳消息 */
 export interface IHeartbeatMessage extends ITunnelMessage {
   type: 'ping' | 'pong';
@@ -83,6 +109,9 @@ export type TunnelMessage =
   | IRpcResponseMessage
   | IRpcProgressMessage
   | IRpcCancelMessage
+  | IRpcStreamStartMessage
+  | IRpcStreamChunkMessage
+  | IRpcStreamEndMessage
   | IHeartbeatMessage;
 
 // ─── RPC Handler 接口 ───
@@ -95,6 +124,19 @@ export interface IRpcHandler {
   handle(method: string, params: unknown, onProgress?: (data: unknown) => void): Promise<unknown>;
   /** 取消正在执行的请求（可选） */
   cancel?(requestId: string): void;
+
+  /**
+   * 流式处理（可选）— handler 主动分块推送数据
+   * 如果实现此方法，服务端会优先调用它而非 handle() + 自动分片
+   * @param onChunk 每调用一次推送一个数据块
+   * @returns 最终的元数据（可选）和完整结果
+   */
+  handleStream?(
+    method: string,
+    params: unknown,
+    onChunk: (chunk: string) => void,
+    onProgress?: (data: unknown) => void,
+  ): Promise<{ meta?: unknown; result?: unknown }>;
 }
 
 // ─── 隧道配置 ───

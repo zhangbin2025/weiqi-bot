@@ -27,6 +27,9 @@ import type {
   IAuthMessage,
   IRpcRequestMessage,
   IRpcCancelMessage,
+  IRpcStreamStartMessage,
+  IRpcStreamChunkMessage,
+  IRpcStreamEndMessage,
   LogEntry,
   TunnelLogLevel,
   ClientRecord,
@@ -49,6 +52,18 @@ const INITIAL_RECONNECT_DELAY = 3_000;
 const MAX_LOGS = 100;
 /** 客户端接入记录最大条数 */
 const MAX_CLIENT_HISTORY = 20;
+
+/** 单条消息阈值（字节），超过则走流式传输 */
+const STREAM_THRESHOLD = 64 * 1024; // 64KB
+
+/** 流式传输块大小（字节） */
+const CHUNK_SIZE = 8 * 1024; // 8KB
+
+/** DataChannel 缓冲区高水位线，超过则暂停发送 */
+const BUFFER_HIGH_WATERMARK = 64 * 1024; // 64KB
+
+/** DataChannel 缓冲区低水位线，降到此值以下恢复发送 */
+const BUFFER_LOW_WATERMARK = 16 * 1024; // 16KB
 
 export class TunnelServer {
   private signaling: SignalingClient;
@@ -398,13 +413,27 @@ export class TunnelServer {
     const startTime = Date.now();
 
     try {
-      const result = await handler.handle(msg.method, msg.params, (data) => {
-        this.send({ type: 'rpc-progress', id: msg.id, data });
-      });
-      const duration = Date.now() - startTime;
-      this.recordRpc(msg.service, msg.method, duration);
-      this.log('info', 'RPC: ' + msg.service + '.' + msg.method + ' (' + duration + 'ms)');
-      this.send({ type: 'rpc-response', id: msg.id, result });
+      // 优先使用 handleStream（handler 主动分块）
+      if (handler.handleStream) {
+        await this.handleWithStream(handler, msg, startTime);
+      } else {
+        // fallback: handle() + 自动分片
+        const result = await handler.handle(msg.method, msg.params, (data) => {
+          this.send({ type: 'rpc-progress', id: msg.id, data });
+        });
+        const duration = Date.now() - startTime;
+        this.recordRpc(msg.service, msg.method, duration);
+        this.log('info', 'RPC: ' + msg.service + '.' + msg.method + ' (' + duration + 'ms)');
+
+        const jsonResult = JSON.stringify(result);
+        if (jsonResult.length < STREAM_THRESHOLD) {
+          // 小结果，直接 rpc-response
+          this.send({ type: 'rpc-response', id: msg.id, result });
+        } else {
+          // 大结果，自动分片传输
+          await this.sendStreamed(msg.id, jsonResult);
+        }
+      }
     } catch (err) {
       const duration = Date.now() - startTime;
       this.recordRpc(msg.service, msg.method, duration);
@@ -418,6 +447,132 @@ export class TunnelServer {
     } finally {
       this.activeRequests.delete(msg.id);
     }
+  }
+
+  /**
+   * 使用 handler.handleStream 处理请求 — handler 主动分块推送
+   */
+  private async handleWithStream(
+    handler: IRpcHandler,
+    msg: IRpcRequestMessage,
+    startTime: number,
+  ): Promise<void> {
+    const streamStartMsg: IRpcStreamStartMessage = {
+      type: 'rpc-stream-start',
+      id: msg.id,
+    };
+    this.send(streamStartMsg);
+
+    const { meta, result } = await handler.handleStream!(
+      msg.method,
+      msg.params,
+      (chunk: string) => {
+        // handler 主动推送的 chunk
+        const chunkMsg: IRpcStreamChunkMessage = {
+          type: 'rpc-stream-chunk',
+          id: msg.id,
+          seq: -1, // handler 主动推送模式不用 seq，客户端按到达顺序拼装
+          data: chunk,
+        };
+        this.send(chunkMsg);
+      },
+      (data: unknown) => {
+        this.send({ type: 'rpc-progress', id: msg.id, data });
+      },
+    );
+
+    const duration = Date.now() - startTime;
+    this.recordRpc(msg.service, msg.method, duration);
+    this.log('info', 'RPC(stream): ' + msg.service + '.' + msg.method + ' (' + duration + 'ms)');
+
+    // 如果 handler 返回了最终 result，作为最后一个 chunk 发送
+    if (result !== undefined) {
+      const jsonResult = JSON.stringify(result);
+      if (jsonResult.length > 0) {
+        await this.waitForDrain();
+        const chunkMsg: IRpcStreamChunkMessage = {
+          type: 'rpc-stream-chunk',
+          id: msg.id,
+          seq: -1,
+          data: jsonResult,
+        };
+        this.send(chunkMsg);
+      }
+    }
+
+    const endMsg: IRpcStreamEndMessage = {
+      type: 'rpc-stream-end',
+      id: msg.id,
+    };
+    this.send(endMsg);
+  }
+
+  /**
+   * 大响应自动分片传输
+   * 将 JSON 字符串切成 CHUNK_SIZE 大小的块，逐块发送
+   */
+  private async sendStreamed(id: string, jsonStr: string): Promise<void> {
+    const totalSize = jsonStr.length;
+    this.log('info', '流式传输: id=' + id + ' total=' + totalSize + 'B chunks=' + Math.ceil(totalSize / CHUNK_SIZE));
+
+    const startMsg: IRpcStreamStartMessage = {
+      type: 'rpc-stream-start',
+      id,
+      totalSize,
+    };
+    this.send(startMsg);
+
+    let seq = 0;
+    for (let offset = 0; offset < jsonStr.length; offset += CHUNK_SIZE) {
+      const chunk = jsonStr.slice(offset, offset + CHUNK_SIZE);
+      const chunkMsg: IRpcStreamChunkMessage = {
+        type: 'rpc-stream-chunk',
+        id,
+        seq,
+        data: chunk,
+      };
+      await this.waitForDrain();
+      this.send(chunkMsg);
+      seq++;
+    }
+
+    const endMsg: IRpcStreamEndMessage = {
+      type: 'rpc-stream-end',
+      id,
+    };
+    this.send(endMsg);
+    this.log('info', '流式传输完成: id=' + id + ' chunks=' + seq);
+  }
+
+  /**
+   * 流控：等待 DataChannel 缓冲区降到安全水位以下
+   * 当 bufferedAmount 超过高水位时，挂起直到低水位事件触发
+   */
+  private waitForDrain(): Promise<void> {
+    if (!this.peerConnection) return Promise.resolve();
+    if (this.peerConnection.bufferedAmount < BUFFER_HIGH_WATERMARK) {
+      return Promise.resolve();
+    }
+
+    this.log('info', '背压等待: bufferedAmount=' + this.peerConnection.bufferedAmount);
+    return new Promise<void>((resolve) => {
+      let resolved = false;
+      const onLow = () => {
+        if (resolved) return;
+        resolved = true;
+        this.peerConnection?.clearBufferedAmountLow();
+        resolve();
+      };
+      this.peerConnection?.onBufferedAmountLow(onLow, BUFFER_LOW_WATERMARK);
+
+      // 安全超时：10 秒后强制恢复，避免死锁
+      setTimeout(() => {
+        if (resolved) return;
+        resolved = true;
+        this.log('warn', '背压超时，强制恢复');
+        resolve();
+      }, 10_000);
+    });
   }
 
   private handleRpcCancel(msg: IRpcCancelMessage): void {
