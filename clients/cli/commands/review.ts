@@ -3,7 +3,7 @@
  * @module clients/cli/commands/review
  *
  * 复用 ReviewService + AIController + CliRemoteKataGoEngine（IAIEngine 远程实现）。
- * 分析逻辑（quick/deep、恶手检测、胜率图、候选选点）全部走 ReviewService，
+ * 分析逻辑（quick/deep、胜率图）全部走 ReviewService，
  * 与 Web 端 review 页面共用同一套代码。
  */
 
@@ -31,7 +31,6 @@ options:
   --password ***          隧道密码(默认 111111)
   --signaling <url>       信令服务器(默认 wss://api.weiqi.lol/ws/signal)
   --visits <n>            算力(native默认1,其它默认0;指定局面深算默认15)
-  --top-k <n>             候选选点数(默认 5)
   --mode quick|deep       分析模式(默认 quick)
   --analyze-move <n>      额外深算某一手(如 23);可多次
   --format json|text      输出格式(默认 json)
@@ -39,7 +38,7 @@ options:
 
 示例:
   review analyze ./game.sgf
-  review analyze https://.../x.sgf --top-k 5 --format text
+  review analyze https://.../x.sgf --format text
   review analyze ./game.sgf --analyze-move 50 --analyze-move 120
 `;
 
@@ -48,7 +47,6 @@ interface ReviewArgs {
   password: string;
   signaling: string;
   visits: number;
-  topK: number;
   mode: 'quick' | 'deep';
   analyzeMoves: number[];
   format: 'json' | 'text';
@@ -61,7 +59,6 @@ function parseArgs(args: string[]): ReviewArgs {
     password: DEFAULT_PASSWORD,
     signaling: DEFAULT_SIGNALING,
     visits: -1,  // -1 = 自动：native→1, 其它→0
-    topK: 5,
     mode: 'quick',
     analyzeMoves: [],
     format: process.stdout.isTTY ? 'text' : 'json',
@@ -72,7 +69,6 @@ function parseArgs(args: string[]): ReviewArgs {
     if (a === '--password' && args[i + 1]) res.password = args[++i];
     else if (a === '--signaling' && args[i + 1]) res.signaling = args[++i];
     else if (a === '--visits' && args[i + 1]) res.visits = parseInt(args[++i], 10) || 0;
-    else if (a === '--top-k' && args[i + 1]) res.topK = parseInt(args[++i], 10) || 5;
     else if (a === '--mode' && args[i + 1]) res.mode = args[i + 1] as 'quick' | 'deep';
     else if (a === '--analyze-move' && args[i + 1]) res.analyzeMoves.push(parseInt(args[++i], 10));
     else if (a === '--format' && args[i + 1]) res.format = args[++i] as 'json' | 'text';
@@ -159,7 +155,6 @@ async function runAnalyze(args: ReviewArgs, ctx: CliContext): Promise<CliResult>
     const options: ReviewOptions = {
       visits,
       mode: args.mode,
-      topK: args.topK,
     };
 
     // 超时保护：分析超时后报错退出，避免永久卡住
@@ -177,7 +172,6 @@ async function runAnalyze(args: ReviewArgs, ctx: CliContext): Promise<CliResult>
     process.stderr.write('\n');
 
     // 6. 整理输出
-    const badMoves = reviewService.getBadMoves(reviewId);
     const winrateTrend = reviewService.getWinRateTrend(reviewId);
     const state = reviewService.getState(reviewId);
 
@@ -186,12 +180,6 @@ async function runAnalyze(args: ReviewArgs, ctx: CliContext): Promise<CliResult>
       color: m.color,
       bwr: m.winRate,
       sl: m.scoreLead,
-      topMoves: (m as any).candidates?.slice(0, args.topK).map((c: any) => ({
-        label: coordToLabel(c.x, c.y, state?.boardSize ?? 19),
-        winRate: c.winRate,
-        scoreLead: c.scoreLead,
-        visits: c.visits,
-      })) ?? [],
     }));
 
     // 额外深算指定手
@@ -200,7 +188,7 @@ async function runAnalyze(args: ReviewArgs, ctx: CliContext): Promise<CliResult>
       if (mvNum < 1 || mvNum > result.moves.length) continue;
       const r = await reviewService.analyzePosition(reviewId, mvNum - 1, {
         visits: args.visits >= 0 ? args.visits : 15,
-        topK: args.topK,
+        topK: 5,
         includePv: true,
       });
       if (r) {
@@ -214,12 +202,6 @@ async function runAnalyze(args: ReviewArgs, ctx: CliContext): Promise<CliResult>
       engineInfo,
       analysis: result.analysis,
       perMove,
-      badMoves: badMoves.map(b => ({
-        moveNumber: b.moveNumber,
-        severity: b.severity,
-        winRateChange: b.winRateChange,
-        label: coordToLabel(b.x, b.y, state?.boardSize ?? 19),
-      })),
       deepByMove,
     };
 
@@ -253,21 +235,6 @@ export function formatReviewAnalyzeText(data: any): string {
   }
   lines.push('');
   lines.push(renderWinRateChart(data.perMove));
-  if (data.badMoves && data.badMoves.length > 0) {
-    lines.push('');
-    lines.push(`=== 恶手 (${data.badMoves.length}) ===`);
-    for (const b of data.badMoves) {
-      const sev = b.severity === 'severe' ? '严重' : b.severity === 'moderate' ? '中等' : '轻微';
-      const delta = (b.winRateChange * 100).toFixed(1);
-      lines.push(`  #${b.moveNumber} ${b.label} [${sev}] 胜率变化: ${delta}%`);
-    }
-  }
-  lines.push('');
-  lines.push('=== 每手 AI 候选选点 ===');
-  for (const mv of data.perMove) {
-    const top = (mv.topMoves ?? []).slice(0, 5).map((t: any) => `${t.label}(${(t.winRate * 100).toFixed(1)}%/${t.scoreLead.toFixed(1)})`).join('  ');
-    lines.push(`#${mv.n} ${mv.color === 'black' ? '黑' : '白'}: ${top}`);
-  }
   const deepKeys = Object.keys(data.deepByMove || {});
   if (deepKeys.length > 0) {
     lines.push('');

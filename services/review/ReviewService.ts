@@ -251,6 +251,11 @@ export class ReviewService implements IReviewService {
     const includePv = options?.includePv ?? false;
     const startTime = Date.now();
 
+    // visits=0: 走 Quick 批量评估（无 candidates、无 pv），与 analyzeGameAsync 行为一致
+    if (visits === 0) {
+      return this.analyzeGameQuick(data, callbacks);
+    }
+
     // 检查底层引擎是否支持 analyzeGame（App 原生）
     // 不能检查 AIController，因为 AIController 总是有 analyzeGame 方法
     // 需要检查底层 IAIEngine
