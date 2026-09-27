@@ -109,6 +109,20 @@ export class SGFParser {
       errors: this.errors,
     };
   }
+  /**
+   * 从树中查找第一个有 color 的着法节点
+   * 优先沿主分支（children[0]）查找
+   */
+  private static findFirstMoveColor(node: ISGFNode): 'B' | 'W' | null {
+    let current: ISGFNode | undefined = node;
+    while (current) {
+      if (current.color) {
+        return current.color;
+      }
+      current = current.children?.[0];
+    }
+    return null;
+  }
   private extractGameInfo(tree: ISGFNode): ISGFGameInfoFull {
     const props = tree.properties;
     const childProps = tree.children[0]?.properties || {};
@@ -165,6 +179,13 @@ export class SGFParser {
     } else if (handicap > 0) {
       // 有 HA[] 让子属性但无 PL[] 时，默认白方先行
       initialPlayer = 'white';
+    } else {
+      // 无 PL[] 也无 HA[]：从第一个有 color 的子节点推断先手方
+      // 死活题/排局常有白先但未标注 PL[] 的情况
+      const firstMoveColor = SGFParser.findFirstMoveColor(tree);
+      if (firstMoveColor === 'W') {
+        initialPlayer = 'white';
+      }
     }
 
     return {
