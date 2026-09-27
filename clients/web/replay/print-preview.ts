@@ -130,6 +130,7 @@ function renderGrid(data: PrintPosition, rows: number, cols: number): void {
 }
 
 async function main(): Promise<void> {
+  const data = await loadData();
   if (!data) {
     const container = document.getElementById('thumbnails');
     if (container) {
