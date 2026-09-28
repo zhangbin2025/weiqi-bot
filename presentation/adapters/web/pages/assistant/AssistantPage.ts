@@ -444,10 +444,13 @@ export class AssistantPage {
     const prevScrollHeight = chatContainer.scrollHeight;
     const prevScrollTop = chatContainer.scrollTop;
     
-    // 取一批消息（从 pendingMessages 头部取，即最早的消息）
-    const batch = this.pendingMessages.splice(0, this.LOAD_MORE_BATCH);
+    // 从 pendingMessages 尾部取一批（紧邻当前显示消息之前的）
+    const batch = this.pendingMessages.splice(-this.LOAD_MORE_BATCH);
     
-    // 倒序插入（prepend 最早的消息要最后插入才能保持顺序）
+    // 正序插入（prepend 每条消息插到顶部，先插的会被推到下面）
+    // 要保持时间正序：最早的消息先 prepend（插到最顶部），后来的插在它下面
+    // 但 prependMessage 是 insertBefore(firstMessage)，每次都插在当前第一条之前
+    // 所以应该倒序插入：最新的一条先插（插在当前顶部消息之前），最早的最后插（插在最上面）
     for (let i = batch.length - 1; i >= 0; i--) {
       const msg = batch[i];
       if (!msg) continue;
