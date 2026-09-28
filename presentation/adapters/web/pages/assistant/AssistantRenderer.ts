@@ -35,7 +35,8 @@ export class AssistantRenderer implements IMessageRenderer {
     actionUrl?: string,
     actionText?: string,
     useTypewriter: boolean = true,
-    taskId?: string
+    taskId?: string,
+    timestamp?: number
   ): Promise<void> {
     const chatContainer = document.getElementById('chatContainer');
     if (!chatContainer) return;
@@ -93,6 +94,15 @@ export class AssistantRenderer implements IMessageRenderer {
       // 用户消息也可能包含 taskId
       this.processTaskIdLinks(contentDiv);
     }
+    // 显示消息时间
+    const displayTimestamp = timestamp ?? Date.now();
+    if (displayTimestamp) {
+      const timeDiv = document.createElement('div');
+      timeDiv.className = 'message-time';
+      timeDiv.textContent = this.formatTime(displayTimestamp);
+      messageDiv.appendChild(timeDiv);
+    }
+
     if (actionUrl && actionText) {
       const actionBtn = document.createElement('a');
       actionBtn.className = 'action-btn';
@@ -546,7 +556,8 @@ export class AssistantRenderer implements IMessageRenderer {
     entities?: Record<string, any> | null,
     actionUrl?: string,
     actionText?: string,
-    taskId?: string
+    taskId?: string,
+    timestamp?: number
   ): Promise<void> {
     const chatContainer = document.getElementById('chatContainer');
     if (!chatContainer) return;
@@ -587,6 +598,15 @@ export class AssistantRenderer implements IMessageRenderer {
     
     messageDiv.appendChild(contentDiv);
     
+    // 显示消息时间
+    const displayTimestamp = timestamp ?? Date.now();
+    if (displayTimestamp) {
+      const timeDiv = document.createElement('div');
+      timeDiv.className = 'message-time';
+      timeDiv.textContent = this.formatTime(displayTimestamp);
+      messageDiv.appendChild(timeDiv);
+    }
+    
     // 插入到第一条消息之前（状态提示之后）
     const firstMessage = chatContainer.querySelector('.message');
     if (firstMessage) {
@@ -613,6 +633,40 @@ export class AssistantRenderer implements IMessageRenderer {
       actionBtn.textContent = actionText;
       contentDiv.appendChild(actionBtn);
     }
+  }
+
+  /**
+   * 格式化时间戳为显示文本
+   */
+  private formatTime(timestamp: number): string {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const hh = String(date.getHours()).padStart(2, '0');
+    const mm = String(date.getMinutes()).padStart(2, '0');
+    const timeStr = `${hh}:${mm}`;
+
+    // 判断是否同一天
+    const isSameDay = date.toDateString() === now.toDateString();
+    if (isSameDay) {
+      return timeStr;
+    }
+
+    // 昨天判断
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const isYesterday = date.toDateString() === yesterday.toDateString();
+    if (isYesterday) {
+      return `昨天 ${timeStr}`;
+    }
+
+    // 同年
+    const isSameYear = date.getFullYear() === now.getFullYear();
+    if (isSameYear) {
+      return `${date.getMonth() + 1}月${date.getDate()}日 ${timeStr}`;
+    }
+
+    // 往年
+    return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日 ${timeStr}`;
   }
 
   showTyping(): void {

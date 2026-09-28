@@ -27,7 +27,8 @@ export interface IMessageRenderer {
     actionUrl?: string,
     actionText?: string,
     useTypewriter?: boolean,
-    taskId?: string
+    taskId?: string,
+    timestamp?: number
   ): Promise<void>;
   /**
    * 清空所有消息

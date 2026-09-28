@@ -93,6 +93,8 @@
             margin-bottom: 12px;
             padding: 0 12px;
             animation: fadeIn 0.3s ease;
+            display: flex;
+            flex-direction: column;
         }
         
         @keyframes fadeIn {
@@ -111,8 +113,7 @@
         }
         
         .message.user {
-            display: flex;
-            justify-content: flex-end;
+            align-items: flex-end;
         }
         
         .message-content {
@@ -139,6 +140,18 @@
             background: #f5f5f5;
             color: #333;
             border: 1px solid #e0e0e0;
+        }
+        
+        .message.assistant {
+            align-items: flex-start;
+        }
+        
+        /* 消息时间 */
+        .message-time {
+            font-size: 11px;
+            color: #999;
+            margin-top: 2px;
+            line-height: 1;
         }
         
         /* 最后一个消息块 - 预留输入框高度 */
