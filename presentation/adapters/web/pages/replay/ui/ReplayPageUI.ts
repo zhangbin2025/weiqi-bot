@@ -136,6 +136,8 @@ export class ReplayPageUI {
     if (this.moveSlider) {
       this.moveSlider.max = String(replayData.max_moves || 0);
     }
+    // 更新导航按钮禁用状态（初始加载时同步）
+    this.updateNavButtons();
   }
   /**
    * 更新滑块值
@@ -166,6 +168,8 @@ export class ReplayPageUI {
    * 更新状态显示（手数）
    */
   updateStatusDisplay(): void {
+    // 更新导航按钮禁用状态（不论何种模式都要执行）
+    this.updateNavButtons();
     if (!this.moveInfoEl) return;
     const inVariation = this.state.get('inVariation');
     // 变化图模式下，隐藏第几手信息
@@ -177,6 +181,39 @@ export class ReplayPageUI {
     this.moveInfoEl.style.display = 'block';
     const moveNum = this.state.getCurrentMoveNumber();
     this.moveInfoEl.textContent = `第 ${moveNum} 手`;
+  }
+  /**
+   * 更新主面板导航按钮禁用状态
+   * 第 0 手时上一手禁用，最后一手时下一手禁用
+   */
+  updateNavButtons(): void {
+    const replayData = this.state.get('replayData');
+    if (!replayData) return;
+    const prevBtn = document.getElementById('prevBtn') as HTMLButtonElement | null;
+    const nextBtn = document.getElementById('nextBtn') as HTMLButtonElement | null;
+    // 分支模式下：以进入变化图的那一手为「最早」（displayIndex=0），无子节点为「最后」
+    if (this.state.get('inVariation')) {
+      const displayIndex = this.state.get('displayIndex');
+      const node = this.state.getCurrentNode();
+      // prevMove 在分支模式下仅当 displayIndex>0 才有效（退到变化节点即为最早）
+      if (prevBtn) prevBtn.disabled = displayIndex <= 0;
+      if (nextBtn) nextBtn.disabled = !(node?.children && node.children.length > 0);
+      return;
+    }
+    const moveNum = this.state.getCurrentMoveNumber();
+    const maxMoves = replayData.max_moves || 0;
+    if (prevBtn) prevBtn.disabled = moveNum <= 0;
+    if (nextBtn) nextBtn.disabled = moveNum >= maxMoves;
+  }
+  /**
+   * 更新试下面板导航按钮禁用状态
+   * 最早一步时上一步禁用，最后一步时下一步禁用
+   */
+  updateTrialButtons(canPrev: boolean, canNext: boolean): void {
+    const trialPrevBtn = document.getElementById('trialPrevBtn') as HTMLButtonElement | null;
+    const trialNextBtn = document.getElementById('trialNextBtn') as HTMLButtonElement | null;
+    if (trialPrevBtn) trialPrevBtn.disabled = !canPrev;
+    if (trialNextBtn) trialNextBtn.disabled = !canNext;
   }
   /**
    * 更新副标题：浏览中间手数时显示胜率/目差，最后一手显示结果

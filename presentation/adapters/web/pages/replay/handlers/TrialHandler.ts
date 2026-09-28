@@ -65,6 +65,8 @@ export class TrialHandler {
       this.updateTrialModeUI();
       // 进入试下模式后，需要重建棋盘状态
       this.rebuildBoardWithTrial();
+      // 更新试下导航按钮状态
+      this.updateTrialButtons();
       // 死活题模式：清除之前的提示
       if (this.isTsumego()) {
         this.state.set('trialHint', '开始解题');
@@ -93,6 +95,8 @@ export class TrialHandler {
       if (this.isTsumego()) {
         this.checkTsumegoMatch();
       }
+      // 更新试下导航按钮状态
+      this.updateTrialButtons();
     }
   }
 
@@ -160,6 +164,16 @@ export class TrialHandler {
   }
 
   /**
+   * 更新试下导航按钮禁用状态
+   * 最早一步时上一步禁用，最后一步时下一步禁用
+   */
+  private updateTrialButtons(): void {
+    const index = this.trialController.getTrialIndex();
+    const total = this.trialController.getTrialMoves().length;
+    this.ui.updateTrialButtons(index > 0, index < total);
+  }
+
+  /**
    * 试下后退
    */
   trialPrev(): void {
@@ -169,6 +183,7 @@ export class TrialHandler {
     if (this.isTsumego()) {
       this.checkTsumegoMatch();
     }
+    this.updateTrialButtons();
   }
 
   /**
@@ -181,6 +196,7 @@ export class TrialHandler {
     if (this.isTsumego()) {
       this.checkTsumegoMatch();
     }
+    this.updateTrialButtons();
   }
 
   /**
