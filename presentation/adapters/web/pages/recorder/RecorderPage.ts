@@ -227,13 +227,16 @@ export class RecorderPage implements IPage {
     const state = this.recorderApp.getState();
     if (!options?.skipConfirm && (state.moveHistory.length > 0 || state.initialStones.length > 0)) {
       const result = await this.dialog.show({
-        type: 'confirm',
+        type: 'custom',
         title: '清空棋盘',
         content: '是否保存当前棋谱？',
-        confirmText: '保存',
-        cancelText: '不保存',
+        buttons: [
+          { id: 'save', text: '保存' },
+          { id: 'discard', text: '不保存' },
+          { id: 'cancel', text: '取消' },
+        ],
       });
-      if (result === true) {
+      if (result === 'save') {
         const saveModal = document.getElementById('saveModal');
         if (saveModal) {
           saveModal.classList.add('visible');
@@ -241,7 +244,7 @@ export class RecorderPage implements IPage {
           blackNameInput?.focus();
         }
         return;
-      } else if (result === undefined) {
+      } else if (result === 'cancel' || result === null) {
         return;
       }
     }

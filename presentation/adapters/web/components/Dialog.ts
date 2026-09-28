@@ -59,7 +59,21 @@ export class WebDialog implements IDialog {
     }
     const buttonContainer = document.createElement('div');
     buttonContainer.style.cssText = 'margin-top: 20px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;';
-    if (type !== 'alert') {
+    if (type === 'custom' && config.buttons) {
+      for (const btn of config.buttons) {
+        const button = document.createElement('button');
+        button.textContent = btn.text;
+        const isCancel = btn.id === 'cancel';
+        button.style.cssText = isCancel
+          ? 'padding: 12px 24px; min-width: 100px; border: none; border-radius: 8px; background: #f0f0f0; color: #333; font-size: 16px; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; justify-content: center;'
+          : 'padding: 12px 24px; min-width: 100px; border: none; border-radius: 8px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; font-size: 16px; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; justify-content: center;';
+        button.onclick = () => {
+          this.resolvePromise?.(btn.id);
+          this.close();
+        };
+        buttonContainer.appendChild(button);
+      }
+    } else if (type !== 'alert') {
       const cancelBtn = document.createElement('button');
       cancelBtn.textContent = cancelText;
       cancelBtn.style.cssText = `
@@ -80,8 +94,7 @@ export class WebDialog implements IDialog {
       cancelBtn.onmouseout = () => cancelBtn.style.background = '#f0f0f0';
       cancelBtn.onclick = () => this.close();
       buttonContainer.appendChild(cancelBtn);
-    }
-    const confirmBtn = document.createElement('button');
+      const confirmBtn = document.createElement('button');
     confirmBtn.textContent = confirmText;
     confirmBtn.style.cssText = `
       padding: 12px 24px;
@@ -108,6 +121,7 @@ export class WebDialog implements IDialog {
       this.close();
     };
     buttonContainer.appendChild(confirmBtn);
+    }
     this.dialog.appendChild(buttonContainer);
     this.overlay.style.display = 'flex';
     document.body.appendChild(this.overlay);
