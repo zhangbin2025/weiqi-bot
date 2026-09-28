@@ -25,7 +25,9 @@ export default defineConfig({
     sourcemap: false,
     chunkSizeWarningLimit: 1500,
     rollupOptions: {
-      external: ['fs', 'crypto', 'http', 'path', 'os', 'url', 'stream', 'zlib', 'buffer', 'util'],
+      // Node.js 内置模块在浏览器端不需要，但保留 npm 同名 polyfill 包（如 buffer）
+      // 只 externalize 纯 Node 内置模块，不处理有 npm polyfill 的
+      external: ['fs', 'crypto', 'http', 'path', 'os', 'url', 'stream', 'zlib', 'util'],
 
       input: {
         'index': path.resolve(__dirname, 'clients/web/index.html'),
