@@ -99,7 +99,8 @@ export class HMPlayAIMover {
           return;
         }
 
-        if (this.gameState.shouldAiResign(aiWinRate) && onAiResign) {
+        const moveCount = this.game.getState().moveHistory.length;
+        if (this.gameState.shouldAiResign(aiWinRate, moveCount) && onAiResign) {
           await onAiResign();
           return;
         }

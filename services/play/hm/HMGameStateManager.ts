@@ -65,13 +65,27 @@ export class HMGameStateManager {
     this.lowWinRateCount = 0;
   }
 
-  /** 检查 AI 是否应该认输 */
-  shouldAiResign(aiWinRate: number): boolean {
-    if (aiWinRate < RESIGN_THRESHOLD) {
+  /** 检查 AI 是否应该认输（让子棋感知） */
+  shouldAiResign(aiWinRate: number, moveCount: number): boolean {
+    const handicap = this.config?.handicap ?? 0;
+
+    // 让子棋前 N 手不检查认输，N 随让子数递增
+    // 分先 20 手，每多让 1 子 +5 手，最高 65 手
+    const minMoves = Math.max(20, handicap * 5 + 20);
+    if (moveCount < minMoves) {
+      this.lowWinRateCount = 0;
+      return false;
+    }
+
+    // 让子棋使用更严格参数：大让子(4+) 阈值降到 2%，连续手数增到 5
+    const threshold = handicap >= 4 ? 0.02 : RESIGN_THRESHOLD;
+    const consecTurns = handicap >= 4 ? 5 : RESIGN_CONSEC_TURNS;
+
+    if (aiWinRate < threshold) {
       this.lowWinRateCount++;
     } else {
       this.lowWinRateCount = 0;
     }
-    return this.lowWinRateCount >= RESIGN_CONSEC_TURNS;
+    return this.lowWinRateCount >= consecTurns;
   }
 }
