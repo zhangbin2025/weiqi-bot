@@ -98,7 +98,7 @@ export class TunnelServer {
     this.iceServers = iceServers ?? DEFAULT_ICE_SERVERS;
     this.signaling = new SignalingClient({
       url: config.signalingUrl,
-      maxReconnectAttempts: 999,
+      maxReconnectAttempts: 0,
       reconnectInterval: 3_000,
     });
   }

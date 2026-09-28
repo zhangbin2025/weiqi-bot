@@ -41,6 +41,7 @@ export class SignalingClient {
   private missedHeartbeats = 0; // 未收到的心跳计数
   private callbacks: ISignalingClientCallbacks = {};
   private roomId: string | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null; // 重连定时器
 
   constructor(config: ISignalingClientConfig) {
     this.url = config.url;
@@ -50,6 +51,18 @@ export class SignalingClient {
   }
 
   async connect(roomId: string): Promise<void> {
+    // 先清理旧连接，避免新旧 WebSocket 竞争
+    this.stopHeartbeat();
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.ws) {
+      this.ws.onclose = null;
+      this.ws.close();
+      this.ws = null;
+    }
+
     this.roomId = roomId;
     const fullUrl = `${this.url}?room=${roomId}`;
     return new Promise((resolve, reject) => {
@@ -84,8 +97,17 @@ export class SignalingClient {
 
   disconnect(): void {
     this.stopHeartbeat();
-    this.ws?.close();
-    this.ws = null;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    // 清除 onclose 回调，避免 disconnect 触发 handleReconnect
+    if (this.ws) {
+      this.ws.onclose = null;
+      this.ws.close();
+      this.ws = null;
+    }
+    this.reconnectAttempts = 0;
   }
 
   send(message: ISignalingMessage): boolean {
@@ -161,7 +183,8 @@ export class SignalingClient {
       return;
     }
     this.reconnectAttempts++;
-    setTimeout(() => {
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
       if (this.roomId) {
         this.connect(this.roomId).catch((err) => this.callbacks.onError?.(err));
       }
