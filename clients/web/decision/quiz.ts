@@ -13,6 +13,7 @@ import { coordToPos, posToCoord } from '../../../domain/sgf';
 import { state, currentProblem } from './quiz/state';
 import { initBoard, syncBoard, clearMarkers, clearHighlights, markOptions, getBoard } from './quiz/board';
 import { loadProblem } from './quiz/problem';
+import Dialog from '../shared/ui/Dialog';
 import { selectOption } from './quiz/answer';
 import { startVariation, variationPrev, variationNext, backToMain } from './quiz/variation';
 import { startTrial, addTrialMove, trialPrev, trialNext, exitTrial } from './quiz/trial';
@@ -359,7 +360,7 @@ function viewReplay() {
 
   const archiveId = problem.metadata?.archiveId;
   if (!archiveId) {
-    alert('该题目没有关联棋谱');
+    await Dialog.alert('该题目没有关联棋谱');
     return;
   }
 

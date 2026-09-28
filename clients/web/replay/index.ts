@@ -7,6 +7,7 @@ import { WebBootstrap } from '../shared/Bootstrap';
 import { ReplayPage } from '../../../presentation/adapters/web/pages/replay';
 import { createReplayDeps } from '../shared/deps/replay';
 import { SessionStorageAdapter } from '../../../infrastructure/storage/adapters/web/SessionStorageAdapter';
+import Dialog from '../shared/ui/Dialog';
 
 /**
  * 简单 hash 函数（djb2），用于收藏 key 去重
@@ -128,7 +129,7 @@ async function main() {
   window.addEventListener('printPosition', async () => {
     const printData = page.getPrintData();
     if (printData.stones.length === 0) {
-      alert('当前没有棋盘数据');
+      await Dialog.alert('当前没有棋盘数据');
       return;
     }
     await sessionStore.write('replay-print-data', printData);

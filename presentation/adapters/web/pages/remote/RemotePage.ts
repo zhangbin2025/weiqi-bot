@@ -28,6 +28,7 @@ import type {
   TunnelServerStats,
   TunnelClientStats,
 } from '../../../../../infrastructure/tunnel/types';
+import Dialog from '../../../../../clients/web/shared/ui/Dialog';
 import { DEFAULT_TUNNEL_CONFIG } from '../../../../../infrastructure/tunnel/types';
 import { LocalStorageCacheAdapter } from '../../../../../infrastructure/storage/adapters/web/LocalStorageCacheAdapter';
 import type { ICacheStorageAdapter } from '../../../../../infrastructure/storage/interfaces/ICacheStorage';
@@ -565,7 +566,7 @@ export class RemotePage {
       const pwdInput = dialog.querySelector('#cfgPassword') as HTMLInputElement;
       const password = pwdInput.value.trim();
       if (!password) {
-        alert('请输入密码');
+        await Dialog.alert('请输入密码');
         return;
       }
       testBtn.disabled = true;
@@ -573,7 +574,7 @@ export class RemotePage {
       const result = await this.testConnection(password);
       testBtn.disabled = false;
       testBtn.textContent = '测试连接';
-      alert(result.message);
+      await Dialog.alert(result.message);
     });
 
     // 保存按钮
@@ -584,7 +585,7 @@ export class RemotePage {
       const mode = this.editConfig.mode;
 
       if (mode !== 'none' && !password) {
-        alert('请输入密码');
+        await Dialog.alert('请输入密码');
         return;
       }
 

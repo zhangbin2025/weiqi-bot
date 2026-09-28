@@ -343,16 +343,16 @@ async function main() {
   }
 
   /** 打印 — 多选模式下打印选中，否则打印全部 */
-  function handlePrint() {
+  async function handlePrint() {
     if (multiSelectMode && selectedIds.size > 0) {
       printSelected();
     } else {
-      PrintManager.print();
+      await PrintManager.print();
     }
   }
 
   /** 打印选中的 — 只显示选中卡片，隐藏其他 */
-  function printSelected() {
+  async function printSelected() {
     if (selectedIds.size === 0) return;
 
     const allPages = pagesContainer.querySelectorAll('.a4-page');
@@ -385,7 +385,7 @@ async function main() {
     const fallbackTimer = setTimeout(cleanup, 3000);
     window.addEventListener('afterprint', () => clearTimeout(fallbackTimer));
 
-    PrintManager.print();
+    await PrintManager.print();
   }
 
   /** 删除选中的 */
@@ -414,8 +414,8 @@ async function main() {
   selectModeBtn.addEventListener('click', () => setMultiSelectMode(!multiSelectMode));
   deleteBtn.addEventListener('click', () => deleteSelected());
   cancelSelectBtn.addEventListener('click', () => setMultiSelectMode(false));
-  printBtn.addEventListener('click', () => handlePrint());
-  printSelectedBtn.addEventListener('click', () => printSelected());
+  printBtn.addEventListener('click', () => { void handlePrint(); });
+  printSelectedBtn.addEventListener('click', () => { void printSelected(); });
 
   // 三点菜单切换
   menuBtn.addEventListener('click', (e) => {

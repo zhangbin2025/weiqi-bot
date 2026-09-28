@@ -4,6 +4,8 @@
  * 支持：Desktop（Electron）、Android App、微信浏览器、普通 Web
  */
 
+import Dialog from '../ui/Dialog';
+
 export class PrintManager {
   /**
    * 检测当前运行环境
@@ -27,7 +29,7 @@ export class PrintManager {
    * @param canvasSelector 缩略图 canvas 的 CSS 选择器
    * @param titleSelector 标题元素的 CSS 选择器（用于微信合成图）
    */
-  static print(canvasSelector: string = '.thumbnail-card canvas', titleSelector: string = '.thumbnail-title'): void {
+  static async print(canvasSelector: string = '.thumbnail-card canvas', titleSelector: string = '.thumbnail-title'): Promise<void> {
     const env = this.detectEnv();
 
     if (env === 'desktop' || env === 'web') {
@@ -36,12 +38,12 @@ export class PrintManager {
     }
 
     if (env === 'android-app') {
-      this.androidPrint(canvasSelector);
+      await this.androidPrint(canvasSelector);
       return;
     }
 
     if (env === 'wechat') {
-      this.wechatPrint(canvasSelector, titleSelector);
+      await this.wechatPrint(canvasSelector, titleSelector);
       return;
     }
   }
@@ -49,7 +51,7 @@ export class PrintManager {
   /**
    * Android App 打印：调整 canvas 尺寸后调用原生 bridge
    */
-  private static androidPrint(canvasSelector: string): void {
+  private static async androidPrint(canvasSelector: string): Promise<void> {
     try {
       const canvases = document.querySelectorAll(canvasSelector) as NodeListOf<HTMLCanvasElement>;
       const originalStyles: Array<{ width: string; height: string }> = [];
@@ -71,18 +73,18 @@ export class PrintManager {
       }, 1000);
     } catch (error) {
       console.error('Print bridge failed:', error);
-      alert('打印失败，请尝试截图分享');
+      await Dialog.alert('打印失败，请尝试截图分享');
     }
   }
 
   /**
    * 微信浏览器打印：合成大图弹窗，长按保存
    */
-  private static wechatPrint(canvasSelector: string, titleSelector: string): void {
+  private static async wechatPrint(canvasSelector: string, titleSelector: string): Promise<void> {
     try {
       const canvases = document.querySelectorAll(canvasSelector) as NodeListOf<HTMLCanvasElement>;
       if (canvases.length === 0) {
-        alert('没有可打印的内容');
+        await Dialog.alert('没有可打印的内容');
         return;
       }
 
@@ -104,7 +106,7 @@ export class PrintManager {
       merged.height = totalHeight;
       const ctx = merged.getContext('2d');
       if (!ctx) {
-        alert('生成图片失败');
+        await Dialog.alert('生成图片失败');
         return;
       }
 
@@ -158,7 +160,7 @@ export class PrintManager {
       document.body.appendChild(overlay);
     } catch (error) {
       console.error('Generate image failed:', error);
-      alert('生成图片失败，请稍后重试');
+      await Dialog.alert('生成图片失败，请稍后重试');
     }
   }
 }

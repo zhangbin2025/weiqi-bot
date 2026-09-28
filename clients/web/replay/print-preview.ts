@@ -179,9 +179,7 @@ async function main(): Promise<void> {
   colsInput.addEventListener('change', rerender);
 
   // 打印按钮
-  printBtn?.addEventListener('click', () => {
-    PrintManager.print();
-  });
+  printBtn?.addEventListener('click', () => { void PrintManager.print(); });
 }
 
 main().catch(console.error);
