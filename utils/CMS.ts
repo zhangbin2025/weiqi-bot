@@ -5,8 +5,11 @@
  * 使用 MD5 哈希，支持二进制序列化/反序列化（对齐 Python pickle）
  */
 
-import * as crypto from "crypto";
-import * as fs from "fs";
+// Node.js 模块延迟加载，避免浏览器打包时被 externalized
+let _crypto: typeof import("crypto") | null = null;
+let _fs: typeof import("fs") | null = null;
+function getNodeCrypto() { if (!_crypto) _crypto = require("crypto"); return _crypto; }
+function getNodeFs() { if (!_fs) _fs = require("fs"); return _fs; }
 
 export interface CMSConfig {
   width: number;
@@ -33,7 +36,7 @@ export class CountMinSketch {
   /** MD5 哈希（与 Python 版 hashlib.md5 一致） */
   private hash(item: string, seed: number): number {
     const data = seed + ":" + item;
-    const buf = crypto.createHash("md5").update(data, "utf8").digest();
+    const buf = getNodeCrypto()!.createHash("md5").update(data, "utf8").digest();
     return buf.readUInt32LE(0) % this.width;
   }
 
@@ -79,7 +82,7 @@ export class CountMinSketch {
     // 直接从 Uint32Array 复制到 Buffer
     const tableView = Buffer.from(this.table.buffer, this.table.byteOffset, tableBytes);
     tableView.copy(buf, headerSize);
-    fs.writeFileSync(filePath, buf);
+    getNodeFs()!.writeFileSync(filePath, buf);
   }
 
   /**
@@ -88,7 +91,7 @@ export class CountMinSketch {
    * 直接读取为 Uint32Array，零拷贝，内存开销 = table 本身
    */
   static loadFromFile(filePath: string): CountMinSketch {
-    const buf = fs.readFileSync(filePath);
+    const buf = getNodeFs()!.readFileSync(filePath);
     const width = buf.readUInt32LE(0);
     const depth = buf.readUInt32LE(4);
     const size = buf.readUInt32LE(8);

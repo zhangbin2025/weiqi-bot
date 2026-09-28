@@ -38,7 +38,7 @@ async function callIzisApi(gameId: number, type: number = 2, proxyUrl?: string):
 
   if (isNodeEnv()) {
     // Node.js: 使用 http 模块（无 CORS 限制）
-    const http = await import("http");
+    const http = require("http");
     return new Promise((resolve, reject) => {
       const req = http.request(
         {

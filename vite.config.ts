@@ -23,7 +23,10 @@ export default defineConfig({
     emptyOutDir: true,
     target: 'chrome61',
     sourcemap: false,
+    chunkSizeWarningLimit: 1500,
     rollupOptions: {
+      external: ['fs', 'crypto', 'http', 'path', 'os', 'url', 'stream', 'zlib', 'buffer', 'util'],
+
       input: {
         'index': path.resolve(__dirname, 'clients/web/index.html'),
         'player/index': path.resolve(__dirname, 'clients/web/player/index.html'),

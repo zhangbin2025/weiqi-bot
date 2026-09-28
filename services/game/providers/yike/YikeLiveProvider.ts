@@ -66,7 +66,7 @@ async function sha1Hex(input: string): Promise<string> {
     }
     return hex.toLowerCase();
   }
-  const nodeCrypto = await import("crypto");
+  const nodeCrypto = require("crypto");
   return nodeCrypto.createHash("sha1").update(input).digest("hex").toLowerCase();
 }
 

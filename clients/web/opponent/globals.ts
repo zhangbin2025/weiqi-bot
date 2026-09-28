@@ -4,7 +4,7 @@
  */
 
 import type { OpponentAnalysisResultWithBookmark } from '../../application/opponent';
-import { getCurrentResult } from './analyzer';
+import { getCurrentResult, setCurrentResult } from './analyzer';
 import { getFavorite, buildResultFromBookmark } from './favorites';
 import { displayStats } from './display';
 import { Dialog } from '../shared/ui';
@@ -77,10 +77,8 @@ export function viewFavorite(foxwqId: string): void {
   // 从收藏数据构造 currentResult
   const result = buildResultFromBookmark(bookmark);
   
-  // 导入 setCurrentResult（避免循环依赖）
-  import('./analyzer').then(({ setCurrentResult }) => {
-    setCurrentResult(result);
-  });
+  // 设置当前结果
+  setCurrentResult(result);
 
   // 切换到查询标签并显示结果
   switchTabFn('query');
