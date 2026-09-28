@@ -206,13 +206,21 @@ export class GameOgsHelper {
     return collected;
   }
 
-  /** 从对局列表中收集 ranked 非让子棋对局，返回收集数量 */
+  /** 从对局列表中收集 ranked 非让子棋对局，返回收集数量
+   *
+   * 过滤规则：
+   * - 跳过让子棋（handicap >= 2）
+   * - 跳过非排位赛
+   * - 跳过 Cancellation 结局（取消的对局没有完整棋谱，AI review 无逐手数据）
+   */
   private collectRankedGames(games: any[], collected: string[], maxCount: number): number {
     let count = 0;
     for (const game of games) {
       if (collected.length >= maxCount) break;
       if (game.handicap >= 2) continue;
       if (!game.ranked) continue;
+      // 跳过取消的对局：没有完整棋谱，AI review 只有元数据
+      if (game.outcome === 'Cancellation') continue;
       collected.push(`https://online-go.com/game/${game.id}`);
       count++;
     }
