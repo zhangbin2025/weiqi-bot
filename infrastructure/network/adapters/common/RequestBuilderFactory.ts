@@ -3,7 +3,7 @@
  * @description 提供便捷的静态工厂方法来创建请求配置
  */
 
-import type { IRequestConfig, HttpMethod } from '../../interfaces';
+import type { IRequestConfig } from '../../interfaces';
 import { RequestBuilder } from './RequestBuilder';
 
 /**

@@ -3,7 +3,7 @@
  * @description 使用 @weiqi/worker 实现 AI 引擎接口（Web 环境）
  */
 
-import { getKataGoEngineClient, KataGoCanceledError, setWorkerUrl } from '@weiqi/worker';
+import { getKataGoEngineClient, setWorkerUrl } from '@weiqi/worker';
 import type { AnalysisResult } from '@weiqi/worker';
 import type {
   IAIEngine,
@@ -16,7 +16,7 @@ import type {
   EngineInfo,
   ModelInfo,
 } from '../IAIEngine';
-import { getWebRoot, toAbsoluteUrl } from '../../utils/web/pathUtils';
+import { toAbsoluteUrl } from '../../utils/web/pathUtils';
 import { Game } from '../../../domain/game';
 import { playerColorToSGFColor } from '../../../domain/primitives';
 import { KataGoQueryBuilder } from '../../katago/KataGoQueryBuilder';

@@ -2,7 +2,7 @@
  * 小程序 UI 控制器
  * 使用微信小程序 API
  */
-import type { IUIController, PageRoute, UIState } from '../types';
+import type { IUIController, PageRoute } from '../types';
 
 declare const wx: {
   navigateTo(options: { url: string; success?: () => void; fail?: (err: any) => void }): void;

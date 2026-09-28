@@ -15,7 +15,7 @@ import type {
   IRequestConfig
 } from '../interfaces';
 import { PlatformDetector } from '../../platform';
-import type { PlatformCapabilities } from '../../platform/interfaces';
+
 import { createUnsupportedProvider } from '../adapters/common/UnsupportedProvider';
 import { REST_API_PLATFORMS } from './PlatformConstants';
 

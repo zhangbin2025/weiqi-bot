@@ -11,7 +11,7 @@
  * - getEngineInfo: 获取引擎信息
  */
 
-import type { IAIEngine, AIEngineInitOptions, AnalyzeOptions, AnalyzeGameOptions, EvaluateOptions, EvaluateBatchOptions, ModelInfo } from '../ai/IAIEngine';
+import type { IAIEngine, AIEngineInitOptions, AnalyzeOptions, AnalyzeGameOptions, EvaluateOptions, EvaluateBatchOptions } from '../ai/IAIEngine';
 import type { IRpcHandler, TunnelService } from './types';
 
 /** KataGo RPC 请求参数映射 */

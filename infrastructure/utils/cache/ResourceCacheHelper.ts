@@ -34,7 +34,7 @@ export function getDataSize<T>(data: T): number {
 export async function getFromStorage<T>(
   storage: ICacheStorage | IDocumentStorage<{ id: string; blob: T; timestamp: number; size: number }>,
   key: string,
-  usePrefix: boolean = true
+  _usePrefix: boolean = true
 ): Promise<T | null> {
   if (isCacheStorage<T>(storage)) {
     return (storage as ICacheStorage).get<T>(key);

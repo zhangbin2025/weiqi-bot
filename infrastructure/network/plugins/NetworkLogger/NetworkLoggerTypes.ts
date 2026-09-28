@@ -2,7 +2,7 @@
  * 网络日志类型定义
  */
 
-import type { IRequestConfig, IResponse } from '../../interfaces';
+
 
 /**
  * 网络日志条目

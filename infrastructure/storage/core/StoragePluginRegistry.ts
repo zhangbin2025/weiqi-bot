@@ -5,7 +5,6 @@ import {
 } from '../interfaces/IStoragePluginRegistry';
 import {
   IKeyValueStorageAdapter,
-  StorageAdapterType,
 } from '../interfaces/IKeyValueStorage';
 
 /**

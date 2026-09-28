@@ -2,7 +2,7 @@
  * 信令消息数据类型
  */
 
-import type { RTCIceCandidateInit, RTCSessionDescriptionInit } from '../../interfaces';
+import type { RTCIceCandidateInit } from '../../interfaces';
 
 /**
  * Offer 消息数据

@@ -89,7 +89,7 @@ export class WebRTCProvider extends BaseProvider {
     );
   }
 
-  override async createP2PConnection(config: IWebRTCConfig): Promise<IWebRTC> {
+  override async createP2PConnection(_config: IWebRTCConfig): Promise<IWebRTC> {
     try {
       await this.signalingClient.connect();
       await this.peerConnection.createConnection();
@@ -100,7 +100,7 @@ export class WebRTCProvider extends BaseProvider {
         (data) => this.send(data),
         () => this.disconnect()
       );
-    } catch (error) {
+    } catch {
       throw new NetworkError(
         'Failed to create P2P connection',
         'WEBRTC_ERROR',
@@ -123,7 +123,7 @@ export class WebRTCProvider extends BaseProvider {
     this.signalingClient.disconnect();
   }
 
-  async request<T>(config: IRequestConfig): Promise<IResponse<T>> {
+  async request<T>(_config: IRequestConfig): Promise<IResponse<T>> {
     throw new NetworkError(
       'WebRTC provider does not support HTTP requests',
       'NOT_SUPPORTED',
@@ -131,7 +131,7 @@ export class WebRTCProvider extends BaseProvider {
     );
   }
 
-  override async connect(url: string, options?: IWebSocketOptions): Promise<IWebSocket> {
+  override async connect(_url: string, _options?: IWebSocketOptions): Promise<IWebSocket> {
     throw new NetworkError(
       'WebRTC provider does not support WebSocket connections',
       'NOT_SUPPORTED',

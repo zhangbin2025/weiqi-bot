@@ -116,7 +116,7 @@ export class HttpSnifferProvider {
       } else {
         return pattern.test(response.body);
       }
-    } catch (e) {
+    } catch {
       return false;
     }
   }
@@ -169,7 +169,7 @@ export class HttpSnifferProvider {
         } else {
           return urlPattern.test(r.url);
         }
-      } catch (e) {
+      } catch {
         return false;
       }
     });

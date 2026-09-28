@@ -7,7 +7,7 @@
  */
 
 import * as fs from 'fs';
-import * as path from 'path';
+
 import { BaseProvider } from '../common/BaseProvider';
 import type {
   IRequestConfig,
@@ -193,7 +193,7 @@ export class DirectProvider extends BaseProvider {
         resolve(this.createWebSocketWrapper(ws));
       });
 
-      ws.on('error', (error: Error) => {
+      ws.on('_error', (_error: Error) => {
         clearTimeout(timer);
         reject(new NetworkError('WebSocket connection failed', 'WS_ERROR', this.name));
       });

@@ -108,7 +108,7 @@ class MiniProgramWebViewSession implements IWebViewSession {
     return () => this.httpCallbacks.delete(id);
   }
 
-  onVariableChange(name: string, callback: (value: unknown) => void): () => void {
+  onVariableChange(_name: string, _callback: (value: unknown) => void): () => void {
     // 小程序 web-view 无法直接轮询，需要通过 postMessage 传递
     const interval = setInterval(() => {
       if (this.closed) {
@@ -140,7 +140,7 @@ class MiniProgramWebViewSession implements IWebViewSession {
         } else if (msg.type === 'http_response') {
           this.httpCallbacks.forEach(cb => cb(msg.data));
         }
-      } catch (e) {
+      } catch {
         // 忽略无效消息
       }
     }

@@ -131,7 +131,7 @@ class ReactNativeWebViewSession implements IWebViewSession {
       } else if (msg.type === 'http_response') {
         this.httpCallbacks.forEach(cb => cb(msg.data));
       }
-    } catch (e) {
+    } catch {
       // 忽略无效消息
     }
   }

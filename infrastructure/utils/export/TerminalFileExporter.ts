@@ -13,11 +13,11 @@ export class TerminalFileExporter implements IFileExporter {
     this.basePath = basePath;
   }
 
-  async exportText(content: string, filename: string, options?: ExportOptions): Promise<ExportResult> {
+  async exportText(content: string, filename: string, _options?: ExportOptions): Promise<ExportResult> {
     return this.writeFile(content, filename);
   }
 
-  async exportBlob(data: Blob | ArrayBuffer, filename: string, options?: ExportOptions): Promise<ExportResult> {
+  async exportBlob(data: Blob | ArrayBuffer, filename: string, _options?: ExportOptions): Promise<ExportResult> {
     try {
       const buffer = data instanceof ArrayBuffer ? Buffer.from(data) : Buffer.from(await data.arrayBuffer());
       return this.writeBinary(buffer, filename);
@@ -26,12 +26,12 @@ export class TerminalFileExporter implements IFileExporter {
     }
   }
 
-  async exportBase64(base64: string, filename: string, mimeType?: string, options?: ExportOptions): Promise<ExportResult> {
+  async exportBase64(base64: string, filename: string, _mimeType?: string, _options?: ExportOptions): Promise<ExportResult> {
     const buffer = Buffer.from(base64, 'base64');
     return this.writeBinary(buffer, filename);
   }
 
-  async exportJSON(data: unknown, filename: string, options?: ExportOptions): Promise<ExportResult> {
+  async exportJSON(data: unknown, filename: string, _options?: ExportOptions): Promise<ExportResult> {
     const content = JSON.stringify(data, null, 2);
     const name = filename.endsWith('.json') ? filename : `${filename}.json`;
     return this.writeFile(content, name);

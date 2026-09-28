@@ -93,7 +93,7 @@ export class StorageFactory {
       const adapter = new LocalStorageAdapter(namespace);
       await adapter.initialize();
       return adapter;
-    } catch (error) {
+    } catch {
       console.warn('Failed to load LocalStorageAdapter, falling back to memory storage');
       return new MemoryStorageAdapter();
     }
@@ -117,7 +117,7 @@ export class StorageFactory {
       const adapter = new IndexedDBAdapter(namespace, 'key-value-store') as unknown as IKeyValueStorage;
       await adapter.initialize();
       return adapter;
-    } catch (error) {
+    } catch {
       console.warn('Failed to load IndexedDBAdapter, falling back to memory storage');
       return new MemoryStorageAdapter();
     }
@@ -126,7 +126,7 @@ export class StorageFactory {
   /**
    * 创建 JsonFile 适配器（Node.js 环境）
    */
-  private static async createJsonFile(namespace: string): Promise<IKeyValueStorage> {
+  private static async createJsonFile(_namespace: string): Promise<IKeyValueStorage> {
     // 检查是否在 Node.js 环境
     if (typeof process === 'undefined' || !(() => { try { return process.versions?.node; } catch { return undefined; } })()) {
       console.warn('JsonFile storage only available in Node.js, falling back to memory storage');
@@ -138,7 +138,7 @@ export class StorageFactory {
       // 假设有 JsonFileAdapter（如果没有，可以使用内存存储）
       console.warn('JsonFileAdapter not implemented yet, using memory storage');
       return new MemoryStorageAdapter();
-    } catch (error) {
+    } catch {
       console.warn('Failed to load JsonFileAdapter, falling back to memory storage');
       return new MemoryStorageAdapter();
     }

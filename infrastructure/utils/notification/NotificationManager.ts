@@ -2,7 +2,6 @@ import type { INotificationProvider, Notification, NotifyOptions, NotificationTy
 import {
   BrowserNotifier,
   ElectronNotifier,
-  MobileNotifier,
   MiniProgramNotifier,
   TerminalNotifier,
 } from './adapters';

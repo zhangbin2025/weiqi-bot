@@ -158,7 +158,7 @@ export class DirectProvider extends BaseProvider {
         resolve(this.createWebSocketWrapper(ws));
       };
 
-      ws.onerror = (error) => {
+      ws.onerror = (_error) => {
         clearTimeout(timer);
         reject(new NetworkError('WebSocket connection failed', 'WS_ERROR', this.name));
       };

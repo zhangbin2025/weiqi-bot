@@ -183,7 +183,7 @@ export class KataGoNativeClient {
     // 标记：预期会收到旧进程的 exit 通知，不要误判为新进程启动失败
     this.expectingExit = true;
     // reject 所有 pending
-    for (const [id, entry] of this.pending) {
+    for (const [, entry] of this.pending) {
       entry.reject(new Error('KataGo process shutdown'));
     }
     this.pending.clear();
@@ -354,7 +354,7 @@ export class KataGoNativeClient {
 
         for (const cb of this.exitCallbacks) cb(exitCode);
         // reject 所有 pending
-        for (const [id, entry] of this.pending) {
+        for (const [, entry] of this.pending) {
           entry.reject(new Error(`KataGo process exited with code ${exitCode}`));
         }
         this.pending.clear();

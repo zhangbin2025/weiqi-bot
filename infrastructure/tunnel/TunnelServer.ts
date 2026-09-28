@@ -463,7 +463,7 @@ export class TunnelServer {
     };
     this.send(streamStartMsg);
 
-    const { meta, result } = await handler.handleStream!(
+    const { result } = await handler.handleStream!(
       msg.method,
       msg.params,
       (chunk: string) => {

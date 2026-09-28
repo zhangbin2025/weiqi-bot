@@ -63,7 +63,6 @@ export class ProxyProvider extends BaseProvider {
       );
     }
 
-    const startTime = Date.now();
     const url = this.buildProxyUrl(config.url);
     const headers = this.mergeHeaders(config);
     const timeout = config.timeout ?? this.timeout;

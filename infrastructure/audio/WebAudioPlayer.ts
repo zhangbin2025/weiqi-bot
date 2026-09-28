@@ -29,7 +29,7 @@ export class WebAudioPlayer implements IAudioPlayer {
       if (this.audioContext.state === 'suspended') {
         await this.audioContext.resume();
       }
-    } catch (e) {
+    } catch {
       // 创建失败，静默处理
     }
   }
@@ -44,7 +44,7 @@ export class WebAudioPlayer implements IAudioPlayer {
       if (this.audioContext.state === 'suspended') {
         try {
           await this.audioContext.resume();
-        } catch (e) {
+        } catch {
           return null;
         }
       }
@@ -58,11 +58,11 @@ export class WebAudioPlayer implements IAudioPlayer {
       if (this.audioContext.state === 'suspended') {
         try {
           await this.audioContext.resume();
-        } catch (e) {
+        } catch {
           // 静默处理
         }
       }
-    } catch (e) {
+    } catch {
       return null;
     }
 

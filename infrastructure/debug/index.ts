@@ -3,7 +3,7 @@
  * @module infrastructure/debug
  */
 
-import { PlatformDetector } from '../../presentation/adapters/PlatformDetector';
+
 import { AndroidDebugAdapter } from './adapters/AndroidDebugAdapter';
 import { WebDebugAdapter } from './adapters/WebDebugAdapter';
 import type { IDebugAdapter } from './adapters/IDebugAdapter';

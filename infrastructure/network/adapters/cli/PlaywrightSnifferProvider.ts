@@ -48,7 +48,7 @@ class PlaywrightSnifferSession implements ISnifferSession {
     if (options?.wsPattern) {
       try {
         this.wsPattern = new RegExp(options.wsPattern);
-      } catch (e) {
+      } catch {
         console.warn('Invalid wsPattern:', options.wsPattern);
       }
     }
@@ -56,7 +56,7 @@ class PlaywrightSnifferSession implements ISnifferSession {
     if (options?.httpPattern) {
       try {
         this.httpPattern = new RegExp(options.httpPattern);
-      } catch (e) {
+      } catch {
         console.warn('Invalid httpPattern:', options.httpPattern);
       }
     }
@@ -170,7 +170,7 @@ class PlaywrightSnifferSession implements ISnifferSession {
           timestamp: Date.now(),
         };
         this.addMessage(msg);
-      }).catch((e: Error) => {
+      }).catch(() => {
         // 忽略无法读取的响应
       });
     });

@@ -4,7 +4,7 @@
  */
 
 import type { IConfigSchemaDefinition } from '../interfaces';
-import { Platform } from '../interfaces';
+
 
 /** 隧道运行模式 */
 export type TunnelMode = 'none' | 'server' | 'client';

@@ -17,9 +17,7 @@
 import type {
   SnifferMessage,
   SnifferOptions,
-  SnifferResult,
-  SnifferSession,
-  SnifferCallbacks
+  SnifferResult
 } from './SnifferTypes';
 
 /**

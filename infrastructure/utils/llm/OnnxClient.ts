@@ -102,7 +102,7 @@ export class OnnxClient implements ILLMClient {
   /**
    * 实体提取
    */
-  async extractEntities(text: string, intent: string): Promise<EntityResult> {
+  async extractEntities(text: string, _intent: string): Promise<EntityResult> {
     const entities: Record<string, any> = {};
 
     // 提取棋手名

@@ -218,7 +218,7 @@ export class TunnelClient {
   }
 
   /** 记录 RPC 调用统计 */
-  private recordRpc(service: string, method: string, durationMs: number, success: boolean): void {
+  private recordRpc(service: string, method: string, durationMs: number, _success: boolean): void {
     const key = service + '.' + method;
     const existing = this.rpcStats.get(key);
     if (existing) {
@@ -513,7 +513,7 @@ export class TunnelClient {
   }
 
   private failAllPending(reason: string): void {
-    for (const [id, pending] of this.pendingRequests) {
+    for (const [, pending] of this.pendingRequests) {
       clearTimeout(pending.timer);
       pending.reject(new Error(reason));
     }

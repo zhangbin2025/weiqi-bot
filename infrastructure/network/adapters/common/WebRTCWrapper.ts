@@ -29,7 +29,7 @@ export function createWebRTCWrapper(
     get remoteDescription() {
       return null;
     },
-    async setLocalDescription(description: RTCSessionDescriptionInit): Promise<void> {
+    async setLocalDescription(_description: RTCSessionDescriptionInit): Promise<void> {
       // 已在 createOffer/createAnswer 中处理
     },
     async setRemoteDescription(description: RTCSessionDescriptionInit): Promise<void> {

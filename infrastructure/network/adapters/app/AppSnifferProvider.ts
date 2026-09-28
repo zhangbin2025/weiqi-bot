@@ -34,7 +34,7 @@ class AppSnifferSession implements ISnifferSession {
   constructor(
     id: string,
     url: string,
-    options?: SnifferOptions
+    _options?: SnifferOptions
   ) {
     this.id = id;
     this.url = url;
@@ -60,7 +60,6 @@ class AppSnifferSession implements ISnifferSession {
         try {
           const result = JSON.parse(json);
           const action = result.action || '';
-          const data = result.data || '';
 
           if (action === 'stopped' || action === 'error') {
             this.status = action === 'stopped' ? 'stopped' : 'error';

@@ -58,12 +58,12 @@ export class WebDebugAdapter implements IDebugAdapter {
     return 'sessionStorage';
   }
 
-  getFileSize(path: string): number {
+  getFileSize(_path: string): number {
     // 计算整个 LocalStorage 的大小
     return JSON.stringify(localStorage).length;
   }
 
-  listFiles(path: string): string {
+  listFiles(_path: string): string {
     // 返回 LocalStorage 的所有 keys
     const keys = Object.keys(localStorage);
     return JSON.stringify(keys.map(key => ({

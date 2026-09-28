@@ -12,7 +12,7 @@ export class WebFileExporter implements IFileExporter {
     return this.exportBlob(blob, filename, options);
   }
 
-  async exportBlob(data: Blob | ArrayBuffer, filename: string, options?: ExportOptions): Promise<ExportResult> {
+  async exportBlob(data: Blob | ArrayBuffer, filename: string, _options?: ExportOptions): Promise<ExportResult> {
     try {
       const blob = data instanceof ArrayBuffer ? new Blob([data]) : data;
 

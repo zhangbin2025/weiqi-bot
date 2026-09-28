@@ -106,7 +106,7 @@ export class DataChannelManager {
     };
 
     // 错误
-    this.channel.onerror = (error) => {
+    this.channel.onerror = (_error) => {
       this.callbacks.onError?.(new Error('DataChannel error'));
     };
   }

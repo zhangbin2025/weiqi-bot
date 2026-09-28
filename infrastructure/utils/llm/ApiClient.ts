@@ -64,7 +64,7 @@ export class ApiClient implements ILLMClient {
    * 本地实体提取
    * 作为远程 API 不可用时的备选方案
    */
-  private extractEntitiesLocally(text: string, intent: string): EntityResult {
+  private extractEntitiesLocally(text: string, _intent: string): EntityResult {
     const entities: Record<string, any> = {};
 
     // 提取棋手名（使用多种模式）

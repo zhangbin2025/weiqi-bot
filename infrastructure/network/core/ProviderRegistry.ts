@@ -61,7 +61,7 @@ export class ProviderRegistry implements IProviderRegistry {
    */
   async selectProvider(
     environment: Environment,
-    config?: IRequestConfig
+    _config?: IRequestConfig
   ): Promise<INetworkProvider | null> {
     const providers = this.getProviders()
       .filter((p) => p.supportedEnvironments.includes(environment))
