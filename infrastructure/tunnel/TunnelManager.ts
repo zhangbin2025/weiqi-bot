@@ -11,7 +11,7 @@
 
 import { TunnelClient } from './TunnelClient';
 import { LocalStorageAdapter } from '../storage/adapters/web/LocalStorageAdapter';
-import type { ITunnelConfig, TunnelConnectionState } from './types';
+import type { ITunnelConfig, TunnelConnectionState, TunnelService } from './types';
 import { DEFAULT_TUNNEL_CONFIG } from './types';
 
 /** localStorage 键名（与 TunnelPanel 一致） */
@@ -100,6 +100,17 @@ export class TunnelManager {
   isServerMode(): boolean {
     const config = this.loadConfig();
     return config.mode === 'server' && !!config.password;
+  }
+
+  /**
+   * 检查指定远程服务是否启用（仅客户端模式有效）
+   * 未配置 remoteServices 或为空数组时，默认全部启用（兼容旧配置）
+   */
+  isRemoteServiceEnabled(service: TunnelService): boolean {
+    if (!this.isClientMode()) return false;
+    const config = this.loadConfig();
+    if (!config.remoteServices || config.remoteServices.length === 0) return true;
+    return config.remoteServices.includes(service);
   }
 
   /**

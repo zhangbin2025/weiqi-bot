@@ -35,9 +35,10 @@ async function main() {
   console.info('日志页面已启动');
 }
 
-/** 是否为客户端模式（可使用远程日志） */
+/** 是否为客户端模式且启用了远程日志服务 */
 function isClientMode(): boolean {
-  return TunnelManager.getInstance().isClientMode();
+  const tm = TunnelManager.getInstance();
+  return tm.isClientMode() && tm.isRemoteServiceEnabled('debug');
 }
 
 /** 读取远程勾选状态 */

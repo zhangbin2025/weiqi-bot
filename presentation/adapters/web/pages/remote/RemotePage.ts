@@ -495,6 +495,8 @@ export class RemotePage {
       '  </div>',
       '  <div style="font-size:12px;color:#999;margin-top:4px;">' + (config.mode === 'server' ? '客户端需使用相同密码连接' : config.mode === 'client' ? '需与服务端密码一致' : '密码同时作为连接房间号') + '</div>',
       '</div>',
+      // 高级配置（仅客户端模式）
+      this.renderAdvancedConfig(config),
       // 按钮
       '<div style="display:flex;gap:8px;">',
       '  <button id="cfgTestBtn" style="flex:1;padding:10px;border:none;border-radius:8px;background:' + testBtnBg + ';color:' + testBtnColor + ';font-size:14px;cursor:' + (isClient ? 'pointer' : 'not-allowed') + ';" ' + testBtnDisabled + '>测试连接</button>',
@@ -516,6 +518,42 @@ export class RemotePage {
     this.bindConfigEvents(dialog, overlay);
   }
 
+  /** 从弹窗读取远程服务勾选状态到 editConfig */
+  private syncRemoteServicesFromDialog(dialog: HTMLElement): void {
+    const checkboxes = dialog.querySelectorAll('.cfg-remote-service') as NodeListOf<HTMLInputElement>;
+    if (checkboxes.length === 0) return;
+    const enabled: string[] = [];
+    checkboxes.forEach(cb => {
+      if (cb.checked) enabled.push(cb.dataset['service']!);
+    });
+    this.editConfig.remoteServices = enabled as any;
+  }
+
+  /** 渲染高级配置区域（仅客户端模式） */
+  private renderAdvancedConfig(config: ITunnelConfig): string {
+    if (config.mode !== 'client') return '';
+    const services: Array<{ id: string; label: string }> = [
+      { id: 'katago', label: '复盘分析' },
+      { id: 'fetcher', label: '棋谱抓取' },
+      { id: 'debug', label: '日志调试' },
+    ];
+    const current = config.remoteServices ?? ['katago', 'fetcher', 'debug'];
+    const checkboxes = services.map(s => {
+      const checked = current.includes(s.id) ? 'checked' : '';
+      return '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;color:#333;">' +
+        '<input type="checkbox" class="cfg-remote-service" data-service="' + s.id + '" ' + checked + ' style="width:18px;height:18px;cursor:pointer;" />' +
+        '<span>' + s.label + '</span>' +
+      '</label>';
+    }).join('');
+    return [
+      '<div style="margin-bottom:16px;padding:12px;background:#f9f8fc;border-radius:8px;border:1px solid #ece8f5;">',
+      '  <label style="display:block;font-size:14px;color:#666;margin-bottom:10px;">高级配置</label>',
+      '  <div style="display:flex;flex-direction:column;gap:10px;">' + checkboxes + '</div>',
+      '  <div style="font-size:12px;color:#999;margin-top:8px;">勾选的服务使用远程，取消的服务回退本地</div>',
+      '</div>',
+    ].join('');
+  }
+
   /** 渲染模式按钮 */
   private renderModeBtn(mode: TunnelMode, label: string, currentMode: TunnelMode): string {
     const selected = mode === currentMode;
@@ -533,6 +571,7 @@ export class RemotePage {
       btn.addEventListener('click', () => {
         const pwdInput = dialog.querySelector('#cfgPassword') as HTMLInputElement;
         if (pwdInput) this.editConfig.password = pwdInput.value;
+        this.syncRemoteServicesFromDialog(dialog);
         const mode = (btn as HTMLElement).dataset['mode'] as TunnelMode;
         this.editConfig.mode = mode;
         // 重新渲染弹窗
@@ -555,6 +594,7 @@ export class RemotePage {
       e.preventDefault();
       const pwdInput = dialog.querySelector('#cfgPassword') as HTMLInputElement;
       if (pwdInput) this.editConfig.password = pwdInput.value;
+      this.syncRemoteServicesFromDialog(dialog);
       this.passwordVisible = !this.passwordVisible;
       overlay.remove();
       this.renderConfigDialog();
@@ -589,6 +629,7 @@ export class RemotePage {
         return;
       }
 
+      this.syncRemoteServicesFromDialog(dialog);
       const newConfig: ITunnelConfig = { ...this.editConfig, password };
       await this.applyConfig(newConfig);
       overlay.remove();

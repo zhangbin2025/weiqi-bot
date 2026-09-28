@@ -351,7 +351,7 @@ function handleBackToParent() {
 /**
  * 跳转到 replay 页面查看完整棋谱
  */
-function viewReplay() {
+async function viewReplay() {
   const problem = state.problems[state.currentIndex];
   if (!problem) {
     console.error('没有当前题目');

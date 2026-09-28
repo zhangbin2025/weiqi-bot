@@ -152,6 +152,8 @@ export interface ITunnelConfig {
   password: string;
   /** 信令服务器 URL */
   signalingUrl: string;
+  /** 客户端模式：启用的远程服务列表，默认全部开启 */
+  remoteServices?: TunnelService[];
 }
 
 /** 默认配置 */
@@ -159,6 +161,7 @@ export const DEFAULT_TUNNEL_CONFIG: ITunnelConfig = {
   mode: 'none',
   password: '',
   signalingUrl: 'wss://api.weiqi.lol/ws/signal',
+  remoteServices: ['katago', 'fetcher', 'debug'],
 };
 
 

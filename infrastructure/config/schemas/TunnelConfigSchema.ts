@@ -4,6 +4,7 @@
  */
 
 import type { IConfigSchemaDefinition } from '../interfaces';
+import type { TunnelService } from '../../tunnel/types';
 
 
 /** 隧道运行模式 */
@@ -17,6 +18,8 @@ export interface ITunnelConfig {
   password: string;
   /** 信令服务器 URL */
   signalingUrl: string;
+  /** 客户端模式：启用的远程服务列表，默认全部开启 */
+  remoteServices?: TunnelService[];
 }
 
 /** 隧道配置模式 */
@@ -38,5 +41,11 @@ export const TunnelConfigSchema: IConfigSchemaDefinition<ITunnelConfig> = {
     required: true,
     default: 'wss://api.weiqi.lol/ws/signal',
     description: '信令服务器 URL',
+  },
+  remoteServices: {
+    type: 'array',
+    required: false,
+    default: ['katago', 'fetcher', 'debug'],
+    description: '客户端模式启用的远程服务列表',
   },
 };

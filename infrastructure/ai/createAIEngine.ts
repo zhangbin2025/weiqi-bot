@@ -45,9 +45,10 @@ export function isAppEnvironment(): boolean {
 export function createAIEngine(networkManager?: NetworkManager): IAIEngine {
   if (cachedEngine) return cachedEngine;
 
-  // 优先：远程隧道客户端模式（检查 localStorage 配置）
-  if (TunnelManager.getInstance().isClientMode()) {
-    console.log('[AIEngineFactory] Tunnel client mode detected, using KataGoRemoteAdapter');
+  // 优先：远程隧道客户端模式 + katago 服务启用远程
+  const tunnel = TunnelManager.getInstance();
+  if (tunnel.isClientMode() && tunnel.isRemoteServiceEnabled('katago')) {
+    console.log('[AIEngineFactory] Tunnel client mode + katago remote enabled, using KataGoRemoteAdapter');
     cachedEngine = createKataGoRemoteAdapter();
     return cachedEngine!;
   }

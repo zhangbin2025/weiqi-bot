@@ -50,6 +50,10 @@ export class RemoteGameProvider implements IGameProvider {
   readonly urlPatterns = SNIFFER_URL_PATTERNS;
 
   canHandle(url: string): boolean {
+    // 客户端模式且 fetcher 服务启用远程时才匹配
+    if (!TunnelManager.getInstance().isRemoteServiceEnabled('fetcher')) {
+      return false;
+    }
     return SNIFFER_URL_PATTERNS.some(p => p.test(url));
   }
 
