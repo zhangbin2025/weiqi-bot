@@ -199,13 +199,13 @@ function extractDifficulty(pw, rootComment) {
     if (!s) continue;
     // "25 kyu" / "29 kyu" / "17 kyu" → 25k
     let m = s.match(/(\d+)\s*kyu/i);
-    if (m) return m[1] + 'k';
+    if (m) return m[1] + 'K';
     // "13K 死活题" / "8K+ 死活题" / "4D+ 死活题" / "2D 死活题" → 保留完整
     m = s.match(/(\d+\s*[kKdD]\+?)\s*[死对]\S*题/);
-    if (m) return m[1].replace(/\s/g, '');
+    if (m) return m[1].replace(/\s/g, '').toUpperCase();
     // "life_and_death 18k" / "joseki 12k" → 18k
     m = s.match(/(\d+\s*[kKdDpP])(?!\s*kyu)(?!\s*死)/);
-    if (m) return m[1].replace(/\s/g, '');
+    if (m) return m[1].replace(/\s/g, '').toUpperCase();
   }
   return '';
 }
