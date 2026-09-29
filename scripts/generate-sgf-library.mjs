@@ -230,6 +230,24 @@ const DROP_PROPS = new Set([
 ]);
 const AI_NAME_RE = /(katago|kata\s*go|leela[\s-]*zero|leela|zen|jueyi|fineart|星阵|绝艺)/gi;
 
+// 平台/来源标识（死活题 & 实战均需清除）
+const SOURCE_NAME_RE = /\b(OGS|ogs|GP|W101|weiqi101|goproblems|GoProblems|foxwq|野狐)\b/g;
+// 来源分类名（如 life_and_death, life-and-death, tsumego 等）
+const SOURCE_CATEGORY_RE = /\b(life_and_death|life-and-death|tsumego|endgame|joseki|fuseki|tiger)\b/gi;
+
+/** 清除值中的平台/来源痕迹，保留难度（如 15k, 2d）和题面信息 */
+function stripSourceRef(s) {
+  let v = s;
+  // "OGS life_and_death 15k" → "  15k"
+  v = v.replace(SOURCE_NAME_RE, '');
+  v = v.replace(SOURCE_CATEGORY_RE, '');
+  // 去掉残留的 "_" 连接符和多余空格
+  v = v.replace(/_+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  // 去掉前导分隔符
+  v = v.replace(/^[\s\-–|]+/, '').replace(/[\s\-–|]+$/, '').trim();
+  return v;
+}
+
 function stripJunkPrefix(s) {
   return s.replace(/^[\/\\"]+/, '').replace(/\/"$/, '');
 }
@@ -237,7 +255,8 @@ function stripJunkPrefix(s) {
 function cleanLifeComment(val) {
   let s = stripJunkPrefix(val);
   s = s.replace(/(正解图|失败图|变化图|正解|失败|变化)\s*-\s*[^\]\\]*$/g, '$1');
-  s = s.replace(/\b(OGS|GP|W101|weiqi101|goproblems)\s*-?\s*\d+\s*-?\s*/gi, '');
+  // 清除平台名和来源分类名
+  s = stripSourceRef(s);
   s = s.replace(/^\s*[-–]\s*/, '').trim();
   return s;
 }
@@ -370,17 +389,19 @@ function processSgf(text, category, perspective) {
     } else if (ident === 'PB' || ident === 'PW') {
       if (category === 'life-and-death') {
         // 死活题：难度/题目描述常存于 PW（如 "12K 死活题" / "OGS life_and_death 25k"）。
-        // 保留难度文本，仅去掉可疑人名；空白则统一为 黑棋/白棋。
-        let v = val.trim();
-        if (!v || /^\[\s*\]$/.test(v)) {
+        // 清除平台/来源名，保留难度（如 15k, 2d）和题目类型（如 死活题、黑先）
+        let v = stripSourceRef(val.trim());
+        if (!v) {
           out += `${ident}[${ident === 'PB' ? '黑棋' : '白棋'}]`;
+        } else if (/^(黑棋|白棋|黑先|白先)$/i.test(v)) {
+          out += `${ident}[${ident === 'PB' ? '黑棋' : '白棋'}]`;
+        } else if (/^\d+[kKdDpP]?$/i.test(v)) {
+          // 纯难度如 "15k" → 保留
+          out += `${ident}[${v}]`;
+        } else if (/死活题|手筋题|对杀题|题|kyu|\b[KkDd]\b|黑先|白先/i.test(v)) {
+          out += `${ident}[${v}]`;
         } else {
-          // 去人名：若含典型人名（无难度关键字）则清空；否则保留难度描述
-          if (/死活题|手筋题|对杀题|kyu|\b[KkDd]\b|life|death|黑先|白先|puzzle|题/i.test(v)) {
-            out += `${ident}[${v}]`;
-          } else {
-            out += `${ident}[${ident === 'PB' ? '黑棋' : '白棋'}]`;
-          }
+          out += `${ident}[${ident === 'PB' ? '黑棋' : '白棋'}]`;
         }
       } else {
         out += `${ident}[${ident === 'PB' ? '黑棋' : '白棋'}]`;
