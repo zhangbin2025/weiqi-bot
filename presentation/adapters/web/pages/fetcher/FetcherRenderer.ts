@@ -7,6 +7,11 @@ import type { FetcherResult, FetcherBookmark, ShareResult, LatestGameItem } from
 import type { FetcherFormatter } from './FetcherFormatter';
 import { WebOverlay } from '../../components/Overlay';
 import { WebQRCodeDialog } from '../../components/QRCodeDialog';
+/** 渲染器事件回调（非用户交互事件） */
+export interface FetcherRendererEvents {
+  /** 浏览位置变化（_displayedLatest 改变），需要持久化 */
+  onDisplayedChange?: (displayed: number) => void;
+}
 /** 渲染器回调 */
 export interface FetcherRendererCallbacks {
   onFetch: (url: string) => Promise<void>;
@@ -60,11 +65,15 @@ export class FetcherRenderer {
   private _loadingMore = false;
   private _loadMoreTimer: ReturnType<typeof setTimeout> | null = null;
   private _currentResult: FetcherResult | undefined;
+  private _events: FetcherRendererEvents;
+
   constructor(
     private readonly cb: FetcherRendererCallbacks,
     private readonly factory: IAdapterFactory,
     private readonly formatter: FetcherFormatter,
+    events?: FetcherRendererEvents,
   ) {
+    this._events = events || {};
     this.tabs = factory.createTabs();
     this.queryPanel = factory.createPanel();
     this.bookmarkPanel = factory.createPanel();
@@ -100,13 +109,13 @@ export class FetcherRenderer {
       this.resultCard.setVisible(id === 'query' && this.hasResult);
       // 切到最新标签页时，滚动到选中条目
       if (id === 'latest' && this._selectedLatestUrl) {
-        setTimeout(() => {
+        requestAnimationFrame(() => {
           const el = this.latestCard.getContainer?.() as HTMLElement | undefined;
           if (!el) return;
-        const sel = '[data-url="' + (this._selectedLatestUrl || '').replace(/"/g, '\\"') + '"]';
+          const sel = '[data-url="' + (this._selectedLatestUrl || '').replace(/"/g, '\\"') + '"]';
           const target = el.querySelector(sel) as HTMLElement | null;
           target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }, 50);
+        });
       }
     });
     this.queryPanel.setTitle('📋 分享链接');
@@ -251,13 +260,13 @@ export class FetcherRenderer {
     this.resultCard.setVisible(false);
     // 滚动到选中条目
     if (this._selectedLatestUrl) {
-      setTimeout(() => {
+      requestAnimationFrame(() => {
         const el = this.latestCard.getContainer?.() as HTMLElement | undefined;
         if (!el) return;
         const sel = '[data-url="' + (this._selectedLatestUrl || '').replace(/"/g, '\\"') + '"]';
         const target = el.querySelector(sel) as HTMLElement | null;
         target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 50);
+      });
     }
   }
   showClipboardHint(): void {
@@ -560,6 +569,8 @@ export class FetcherRenderer {
         this._latestItems.length,
       );
       this._loadingMore = false;
+      // 通知外部持久化新的浏览位置
+      this._events.onDisplayedChange?.(this._displayedLatest);
       // 重渲染会重建哨兵/observer；到底时由 attachLoadMoreSentinel 自动清理
       this.renderLatestGames(this._latestItems);
     }, FetcherRenderer.LATEST_LOAD_DELAY);

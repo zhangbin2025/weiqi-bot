@@ -5,7 +5,7 @@
 import type { IPage, IToast, PageParams, IAdapterFactory } from '../../../../core/interfaces';
 import type { FetcherApp, FetcherResult, FetcherBookmark } from '../../../../../application/fetcher';
 import type { ISessionService } from '../../../../../services/session/ISessionService';
-import { FetcherRenderer, type FetcherRendererCallbacks } from './FetcherRenderer';
+import { FetcherRenderer, type FetcherRendererCallbacks, type FetcherRendererEvents } from './FetcherRenderer';
 import { FetcherFormatter } from './FetcherFormatter';
 import { detectClipboardUrl } from './utils/clipboardDetector';
 import { TaskHelper } from '../../../../../clients/web/shared/task-helper';
@@ -50,7 +50,13 @@ export class FetcherPage implements IPage {
       onSelectLatestView: (url) => this.viewLatestGame(url),
       onViewUrl: (url) => this.viewUrl(url),
     };
-    this.renderer = new FetcherRenderer(callbacks, config.adapterFactory, this.formatter);
+    // 渲染器事件：浏览位置变化时持久化到 sessionStorage
+    const events: FetcherRendererEvents = {
+      onDisplayedChange: async (displayed: number) => {
+        try { await this.sessionStore.write('fetcher_latest_displayed', displayed); } catch { /* ignore */ }
+      },
+    };
+    this.renderer = new FetcherRenderer(callbacks, config.adapterFactory, this.formatter, events);
   }
   async initialize(): Promise<void> {
     if (this.initialized) return;
@@ -314,7 +320,10 @@ export class FetcherPage implements IPage {
   private async selectLatestGame(url: string): Promise<void> {
     this.renderer.setSelectedLatestUrl(url);
     this.renderer.rerenderLatest();
-    try { await this.sessionStore.write('fetcher_latest_selected', url); } catch { /* ignore */ }
+    try {
+      await this.sessionStore.write('fetcher_latest_selected', url);
+      await this.sessionStore.write('fetcher_latest_displayed', this.renderer.getLatestDisplayed());
+    } catch { /* ignore */ }
     // 在条目上显示加载状态
     this.renderer.showLatestItemLoading(url);
     try {
@@ -410,7 +419,10 @@ export class FetcherPage implements IPage {
   private async viewLatestGame(url: string): Promise<void> {
     this.renderer.setSelectedLatestUrl(url);
     this.renderer.rerenderLatest();
-    try { await this.sessionStore.write('fetcher_latest_selected', url); } catch { /* ignore */ }
+    try {
+      await this.sessionStore.write('fetcher_latest_selected', url);
+      await this.sessionStore.write('fetcher_latest_displayed', this.renderer.getLatestDisplayed());
+    } catch { /* ignore */ }
     this.renderer.showLatestItemLoading(url);
     try {
       const result = await this.fetcherApp.fetch(url);
