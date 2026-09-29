@@ -125,7 +125,6 @@ export class FetcherRenderer {
         { value: 'archive', label: '📠 归档' },
         { value: 'puzzle', label: '🧩 做题' },
         { value: 'live', label: '📺 直播' },
-        { value: 'library', label: '📚 内置' },
       ],
       value: 'archive',
     });
@@ -188,19 +187,17 @@ export class FetcherRenderer {
     archive: [
       { value: 'foxwq', label: '野狐围棋' },
       { value: 'katago', label: 'KataGo' },
+      { value: 'lib-ai-review', label: '内置棋谱' },
     ],
     puzzle: [
       { value: 'weiqi101', label: '101围棋' },
       { value: 'ogs-puzzle', label: 'OGS死活题' },
       { value: 'goproblems', label: 'GoProblems' },
+      { value: 'lib-life-death', label: '内置死活题' },
     ],
     live: [
       { value: 'ogs-live', label: 'OGS在线' },
       { value: 'yike-live', label: '弈客直播' },
-    ],
-    library: [
-      { value: 'lib-life-death', label: '内置死活题' },
-      { value: 'lib-ai-review', label: '内置实战AI' },
     ],
   };
 
