@@ -182,16 +182,31 @@ function setProp(props, ident, value) {
 /**
  * 从死活题 PW 字段提取难度信息
  */
-function extractDifficulty(val) {
-  if (!val) return '';
-  let m = val.match(/(\d+\s*[kKdDpP])\s*kyu?/i);
-  if (m) return m[1].replace(/\s/g, '');
-  m = val.match(/(\d+\s*[kKdD])\s*死活题/i);
-  if (m) return m[0];
-  m = val.match(/(\d+)\s*kyu/i);
-  if (m) return m[1] + 'k';
-  m = val.match(/^(\d+\s*[kKdDpP])$/);
-  if (m) return m[1].replace(/\s/g, '');
+/**
+ * 从死活题 PW 字段或根节点 C[] 提取难度信息
+ * 支持格式：
+ *   PW: "GoProblems 25 kyu" → "25k"
+ *   PW: "OGS life_and_death 18k" → "18k"
+ *   PW: "13K 死活题" → "13K 死活题"
+ *   PW: "8K+ 死活题" → "8K+ 死活题"
+ *   PW: "4D+ 死活题" → "4D+ 死活题"
+ *   PW: "adum" + C: "GP-62868 - 17 kyu life and death - 白先" → "17k"
+ *   PW: "Exercise 034" + C: "OGS-2806 - life_and_death 15k - 白先" → "15k"
+ */
+function extractDifficulty(pw, rootComment) {
+  const sources = [pw || '', rootComment || ''];
+  for (const s of sources) {
+    if (!s) continue;
+    // "25 kyu" / "29 kyu" / "17 kyu" → 25k
+    let m = s.match(/(\d+)\s*kyu/i);
+    if (m) return m[1] + 'k';
+    // "13K 死活题" / "8K+ 死活题" / "4D+ 死活题" / "2D 死活题" → 保留完整
+    m = s.match(/(\d+\s*[kKdD]\+?)\s*[死对]\S*题/);
+    if (m) return m[1].replace(/\s/g, '');
+    // "life_and_death 18k" / "joseki 12k" → 18k
+    m = s.match(/(\d+\s*[kKdDpP])(?!\s*kyu)(?!\s*死)/);
+    if (m) return m[1].replace(/\s/g, '');
+  }
   return '';
 }
 
@@ -340,7 +355,13 @@ function processSgf(text, category, perspective) {
       // 棋手匿名化
       newProps['PB'] = '黑棋';
       const origPW = getProp(props, 'PW') || '';
-      newProps['PW'] = category === 'life-and-death' ? (extractDifficulty(origPW) || '白棋') : '白棋';
+      if (category === 'life-and-death') {
+        const origC = getProp(props, 'C') || '';
+        const diff = extractDifficulty(origPW, origC);
+        newProps['PW'] = diff || '白棋';
+      } else {
+        newProps['PW'] = '白棋';
+      }
 
       if (category === 'ai-review') {
         // 段位清理（野狐 P9段 → 9段）
