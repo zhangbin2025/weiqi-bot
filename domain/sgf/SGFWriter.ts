@@ -1,12 +1,16 @@
 import type { MoveOrPass } from '../move';
-import type { ISGFGameInfo } from './types';
-import type { ISGFWriter, ISGFWriteOptions } from './ISGFWriter';
+import type { ISGFGameInfo, ISGFNode, SGFProperties, SGFPropValue } from './types';
+import type { ISGFWriter, ISGFWriteOptions, ISGFPropertySerializeOptions } from './ISGFWriter';
 import { isPass } from '../move';
 import { playerColorToSGFColor } from '../primitives';
 
 /**
  * SGF 写入器实现
  * 将着法序列和对局信息转换为 SGF 格式
+ *
+ * 支持两种模式：
+ * - write(): 线性着法序列 → SGF
+ * - writeTree(): 树状节点 → SGF（保留分支结构）
  */
 export class SGFWriter implements ISGFWriter {
   private options: ISGFWriteOptions;
@@ -19,7 +23,7 @@ export class SGFWriter implements ISGFWriter {
   }
 
   /**
-   * 写入 SGF 文本
+   * 写入 SGF 文本（线性着法）
    */
   write(moves: readonly MoveOrPass[], info?: Partial<ISGFGameInfo>): string {
     const lines: string[] = [];
@@ -76,6 +80,88 @@ export class SGFWriter implements ISGFWriter {
     // 结束
     lines.push(')');
     return lines.join(nl);
+  }
+
+  /**
+   * 写入 SGF 文本（树状结构，保留分支）
+   * 从根节点递归序列化整棵树
+   *
+   * @param node - SGF 节点树
+   * @param serializeOptions - 属性过滤选项（可选）
+   * @returns SGF 文本
+   */
+  writeTree(
+    node: ISGFNode,
+    serializeOptions?: ISGFPropertySerializeOptions
+  ): string {
+    return '(' + this.serializeNode(node, true, serializeOptions) + ')';
+  }
+
+  /**
+   * 序列化单个节点及其子树
+   */
+  private serializeNode(
+    node: ISGFNode,
+    isRoot: boolean,
+    opts?: ISGFPropertySerializeOptions
+  ): string {
+    let s = ';';
+
+    // 序列化属性
+    const props = node.properties || {};
+    for (const key of Object.keys(props)) {
+      // 应用白名单/黑名单过滤
+      if (opts?.whitelist && !opts.whitelist.has(key)) continue;
+      if (opts?.blacklist && opts.blacklist.has(key)) continue;
+
+      const value = props[key];
+      s += this.serializeProperty(key, value);
+    }
+
+    // 序列化子节点
+    const children = node.children || [];
+    if (children.length === 0) {
+      return s;
+    }
+
+    if (children.length === 1) {
+      // 单子节点：直接拼接
+      return s + this.serializeNode(children[0], false, opts);
+    }
+
+    // 多子节点：每个子节点用 () 包裹
+    let result = s;
+    for (const child of children) {
+      result += '(' + this.serializeNode(child, false, opts) + ')';
+    }
+    return result;
+  }
+
+  /**
+   * 序列化单个属性
+   */
+  private serializeProperty(key: string, value: SGFPropValue): string {
+    if (Array.isArray(value)) {
+      // 多值属性：KEY[v1][v2][v3]
+      let s = key;
+      for (const v of value) {
+        s += '[' + this.escapeValue(v) + ']';
+      }
+      return s;
+    }
+    // 单值属性
+    return key + '[' + this.escapeValue(String(value)) + ']';
+  }
+
+  /**
+   * 转义 SGF 属性值中的特殊字符
+   * ] → \]
+   * \ → \\
+   */
+  private escapeValue(value: string): string {
+    return value
+      .replace(/\\/g, '\\\\')
+      .replace(/\]/g, '\\]');
   }
 
   /**

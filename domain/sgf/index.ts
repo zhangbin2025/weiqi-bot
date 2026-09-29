@@ -30,7 +30,7 @@ export type {
 export { SGFParser, parseSGF, coordToPos, posToCoord } from './SGFParser';
 
 // 写入器
-export type { ISGFWriter, ISGFWriteOptions } from './ISGFWriter';
+export type { ISGFWriter, ISGFWriteOptions, ISGFPropertySerializeOptions } from './ISGFWriter';
 export { SGFWriter } from './SGFWriter';
 
 // ReplayData 转换器

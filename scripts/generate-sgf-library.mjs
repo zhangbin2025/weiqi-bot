@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env -S npx tsx
 /**
  * 内置棋谱库生成脚本 v1.1
  *
@@ -47,6 +47,8 @@ import { gzipSync } from 'zlib';
 import { join, basename, dirname } from 'path';
 import crypto from 'crypto';
 import { execFileSync } from 'child_process';
+import { SGFParser } from "../domain/sgf/SGFParser.js";
+import { SGFWriter } from "../domain/sgf/SGFWriter.js";
 
 // ─── 配置 ──────────────────────────────────────────────
 
@@ -82,7 +84,7 @@ function parseArgs() {
         console.log(`
 内置棋谱库生成脚本 v1.1
 
-用法: node scripts/generate-sgf-library.mjs [选项]
+用法: npx tsx scripts/generate-sgf-library.mjs [选项]
 
 选项:
   --input  <path>   源目录（默认 ~/.weiqi-sgf）
@@ -124,134 +126,13 @@ function computeId(key, sourceCode, date, seq, filename) {
   return crypto.createHmac('md5', key).update(`${sourceCode}|${date}|${seq}|${filename}`).digest('hex');
 }
 
-// ─── SGF 解析 / 序列化 ───────────────────────────────────
+// ─── Domain SGF 接口 ────────────────────────────────────
 
-/**
- * 解析 SGF 文本为树。
- * 节点：{ props: [ [ident, [values...]] ... ], children: [node...] }
- * 值保留原始转义（如 \" ）。
- */
-function parseSgf(text) {
-  let i = 0;
-  const n = text.length;
 
-  const skipWs = () => { while (i < n && /\s/.test(text[i])) i++; };
+const sgfParser = new SGFParser();
+const sgfWriter = new SGFWriter();
 
-  function parseNode() {
-    // 前提 text[i] === ';'
-    i++;
-    const props = [];
-    while (i < n) {
-      const c = text[i];
-      if (c === '(' || c === ')' || c === ';') break;
-      if (/\s/.test(c)) { i++; continue; }
-      if (!/[A-Za-z]/.test(c)) { i++; continue; } // 容错跳过
-      let ident = '';
-      while (i < n && /[A-Za-z]/.test(text[i])) { ident += text[i]; i++; }
-      const values = [];
-      while (i < n) {
-        while (i < n && /\s/.test(text[i])) i++;
-        if (text[i] !== '[') break;
-        i++; // '['
-        let val = '';
-        while (i < n) {
-          const c2 = text[i];
-          if (c2 === '\\') { val += '\\' + (text[i + 1] ?? ''); i += 2; continue; }
-          if (c2 === ']') { i++; break; }
-          val += c2; i++;
-        }
-        values.push(val);
-      }
-      props.push([ident, values]);
-    }
-    return { props, children: [] };
-  }
-
-  function parseGameTree() {
-    skipWs();
-    if (text[i] !== '(') throw new Error(`SGF \u89E3\u6790\u9519\u8BEF: \u671F\u5F85 '(' @${i}`);
-    i++;
-    skipWs();
-    const chain = [];
-    // \u5BB9\u9519\uFF1A\u90E8\u5206\u975E\u6807\u51C6 SGF\uFF08\u5982 weiqi101\uFF09\u5728 (; \u4E4B\u524D\u76F4\u63A5\u653E\u5C5E\u6027
-    // \u5982\u679C\u9047\u5230\u975E ';' \u7684\u5C5E\u6027\u5B57\u7B26\uFF0C\u521B\u5EFA\u4E00\u4E2A\u865A\u62DF\u7A7A\u8282\u70B9\u6536\u96C6\u8FD9\u4E9B\u5C5E\u6027
-    if (i < n && text[i] !== ';' && text[i] !== ')' && /[A-Za-z]/.test(text[i])) {
-      const emptyNode = { props: [], children: [] };
-      while (i < n && text[i] !== ';' && text[i] !== '(' && text[i] !== ')') {
-        if (/\s/.test(text[i])) { i++; continue; }
-        if (!/[A-Za-z]/.test(text[i])) { i++; continue; }
-        let ident = '';
-        while (i < n && /[A-Za-z]/.test(text[i])) { ident += text[i]; i++; }
-        const values = [];
-        while (i < n) {
-          while (i < n && /\s/.test(text[i])) i++;
-          if (text[i] !== '[') break;
-          i++;
-          let val = '';
-          while (i < n) {
-            const c2 = text[i];
-            if (c2 === '\\') { val += '\\' + (text[i + 1] ?? ''); i += 2; continue; }
-            if (c2 === ']') { i++; break; }
-            val += c2; i++;
-          }
-          values.push(val);
-        }
-        emptyNode.props.push([ident, values]);
-      }
-      if (emptyNode.props.length > 0) chain.push(emptyNode);
-    }
-    while (i < n && text[i] === ';') { chain.push(parseNode()); skipWs(); }
-    if (chain.length === 0) {
-      chain.push({ props: [], children: [] });
-    }
-    for (let k = 0; k < chain.length - 1; k++) chain[k].children.push(chain[k + 1]);
-    const last = chain[chain.length - 1];
-    while (i < n && text[i] === '(') { last.children.push(parseGameTree()); skipWs(); }
-    if (text[i] === ')') i++; else throw new Error(`SGF \u89E3\u6790\u9519\u8BEF: \u671F\u5F85 ')' @${i}`);
-    return chain[0];
-  }
-
-  skipWs();
-  const roots = [];
-  while (i < n) {
-    if (text[i] === '(') roots.push(parseGameTree());
-    skipWs();
-    if (i < n && text[i] !== '(') break;
-    skipWs();
-  }
-  return roots;
-}
-
-function serializeNode(node) {
-  let s = ';';
-  for (const [ident, values] of node.props) {
-    s += ident;
-    for (const v of values) s += '[' + v + ']';
-  }
-  if (node.children.length === 0) return s;
-  if (node.children.length === 1) return s + serializeNode(node.children[0]);
-  return s + node.children.map((c) => '(' + serializeNode(c) + ')').join('');
-}
-
-function serializeSgf(roots) {
-  return roots.map((r) => '(' + serializeNode(r) + ')').join('\n');
-}
-
-// ─── 属性辅助 ───────────────────────────────────────────
-
-function getProp(node, ident) {
-  for (const [id, values] of node.props) if (id === ident) return values[0] ?? '';
-  return null;
-}
-function setProp(node, ident, value) {
-  for (const p of node.props) if (p[0] === ident) { p[1] = [value]; return; }
-  node.props.push([ident, [value]]);
-}
-function removeProp(node, ident) {
-  node.props = node.props.filter(([id]) => id !== ident);
-}
-
-// ─── 白名单重建 ─────────────────────────────────────────
+// ─── 白名单 ─────────────────────────────────────────────
 
 /**
  * 死活题允许的 SGF 标准头属性（白名单）
@@ -277,47 +158,55 @@ const LIFE_MOVE_PROPS = new Set(['B', 'W', 'AB', 'AW']);
  */
 const AI_MOVE_PROPS = new Set(['B', 'W']);
 
+// ─── 属性辅助 ───────────────────────────────────────────
+
+/**
+ * 从 ISGFNode.properties 获取属性值
+ */
+function getProp(props, ident) {
+  const v = props[ident];
+  if (v === undefined) return null;
+  if (Array.isArray(v)) return v[0] ?? '';
+  return String(v);
+}
+
+/**
+ * 在 ISGFNode.properties 中设置属性值
+ */
+function setProp(props, ident, value) {
+  props[ident] = value;
+}
+
+// ─── 业务逻辑 ───────────────────────────────────────────
+
 /**
  * 从死活题 PW 字段提取难度信息
- * 支持格式：
- *   - "OGS life_and_death 18k" → "18k"
- *   - "GoProblems 25 kyu" → "25k"
- *   - "13K 死活题" → "13K 死活题"
- *   - "" → ""
  */
 function extractDifficulty(val) {
-  // OGS: "OGS life_and_death 18k"
+  if (!val) return '';
   let m = val.match(/(\d+\s*[kKdDpP])\s*kyu?/i);
   if (m) return m[1].replace(/\s/g, '');
-  // 101: "13K 死活题" → 保留 "13K 死活题"
   m = val.match(/(\d+\s*[kKdD])\s*死活题/i);
   if (m) return m[0];
-  // GoProblems: "GoProblems 25 kyu"
   m = val.match(/(\d+)\s*kyu/i);
   if (m) return m[1] + 'k';
-  // 纯难度
   m = val.match(/^(\d+\s*[kKdDpP])$/);
   if (m) return m[1].replace(/\s/g, '');
   return '';
 }
 
 /**
- * 判断死活题 C[] 是否为变化备注（正解图/失败图/变化图/正解/失败/变化）
+ * 判断死活题 C[] 是否为变化备注
  */
 function isLifeComment(val) {
-  const trimmed = val.trim();
-  return /^(正解图|失败图|变化图|正解|失败|变化)/.test(trimmed);
+  return /^(正解图|失败图|变化图|正解|失败|变化)/.test(val.trim());
 }
 
 /**
  * 清理死活题变化备注：去掉用户名后缀
- * "正解图 - kenny" → "正解图"
- * "失败图 - admin" → "失败图"
- * "变化图 - 我想要" → "变化图"
  */
 function cleanLifeComment(val) {
   const trimmed = val.trim();
-  // 匹配 "正解图/失败图/变化图/正解/失败/变化" 后可选的 " - 用户名"
   const m = trimmed.match(/^(正解图|失败图|变化图|正解|失败|变化)\s*[-–]?\s*.*$/);
   if (m) return m[1];
   return trimmed;
@@ -325,21 +214,13 @@ function cleanLifeComment(val) {
 
 /**
  * 从 AI 复盘 C[] 提取胜率信息
- * 支持格式：
- *   - 野狐: "黑35.7% | -1.5目" 或 "黑99.7%"
- *   - 野狐带引擎前缀: "/\"jueyi白99.8%" → "白99.8%"
- *   - OGS: "胜率: 47.5% | 目差: -0.3 | 第1手" → "黑47.5% | -0.3"
- *   - OGS: "胜率: 100.0%" → "黑100.0%"
- * perspective: 'mover' (野狐, 已是走子方视角) | 'black' (OGS, 黑方视角)
- * moveColor: 'B' | 'W' | null (当前着法颜色)
  */
 function extractWinrate(val, perspective, moveColor) {
   if (!moveColor) return null;
 
-  // 去掉引擎前缀如 /"jueyi
   let s = val.replace(/^\/\\"[a-zA-Z]+/, '').trim();
 
-  // 野狐格式: "黑35.7% | -1.5目" 或 "白99.8%"
+  // 野狐格式: "黑35.7% | -1.5目"
   let m = s.match(/([黑白])(\d+\.?\d*)%\s*(?:\|\s*([+-]?\d+\.?\d*)\s*目)?/);
   if (m) {
     let result = `${m[1]}${m[2]}%`;
@@ -347,13 +228,12 @@ function extractWinrate(val, perspective, moveColor) {
     return result;
   }
 
-  // OGS 格式: "胜率: 47.5% | 目差: -0.3 | 第1手"
+  // OGS 格式: "胜率: 47.5% | 目差: -0.3"
   m = s.match(/胜率[:\s]*(\d+\.?\d*)%\s*(?:\|\s*目差[:\s]*([+-]?\d+\.?\d*))?/);
   if (m) {
     let wr = parseFloat(m[1]);
     let scoreStr = m[2];
     if (perspective === 'black') {
-      // OGS 是黑方视角，白棋走子时翻转
       const isWhite = moveColor === 'W';
       const color = isWhite ? '白' : '黑';
       const shown = isWhite ? (100 - wr).toFixed(1) : wr.toFixed(1);
@@ -365,7 +245,6 @@ function extractWinrate(val, perspective, moveColor) {
       }
       return result;
     }
-    // mover 视角
     const color = moveColor === 'W' ? '白' : '黑';
     let result = `${color}${wr.toFixed(1)}%`;
     if (scoreStr) result += ` | ${scoreStr}目`;
@@ -389,137 +268,122 @@ function extractWinrate(val, perspective, moveColor) {
   return null;
 }
 
+// ─── 白名单重建 ─────────────────────────────────────────
+
+/**
+ * 预处理：野狐 SGF 用字面量 \r\n 作分隔符，需先去掉
+ */
+function preprocessSgf(text) {
+  return text.split("\\r\\n").join("").split("\\r").join("").split("\\n").join("");
+}
+
 /**
  * 白名单重建：解析 SGF → 过滤属性 → 重新序列化
  */
 function processSgf(text, category, perspective) {
-  // 988459047406FF1A91ce72d0 SGF 75285b57976291cf \r\n 4f5c520696947b26Ff0c9700514853bb6389
-  let src = text.split("\\r\\n").join("");
-  // 540c65f66e0574065b57976291cf \r 548c \n 535572ec51fa73b0768460c551b5
-  src = src.split("\\r").join("").split("\\n").join("");
-  const roots = parseSgf(src);
+  const src = preprocessSgf(text);
+  const result = sgfParser.parse(src);
+  if (result.errors.length > 0 && !result.tree) {
+    throw new Error(result.errors.join('; '));
+  }
+
+  const tree = result.tree;
   const headerWhitelist = category === 'life-and-death' ? LIFE_HEADER_WHITELIST : AI_HEADER_WHITELIST;
   const moveProps = category === 'life-and-death' ? LIFE_MOVE_PROPS : AI_MOVE_PROPS;
+  const moveWhitelist = new Set([...moveProps, 'C']);
 
-  let lastColor = null; // 'B' | 'W'
+  // 构建白名单：根节点用 headerWhitelist，非根节点用 moveWhitelist
+  // 但根节点可能同时有头属性和着法，需要合并
+  const rootWhitelist = new Set([...headerWhitelist, ...moveProps, 'C']);
 
-  function walk(node) {
-    const filteredProps = [];
-    const isRoot = node === roots[0];
+  let lastColor = null;
 
-    // 判断当前节点着法颜色
-    const bVal = getProp(node, 'B');
-    const wVal = getProp(node, 'W');
+  function walk(node, isRoot) {
+    const props = node.properties;
+    const hasMove = moveProps.has('B') && ('B' in props) || moveProps.has('W') && ('W' in props) ||
+                    'B' in props || 'W' in props;
+
+    // 判断当前着法颜色
+    const bVal = 'B' in props ? getProp(props, 'B') : null;
+    const wVal = 'W' in props ? getProp(props, 'W') : null;
     const moveColor = bVal !== null ? 'B' : (wVal !== null ? 'W' : null);
     if (moveColor) lastColor = moveColor;
 
-    // 是否有着法属性
-    const hasMove = node.props.some(([id]) => moveProps.has(id));
+    const newProps = {};
+    const whitelist = isRoot ? rootWhitelist : moveWhitelist;
 
-    for (const [ident, values] of node.props) {
-      // 根节点：只允许头属性白名单中的
-      if (isRoot && !hasMove) {
-        if (headerWhitelist.has(ident)) {
-          filteredProps.push([ident, values]);
+    for (const key of Object.keys(props)) {
+      if (!whitelist.has(key)) continue;
+
+      if (key === 'C') {
+        const val = getProp(props, 'C') || '';
+        if (category === 'life-and-death') {
+          if (isLifeComment(val)) {
+            newProps['C'] = cleanLifeComment(val);
+          }
+          // 非变化备注的 C 字段直接丢弃
+        } else {
+          const wr = extractWinrate(val, perspective, moveColor || lastColor);
+          if (wr) {
+            newProps['C'] = wr;
+          }
+          // 无法提取胜率的 C 字段直接丢弃
         }
         continue;
       }
 
-      // 非根节点：只允许着法属性 + C
-      if (moveProps.has(ident)) {
-        filteredProps.push([ident, values]);
-      } else if (ident === 'C') {
-        const val = values[0] || '';
-        if (category === 'life-and-death') {
-          // 死活题：只保留变化备注（正解图/失败图/变化图/正解/失败/变化），去掉用户名
-          if (isLifeComment(val)) {
-            filteredProps.push([ident, [cleanLifeComment(val)]]);
-          }
-        } else {
-          // AI 复盘：只保留胜率信息
-          const wr = extractWinrate(val, perspective, moveColor || lastColor);
-          if (wr) {
-            filteredProps.push([ident, [wr]]);
-          }
-        }
-      }
+      newProps[key] = props[key];
     }
 
     // 特殊处理根节点
     if (isRoot) {
       // 棋手匿名化
-      setInProps(filteredProps, 'PB', '黑棋');
-      setInProps(filteredProps, 'PW', category === 'life-and-death' ? extractDifficulty(getProp(node, 'PW') || '') || '白棋' : '白棋');
+      newProps['PB'] = '黑棋';
+      const origPW = getProp(props, 'PW') || '';
+      newProps['PW'] = category === 'life-and-death' ? (extractDifficulty(origPW) || '白棋') : '白棋';
 
-      // 段位清理（野狐 P9段 → 9段）
       if (category === 'ai-review') {
-        const br = getProp(node, 'BR');
-        if (br) {
-          const dv = br.trim().replace(/^P(\d+段)$/, '$1');
-          setInProps(filteredProps, 'BR', dv);
+        // 段位清理（野狐 P9段 → 9段）
+        const br = getProp(props, 'BR');
+        if (br) newProps['BR'] = br.trim().replace(/^P(\d+段)$/, '$1');
+        const wr = getProp(props, 'WR');
+        if (wr) newProps['WR'] = wr.trim().replace(/^P(\d+段)$/, '$1');
+
+        // 贴目标准化（野狐整数 → 小数）
+        const km = getProp(props, 'KM');
+        if (km && /^\d+$/.test(km.trim())) {
+          const num = parseInt(km.trim());
+          if (num >= 100) newProps['KM'] = (num / 100).toString();
         }
-        const wr = getProp(node, 'WR');
-        if (wr) {
-          const dv = wr.trim().replace(/^P(\d+段)$/, '$1');
-          setInProps(filteredProps, 'WR', dv);
+
+        // 规则标准化
+        const ru = getProp(props, 'RU');
+        if (ru) {
+          let rv = ru.trim();
+          if (rv === 'JP') rv = 'Japanese';
+          else if (rv === 'CN') rv = 'Chinese';
+          else if (rv === 'KO') rv = 'Korean';
+          newProps['RU'] = rv;
         }
+
+        // 确保 CA[UTF-8]
+        newProps['CA'] = 'UTF-8';
       }
 
-      // 贴目标准化（野狐整数 → 小数）
-      const km = getInProps(filteredProps, 'KM');
-      if (km && /^\d+$/.test(km.trim())) {
-        const num = parseInt(km.trim());
-        if (num >= 100) setInProps(filteredProps, 'KM', (num / 100).toString());
+      if (category === 'life-and-death') {
+        // 确保 CA[UTF-8]
+        newProps['CA'] = 'UTF-8';
       }
-
-      // 规则标准化
-      const ru = getInProps(filteredProps, 'RU');
-      if (ru) {
-        let rv = ru.trim();
-        if (rv === 'JP') rv = 'Japanese';
-        else if (rv === 'CN') rv = 'Chinese';
-        else if (rv === 'KO') rv = 'Korean';
-        setInProps(filteredProps, 'RU', rv);
-      }
-
-      // 确保 CA[UTF-8] 在 GM 前
-      ensureCA(filteredProps);
     }
 
-    node.props = filteredProps;
+    node.properties = newProps;
 
-    for (const child of node.children) walk(child);
+    for (const child of node.children) walk(child, false);
   }
 
-  for (const root of roots) walk(root);
+  walk(tree, true);
 
-  return serializeSgf(roots);
-}
-
-// 辅助：在 props 数组中设置属性
-function setInProps(props, ident, value) {
-  for (const p of props) {
-    if (p[0] === ident) { p[1] = [value]; return; }
-  }
-  props.push([ident, [value]]);
-}
-
-// 辅助：从 props 数组中获取属性值
-function getInProps(props, ident) {
-  for (const [id, values] of props) if (id === ident) return values[0] || '';
-  return null;
-}
-
-// 辅助：确保 CA[UTF-8] 存在且在 GM 前
-function ensureCA(props) {
-  const caIdx = props.findIndex(([id]) => id === 'CA');
-  if (caIdx >= 0) props.splice(caIdx, 1);
-  const gmIdx = props.findIndex(([id]) => id === 'GM');
-  if (gmIdx >= 0) {
-    props.splice(gmIdx, 0, ['CA', ['UTF-8']]);
-  } else {
-    props.unshift(['CA', ['UTF-8']]);
-  }
+  return sgfWriter.writeTree(tree);
 }
 
 // ─── 扫描 / 水位 ─────────────────────────────────────────
