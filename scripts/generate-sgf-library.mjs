@@ -245,6 +245,8 @@ function stripSourceRef(s) {
   v = v.replace(/_+/g, ' ').replace(/\s{2,}/g, ' ').trim();
   // 去掉前导分隔符
   v = v.replace(/^[\s\-–|]+/, '').replace(/[\s\-–|]+$/, '').trim();
+  // 去掉开头的纯数字题号（如 "41616 - 12k - 白先" → "12k - 白先"）
+  v = v.replace(/^\d+\s*[-–]\s*/, "").trim();
   return v;
 }
 
