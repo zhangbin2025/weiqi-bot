@@ -100,9 +100,15 @@ export function sgfToReplayData(sgf: string, options?: SGFToReplayOptions): Repl
   const gameInfo = result.gameInfo;
   const maxMoves = countMoves(result.tree);
 
+  // 死活题检测：死活题默认从第 0 手开始（空盘），不跳到最后一手
+  const tsumego = isTsumegoSGF(result.tree);
+
   // 处理 defaultMove
   let defaultMove: number;
-  if (options?.defaultMove === -1 || options?.defaultMove === undefined) {
+  if (tsumego && (options?.defaultMove === undefined || options?.defaultMove === -1)) {
+    // 死活题且未指定手数：从第 0 手开始
+    defaultMove = 0;
+  } else if (options?.defaultMove === -1 || options?.defaultMove === undefined) {
     defaultMove = maxMoves;
   } else {
     defaultMove = Math.min(options.defaultMove, maxMoves);
@@ -185,4 +191,42 @@ function countMoves(node: ISGFNode): number {
   }
 
   return count;
+}
+
+/**
+ * 检测是否为死活题（tsumego）SGF
+ *
+ * 识别两种模式：
+ * 1. 传统死活题：有 AB/AW 摆子 + 有子分支 + 分支含正解/变化/失败注释
+ * 2. OGS 风格死活题：无摆子，但根节点有多个子分支，分支注释含正解/变化/失败关键词
+ *    （此模式下主分支只是第一个答案分支，不应用来计算 max_moves）
+ *
+ * @returns true 表示这是死活题，max_moves 应为 0
+ */
+function isTsumegoSGF(tree: ISGFNode): boolean {
+  if (!tree.children || tree.children.length === 0) return false;
+
+  // 检查子分支是否含死活题注释关键词
+  let hasTsumegoComment = false;
+  for (const child of tree.children) {
+    const comment = (child.properties?.['C'] as string | undefined) || '';
+    if (comment.includes('正解') || comment.includes('变化') || comment.includes('失败')) {
+      hasTsumegoComment = true;
+      break;
+    }
+  }
+
+  if (!hasTsumegoComment) return false;
+
+  // 模式1：有摆子（传统死活题）
+  const hasSetup = (tree.properties?.['AB'] !== undefined) || (tree.properties?.['AW'] !== undefined);
+  if (hasSetup) return true;
+
+  // 模式2：无摆子但有多个答案分支（OGS 风格）
+  // 根节点本身无着法（color 为 null），子分支是答案
+  if (tree.color === null && tree.children.length >= 1) {
+    return true;
+  }
+
+  return false;
 }
