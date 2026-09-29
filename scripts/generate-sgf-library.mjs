@@ -169,16 +169,45 @@ function parseSgf(text) {
 
   function parseGameTree() {
     skipWs();
-    if (text[i] !== '(') throw new Error(`SGF 解析错误: 期待 '(' @${i}`);
+    if (text[i] !== '(') throw new Error(`SGF \u89E3\u6790\u9519\u8BEF: \u671F\u5F85 '(' @${i}`);
     i++;
     skipWs();
     const chain = [];
+    // \u5BB9\u9519\uFF1A\u90E8\u5206\u975E\u6807\u51C6 SGF\uFF08\u5982 weiqi101\uFF09\u5728 (; \u4E4B\u524D\u76F4\u63A5\u653E\u5C5E\u6027
+    // \u5982\u679C\u9047\u5230\u975E ';' \u7684\u5C5E\u6027\u5B57\u7B26\uFF0C\u521B\u5EFA\u4E00\u4E2A\u865A\u62DF\u7A7A\u8282\u70B9\u6536\u96C6\u8FD9\u4E9B\u5C5E\u6027
+    if (i < n && text[i] !== ';' && text[i] !== ')' && /[A-Za-z]/.test(text[i])) {
+      const emptyNode = { props: [], children: [] };
+      while (i < n && text[i] !== ';' && text[i] !== '(' && text[i] !== ')') {
+        if (/\s/.test(text[i])) { i++; continue; }
+        if (!/[A-Za-z]/.test(text[i])) { i++; continue; }
+        let ident = '';
+        while (i < n && /[A-Za-z]/.test(text[i])) { ident += text[i]; i++; }
+        const values = [];
+        while (i < n) {
+          while (i < n && /\s/.test(text[i])) i++;
+          if (text[i] !== '[') break;
+          i++;
+          let val = '';
+          while (i < n) {
+            const c2 = text[i];
+            if (c2 === '\\') { val += '\\' + (text[i + 1] ?? ''); i += 2; continue; }
+            if (c2 === ']') { i++; break; }
+            val += c2; i++;
+          }
+          values.push(val);
+        }
+        emptyNode.props.push([ident, values]);
+      }
+      if (emptyNode.props.length > 0) chain.push(emptyNode);
+    }
     while (i < n && text[i] === ';') { chain.push(parseNode()); skipWs(); }
-    if (chain.length === 0) throw new Error(`SGF 解析错误: 空序列 @${i}`);
+    if (chain.length === 0) {
+      chain.push({ props: [], children: [] });
+    }
     for (let k = 0; k < chain.length - 1; k++) chain[k].children.push(chain[k + 1]);
     const last = chain[chain.length - 1];
     while (i < n && text[i] === '(') { last.children.push(parseGameTree()); skipWs(); }
-    if (text[i] === ')') i++; else throw new Error(`SGF 解析错误: 期待 ')' @${i}`);
+    if (text[i] === ')') i++; else throw new Error(`SGF \u89E3\u6790\u9519\u8BEF: \u671F\u5F85 ')' @${i}`);
     return chain[0];
   }
 
@@ -222,208 +251,275 @@ function removeProp(node, ident) {
   node.props = node.props.filter(([id]) => id !== ident);
 }
 
-// ─── 匿名化 / 精简 ───────────────────────────────────────
+// ─── 白名单重建 ─────────────────────────────────────────
 
-const DROP_PROPS = new Set([
-  'GN', 'EV', 'RO', 'PC', 'AN', 'SO', 'US', 'ON', 'OT', 'CP',
-  'AP', 'TM', 'TC', 'TT', 'RL', 'GC',
+/**
+ * 死活题允许的 SGF 标准头属性（白名单）
+ */
+const LIFE_HEADER_WHITELIST = new Set([
+  'CA', 'GM', 'FF', 'SZ', 'PB', 'PW', 'KM', 'HA', 'RU',
 ]);
-const AI_NAME_RE = /(katago|kata\s*go|leela[\s-]*zero|leela|zen|jueyi|fineart|星阵|绝艺)/gi;
 
-// 平台/来源标识（死活题 & 实战均需清除）
-const SOURCE_NAME_RE = /\b(OGS|ogs|GP|W101|weiqi101|goproblems|GoProblems|foxwq|野狐)\b/g;
-// 来源分类名（如 life_and_death, life-and-death, tsumego 等）
-const SOURCE_CATEGORY_RE = /\b(life_and_death|life-and-death|tsumego|endgame|joseki|fuseki|tiger)\b/gi;
+/**
+ * AI 复盘允许的 SGF 标准头属性（白名单）
+ */
+const AI_HEADER_WHITELIST = new Set([
+  'CA', 'GM', 'FF', 'SZ', 'PB', 'PW', 'BR', 'WR', 'KM', 'HA', 'RU', 'RE',
+]);
 
-/** 清除值中的平台/来源痕迹，保留难度（如 15k, 2d）和题面信息 */
-function stripSourceRef(s) {
-  let v = s;
-  // "OGS life_and_death 15k" → "  15k"
-  v = v.replace(SOURCE_NAME_RE, '');
-  v = v.replace(SOURCE_CATEGORY_RE, '');
-  // 去掉残留的 "_" 连接符和多余空格
-  v = v.replace(/_+/g, ' ').replace(/\s{2,}/g, ' ').trim();
-  // 去掉前导分隔符
-  v = v.replace(/^[\s\-–|]+/, '').replace(/[\s\-–|]+$/, '').trim();
-  // 去掉开头的纯数字题号（如 "41616 - 12k - 白先" → "12k - 白先"）
-  v = v.replace(/^\d+\s*[-–]\s*/, "").trim();
-  return v;
-}
+/**
+ * 死活题允许的着法属性
+ */
+const LIFE_MOVE_PROPS = new Set(['B', 'W', 'AB', 'AW']);
 
-function stripJunkPrefix(s) {
-  return s.replace(/^[\/\\"]+/, '').replace(/\/"$/, '');
-}
+/**
+ * AI 复盘允许的着法属性
+ */
+const AI_MOVE_PROPS = new Set(['B', 'W']);
 
-function cleanLifeComment(val) {
-  let s = stripJunkPrefix(val);
-  s = s.replace(/(正解图|失败图|变化图|正解|失败|变化)\s*-\s*[^\]\\]*$/g, '$1');
-  // 清除平台名和来源分类名
-  s = stripSourceRef(s);
-  s = s.replace(/^\s*[-–]\s*/, '').trim();
-  return s;
+/**
+ * 从死活题 PW 字段提取难度信息
+ * 支持格式：
+ *   - "OGS life_and_death 18k" → "18k"
+ *   - "GoProblems 25 kyu" → "25k"
+ *   - "13K 死活题" → "13K 死活题"
+ *   - "" → ""
+ */
+function extractDifficulty(val) {
+  // OGS: "OGS life_and_death 18k"
+  let m = val.match(/(\d+\s*[kKdDpP])\s*kyu?/i);
+  if (m) return m[1].replace(/\s/g, '');
+  // 101: "13K 死活题" → 保留 "13K 死活题"
+  m = val.match(/(\d+\s*[kKdD])\s*死活题/i);
+  if (m) return m[0];
+  // GoProblems: "GoProblems 25 kyu"
+  m = val.match(/(\d+)\s*kyu/i);
+  if (m) return m[1] + 'k';
+  // 纯难度
+  m = val.match(/^(\d+\s*[kKdDpP])$/);
+  if (m) return m[1].replace(/\s/g, '');
+  return '';
 }
 
 /**
- * 归一化胜率注释为野狐风格「黑/白xx.x%」。
- * perspective 'mover'：已是走子方视角，保留 黑/白 标签，仅清噪
- * perspective 'black'：黑方视角（OGS），按 moveColor 翻转
+ * 判断死活题 C[] 是否为变化备注（正解图/失败图/变化图/正解/失败/变化）
  */
-function normalizeWinrateComment(val, perspective, moveColor) {
-  let s = stripJunkPrefix(val);
-  s = s.replace(/Network\s*:\s*[^|]*\|?/gi, '');
-  s = s.replace(/AI\s*:\s*\S+/gi, '');
-  s = s.replace(AI_NAME_RE, '');
+function isLifeComment(val) {
+  const trimmed = val.trim();
+  return /^(正解图|失败图|变化图|正解|失败|变化)/.test(trimmed);
+}
 
-  const finish = (t) => t
-    .replace(/\s*\|\s*/g, ' | ')
-    .replace(/\|\s*\|/g, '|')
-    .replace(/^\s*\|\s*/, '')
-    .replace(/\s*\|\s*$/, '')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
+/**
+ * 清理死活题变化备注：去掉用户名后缀
+ * "正解图 - kenny" → "正解图"
+ * "失败图 - admin" → "失败图"
+ * "变化图 - 我想要" → "变化图"
+ */
+function cleanLifeComment(val) {
+  const trimmed = val.trim();
+  // 匹配 "正解图/失败图/变化图/正解/失败/变化" 后可选的 " - 用户名"
+  const m = trimmed.match(/^(正解图|失败图|变化图|正解|失败|变化)\s*[-–]?\s*.*$/);
+  if (m) return m[1];
+  return trimmed;
+}
 
-  if (perspective === 'black') {
-    s = s.replace(/胜率[:\s]*(\d+\.?\d*)%/g, (_m, num) => {
-      const wr = parseFloat(num);
+/**
+ * 从 AI 复盘 C[] 提取胜率信息
+ * 支持格式：
+ *   - 野狐: "黑35.7% | -1.5目" 或 "黑99.7%"
+ *   - 野狐带引擎前缀: "/\"jueyi白99.8%" → "白99.8%"
+ *   - OGS: "胜率: 47.5% | 目差: -0.3 | 第1手" → "黑47.5% | -0.3"
+ *   - OGS: "胜率: 100.0%" → "黑100.0%"
+ * perspective: 'mover' (野狐, 已是走子方视角) | 'black' (OGS, 黑方视角)
+ * moveColor: 'B' | 'W' | null (当前着法颜色)
+ */
+function extractWinrate(val, perspective, moveColor) {
+  if (!moveColor) return null;
+
+  // 去掉引擎前缀如 /"jueyi
+  let s = val.replace(/^\/\\"[a-zA-Z]+/, '').trim();
+
+  // 野狐格式: "黑35.7% | -1.5目" 或 "白99.8%"
+  let m = s.match(/([黑白])(\d+\.?\d*)%\s*(?:\|\s*([+-]?\d+\.?\d*)\s*目)?/);
+  if (m) {
+    let result = `${m[1]}${m[2]}%`;
+    if (m[3]) result += ` | ${m[3]}目`;
+    return result;
+  }
+
+  // OGS 格式: "胜率: 47.5% | 目差: -0.3 | 第1手"
+  m = s.match(/胜率[:\s]*(\d+\.?\d*)%\s*(?:\|\s*目差[:\s]*([+-]?\d+\.?\d*))?/);
+  if (m) {
+    let wr = parseFloat(m[1]);
+    let scoreStr = m[2];
+    if (perspective === 'black') {
+      // OGS 是黑方视角，白棋走子时翻转
+      const isWhite = moveColor === 'W';
+      const color = isWhite ? '白' : '黑';
+      const shown = isWhite ? (100 - wr).toFixed(1) : wr.toFixed(1);
+      let result = `${color}${shown}%`;
+      if (scoreStr) {
+        let score = parseFloat(scoreStr);
+        if (isWhite) score = -score;
+        result += ` | ${score}目`;
+      }
+      return result;
+    }
+    // mover 视角
+    const color = moveColor === 'W' ? '白' : '黑';
+    let result = `${color}${wr.toFixed(1)}%`;
+    if (scoreStr) result += ` | ${scoreStr}目`;
+    return result;
+  }
+
+  // 兜底：裸百分比
+  m = s.match(/(\d+\.?\d*)%/);
+  if (m) {
+    let wr = parseFloat(m[1]);
+    if (perspective === 'black') {
       const isWhite = moveColor === 'W';
       const color = isWhite ? '白' : '黑';
       const shown = isWhite ? (100 - wr).toFixed(1) : wr.toFixed(1);
       return `${color}${shown}%`;
-    });
-    return finish(s);
+    }
+    const color = moveColor === 'W' ? '白' : '黑';
+    return `${color}${wr.toFixed(1)}%`;
   }
 
-  // mover
-  if (/[黑白]\d/.test(s)) return finish(s);
-  // 兜底：裸百分比按走子方补色
-  s = s.replace(/(\d+\.?\d*)%/g, (_m, num) => `${moveColor === 'W' ? '白' : '黑'}${parseFloat(num).toFixed(1)}%`);
-  return finish(s);
+  return null;
 }
 
 /**
- * 处理一棵 SGF 树（就地修改）。
+ * 白名单重建：解析 SGF → 过滤属性 → 重新序列化
  */
-function transformTree(root, category, perspective) {
-  const isRoot = (node) => node === root;
-
-  const walk = (node, lastColor) => {
-    // 移动到当前节点的着法颜色
-    const b = getProp(node, 'B');
-    const w = getProp(node, 'W');
-    const moveColor = b !== null ? 'B' : (w !== null ? 'W' : null);
-    const curColor = moveColor ?? lastColor;
-
-    // 丢弃噪音属性
-    for (const p of [...node.props]) {
-      if (DROP_PROPS.has(p[0])) removeProp(node, p[0]);
-    }
-
-    // 棋手匿名化
-    if (getProp(node, 'PB') !== null) setProp(node, 'PB', '黑棋');
-    if (getProp(node, 'PW') !== null) setProp(node, 'PW', '白棋');
-    if (getProp(node, 'BR') !== null) setProp(node, 'BR', getProp(node, 'BR').trim());
-    if (getProp(node, 'WR') !== null) setProp(node, 'WR', getProp(node, 'WR').trim());
-
-    // 注释处理
-    if (getProp(node, 'C') !== null) {
-      const c = getProp(node, 'C');
-      if (category === 'ai-review') {
-        if (isRoot(node) && moveColor === null) {
-          removeProp(node, 'C'); // 根节点 AI/网络等噪音，直接删
-        } else {
-          setProp(node, 'C', normalizeWinrateComment(c, perspective, curColor));
-        }
-      } else {
-        setProp(node, 'C', cleanLifeComment(c));
-      }
-    }
-
-    for (const child of node.children) walk(child, curColor);
-  };
-
-  walk(root, null);
-}
-
 function processSgf(text, category, perspective) {
-  // 文本级处理：精确保留 SGF 树结构（包括野狐用字面量 \\r\\n 连接的非标准分支），
-  // 只按属性改写。
-  // 第一步：处理字面量 "\r\n"（部分野狐 SGF 用四字符 \\r\\n 而非真实换行）。
-  // 这些文件里 \ 是真实反斜杠字节（非转义），例如 "SZ[19]\r\nGN[...]"。
-  // 先把字面量四字符 \r\n（反斜杠 r 反斜杠 n）视作分隔符去掉，
-  // 避免 'n' 与属性名粘连（nGN）。用 split/join 避免正则转义歧义。
-  let src = text.split('\\r\\n').join('');
-  // 维护「当前手颜色」：沿主线/分支累积最近一次 B/W 着法。
+  // 988459047406FF1A91ce72d0 SGF 75285b57976291cf \r\n 4f5c520696947b26Ff0c9700514853bb6389
+  let src = text.split("\\r\\n").join("");
+  // 540c65f66e0574065b57976291cf \r 548c \n 535572ec51fa73b0768460c551b5
+  src = src.split("\\r").join("").split("\\n").join("");
+  const roots = parseSgf(src);
+  const headerWhitelist = category === 'life-and-death' ? LIFE_HEADER_WHITELIST : AI_HEADER_WHITELIST;
+  const moveProps = category === 'life-and-death' ? LIFE_MOVE_PROPS : AI_MOVE_PROPS;
+
   let lastColor = null; // 'B' | 'W'
 
-  let out = '';
-  let i = 0;
-  const n = src.length;
-  while (i < n) {
-    const ch = src[i];
+  function walk(node) {
+    const filteredProps = [];
+    const isRoot = node === roots[0];
 
-    // 结构/空白分隔符：直接透传，不重置 lastColor
-    if (ch === '(' || ch === ')' || ch === ';' || ch === '\r' || ch === '\n' || ch === ' ' || ch === '\t') {
-      out += ch;
-      i++;
-      continue;
-    }
+    // 判断当前节点着法颜色
+    const bVal = getProp(node, 'B');
+    const wVal = getProp(node, 'W');
+    const moveColor = bVal !== null ? 'B' : (wVal !== null ? 'W' : null);
+    if (moveColor) lastColor = moveColor;
 
-    const m = /^([A-Za-z]+)\[/.exec(src.slice(i));
-    if (!m) { out += ch; i++; continue; }
+    // 是否有着法属性
+    const hasMove = node.props.some(([id]) => moveProps.has(id));
 
-    const ident = m[1];
-    let j = i + ident.length + 1; // 跳过 '['
-    let val = '';
-    while (j < n) {
-      const c = src[j];
-      if (c === '\\') { val += '\\' + (src[j + 1] ?? ''); j += 2; continue; }
-      if (c === ']') break;
-      val += c; j++;
-    }
-    const end = j + 1; // 含 ']'
-
-    if (ident === 'B' || ident === 'W') {
-      lastColor = ident;
-    }
-
-    if (DROP_PROPS.has(ident)) {
-      // 丢弃
-    } else if (ident === 'PB' || ident === 'PW') {
-      if (category === 'life-and-death') {
-        // 死活题：难度/题目描述常存于 PW（如 "12K 死活题" / "OGS life_and_death 25k"）。
-        // 清除平台/来源名，保留难度（如 15k, 2d）和题目类型（如 死活题、黑先）
-        let v = stripSourceRef(val.trim());
-        if (!v) {
-          out += `${ident}[${ident === 'PB' ? '黑棋' : '白棋'}]`;
-        } else if (/^(黑棋|白棋|黑先|白先)$/i.test(v)) {
-          out += `${ident}[${ident === 'PB' ? '黑棋' : '白棋'}]`;
-        } else if (/^\d+[kKdDpP]?$/i.test(v)) {
-          // 纯难度如 "15k" → 保留
-          out += `${ident}[${v}]`;
-        } else if (/死活题|手筋题|对杀题|题|kyu|\b[KkDd]\b|黑先|白先/i.test(v)) {
-          out += `${ident}[${v}]`;
-        } else {
-          out += `${ident}[${ident === 'PB' ? '黑棋' : '白棋'}]`;
+    for (const [ident, values] of node.props) {
+      // 根节点：只允许头属性白名单中的
+      if (isRoot && !hasMove) {
+        if (headerWhitelist.has(ident)) {
+          filteredProps.push([ident, values]);
         }
-      } else {
-        out += `${ident}[${ident === 'PB' ? '黑棋' : '白棋'}]`;
+        continue;
       }
-    } else if (ident === 'BR' || ident === 'WR') {
-      out += `${ident}[${val.trim()}]`;
-    } else if (ident === 'C') {
-      if (category === 'ai-review') {
-        out += `C[${normalizeWinrateComment(val, perspective, lastColor)}]`;
-      } else {
-        out += `C[${cleanLifeComment(val)}]`;
+
+      // 非根节点：只允许着法属性 + C
+      if (moveProps.has(ident)) {
+        filteredProps.push([ident, values]);
+      } else if (ident === 'C') {
+        const val = values[0] || '';
+        if (category === 'life-and-death') {
+          // 死活题：只保留变化备注（正解图/失败图/变化图/正解/失败/变化），去掉用户名
+          if (isLifeComment(val)) {
+            filteredProps.push([ident, [cleanLifeComment(val)]]);
+          }
+        } else {
+          // AI 复盘：只保留胜率信息
+          const wr = extractWinrate(val, perspective, moveColor || lastColor);
+          if (wr) {
+            filteredProps.push([ident, [wr]]);
+          }
+        }
       }
-    } else {
-      out += `${ident}[${val}]`;
     }
 
-    i = end;
+    // 特殊处理根节点
+    if (isRoot) {
+      // 棋手匿名化
+      setInProps(filteredProps, 'PB', '黑棋');
+      setInProps(filteredProps, 'PW', category === 'life-and-death' ? extractDifficulty(getProp(node, 'PW') || '') || '白棋' : '白棋');
+
+      // 段位清理（野狐 P9段 → 9段）
+      if (category === 'ai-review') {
+        const br = getProp(node, 'BR');
+        if (br) {
+          const dv = br.trim().replace(/^P(\d+段)$/, '$1');
+          setInProps(filteredProps, 'BR', dv);
+        }
+        const wr = getProp(node, 'WR');
+        if (wr) {
+          const dv = wr.trim().replace(/^P(\d+段)$/, '$1');
+          setInProps(filteredProps, 'WR', dv);
+        }
+      }
+
+      // 贴目标准化（野狐整数 → 小数）
+      const km = getInProps(filteredProps, 'KM');
+      if (km && /^\d+$/.test(km.trim())) {
+        const num = parseInt(km.trim());
+        if (num >= 100) setInProps(filteredProps, 'KM', (num / 100).toString());
+      }
+
+      // 规则标准化
+      const ru = getInProps(filteredProps, 'RU');
+      if (ru) {
+        let rv = ru.trim();
+        if (rv === 'JP') rv = 'Japanese';
+        else if (rv === 'CN') rv = 'Chinese';
+        else if (rv === 'KO') rv = 'Korean';
+        setInProps(filteredProps, 'RU', rv);
+      }
+
+      // 确保 CA[UTF-8] 在 GM 前
+      ensureCA(filteredProps);
+    }
+
+    node.props = filteredProps;
+
+    for (const child of node.children) walk(child);
   }
 
-  return out;
+  for (const root of roots) walk(root);
+
+  return serializeSgf(roots);
+}
+
+// 辅助：在 props 数组中设置属性
+function setInProps(props, ident, value) {
+  for (const p of props) {
+    if (p[0] === ident) { p[1] = [value]; return; }
+  }
+  props.push([ident, [value]]);
+}
+
+// 辅助：从 props 数组中获取属性值
+function getInProps(props, ident) {
+  for (const [id, values] of props) if (id === ident) return values[0] || '';
+  return null;
+}
+
+// 辅助：确保 CA[UTF-8] 存在且在 GM 前
+function ensureCA(props) {
+  const caIdx = props.findIndex(([id]) => id === 'CA');
+  if (caIdx >= 0) props.splice(caIdx, 1);
+  const gmIdx = props.findIndex(([id]) => id === 'GM');
+  if (gmIdx >= 0) {
+    props.splice(gmIdx, 0, ['CA', ['UTF-8']]);
+  } else {
+    props.unshift(['CA', ['UTF-8']]);
+  }
 }
 
 // ─── 扫描 / 水位 ─────────────────────────────────────────
