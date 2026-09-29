@@ -65,9 +65,24 @@ async function main() {
 
   // 生成题目按钮（在 handled 检查之前注册，确保任务链接进入时按钮也可用）
   const generateBtn = document.getElementById('generate-btn');
+  const sourceSelect = Select.get('#source-select');
+  const dateSelect = Select.get('#date-select');
+  const dateSelectEl = document.getElementById('date-select');
+
+  // 内置棋谱库没有日期概念，选择 lib 时隐藏日期下拉
+  const updateDateVisibility = () => {
+    const src = sourceSelect?.getValue() || 'foxwq';
+    if (src === 'lib') {
+      dateSelect?.setValue('');
+      if (dateSelectEl) dateSelectEl.style.display = 'none';
+    } else {
+      if (dateSelectEl) dateSelectEl.style.display = '';
+    }
+  };
+  sourceSelect?.onChange(updateDateVisibility);
+  updateDateVisibility();
+
   generateBtn?.addEventListener('click', async () => {
-    const sourceSelect = Select.get('#source-select');
-    const dateSelect = Select.get('#date-select');
     const limitSelect = Select.get('#limit-select');
 
     const source = sourceSelect?.getValue() || 'foxwq';
