@@ -91,11 +91,23 @@ async function main() {
     
     // 获取当前棋谱的题目
     const groupProblems = getGroupProblems(allProblems, groups, groupIndex);
-    const normalized = groupProblems.length ? groupProblems : allProblems;
-    
-    // 设置题目列表
-    const start = Math.min(problemIndex, normalized.length - 1);
-    state.problems = normalized.slice(start).concat(normalized.slice(0, start));
+    const base = groupProblems.length ? groupProblems : allProblems;
+
+    // 按手数升序排列：确保手数少的实战题排在前面，避免先看到后续着法（剧透答案）。
+    // 注意：不做环形旋转，否则组内顺序会被打乱（例如 [100,80,90]）。
+    const sorted = [...base].sort((a, b) => {
+      const ma = Number(a.metadata?.moveNumber ?? a.position.length);
+      const mb = Number(b.metadata?.moveNumber ?? b.position.length);
+      return ma - mb;
+    });
+    state.problems = sorted;
+
+    // 初始停留题：把「全量绝对下标」转换到分组内下标，定位到被点击/指定的那道题；
+    // 找不到则从第一题（手数最少）开始。
+    const groupIndexes = groups[groupIndex]?.problemIndexes ?? [];
+    const localRaw = groupIndexes.indexOf(problemIndex);
+    const targetProblem = localRaw >= 0 ? base[localRaw] : undefined;
+    const initialProblemIndex = targetProblem ? Math.max(sorted.indexOf(targetProblem), 0) : 0;
 
     // 从 localStorage 读取显示选点的设置（通过封装适配器）
     const quizStore = new LocalStorageAdapter('weiqi-bot');
@@ -115,7 +127,7 @@ async function main() {
 
     initBoard();
     bindEvents();
-    loadProblem(0);
+    loadProblem(initialProblemIndex);
   } catch (e) {
     console.error('加载题目失败', e instanceof Error ? e : new Error(String(e)));
     showFatal('加载题目失败');
