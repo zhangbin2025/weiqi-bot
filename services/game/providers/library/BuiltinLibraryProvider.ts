@@ -1,9 +1,9 @@
 /**
  * @fileoverview 内置棋谱库归档提供者
  * @description 从本机打包的内置棋谱库（clients/web/shared/assets/data/games）读取 .tar.bz2，
- *              按分类（life-and-death / ai-review）与日期加载 SGF。
+ *              按分类加载 SGF（每分类一个归档包，日期标签为最新日期）。
  *
- * 数据格式：与 KataGo 归档一致，每天一个 YYYY-MM-DD.tar.bz2，内含若干 <id>.sgf。
+ * 数据格式：与 KataGo 归档一致，每分类一个 YYYY-MM-DD.tar.bz2（日期为最新日期），内含若干 <id>.sgf。
  * 索引：index.json.gz —— { version, generatedAt, categories: { cat: [dates...] } }
  *
  * URL 协议：

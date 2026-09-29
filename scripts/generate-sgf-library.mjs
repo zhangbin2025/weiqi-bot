@@ -455,6 +455,20 @@ function writeIndex(outputDir) {
   console.log(`  🗂  index.json.gz (${Object.entries(categories).map(([c, d]) => `${c}:${d.length}`).join(', ')})`);
 }
 
+/**
+ * 写入索引（指定每分类的日期列表）
+ */
+function writeIndexWithDates(outputDir, datesPerCategory) {
+  const categories = {};
+  for (const cat of CATEGORIES) {
+    const dates = datesPerCategory[cat] || [];
+    categories[cat] = dates.slice().sort((a, b) => b.localeCompare(a));
+  }
+  const index = { version: '1.0', generatedAt: new Date().toISOString(), categories };
+  writeFileSync(join(outputDir, 'index.json.gz'), gzipSync(Buffer.from(JSON.stringify(index), 'utf-8')));
+  console.log(`  🗂  index.json.gz (${Object.entries(categories).map(([c, d]) => `${c}:${d.length}`).join(', ')})`);
+}
+
 function loadPrivateMap() {
   if (existsSync(PRIVATE_MAP_PATH)) {
     try { return JSON.parse(readFileSync(PRIVATE_MAP_PATH, 'utf-8')); } catch { /* ignore */ }
@@ -522,19 +536,24 @@ function main() {
 
   console.log('\n打包归档...');
   let total = 0, nLife = 0, nAi = 0;
+  const indexDates = {};
   for (const cat of CATEGORIES) {
     const dates = Object.keys(buckets[cat]).sort();
     if (dates.length === 0) { console.log(`  ${cat}: 无新增`); continue; }
+    // 合并该分类所有棋谱到一个包，日期标签用最新日期
+    const latestDate = dates[dates.length - 1];
+    const allEntries = [];
     for (const date of dates) {
-      const entries = buckets[cat][date];
-      writeArchive(opts.output, cat, date, entries);
-      total += entries.length;
-      if (cat === 'life-and-death') nLife += entries.length; else nAi += entries.length;
+      for (const e of buckets[cat][date]) allEntries.push(e);
     }
+    writeArchive(opts.output, cat, latestDate, allEntries);
+    total += allEntries.length;
+    if (cat === 'life-and-death') nLife += allEntries.length; else nAi += allEntries.length;
+    indexDates[cat] = [latestDate];
   }
 
   console.log('\n写入索引...');
-  writeIndex(opts.output);
+  writeIndexWithDates(opts.output, indexDates);
   savePrivateMap(privateMap);
 
   console.log('\n完成：');
