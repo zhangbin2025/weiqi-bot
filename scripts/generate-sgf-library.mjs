@@ -1,0 +1,564 @@
+#!/usr/bin/env node
+/**
+ * 内置棋谱库生成脚本 v1.1
+ *
+ * 从 ~/.weiqi-sgf/ 读取棋谱，按分类打包为仿 KataGo 的 .tar.bz2 归档，
+ * 供前端「内置题库 / 内置棋谱」使用。
+ *
+ * 分类（按源目录）：
+ *   life-and-death  死活题   : weiqi101 / ogs-puzzle / goproblems
+ *   ai-review       实战AI   : foxwq / ogs
+ *
+ * 唯一 id = HMAC-MD5( 明文记录, 口令 )，不可逆（需口令才能重算）。
+ *   明文记录 = <来源码>|<日期>|<序号>|<原始文件名>
+ *   口令保存于 ~/.weiqi-sgf-library/.library-key（权限 600），首次输入后免输。
+ *
+ * 输出（默认 clients/web/shared/assets/data/games/）：
+ *   <category>/<YYYY-MM-DD>.tar.bz2   该日期的棋谱（多源合并，内含 <id>.sgf，按 id 排序）
+ *   index.json.gz                     { version, generatedAt, categories: { cat: [dates...] } }
+ *
+ * 增量：以「已存在归档的最大日期」为水位，重扫 >= 水位的源日期（可捕获同日追加），
+ *       更早日期不再变动。--rebuild 全量重建。
+ *
+ * 匿名化 / 精简（发布数据不含来源、人名、平台名、口令）：
+ *   死活题：棋手→黑棋/白棋；分支标签去人名；难度/先后手/正解图/失败图保留。
+ *   实战AI：棋手→黑棋/白棋（段位保留）；AI/引擎/网络名→去掉；
+ *           胜率注释统一归一化为野狐风格「黑xx.x% / 白xx.x%」（以走子方为准，
+ *           OGS 黑方视角的胜率在白棋手翻转为 100-x），目差保留。
+ *
+ * 私密映射（本机，不进仓库，用于溯源）：
+ *   ~/.weiqi-sgf-library/private-map.json
+ *
+ * 用法：
+ *   node scripts/generate-sgf-library.mjs [options]
+ * 选项：
+ *   --input  <path>   源目录（默认 ~/.weiqi-sgf）
+ *   --output <path>   输出目录（默认 clients/web/shared/assets/data/games）
+ *   --key-path <path> 口令文件（默认 ~/.weiqi-sgf-library/.library-key）
+ *   --rebuild         忽略水位，全量重建
+ *   -h, --help
+ */
+
+import {
+  readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, readdirSync, statSync,
+} from 'fs';
+import { homedir, tmpdir } from 'os';
+import { gzipSync } from 'zlib';
+import { join, basename, dirname } from 'path';
+import crypto from 'crypto';
+import { execFileSync } from 'child_process';
+
+// ─── 配置 ──────────────────────────────────────────────
+
+const LIB_DIR = join(homedir(), '.weiqi-sgf-library');
+const DEFAULT_INPUT = join(homedir(), '.weiqi-sgf');
+const DEFAULT_OUTPUT = join(process.cwd(), 'clients/web/shared/assets/data/games');
+const DEFAULT_KEY_PATH = join(LIB_DIR, '.library-key');
+const PRIVATE_MAP_PATH = join(LIB_DIR, 'private-map.json');
+
+/** 源目录 → { code(来源码, 仅内部/id 用), category, perspective(胜率视角) } */
+const SOURCES = {
+  foxwq:        { code: 'FWQ', category: 'ai-review', perspective: 'mover' },
+  ogs:          { code: 'OGS', category: 'ai-review', perspective: 'black' },
+  weiqi101:     { code: 'W101', category: 'life-and-death', perspective: null },
+  'ogs-puzzle': { code: 'OGP', category: 'life-and-death', perspective: null },
+  goproblems:   { code: 'GPR', category: 'life-and-death', perspective: null },
+};
+const CATEGORIES = ['life-and-death', 'ai-review'];
+
+// ─── 参数解析 ────────────────────────────────────────────
+
+function parseArgs() {
+  const args = process.argv.slice(2);
+  const opts = { input: DEFAULT_INPUT, output: DEFAULT_OUTPUT, keyPath: DEFAULT_KEY_PATH, rebuild: false };
+  for (let i = 0; i < args.length; i++) {
+    switch (args[i]) {
+      case '--input': opts.input = args[++i]; break;
+      case '--output': opts.output = args[++i]; break;
+      case '--key-path': opts.keyPath = args[++i]; break;
+      case '--rebuild': opts.rebuild = true; break;
+      case '--help':
+      case '-h':
+        console.log(`
+内置棋谱库生成脚本 v1.1
+
+用法: node scripts/generate-sgf-library.mjs [选项]
+
+选项:
+  --input  <path>   源目录（默认 ~/.weiqi-sgf）
+  --output <path>   输出目录（默认 clients/web/shared/assets/data/games）
+  --key-path <path> 口令文件（默认 ~/.weiqi-sgf-library/.library-key）
+  --rebuild         忽略水位，全量重建
+  -h, --help        显示帮助
+`);
+        process.exit(0);
+    }
+  }
+  return opts;
+}
+
+// ─── 口令 ──────────────────────────────────────────────
+
+function loadOrCreateKey(keyPath) {
+  if (existsSync(keyPath)) {
+    const key = readFileSync(keyPath, 'utf-8').trim();
+    if (key) { console.log(`🔑 使用已有口令: ${keyPath}`); return key; }
+  }
+  const envKey = (process.env.LIBRARY_KEY || '').trim();
+  if (envKey) {
+    mkdirSync(dirname(keyPath), { recursive: true });
+    writeFileSync(keyPath, envKey + '\n', { mode: 0o600 });
+    console.log(`🔑 已根据 LIBRARY_KEY 写入口令文件: ${keyPath}`);
+    return envKey;
+  }
+  const key = crypto.randomBytes(16).toString('hex');
+  mkdirSync(dirname(keyPath), { recursive: true });
+  writeFileSync(keyPath, key + '\n', { mode: 0o600 });
+  console.log(`🔑 生成新的随机口令并写入: ${keyPath}`);
+  console.log(`   ${key}`);
+  console.log('   （如需自定义，请编辑该文件后使用 --rebuild 重新生成）');
+  return key;
+}
+
+function computeId(key, sourceCode, date, seq, filename) {
+  return crypto.createHmac('md5', key).update(`${sourceCode}|${date}|${seq}|${filename}`).digest('hex');
+}
+
+// ─── SGF 解析 / 序列化 ───────────────────────────────────
+
+/**
+ * 解析 SGF 文本为树。
+ * 节点：{ props: [ [ident, [values...]] ... ], children: [node...] }
+ * 值保留原始转义（如 \" ）。
+ */
+function parseSgf(text) {
+  let i = 0;
+  const n = text.length;
+
+  const skipWs = () => { while (i < n && /\s/.test(text[i])) i++; };
+
+  function parseNode() {
+    // 前提 text[i] === ';'
+    i++;
+    const props = [];
+    while (i < n) {
+      const c = text[i];
+      if (c === '(' || c === ')' || c === ';') break;
+      if (/\s/.test(c)) { i++; continue; }
+      if (!/[A-Za-z]/.test(c)) { i++; continue; } // 容错跳过
+      let ident = '';
+      while (i < n && /[A-Za-z]/.test(text[i])) { ident += text[i]; i++; }
+      const values = [];
+      while (i < n) {
+        while (i < n && /\s/.test(text[i])) i++;
+        if (text[i] !== '[') break;
+        i++; // '['
+        let val = '';
+        while (i < n) {
+          const c2 = text[i];
+          if (c2 === '\\') { val += '\\' + (text[i + 1] ?? ''); i += 2; continue; }
+          if (c2 === ']') { i++; break; }
+          val += c2; i++;
+        }
+        values.push(val);
+      }
+      props.push([ident, values]);
+    }
+    return { props, children: [] };
+  }
+
+  function parseGameTree() {
+    skipWs();
+    if (text[i] !== '(') throw new Error(`SGF 解析错误: 期待 '(' @${i}`);
+    i++;
+    skipWs();
+    const chain = [];
+    while (i < n && text[i] === ';') { chain.push(parseNode()); skipWs(); }
+    if (chain.length === 0) throw new Error(`SGF 解析错误: 空序列 @${i}`);
+    for (let k = 0; k < chain.length - 1; k++) chain[k].children.push(chain[k + 1]);
+    const last = chain[chain.length - 1];
+    while (i < n && text[i] === '(') { last.children.push(parseGameTree()); skipWs(); }
+    if (text[i] === ')') i++; else throw new Error(`SGF 解析错误: 期待 ')' @${i}`);
+    return chain[0];
+  }
+
+  skipWs();
+  const roots = [];
+  while (i < n) {
+    if (text[i] === '(') roots.push(parseGameTree());
+    skipWs();
+    if (i < n && text[i] !== '(') break;
+    skipWs();
+  }
+  return roots;
+}
+
+function serializeNode(node) {
+  let s = ';';
+  for (const [ident, values] of node.props) {
+    s += ident;
+    for (const v of values) s += '[' + v + ']';
+  }
+  if (node.children.length === 0) return s;
+  if (node.children.length === 1) return s + serializeNode(node.children[0]);
+  return s + node.children.map((c) => '(' + serializeNode(c) + ')').join('');
+}
+
+function serializeSgf(roots) {
+  return roots.map((r) => '(' + serializeNode(r) + ')').join('\n');
+}
+
+// ─── 属性辅助 ───────────────────────────────────────────
+
+function getProp(node, ident) {
+  for (const [id, values] of node.props) if (id === ident) return values[0] ?? '';
+  return null;
+}
+function setProp(node, ident, value) {
+  for (const p of node.props) if (p[0] === ident) { p[1] = [value]; return; }
+  node.props.push([ident, [value]]);
+}
+function removeProp(node, ident) {
+  node.props = node.props.filter(([id]) => id !== ident);
+}
+
+// ─── 匿名化 / 精简 ───────────────────────────────────────
+
+const DROP_PROPS = new Set([
+  'GN', 'EV', 'RO', 'PC', 'AN', 'SO', 'US', 'ON', 'OT', 'CP',
+  'AP', 'TM', 'TC', 'TT', 'RL', 'GC',
+]);
+const AI_NAME_RE = /(katago|kata\s*go|leela[\s-]*zero|leela|zen|jueyi|fineart|星阵|绝艺)/gi;
+
+function stripJunkPrefix(s) {
+  return s.replace(/^[\/\\"]+/, '').replace(/\/"$/, '');
+}
+
+function cleanLifeComment(val) {
+  let s = stripJunkPrefix(val);
+  s = s.replace(/(正解图|失败图|变化图|正解|失败|变化)\s*-\s*[^\]\\]*$/g, '$1');
+  s = s.replace(/\b(OGS|GP|W101|weiqi101|goproblems)\s*-?\s*\d+\s*-?\s*/gi, '');
+  s = s.replace(/^\s*[-–]\s*/, '').trim();
+  return s;
+}
+
+/**
+ * 归一化胜率注释为野狐风格「黑/白xx.x%」。
+ * perspective 'mover'：已是走子方视角，保留 黑/白 标签，仅清噪
+ * perspective 'black'：黑方视角（OGS），按 moveColor 翻转
+ */
+function normalizeWinrateComment(val, perspective, moveColor) {
+  let s = stripJunkPrefix(val);
+  s = s.replace(/Network\s*:\s*[^|]*\|?/gi, '');
+  s = s.replace(/AI\s*:\s*\S+/gi, '');
+  s = s.replace(AI_NAME_RE, '');
+
+  const finish = (t) => t
+    .replace(/\s*\|\s*/g, ' | ')
+    .replace(/\|\s*\|/g, '|')
+    .replace(/^\s*\|\s*/, '')
+    .replace(/\s*\|\s*$/, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  if (perspective === 'black') {
+    s = s.replace(/胜率[:\s]*(\d+\.?\d*)%/g, (_m, num) => {
+      const wr = parseFloat(num);
+      const isWhite = moveColor === 'W';
+      const color = isWhite ? '白' : '黑';
+      const shown = isWhite ? (100 - wr).toFixed(1) : wr.toFixed(1);
+      return `${color}${shown}%`;
+    });
+    return finish(s);
+  }
+
+  // mover
+  if (/[黑白]\d/.test(s)) return finish(s);
+  // 兜底：裸百分比按走子方补色
+  s = s.replace(/(\d+\.?\d*)%/g, (_m, num) => `${moveColor === 'W' ? '白' : '黑'}${parseFloat(num).toFixed(1)}%`);
+  return finish(s);
+}
+
+/**
+ * 处理一棵 SGF 树（就地修改）。
+ */
+function transformTree(root, category, perspective) {
+  const isRoot = (node) => node === root;
+
+  const walk = (node, lastColor) => {
+    // 移动到当前节点的着法颜色
+    const b = getProp(node, 'B');
+    const w = getProp(node, 'W');
+    const moveColor = b !== null ? 'B' : (w !== null ? 'W' : null);
+    const curColor = moveColor ?? lastColor;
+
+    // 丢弃噪音属性
+    for (const p of [...node.props]) {
+      if (DROP_PROPS.has(p[0])) removeProp(node, p[0]);
+    }
+
+    // 棋手匿名化
+    if (getProp(node, 'PB') !== null) setProp(node, 'PB', '黑棋');
+    if (getProp(node, 'PW') !== null) setProp(node, 'PW', '白棋');
+    if (getProp(node, 'BR') !== null) setProp(node, 'BR', getProp(node, 'BR').trim());
+    if (getProp(node, 'WR') !== null) setProp(node, 'WR', getProp(node, 'WR').trim());
+
+    // 注释处理
+    if (getProp(node, 'C') !== null) {
+      const c = getProp(node, 'C');
+      if (category === 'ai-review') {
+        if (isRoot(node) && moveColor === null) {
+          removeProp(node, 'C'); // 根节点 AI/网络等噪音，直接删
+        } else {
+          setProp(node, 'C', normalizeWinrateComment(c, perspective, curColor));
+        }
+      } else {
+        setProp(node, 'C', cleanLifeComment(c));
+      }
+    }
+
+    for (const child of node.children) walk(child, curColor);
+  };
+
+  walk(root, null);
+}
+
+function processSgf(text, category, perspective) {
+  // 文本级处理：精确保留 SGF 树结构（包括野狐用字面量 \\r\\n 连接的非标准分支），
+  // 只按属性改写。
+  // 第一步：处理字面量 "\r\n"（部分野狐 SGF 用四字符 \\r\\n 而非真实换行）。
+  // 这些文件里 \ 是真实反斜杠字节（非转义），例如 "SZ[19]\r\nGN[...]"。
+  // 先把字面量四字符 \r\n（反斜杠 r 反斜杠 n）视作分隔符去掉，
+  // 避免 'n' 与属性名粘连（nGN）。用 split/join 避免正则转义歧义。
+  let src = text.split('\\r\\n').join('');
+  // 维护「当前手颜色」：沿主线/分支累积最近一次 B/W 着法。
+  let lastColor = null; // 'B' | 'W'
+
+  let out = '';
+  let i = 0;
+  const n = src.length;
+  while (i < n) {
+    const ch = src[i];
+
+    // 结构/空白分隔符：直接透传，不重置 lastColor
+    if (ch === '(' || ch === ')' || ch === ';' || ch === '\r' || ch === '\n' || ch === ' ' || ch === '\t') {
+      out += ch;
+      i++;
+      continue;
+    }
+
+    const m = /^([A-Za-z]+)\[/.exec(src.slice(i));
+    if (!m) { out += ch; i++; continue; }
+
+    const ident = m[1];
+    let j = i + ident.length + 1; // 跳过 '['
+    let val = '';
+    while (j < n) {
+      const c = src[j];
+      if (c === '\\') { val += '\\' + (src[j + 1] ?? ''); j += 2; continue; }
+      if (c === ']') break;
+      val += c; j++;
+    }
+    const end = j + 1; // 含 ']'
+
+    if (ident === 'B' || ident === 'W') {
+      lastColor = ident;
+    }
+
+    if (DROP_PROPS.has(ident)) {
+      // 丢弃
+    } else if (ident === 'PB' || ident === 'PW') {
+      if (category === 'life-and-death') {
+        // 死活题：难度/题目描述常存于 PW（如 "12K 死活题" / "OGS life_and_death 25k"）。
+        // 保留难度文本，仅去掉可疑人名；空白则统一为 黑棋/白棋。
+        let v = val.trim();
+        if (!v || /^\[\s*\]$/.test(v)) {
+          out += `${ident}[${ident === 'PB' ? '黑棋' : '白棋'}]`;
+        } else {
+          // 去人名：若含典型人名（无难度关键字）则清空；否则保留难度描述
+          if (/死活题|手筋题|对杀题|kyu|\b[KkDd]\b|life|death|黑先|白先|puzzle|题/i.test(v)) {
+            out += `${ident}[${v}]`;
+          } else {
+            out += `${ident}[${ident === 'PB' ? '黑棋' : '白棋'}]`;
+          }
+        }
+      } else {
+        out += `${ident}[${ident === 'PB' ? '黑棋' : '白棋'}]`;
+      }
+    } else if (ident === 'BR' || ident === 'WR') {
+      out += `${ident}[${val.trim()}]`;
+    } else if (ident === 'C') {
+      if (category === 'ai-review') {
+        out += `C[${normalizeWinrateComment(val, perspective, lastColor)}]`;
+      } else {
+        out += `C[${cleanLifeComment(val)}]`;
+      }
+    } else {
+      out += `${ident}[${val}]`;
+    }
+
+    i = end;
+  }
+
+  return out;
+}
+
+// ─── 扫描 / 水位 ─────────────────────────────────────────
+
+function scanSource(inputDir, sourceName, fromDateInclusive) {
+  const dir = join(inputDir, sourceName);
+  if (!existsSync(dir)) return [];
+  const out = [];
+  for (const dateDir of readdirSync(dir)) {
+    const dp = join(dir, dateDir);
+    if (!statSync(dp).isDirectory()) continue;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateDir)) continue;
+    if (fromDateInclusive && dateDir < fromDateInclusive) continue;
+    for (const f of readdirSync(dp)) {
+      if (!f.toLowerCase().endsWith('.sgf')) continue;
+      out.push({ date: dateDir, seq: basename(f, '.sgf'), path: join(dp, f), filename: f });
+    }
+  }
+  return out.sort((a, b) => (a.date + '/' + a.filename).localeCompare(b.date + '/' + b.filename));
+}
+
+function maxExistingDate(outputDir, category) {
+  const dir = join(outputDir, category);
+  if (!existsSync(dir)) return null;
+  let max = null;
+  for (const f of readdirSync(dir)) {
+    const m = /^(\d{4}-\d{2}-\d{2})\.tar\.bz2$/.exec(f);
+    if (m && (!max || m[1] > max)) max = m[1];
+  }
+  return max;
+}
+
+// ─── 打包 ────────────────────────────────────────────────
+
+function writeArchive(outputDir, category, date, entries) {
+  entries.sort((a, b) => a.id.localeCompare(b.id));
+  const tmp = join(tmpdir(), `sgflib-${category}-${date}-${Date.now()}`);
+  mkdirSync(tmp, { recursive: true });
+  try {
+    for (const e of entries) writeFileSync(join(tmp, `${e.id}.sgf`), e.sgf, 'utf-8');
+    const catDir = join(outputDir, category);
+    mkdirSync(catDir, { recursive: true });
+    const archivePath = join(catDir, `${date}.tar.bz2`);
+    const files = readdirSync(tmp).sort();
+    execFileSync('tar', ['-cjf', archivePath, '-C', tmp, ...files], { stdio: 'pipe' });
+    const size = statSync(archivePath).size;
+    console.log(`  📦 ${category}/${date}.tar.bz2  (${entries.length} 盘, ${Math.floor(size / 1024)}KB)`);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+function writeIndex(outputDir) {
+  const categories = {};
+  for (const cat of CATEGORIES) {
+    const dir = join(outputDir, cat);
+    const dates = [];
+    if (existsSync(dir)) {
+      for (const f of readdirSync(dir)) {
+        const m = /^(\d{4}-\d{2}-\d{2})\.tar\.bz2$/.exec(f);
+        if (m) dates.push(m[1]);
+      }
+    }
+    dates.sort((a, b) => b.localeCompare(a));
+    categories[cat] = dates;
+  }
+  const index = { version: '1.0', generatedAt: new Date().toISOString(), categories };
+  writeFileSync(join(outputDir, 'index.json.gz'), gzipSync(Buffer.from(JSON.stringify(index), 'utf-8')));
+  console.log(`  🗂  index.json.gz (${Object.entries(categories).map(([c, d]) => `${c}:${d.length}`).join(', ')})`);
+}
+
+function loadPrivateMap() {
+  if (existsSync(PRIVATE_MAP_PATH)) {
+    try { return JSON.parse(readFileSync(PRIVATE_MAP_PATH, 'utf-8')); } catch { /* ignore */ }
+  }
+  return {};
+}
+function savePrivateMap(map) {
+  mkdirSync(LIB_DIR, { recursive: true });
+  writeFileSync(PRIVATE_MAP_PATH, JSON.stringify(map, null, 2) + '\n');
+}
+
+// ─── 主流程 ──────────────────────────────────────────────
+
+function main() {
+  const opts = parseArgs();
+  console.log('='.repeat(56));
+  console.log('内置棋谱库生成 v1.1');
+  console.log(`源目录 : ${opts.input}`);
+  console.log(`输出   : ${opts.output}`);
+  console.log(`口令   : ${opts.keyPath}`);
+  console.log(`重建   : ${opts.rebuild}`);
+  console.log('='.repeat(56));
+
+  const key = loadOrCreateKey(opts.keyPath);
+  mkdirSync(opts.output, { recursive: true });
+
+  if (opts.rebuild) {
+    for (const cat of CATEGORIES) rmSync(join(opts.output, cat), { recursive: true, force: true });
+    rmSync(join(opts.output, 'index.json.gz'), { force: true });
+  }
+
+  const privateMap = loadPrivateMap();
+  const watermark = {};
+  for (const cat of CATEGORIES) {
+    watermark[cat] = opts.rebuild ? null : maxExistingDate(opts.output, cat);
+    console.log(`水位 [${cat}]: ${watermark[cat] || '(无，全量)'}`);
+  }
+
+  const buckets = { 'life-and-death': {}, 'ai-review': {} };
+
+  for (const [srcName, cfg] of Object.entries(SOURCES)) {
+    const files = scanSource(opts.input, srcName, watermark[cfg.category]);
+    if (files.length === 0) continue;
+    console.log(`\n来源 ${srcName} → ${cfg.category}: ${files.length} 盘`);
+
+    for (const f of files) {
+      const id = computeId(key, cfg.code, f.date, f.seq, f.filename);
+      const raw = readFileSync(f.path, 'utf-8');
+      let sgf;
+      try {
+        sgf = processSgf(raw, cfg.category, cfg.perspective);
+      } catch (err) {
+        console.error(`  ⚠️  跳过（解析失败）${f.path}: ${err.message}`);
+        continue;
+      }
+      (buckets[cfg.category][f.date] ||= []).push({ id, sgf, date: f.date });
+
+      const grab = (p) => { const m = new RegExp(`${p}\\[([^\\]]*)\\]`).exec(raw); return m ? m[1] : ''; };
+      privateMap[id] = {
+        path: f.path, source: srcName, date: f.date, seq: f.seq, filename: f.filename,
+        origPB: grab('PB'), origPW: grab('PW'), origGN: grab('GN'),
+      };
+    }
+  }
+
+  console.log('\n打包归档...');
+  let total = 0, nLife = 0, nAi = 0;
+  for (const cat of CATEGORIES) {
+    const dates = Object.keys(buckets[cat]).sort();
+    if (dates.length === 0) { console.log(`  ${cat}: 无新增`); continue; }
+    for (const date of dates) {
+      const entries = buckets[cat][date];
+      writeArchive(opts.output, cat, date, entries);
+      total += entries.length;
+      if (cat === 'life-and-death') nLife += entries.length; else nAi += entries.length;
+    }
+  }
+
+  console.log('\n写入索引...');
+  writeIndex(opts.output);
+  savePrivateMap(privateMap);
+
+  console.log('\n完成：');
+  console.log(`  新增棋谱: ${total} 盘`);
+  console.log(`  死活题  : ${nLife}`);
+  console.log(`  实战AI  : ${nAi}`);
+  console.log(`  私密映射: ${PRIVATE_MAP_PATH}`);
+}
+
+main();

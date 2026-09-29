@@ -49,7 +49,12 @@ export class JosekiDiscoverApp {
     let sgfList: string[];
     let games: GameInfo[];
 
-    if (source === 'katago') {
+    if (source === 'lib') {
+      // 内置棋谱库数据流：从打包的 .tar.bz2 读取 SGF（ai-review 分类）
+      const result = await this.discoverFromLibrary(limit ?? 10, onProgress);
+      sgfList = result.sgfList;
+      games = result.games;
+    } else if (source === 'katago') {
       // KataGo 数据流：直接从 tar.bz2 解压得到 SGF
       const result = await this.discoverFromKatago(limit ?? 10, onProgress);
       sgfList = result.sgfList;
@@ -65,7 +70,7 @@ export class JosekiDiscoverApp {
     const discoverResult = await this.josekiDiscoverService.discoverGames(sgfList);
     onProgress?.(90, '正在保存结果...');
 
-    const labelMap: Record<string, string> = { foxwq: '野狐棋谱', katago: 'KataGo棋谱' };
+    const labelMap: Record<string, string> = { foxwq: '野狐棋谱', katago: 'KataGo棋谱', lib: '内置棋谱' };
     const label = labelMap[source] || source;
 
     // 为每个 pattern 关联 archiveId
@@ -128,6 +133,47 @@ export class JosekiDiscoverApp {
         date: r.metadata.date,
         result: r.metadata.result ?? '',
       }));
+    return { sgfList, games };
+  }
+
+  /** 内置棋谱库数据流：从打包的 .tar.bz2 读取 SGF（ai-review 分类） */
+  private async discoverFromLibrary(
+    limit: number,
+    onProgress?: (percent: number, status: string) => void,
+  ): Promise<{ sgfList: string[]; games: GameInfo[] }> {
+    const gs = this.gameService as any;
+    const registry = gs?.registry;
+    if (!registry) return { sgfList: [], games: [] };
+    const libArchive = registry.getLibraryArchiveProvider?.();
+    if (!libArchive) return { sgfList: [], games: [] };
+
+    const dates = await libArchive.listDates('ai-review');
+    onProgress?.(10, `内置库 ${dates.length} 个日期`);
+
+    const sgfList: string[] = [];
+    const games: GameInfo[] = [];
+
+    for (const date of dates) {
+      if (sgfList.length >= limit) break;
+      try {
+        const entries = await libArchive.fetchGamesByDate('ai-review', date);
+        for (const entry of entries) {
+          if (sgfList.length >= limit) break;
+          sgfList.push(entry.sgfContent);
+          games.push({
+            archiveId: "",
+            black: '黑棋',
+            white: '白棋',
+            date,
+            result: '',
+          });
+        }
+      } catch (e) {
+        console.error('[JosekiDiscoverApp] library fetchGamesByDate failed for', date, e);
+      }
+    }
+
+    onProgress?.(20, `获取到 ${sgfList.length} 个棋谱`);
     return { sgfList, games };
   }
 

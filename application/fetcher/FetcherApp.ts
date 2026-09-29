@@ -190,6 +190,22 @@ export class FetcherApp {
           }
         }
         return results;
+      } else if (source === 'lib-life-death' || source === 'lib-ai-review') {
+        // 内置棋谱库
+        const category = source === 'lib-life-death' ? 'life-and-death' : 'ai-review';
+        const gs = this.gameService as any;
+        const registry = gs?.registry;
+        if (!registry) return [];
+        const libProvider = registry.getLibraryProvider?.();
+        if (!libProvider) return [];
+        const items = await libProvider.listGameItems(category, count);
+        return items.map((item: any) => ({
+          source: 'lib',
+          title: item.title,
+          subtitle: item.subtitle,
+          date: item.date,
+          url: item.url,
+        }));
       }
       return [];
     } catch (error) {

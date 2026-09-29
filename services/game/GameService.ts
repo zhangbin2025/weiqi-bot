@@ -106,8 +106,21 @@ export class GameService implements IGameService {
       const katago = this.registry.getKatagoProvider();
       return katago.listPublicGames(date, count);
     }
+    if (source === 'lib') {
+      // 内置棋谱：decision / joseki 使用 ai-review；date 参数在本库中固定为「全部」（忽略）
+      const libArchive = this.registry.getLibraryArchiveProvider();
+      return libArchive.listPublicGames('ai-review', undefined, count);
+    }
     // 默认 foxwq
     return this.foxwqHelper.listPublicGames(date, count);
+  }
+
+  async listLibraryGameItems(category: string, count?: number): Promise<Array<{ source: string; title: string; subtitle: string; date: string; url: string }>> {
+    return this.registry.getLibraryProvider().listGameItems(category, count);
+  }
+
+  async listLibraryDates(category: string): Promise<string[]> {
+    return this.registry.getLibraryArchiveProvider().listDates(category);
   }
 
   async fetchByChessIds(

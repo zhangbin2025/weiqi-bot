@@ -26,6 +26,7 @@ import { YuanluoboProvider } from './providers/yuanluobo';
 import { GoProblemsProvider } from './providers/goproblems';
 import { KatagoGameProvider } from './providers/katago/KatagoGameProvider';
 import { KatagoArchiveProvider } from './providers/katago';
+import { BuiltinLibraryProvider, BuiltinLibraryArchiveProvider } from './providers/library/BuiltinLibraryProvider';
 
 export interface IProviderRegistryOptions {
   snifferProvider?: ISnifferProvider | undefined;
@@ -37,6 +38,8 @@ export class GameProviderRegistry {
   private providers: Map<string, IGameProvider> = new Map();
   private foxwqProvider!: IFoxwqProvider;
   private katagoProvider!: KatagoArchiveProvider;
+  private libraryArchiveProvider!: BuiltinLibraryArchiveProvider;
+  private libraryProvider!: BuiltinLibraryProvider;
 
   constructor(
     network: NetworkManager,
@@ -55,6 +58,10 @@ export class GameProviderRegistry {
     // KataGo Archive Provider
     this.katagoProvider = new KatagoArchiveProvider(network);
 
+    // 内置棋谱库 Provider（life-and-death / ai-review，本地 .tar.bz2）
+    this.libraryArchiveProvider = new BuiltinLibraryArchiveProvider(network);
+    this.libraryProvider = new BuiltinLibraryProvider(network, this.libraryArchiveProvider);
+
     // Archive Provider
     this.providers.set('archive', new ArchiveProvider());
 
@@ -68,6 +75,7 @@ export class GameProviderRegistry {
       new YuanluoboProvider(network),
       new GoProblemsProvider(network),
       new KatagoGameProvider(network, this.katagoProvider),
+      this.libraryProvider,
     ];
     restProviders.forEach(p => this.providers.set(p.name, p));
 
@@ -110,6 +118,14 @@ export class GameProviderRegistry {
 
   getKatagoProvider(): KatagoArchiveProvider {
     return this.katagoProvider;
+  }
+
+  getLibraryProvider(): BuiltinLibraryProvider {
+    return this.libraryProvider;
+  }
+
+  getLibraryArchiveProvider(): BuiltinLibraryArchiveProvider {
+    return this.libraryArchiveProvider;
   }
 
   register(provider: IGameProvider): void {

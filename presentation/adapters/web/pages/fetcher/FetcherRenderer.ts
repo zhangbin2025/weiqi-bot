@@ -125,6 +125,7 @@ export class FetcherRenderer {
         { value: 'archive', label: '📠 归档' },
         { value: 'puzzle', label: '🧩 做题' },
         { value: 'live', label: '📺 直播' },
+        { value: 'library', label: '📚 内置' },
       ],
       value: 'archive',
     });
@@ -196,6 +197,10 @@ export class FetcherRenderer {
     live: [
       { value: 'ogs-live', label: 'OGS在线' },
       { value: 'yike-live', label: '弈客直播' },
+    ],
+    library: [
+      { value: 'lib-life-death', label: '内置死活题' },
+      { value: 'lib-ai-review', label: '内置实战AI' },
     ],
   };
 
@@ -449,7 +454,7 @@ export class FetcherRenderer {
       this._displayedLatest = Math.min(this._displayedLatest, items.length);
     }
     const html = this._latestItems.slice(0, this._displayedLatest).map(item => {
-      const sourceLabels: Record<string, string> = { foxwq: '🏆 野狐', weiqi101: '📝 101围棋', 'ogs-live': '🎬 OGS', 'yike-live': '📹 弈客', goproblems: '🧩 GoProblems', 'ogs-puzzle': '🧩 OGS死活题', katago: '🤖 KataGo' };
+      const sourceLabels: Record<string, string> = { foxwq: '🏆 野狐', weiqi101: '📝 101围棋', 'ogs-live': '🎬 OGS', 'yike-live': '📹 弈客', goproblems: '🧩 GoProblems', 'ogs-puzzle': '🧩 OGS死活题', katago: '🤖 KataGo', lib: '📚 内置' };
       const sourceLabel = sourceLabels[item.source] || item.source;
       const subtitle = item.subtitle
         ? `<div style="font-size:0.85em;color:#666;margin-top:4px;">${item.subtitle}</div>`

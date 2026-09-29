@@ -85,6 +85,19 @@ export interface IGameService {
   listPublicGames(date?: string, count?: number, source?: string): Promise<string[]>;
 
   /**
+   * 获取内置棋谱库列表条目（供 fetcher 最新标签页展示）
+   * @param category - 'life-and-death' | 'ai-review'
+   * @param count - 最多返回多少盘
+   */
+  listLibraryGameItems(category: string, count?: number): Promise<Array<{ source: string; title: string; subtitle: string; date: string; url: string }>>;
+
+  /**
+   * 获取内置棋谱库分类下的日期列表（新→旧）
+   * @param category - 'life-and-death' | 'ai-review'
+   */
+  listLibraryDates(category: string): Promise<string[]>;
+
+  /**
    * 批量下载棋谱（通过 chessid 列表）
    * @description 专门用于野狐平台，通过 chessid 直接下载 SGF
    * @param chessids - 棋谱 ID 列表

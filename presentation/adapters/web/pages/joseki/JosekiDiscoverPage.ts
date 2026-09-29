@@ -12,7 +12,7 @@ import { TaskHelper } from '../../../../../clients/web/shared/task-helper';
 type DiscoverTab = 'online' | 'upload' | 'history';
 
 /** 棋谱来源类型 */
-type DiscoverSource = 'foxwq' | 'katago';
+type DiscoverSource = 'foxwq' | 'katago' | 'lib';
 
 export interface JosekiDiscoverPageConfig {
   discoverApp: JosekiDiscoverApp;
@@ -68,7 +68,7 @@ export class JosekiDiscoverPage implements IPage {
     const sourceSelect = Select.get('#source-select');
     if (sourceSelect) {
       sourceSelect.onChange(() => {
-        this.currentSource = (sourceSelect.getValue() === 'katago' ? 'katago' : 'foxwq') as DiscoverSource;
+        this.currentSource = sourceSelect.getValue() as DiscoverSource;
       });
     }
 
@@ -115,7 +115,7 @@ export class JosekiDiscoverPage implements IPage {
     try {
       const sourceSelect = Select.get('#source-select');
       const limitSelect = Select.get('#limit-select');
-      const source = (sourceSelect?.getValue() === 'katago' ? 'katago' : 'foxwq') as DiscoverSource;
+      const source = (sourceSelect?.getValue() || 'foxwq') as DiscoverSource;
       const limit = limitSelect ? parseInt(limitSelect.getValue()) : 20;
 
       this.uiHelper.showProgress(true);
