@@ -156,13 +156,17 @@ export class BuiltinLibraryArchiveProvider {
     return entries;
   }
 
-  /** 适配 listPublicGames：返回伪 URL 列表（每日期一条，指向该日第 0 盘） */
+  /** 适配 listPublicGames：返回伪 URL 列表，展开每个日期下的所有棋谱 */
   async listPublicGames(category: string, date?: string, count?: number): Promise<string[]> {
     const dates = await this.listDates(category);
     const usable = date ? dates.filter(d => d === date) : dates;
     const urls: string[] = [];
     for (const d of usable) {
-      urls.push(`lib://${category}/${d}/0`);
+      const games = await this.fetchGamesByDate(category, d);
+      for (let i = 0; i < games.length; i++) {
+        urls.push(`lib://${category}/${d}/${i}`);
+        if (count && urls.length >= count) break;
+      }
       if (count && urls.length >= count) break;
     }
     return urls;
