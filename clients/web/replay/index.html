@@ -390,7 +390,7 @@
           <div class="dropdown-menu" id="dropdownMenu">
             <button class="dropdown-item" id="soundMenuItem">🔊 音效开关</button>
             <button class="dropdown-item" id="numMenuItem">⭕ 显示手数</button>
-            <button class="dropdown-item" id="branchMarksMenuItem">🔀 分支选点</button>
+            <button class="dropdown-item" id="branchMarksMenuItem" disabled style="opacity:0.5;cursor:not-allowed;">🔀 分支选点</button>
             <button class="dropdown-item" id="playMenuItem">▶️ 自动播放</button>
             <div class="dropdown-divider"></div>
             <button class="dropdown-item" id="aiReviewMenuItem">🤖 AI分析</button>
@@ -398,6 +398,8 @@
             <button class="dropdown-item" id="downloadMenuItem">📥 下载SGF</button>
             <button class="dropdown-item" id="printMenuItem">🖨️ 打印</button>
             <button class="dropdown-item" id="favoriteMenuItem">⭐ 收藏局面</button>
+            <div class="dropdown-divider"></div>
+            <button class="dropdown-item" id="sourceLinkMenuItem" disabled style="opacity:0.5;cursor:not-allowed;">🔗 棋谱链接</button>
           </div>
         </div>
       </div>
@@ -493,7 +495,8 @@
 
     // 分支选点显示 - 只发送事件，让 TypeScript 控制状态
     const branchMarksMenuItem = document.getElementById('branchMarksMenuItem');
-    branchMarksMenuItem?.addEventListener('click', (e) => {
+    branchMarksMenuItem?.addEventListener("click", (e) => {
+      if (branchMarksMenuItem.hasAttribute("disabled")) return;
       e.stopPropagation();
       dropdownMenu?.classList.remove('visible');
       window.dispatchEvent(new CustomEvent('toggleBranchMarks'));

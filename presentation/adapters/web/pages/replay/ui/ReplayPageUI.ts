@@ -460,6 +460,23 @@ export class ReplayPageUI {
   }
 
   /**
+   * 更新分支选点菜单项的启用/禁用状态
+   */
+  private updateBranchMarksMenuItem(enabled: boolean): void {
+    const menuItem = document.getElementById('branchMarksMenuItem');
+    if (!menuItem) return;
+    if (enabled) {
+      menuItem.removeAttribute('disabled');
+      menuItem.style.opacity = '';
+      menuItem.style.cursor = '';
+    } else {
+      menuItem.setAttribute('disabled', '');
+      menuItem.style.opacity = '0.5';
+      menuItem.style.cursor = 'not-allowed';
+    }
+  }
+
+  /**
    * 更新分支面板（表格形式）
    */
   updateVariationPanel(onEnterVariation: (index: number) => void): void {
@@ -469,6 +486,7 @@ export class ReplayPageUI {
     if (inVariation) {
       this.variationPanel.classList.remove('visible');
       this.updateBranchMarks();
+      this.updateBranchMarksMenuItem(false);
       return;
     }
     const node = this.state.getCurrentNode();
@@ -477,9 +495,11 @@ export class ReplayPageUI {
       const currentPath = this.state.get('currentPath');
       this.backToParentBtn.style.display = currentPath.length > 0 ? 'flex' : 'none';
     }
-    if (!node?.children || node.children.length <= 1) {
+    const hasBranches = !!(node?.children && node.children.length > 1);
+    if (!hasBranches) {
       this.variationPanel.classList.remove('visible');
       this.updateBranchMarks();
+      this.updateBranchMarksMenuItem(false);
       return;
     }
     this.variationController.buildFromChildren(node.children as any);
@@ -487,6 +507,7 @@ export class ReplayPageUI {
     if (variations.length === 0) {
       this.variationPanel.classList.remove('visible');
       this.updateBranchMarks();
+      this.updateBranchMarksMenuItem(false);
       return;
     }
     // 构建表格
@@ -528,6 +549,7 @@ export class ReplayPageUI {
     this.variationPanel.innerHTML = '';
     this.variationPanel.appendChild(container);
     this.variationPanel.classList.add('visible');
+    this.updateBranchMarksMenuItem(true);
 
     // 更新分支选点标记
     this.updateBranchMarks();

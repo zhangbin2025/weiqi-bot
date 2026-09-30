@@ -205,6 +205,25 @@ async function main() {
       if (sgfContent) {
         page.loadFromSGF(sgfContent, defaultMove !== undefined ? { defaultMove } : undefined);
       }
+      // 检查归档棋谱是否有源 URL，有则启用棋谱链接菜单项
+      try {
+        const sourceUrl = await replayApp.getArchiveUrl(archiveId);
+        if (sourceUrl && !sourceUrl.startsWith('archive:')) {
+          const sourceLinkItem = document.getElementById('sourceLinkMenuItem');
+          if (sourceLinkItem) {
+            sourceLinkItem.removeAttribute('disabled');
+            sourceLinkItem.style.opacity = '';
+            sourceLinkItem.style.cursor = '';
+            sourceLinkItem.addEventListener('click', (e) => {
+              e.stopPropagation();
+              document.getElementById('dropdownMenu')?.classList.remove('visible');
+              window.open(sourceUrl, '_blank');
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('获取棋谱源链接失败', e);
+      }
     } catch (e) {
       console.error('归档加载失败', e instanceof Error ? e : new Error(String(e)));
     }
