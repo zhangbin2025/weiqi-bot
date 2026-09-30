@@ -47,8 +47,8 @@ export class FoxwqProvider implements IFoxwqProvider {
     return this.chessProvider.fetchSGF(chessid);
   }
 
-  async fetchPublicQipuList(date?: string): Promise<PublicQipu[]> {
-    return this.publicProvider.fetchPublicQipuList(date);
+  async fetchPublicQipuList(date?: string, keyword?: string, maxCount?: number): Promise<PublicQipu[]> {
+    return this.publicProvider.fetchPublicQipuList(date, keyword, maxCount);
   }
 
   async fetchPublicQipuSgf(url: string): Promise<PublicQipuDetail> {
