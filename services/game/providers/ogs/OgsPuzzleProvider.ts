@@ -124,13 +124,11 @@ export class OgsPuzzleProvider extends BaseProvider implements IOgsPuzzleProvide
     try {
       const pageSize = Math.min(maxCount, 50);
       let page = 1;
-        // 最多 10 页；关键字搜索时连续 3 页 0 命中则早停
+        // 最多 10 页
         const maxPages = 10;
-        let emptyPages = 0;
 
       while (results.length < maxCount) {
         if (page > maxPages) break;
-        const hitsBefore = results.length;
         const apiUrl = `${OGS_API_URL}/puzzles/?page=${page}&page_size=${pageSize}&ordering=-modified`;
 
         const response = await this.network.request<string>({
@@ -168,14 +166,6 @@ export class OgsPuzzleProvider extends BaseProvider implements IOgsPuzzleProvide
         }
 
         if (!listData.next) break;
-
-        // 关键字搜索早停
-        if (kw && results.length === hitsBefore) {
-          emptyPages++;
-          if (emptyPages >= 3) break;
-        } else {
-          emptyPages = 0;
-        }
 
         page++;
       }

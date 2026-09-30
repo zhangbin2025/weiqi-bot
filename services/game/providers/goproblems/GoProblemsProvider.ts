@@ -124,10 +124,8 @@ export class GoProblemsProvider extends BaseProvider implements IGoProblemsProvi
       // /api/v2/problems?offset=0 有缓存延迟，缺少最新题目
       const perPage = 30;
       let offset = 0;
-      let emptyPages = 0;
 
       while (results.length < maxCount) {
-        const hitsBefore = results.length;
         const limit = Math.min(perPage, maxCount - results.length);
         const apiUrl = 'https://goproblems.com/api/problems/';
 
@@ -181,14 +179,6 @@ export class GoProblemsProvider extends BaseProvider implements IGoProblemsProvi
         }
 
         if (entries.length < limit) break;
-
-        // 关键字搜索早停：连续 3 页 0 命中则停止
-        if (kw && results.length === hitsBefore) {
-          emptyPages++;
-          if (emptyPages >= 3) break;
-        } else {
-          emptyPages = 0;
-        }
 
         offset += limit;
         if (offset >= perPage * 10) break;
