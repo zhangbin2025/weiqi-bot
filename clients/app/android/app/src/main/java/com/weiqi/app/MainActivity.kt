@@ -566,7 +566,7 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoView.
      * onStart：确保 session 与 GeckoView 处于 active 状态。
      *
      * - 若 session 未 open（如被系统回收后重建），重新 open 并加载最后浏览的 URL。
-     * - 若已 open，不做任何操作，由 GeckoView 内部 SurfaceView 自动恢复 compositor。
+     * - 若已 open，不做任何操作，由 onResume 重新挂载 compositor。
      *
      * 注意：不在此时主动 reload 当前已显示的页面，避免与底层 compositor 的
      * Surface 重挂时序竞争（这正是此前黑屏的非必现根因）。
@@ -592,9 +592,6 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoView.
             } catch (e: Exception) {
                 Logger.e(TAG, "onStart: failed to reopen session", e)
             }
-        } else {
-            // 已 open：不主动 setActive，让 GeckoView 内部的 SurfaceView 生命周期回调
-            // 自动管理 compositor 的暂停/恢复，避免手动 setActive 与 Surface 重建时序竞争
         }
     }
 
@@ -606,11 +603,15 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoView.
         // 不在 onResume 时检查调度，定时任务完全由 WorkManager 管理
         // App 启动/恢复只恢复 WorkManager 调度（在 WeiqiApp.onCreate 中已完成）
 
-        // A) 移除原先的 javascript:void(0) reload 分支：
-        // 当 session 仍 open 时不做任何 reload，由 GeckoView 自身恢复 Surface。
-        // 仅在 session 未 open 时（理论上 onStart 已处理）兜底 reopen。
         val session = geckoSession
-        if (session != null && !session.isOpen && geckoRuntime != null) {
+        if (session != null && session.isOpen) {
+            // 切回前台时重新挂载 session 到 GeckoView，确保 compositor 重新连接 Surface。
+            // GeckoView 的 SurfaceView 在切后台时 Surface 被销毁，切回前台时异步重建。
+            // 自动恢复有概率失效（compositor 未重新挂载 → 黑屏），此处主动 setSession 强制重连。
+            // setSession 不触发页面 reload，只重建 view<->session 的 compositor 绑定。
+            geckoView.setSession(session)
+        } else if (session != null && geckoRuntime != null) {
+            // 兜底：session 未 open（理论上 onStart 已处理）
             try {
                 val urlToLoad = lastLoadedUrl ?: HOME_URL
                 session.open(geckoRuntime!!)
