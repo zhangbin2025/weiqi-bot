@@ -110,13 +110,31 @@ describe('FetcherRenderer 三点菜单（真实 DOM）', () => {
       .toBe('https://katagoarchive.org/kata1/ratinggames/2026-09-14rating.tar.bz2');
   });
 
-  it('katago 伪协议且无 externalUrl 时不显示"查看链接"', () => {
+  it('katago 伪协议且无 externalUrl 时不显示三点按钮和菜单', () => {
     renderer.renderLatestGames([
       { source: 'katago', title: '#1', date: '2026-09-14', url: 'katago://date/2026-09-14/0' },
     ]);
     const c = latestContainer();
-    const tpl = c.querySelector('[data-menu-template]') as HTMLElement;
-    expect(tpl.querySelector('[data-action="viewUrl"]')).toBeNull();
+    expect(c.querySelector('.latest-dots')).toBeNull();
+    expect(c.querySelector('[data-menu-template]')).toBeNull();
+  });
+
+  it('内置棋谱（lib-ai-review）不显示三点按钮', () => {
+    renderer.renderLatestGames([
+      { source: 'lib-ai-review', title: '内置棋谱A', date: '2026-09-14', url: 'lib-ai-review://game/1' },
+    ]);
+    const c = latestContainer();
+    expect(c.querySelector('.latest-dots')).toBeNull();
+    expect(c.querySelector('[data-menu-template]')).toBeNull();
+  });
+
+  it('内置死活题（lib-life-death）不显示三点按钮', () => {
+    renderer.renderLatestGames([
+      { source: 'lib-life-death', title: '死活题A', date: '2026-09-14', url: 'lib://life-and-death/2026-09-14/0' },
+    ]);
+    const c = latestContainer();
+    expect(c.querySelector('.latest-dots')).toBeNull();
+    expect(c.querySelector('[data-menu-template]')).toBeNull();
   });
 
   it('goproblems 列表项 URL 为 /problems/<id> 形式（回归）', () => {

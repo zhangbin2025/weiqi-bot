@@ -486,14 +486,16 @@ export class FetcherRenderer {
         ? `<div data-action="viewLatest" data-url="${item.url}" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#2d3748;white-space:nowrap;">👁\ufe0f 查看棋谱</div>
            <div data-action="selectLatest" data-url="${item.url}" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#c53030;font-weight:600;white-space:nowrap;">🔴 直播棋谱</div>`
         : '';
-      const menu = `
+      // 菜单内容为空时（如内置棋谱无外部链接）不显示三点按钮
+      const hasMenuContent = !!(liveMenu || linkMenuItem);
+      const menu = hasMenuContent ? `
         <div class="latest-dots" data-action="openMenu" data-url="${item.url}"
              style="position:absolute;top:8px;right:8px;width:24px;height:24px;line-height:22px;text-align:center;border-radius:50%;color:#999;font-size:16px;cursor:pointer;user-select:none;"
              onmouseover="this.style.background='#f0f0f0'" onmouseout="this.style.background=''">⋮</div>
         <div data-menu-template style="display:none;position:absolute;top:34px;right:8px;min-width:96px;background:white;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,0.15);z-index:50;overflow:hidden;">
           ${liveMenu}
           ${linkMenuItem}
-        </div>`;
+        </div>` : '';
       return `<div data-action="selectLatest" data-url="${item.url}" style="position:relative;padding:10px 30px 10px 0;border-top:1px solid #eee;cursor:pointer;background:${bg};${border}" ${hoverScript}>
         ${menu}
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
