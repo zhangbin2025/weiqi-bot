@@ -566,7 +566,7 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoView.
      * onStart：确保 session 与 GeckoView 处于 active 状态。
      *
      * - 若 session 未 open（如被系统回收后重建），重新 open 并加载最后浏览的 URL。
-     * - 若已 open，仅确保 view/session 的 active 标志为 true（GeckoView 会自行恢复 Surface）。
+     * - 若已 open，不做任何操作，由 GeckoView 内部 SurfaceView 自动恢复 compositor。
      *
      * 注意：不在此时主动 reload 当前已显示的页面，避免与底层 compositor 的
      * Surface 重挂时序竞争（这正是此前黑屏的非必现根因）。
@@ -593,9 +593,8 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoView.
                 Logger.e(TAG, "onStart: failed to reopen session", e)
             }
         } else {
-            // 已 open：仅将 session 标记为 active，信任 GeckoView 自行恢复界面
-            // （GeckoView.setActive 为包内可见，此处只使用公开的 GeckoSession.setActive）
-            session.setActive(true)
+            // 已 open：不主动 setActive，让 GeckoView 内部的 SurfaceView 生命周期回调
+            // 自动管理 compositor 的暂停/恢复，避免手动 setActive 与 Surface 重建时序竞争
         }
     }
 
@@ -631,17 +630,10 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoView.
 
     override fun onStop() {
         super.onStop()
-
-        // B) 对称地让 session 进入 inactive，释放前台合成资源，
-        // 但不 close session —— 保留页面状态，回来时 onStart 直接恢复。
-        val session = geckoSession
-        if (session != null && session.isOpen) {
-            try {
-                session.setActive(false)
-            } catch (e: Exception) {
-                Logger.w(TAG, "onStop: setActive(false) failed", e)
-            }
-        }
+        // 不主动 setActive(false)：
+        // GeckoView 的 SurfaceView 会在 surfaceDestroyed 回调中自动暂停 compositor，
+        // 回前台时 surfaceCreated 自动恢复。手动 setActive(false) 会比 SurfaceView
+        // 回调更早释放 compositor，导致回前台时 Surface 尚未重建、compositor 无 Surface 可用 → 黑屏。
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
