@@ -145,6 +145,9 @@ export class YikeLiveProvider {
 
     let games = data.Result.list;
 
+    // 过滤未开始的对局（手数为0），非围棋直播也不会有手数
+    games = games.filter((g) => g.HandsCount > 0);
+
     // 关键词过滤
     if (keyword && keyword.trim()) {
       const kw = keyword.trim().toLowerCase();
