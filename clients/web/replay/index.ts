@@ -208,7 +208,7 @@ async function main() {
       // 检查归档棋谱是否有源 URL，有则启用棋谱链接菜单项
       try {
         const sourceUrl = await replayApp.getArchiveUrl(archiveId);
-        if (sourceUrl && !sourceUrl.startsWith('archive:')) {
+        if (sourceUrl && !sourceUrl.startsWith("archive:") && (sourceUrl.startsWith("http://") || sourceUrl.startsWith("https://"))) {
           const sourceLinkItem = document.getElementById('sourceLinkMenuItem');
           if (sourceLinkItem) {
             sourceLinkItem.removeAttribute('disabled');
