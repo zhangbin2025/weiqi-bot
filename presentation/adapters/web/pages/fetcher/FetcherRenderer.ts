@@ -24,6 +24,8 @@ export interface FetcherRendererCallbacks {
   onSelectLatestView: (url: string) => void;
   /** 拉取最新列表（数量由渲染器统一控制为 LATEST_FETCH_MAX 池子大小） */
   onFetchLatest: (source: string, keyword?: string) => Promise<void>;
+  /** 切换来源时，恢复该来源之前的关键字（从缓存读取） */
+  onRestoreKeyword?: (source: string) => string | null;
   onSelectLatest: (url: string) => void;
   onViewUrl: (url: string) => void;
 }
@@ -367,15 +369,17 @@ export class FetcherRenderer {
       this.updateSourceOptions(category);
       const source = this.sourceSelect.getValue() || '';
       if (!source) return;
-      const keyword = this.keywordInput.getValue().trim();
-      this.cb.onFetchLatest(source, keyword || undefined);
+      const restored = this.cb.onRestoreKeyword?.(source);
+      this.keywordInput.setValue(restored || '');
+      this.cb.onFetchLatest(source, restored || undefined);
     });
-    // 来源下拉框变化时自动刷新
+    // 来源下拉框变化时：恢复该来源的关键字，然后自动刷新
     this.sourceSelect.onChange(() => {
       if (this._suppressSourceChange) return;
       const source = this.sourceSelect.getValue() || 'foxwq';
-      const keyword = this.keywordInput.getValue().trim();
-      this.cb.onFetchLatest(source, keyword || undefined);
+      const restored = this.cb.onRestoreKeyword?.(source);
+      this.keywordInput.setValue(restored || '');
+      this.cb.onFetchLatest(source, restored || undefined);
     });
     // 关键字输入框回车触发搜索
     this.keywordInput.onEnter((value) => {

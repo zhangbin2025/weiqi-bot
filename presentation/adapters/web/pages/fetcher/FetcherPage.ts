@@ -46,6 +46,7 @@ export class FetcherPage implements IPage {
       onLive: () => this.liveWatch(),
       onGenerateShareUrl: () => this.generateShareUrl(),
       onFetchLatest: (source, keyword) => this.fetchLatestGames(source, keyword),
+      onRestoreKeyword: (source) => this.restoreKeyword(source),
       onSelectLatest: (url) => this.selectLatestGame(url),
       onSelectLatestView: (url) => this.viewLatestGame(url),
       onViewUrl: (url) => this.viewUrl(url),
@@ -72,7 +73,7 @@ export class FetcherPage implements IPage {
       if (cached && Array.isArray(cached) && cached.length > 0) {
         // 恢复查询条件
         const cachedSource = await this.sessionStore.read<string>('fetcher_latest_source');
-        const cachedKeyword = await this.sessionStore.read<string>('fetcher_latest_keyword');
+        const cachedKeyword = cachedSource ? await this.sessionStore.read<string>(`fetcher_latest_keyword_${cachedSource}`) : null;
         const cachedDisplayed = await this.sessionStore.read<number>('fetcher_latest_displayed');
         if (cachedSource) this.renderer.setLatestSource(cachedSource);
         if (cachedKeyword) this.renderer.setLatestKeyword(cachedKeyword);
@@ -305,12 +306,23 @@ export class FetcherPage implements IPage {
       try {
         await this.sessionStore.write('fetcher_latest_items', items);
         await this.sessionStore.write('fetcher_latest_source', source);
-        await this.sessionStore.write('fetcher_latest_keyword', keyword || '');
+        await this.sessionStore.write(`fetcher_latest_keyword_${source}`, keyword || '');
         await this.sessionStore.write('fetcher_latest_displayed', this.renderer.getLatestDisplayed());
       } catch { /* ignore */ }
     } catch (error) {
       this.renderer.showLatestLoading(false);
       console.error('[FetcherPage] fetchLatestGames failed:', error);
+    }
+  }
+
+  /** 从缓存恢复指定来源的关键字 */
+  private restoreKeyword(source: string): string | null {
+    try {
+      const val = sessionStorage.getItem(`weiqi-bot:fetcher_latest_keyword_${source}`);
+      if (!val) return null;
+      return JSON.parse(val) as string;
+    } catch {
+      return null;
     }
   }
 
