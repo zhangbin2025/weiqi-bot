@@ -108,9 +108,10 @@ export class TrialHandler {
     const preMoves = this.collectPreTrialMoves();
     const result = this.tsumegoChecker.checkMatch(trialMoves, preMoves);
     const hint = this.tsumegoChecker.formatHint(result);
+    const hintClass = this.tsumegoChecker.getHintClass(result);
     this.state.set('trialMatchResult', result);
     this.state.set('trialHint', hint);
-    this.ui.updateTrialHint(hint);
+    this.ui.updateTrialHint(hint, hintClass);
   }
 
   /**

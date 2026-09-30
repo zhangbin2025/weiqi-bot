@@ -596,8 +596,11 @@ export class ReplayPageUI {
   }
   /**
    * 更新死活题试下提示
+   * @param hint - 提示文字
+   * @param hintClass - 可选 CSS 类名（correct/wrong/partial/partial-correct/partial-wrong），
+   *                    优先于前缀匹配
    */
-  updateTrialHint(hint: string): void {
+  updateTrialHint(hint: string, hintClass?: string): void {
     const hintEl = document.getElementById('trialHint');
     if (!hintEl) return;
     
@@ -611,8 +614,9 @@ export class ReplayPageUI {
     hintEl.style.display = 'block';
     hintEl.textContent = hint;
     
-    // 根据内容设置样式类
-    if (hint.startsWith('✓')) {
+    if (hintClass) {
+      hintEl.className = 'trial-hint ' + hintClass;
+    } else if (hint.startsWith('✓')) {
       hintEl.className = 'trial-hint correct';
     } else if (hint.startsWith('✗')) {
       hintEl.className = 'trial-hint wrong';

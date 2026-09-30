@@ -11,7 +11,7 @@ import { coordToPos } from '../../../domain/sgf';
 export type TsumegoMatchResult = 
   | { type: 'correct'; branchComment: string; branchIndex: number }
   | { type: 'wrong'; branchComment: string; branchIndex: number }
-  | { type: 'partial'; branchComment: string; branchIndex: number; nextMove: string | null }
+  | { type: 'partial'; branchComment: string; branchIndex: number; nextMove: string | null; branchType: BranchInfo['branchType'] }
   | { type: 'no_match'; message: string }
   | { type: 'not_tsumego' };
 
@@ -209,7 +209,7 @@ export class TsumegoChecker {
         } else if (branch.branchType === 'wrong') {
           return { type: 'wrong', branchComment: branch.comment, branchIndex: branch.index };
         } else {
-          return { type: 'partial', branchComment: branch.comment, branchIndex: branch.index, nextMove: null };
+          return { type: 'partial', branchComment: branch.comment, branchIndex: branch.index, nextMove: null, branchType: branch.branchType };
         }
       }
       return null;
@@ -227,12 +227,12 @@ export class TsumegoChecker {
       } else if (branch.branchType === 'wrong') {
         return { type: 'wrong', branchComment: branch.comment, branchIndex: branch.index };
       } else {
-        return { type: 'partial', branchComment: branch.comment, branchIndex: branch.index, nextMove: null };
+        return { type: 'partial', branchComment: branch.comment, branchIndex: branch.index, nextMove: null, branchType: branch.branchType };
       }
     } else {
       // 部分匹配，还有后续着法
       const nextMove = branchMoves[trialMoves.length]?.coord ?? null;
-      return { type: 'partial', branchComment: branch.comment, branchIndex: branch.index, nextMove };
+      return { type: 'partial', branchComment: branch.comment, branchIndex: branch.index, nextMove, branchType: branch.branchType };
     }
   }
 
@@ -279,11 +279,43 @@ export class TsumegoChecker {
         return '✗ 失败' + (result.branchComment ? `（${result.branchComment}）` : '');
       case 'partial': {
         const comment = result.branchComment || '匹配中';
-        if (result.nextMove) {
-          return `~ ${comment} - 继续试下`;
+        const suffix = result.nextMove ? ' - 继续试下' : '';
+        switch (result.branchType) {
+          case 'correct':
+            return `✓ ${comment}进行中${suffix}`;
+          case 'wrong':
+            return `⚠ ${comment}进行中${suffix}`;
+          case 'variation':
+            return `~ ${comment}进行中${suffix}`;
+          default:
+            return `${comment}${suffix}`;
         }
-        return `~ ${comment}`;
       }
+    }
+  }
+
+  /**
+   * 获取提示对应的 CSS 类名
+   * @param result - 匹配结果
+   * @returns CSS 类名（不含基础 trial-hint）
+   */
+  getHintClass(result: TsumegoMatchResult): string {
+    switch (result.type) {
+      case 'correct':
+        return 'correct';
+      case 'wrong':
+        return 'wrong';
+      case 'partial':
+        switch (result.branchType) {
+          case 'correct':
+            return 'partial-correct';
+          case 'wrong':
+            return 'partial-wrong';
+          default:
+            return 'partial';
+        }
+      default:
+        return '';
     }
   }
 
