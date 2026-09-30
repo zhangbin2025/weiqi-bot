@@ -115,6 +115,7 @@ export class SGFWriter implements ISGFWriter {
       if (opts?.blacklist && opts.blacklist.has(key)) continue;
 
       const value = props[key];
+      if (value === undefined) continue;
       s += this.serializeProperty(key, value);
     }
 
@@ -126,7 +127,9 @@ export class SGFWriter implements ISGFWriter {
 
     if (children.length === 1) {
       // 单子节点：直接拼接
-      return s + this.serializeNode(children[0], false, opts);
+      const child = children[0];
+      if (child === undefined) return s;
+      return s + this.serializeNode(child, false, opts);
     }
 
     // 多子节点：每个子节点用 () 包裹
