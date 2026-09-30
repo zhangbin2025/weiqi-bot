@@ -215,13 +215,21 @@ export class FetcherApp {
   }
 
   private transformResult(r: GameServiceResult): FetcherResult {
+    // 用 domain SGF parser 解析主分支手数，覆盖 provider 可能不准确的手数
+    let mainMoves = r.metadata?.movesCount ?? 0;
+    if (r.sgfContent) {
+      try {
+        const parsed = parseSGF(r.sgfContent);
+        if (parsed.moves.length > 0) mainMoves = parsed.moves.length;
+      } catch { /* ignore parse error, fallback to provider value */ }
+    }
     const result: FetcherResult = {
       success: r.success, archiveId: r.archiveId, source: r.source, url: r.url,
       metadata: {
         black: r.metadata?.blackName ?? '',
         white: r.metadata?.whiteName ?? '',
         date: r.metadata?.date ?? '',
-        movesCount: r.metadata?.movesCount ?? 0,
+        movesCount: mainMoves,
       },
       fromCache: r.fromCache,
     };
