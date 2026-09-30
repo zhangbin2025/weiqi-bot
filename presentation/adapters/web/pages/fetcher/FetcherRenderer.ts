@@ -449,8 +449,9 @@ export class FetcherRenderer {
    */
   renderLatestGames(items: LatestGameItem[]): void {
     if (items.length === 0) {
-      this.latestCard.setContent('');
-      this.latestCard.setVisible(false);
+      this.latestCard.setVisible(true);
+      this.latestCard.setContent('<div style="text-align:center;padding:30px;color:#888;"><div style="font-size:2em;margin-bottom:8px;">🔍</div><p style="font-size:0.95em;margin:0;">未找到匹配的题目</p><p style="font-size:0.8em;margin:8px 0 0;color:#aaa;">试试难度级别（如 5K、2D）、题目编号或日期</p></div>');
+      this.latestCard.render();
       return;
     }
     this.latestCard.setVisible(true);

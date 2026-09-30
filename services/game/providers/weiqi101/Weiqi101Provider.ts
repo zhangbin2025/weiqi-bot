@@ -296,12 +296,15 @@ export class Weiqi101Provider extends BaseProvider implements IWeiqi101Provider 
     }> = [];
 
     // 每页仅约 24 题（3 个日期块 × 每日 8 题），因此无论是否有关键字都必须翻页
-    // 才能凑够 maxCount；50 页为安全上限（可覆盖 ~1200 题）
-    const maxPages = 50;
+    // 才能凑够 maxCount；有关键字时最多 10 页（~240 题），无关键字时 50 页
+    const maxPages = kw ? 10 : 50;
+    // 关键字搜索时，连续 3 页 0 命中则早停（避免无效请求）
+    let emptyPages = 0;
 
     try {
       for (let page = 1; page <= maxPages; page++) {
         if (results.length >= maxCount) break;
+        const hitsBefore = results.length;
 
         const pageUrl = page === 1
           ? WEIQI101_BASE_URL + '/qday/'
@@ -354,6 +357,14 @@ export class Weiqi101Provider extends BaseProvider implements IWeiqi101Provider 
               url: WEIQI101_BASE_URL + path,
             });
           }
+        }
+
+        // 关键字搜索早停：本页 0 命中时计数，连续 3 页则停止
+        if (kw && results.length === hitsBefore) {
+          emptyPages++;
+          if (emptyPages >= 3) break;
+        } else {
+          emptyPages = 0;
         }
 
         // 检查是否有下一页
