@@ -29,7 +29,7 @@ export class Weiqi1919Provider extends BaseProvider implements IWeiqi1919Provide
   }
 
   async fetchBySgfId(sgfId: string): Promise<void> {
-    const url = `https://m.19x19.com/app/dark/zh/sgf/${sgfId}`;
+    const url = `https://www.19x19.com/app/dark/zh/sgf/${sgfId}`;
     await this.fetch(url);
   }
 

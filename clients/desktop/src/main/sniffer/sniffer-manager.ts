@@ -236,6 +236,7 @@ class SnifferSession {
       });
 
       const webContents = this.hiddenWindow.webContents;
+      webContents.setMaxListeners(20);  // 提高 MaxListeners 上限，避免多次会话累积警告
       // ===== 禁用隐藏窗口所有不必要的功能 =====
       webContents.setAudioMuted(true);          // 静音：禁止音频输出
 
@@ -255,7 +256,18 @@ class SnifferSession {
       });
 
       webContents.setWindowOpenHandler(() => ({ action: 'deny' }));  // 禁止弹窗
-      webContents.on('will-navigate', (event: Electron.Event) => { event.preventDefault(); });  // 禁止导航跳转
+      // 允许同站导航（如 m.19x19.com -> www.19x19.com 的 SPA 重定向），只阻止外部跳转
+      const targetHost = new URL(this.targetUrl).hostname;
+      webContents.on('will-navigate', (event: Electron.Event, navigationUrl: string) => {
+        try {
+          const navHost = new URL(navigationUrl).hostname;
+          // 允许同一域名或子域名的导航
+          if (navHost === targetHost || navHost.endsWith('.' + targetHost) || targetHost.endsWith('.' + navHost)) {
+            return; // 允许同站导航
+          }
+        } catch {}
+        event.preventDefault(); // 阻止外部导航
+      });
 
       console.log(`[SnifferSession] [${this.id}] Created hidden window, webContents.id=${webContents.id}`);
 
