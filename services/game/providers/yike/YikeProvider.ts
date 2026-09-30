@@ -97,9 +97,9 @@ export class YikeProvider extends BaseProvider implements IYikeProvider {
             // 鹰眼API - 可能包含SGF
             if (apiUrl.includes('hawkeye.yikeweiqi.com/api/report/live/move') && httpMsg.body) {
               const bodyStr = httpMsg.body;
-              if (bodyStr.includes('(;GM')) {
+              if (bodyStr.includes('(;') && bodyStr.includes('SZ[')) {
                 // 提取SGF
-                const start = bodyStr.indexOf('(;GM');
+                const start = bodyStr.indexOf('(;');
                 let end = bodyStr.indexOf('\\"', start);
                 if (end === -1) {
                   end = bodyStr.indexOf('"', start);
@@ -115,13 +115,13 @@ export class YikeProvider extends BaseProvider implements IYikeProvider {
               const data = JSON.parse(httpMsg.body);
               if (data?.Result?.live) {
                 const live = data.Result.live;
-                gameInfo['blackName'] = gameInfo['blackName'] || live.BlackName || '';
-                gameInfo['whiteName'] = gameInfo['whiteName'] || live.WhiteName || '';
+                gameInfo['blackName'] = gameInfo['blackName'] || live.BlackPlayer || live.BlackName || '';
+                gameInfo['whiteName'] = gameInfo['whiteName'] || live.WhitePlayer || live.WhiteName || '';
                 gameInfo['result'] = live.GameResult || '';
                 gameInfo['date'] = live.GameDate || '';
 
                 const content = live.Content || '';
-                if (content.includes('(;GM')) {
+                if (content.includes('(;') && content.includes('SZ[')) {
                   sgfCandidates.push(content);
                 }
               }
@@ -163,8 +163,8 @@ export class YikeProvider extends BaseProvider implements IYikeProvider {
             // 鹰眼API - 可能包含SGF
             if (apiUrl.includes('hawkeye.yikeweiqi.com/api/report/live/move') && httpMsg.body) {
               const bodyStr = httpMsg.body;
-              if (bodyStr.includes('(;GM')) {
-                const start = bodyStr.indexOf('(;GM');
+              if (bodyStr.includes('(;') && bodyStr.includes('SZ[')) {
+                const start = bodyStr.indexOf('(;');
                 let end = bodyStr.indexOf('\\"', start);
                 if (end === -1) {
                   end = bodyStr.indexOf('"', start);
@@ -184,13 +184,13 @@ export class YikeProvider extends BaseProvider implements IYikeProvider {
               const data = JSON.parse(httpMsg.body);
               if (data?.Result?.live) {
                 const live = data.Result.live;
-                gameInfo['blackName'] = gameInfo['blackName'] || live.BlackName || '';
-                gameInfo['whiteName'] = gameInfo['whiteName'] || live.WhiteName || '';
+                gameInfo['blackName'] = gameInfo['blackName'] || live.BlackPlayer || live.BlackName || '';
+                gameInfo['whiteName'] = gameInfo['whiteName'] || live.WhitePlayer || live.WhiteName || '';
                 gameInfo['result'] = gameInfo['result'] || live.GameResult || '';
                 gameInfo['date'] = gameInfo['date'] || live.GameDate || '';
 
                 const content = live.Content || '';
-                if (content.includes('(;GM')) {
+                if (content.includes('(;') && content.includes('SZ[')) {
                   // 避免重复添加
                   if (!sgfCandidates.includes(content)) {
                     sgfCandidates.push(content);

@@ -107,7 +107,7 @@ export class YikeOnlineGameProvider extends BaseProvider {
       });
 
       // 等待数据
-      const result = await session.wait(5000);
+      const result = await session.wait(5000) // 5秒超时;
       timing.apiRequest = this.now() - fetchStart;
 
       console.log('[YikeOnlineGameProvider] Sniffer结果:', result.success);
