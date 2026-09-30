@@ -50,6 +50,8 @@ export class TrialHandler {
   handleBoardClick(x: number, y: number): void {
     const replayData = this.state.get('replayData');
     if (!replayData) return;
+    // 点击位置已有棋子时，不进入试下模式
+    if (this.game.getState().board.getStone(x, y) !== null) return;
     const inVariation = this.state.get('inVariation');
     // 分支模式下不能试下
     if (inVariation) {
