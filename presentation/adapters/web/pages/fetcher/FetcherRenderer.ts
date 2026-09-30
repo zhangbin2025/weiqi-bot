@@ -465,7 +465,7 @@ export class FetcherRenderer {
       this._displayedLatest = Math.min(this._displayedLatest, items.length);
     }
     const html = this._latestItems.slice(0, this._displayedLatest).map(item => {
-      const sourceLabels: Record<string, string> = { foxwq: '🏆 野狐', weiqi101: '📝 101围棋', 'ogs-live': '🎬 OGS', 'yike-live': '📹 弈客', goproblems: '🧩 GoProblems', 'ogs-puzzle': '🧩 OGS死活题', katago: '🤖 KataGo', lib: '📚 内置' };
+      const sourceLabels: Record<string, string> = { foxwq: '🏆 野狐', weiqi101: '📝 101围棋', 'ogs-live': '🎬 OGS', 'yike-live': '📹 弈客', goproblems: '🧩 GoProblems', 'ogs-puzzle': '🧩 OGS死活题', katago: '🤖 KataGo', 'lib-life-death': '📚 内置死活题', 'lib-ai-review': '📚 内置棋谱' };
       const sourceLabel = sourceLabels[item.source] || item.source;
       const subtitle = item.subtitle
         ? `<div style="font-size:0.85em;color:#666;margin-top:4px;">${item.subtitle}</div>`

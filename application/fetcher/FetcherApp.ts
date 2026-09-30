@@ -200,7 +200,7 @@ export class FetcherApp {
         if (!libProvider) return [];
         const items = await libProvider.listGameItems(category, count);
         return items.map((item: any) => ({
-          source: 'lib',
+          source,
           title: item.title,
           subtitle: item.subtitle,
           date: item.date,

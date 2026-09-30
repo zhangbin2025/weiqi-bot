@@ -201,7 +201,7 @@ export class BuiltinLibraryProvider extends BaseProvider {
           if (count && results.length >= count) break;
           const id = games[i]!.filename.replace(/\.sgf$/i, '');
           results.push({
-            source: 'lib',
+            source: category === 'life-and-death' ? 'lib-life-death' : 'lib-ai-review',
             title: '#' + (i + 1),
             subtitle: id,
             date,
@@ -255,7 +255,7 @@ export class BuiltinLibraryProvider extends BaseProvider {
         result: info.result || '',
         movesCount: parsed.moves.length,
       };
-      return { success: true, source: this.name, url, sgfContent: sgf, metadata, timing };
+      return { success: true, source: category === 'life-and-death' ? 'lib-life-death' : 'lib-ai-review', url, sgfContent: sgf, metadata, timing };
     } catch (error) {
       return this.createErrorResult(url, '下载失败: ' + (error instanceof Error ? error.message : String(error)), timing);
     }
