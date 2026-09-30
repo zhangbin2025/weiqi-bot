@@ -236,7 +236,7 @@ class SnifferSession {
       });
 
       const webContents = this.hiddenWindow.webContents;
-      webContents.setMaxListeners(20);  // 提高 MaxListeners 上限，避免多次会话累积警告
+      webContents.setMaxListeners(50);  // 提高 MaxListeners 上限，避免多次会话累积警告
       // ===== 禁用隐藏窗口所有不必要的功能 =====
       webContents.setAudioMuted(true);          // 静音：禁止音频输出
 
@@ -257,12 +257,15 @@ class SnifferSession {
 
       webContents.setWindowOpenHandler(() => ({ action: 'deny' }));  // 禁止弹窗
       // 允许同站导航（如 m.19x19.com -> www.19x19.com 的 SPA 重定向），只阻止外部跳转
+      // 提取注册域名（如 m.19x19.com -> 19x19.com）用于同站判断
       const targetHost = new URL(this.targetUrl).hostname;
+      const parts = targetHost.split('.');
+      const registrableDomain = parts.length >= 2 ? parts.slice(-2).join('.') : targetHost;
       webContents.on('will-navigate', (event: Electron.Event, navigationUrl: string) => {
         try {
           const navHost = new URL(navigationUrl).hostname;
-          // 允许同一域名或子域名的导航
-          if (navHost === targetHost || navHost.endsWith('.' + targetHost) || targetHost.endsWith('.' + navHost)) {
+          // 允许同注册域名下的导航（含子域名）
+          if (navHost === registrableDomain || navHost.endsWith('.' + registrableDomain)) {
             return; // 允许同站导航
           }
         } catch {}
@@ -305,8 +308,14 @@ class SnifferSession {
       await webContents.loadURL(this.targetUrl);
       console.log(`[SnifferSession] [${this.id}] Loaded: ${this.targetUrl}`);
     } catch (error: any) {
-      console.error(`[SnifferSession] [${this.id}] Start failed:`, error);
-      this.stop(false, error.message);
+      // ERR_ABORTED 是预期行为：SPA 重定向（如 m.19x19.com -> www.19x19.com）会中断原始 loadURL
+      // 页面会在新 URL 上继续加载，preload 已注入，事件仍在捕获
+      if (error?.code === "ERR_ABORTED") {
+        console.log(`[SnifferSession] [${this.id}] Load aborted (likely SPA redirect), continuing to sniff...`);
+      } else {
+        console.error(`[SnifferSession] [${this.id}] Start failed:`, error);
+        this.stop(false, error.message);
+      }
     }
   }
 
