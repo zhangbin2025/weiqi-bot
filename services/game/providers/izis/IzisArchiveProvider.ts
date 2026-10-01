@@ -65,7 +65,7 @@ export class IzisArchiveProvider extends BaseProvider implements IIzisProvider {
 
       // 从 HTML 中提取 SGF
       const sgfStart = this.now();
-      const sgfContent = this.parser.extractSgfFromHtml(html);
+      let sgfContent = this.parser.extractSgfFromHtml(html);
 
       if (!sgfContent) {
         return this.createErrorResult(url, '未能在页面中找到 SGF 数据', timing);
@@ -78,6 +78,14 @@ export class IzisArchiveProvider extends BaseProvider implements IIzisProvider {
       // izis 分享页面的对局结果不在 SGF RE[] 中，需要从 HTML 单独提取
       if (!metadata.result) {
         metadata.result = this.parser.extractResultFromHtml(html);
+      }
+
+      // 将结果注入 SGF 文本（在棋盘大小后插入 RE[]）
+      if (metadata.result && !/RE\[/.test(sgfContent)) {
+        sgfContent = sgfContent.replace(
+          /(SZ\[\d+\])/,
+          `$1RE[${metadata.result}]`
+        );
       }
 
       timing.total = this.now() - startTime;
