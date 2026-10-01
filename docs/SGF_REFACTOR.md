@@ -1,7 +1,8 @@
 # SGF 解析代码去重重构计划
 
 > 调查日期：2026-09-30
-> 状态：待整改
+> 最后更新：2026-10-01
+> 状态：整改中（#22 已完成）
 
 ## 背景
 
@@ -9,7 +10,7 @@
 
 ## 现状分类
 
-### ✅ 第一类：已通过 domain/sgf 接口（无需改动，共 19 个文件）
+### ✅ 第一类：已通过 domain/sgf 接口（无需改动，共 20 个文件）
 
 | # | 文件 | 用法 |
 |---|------|------|
@@ -32,19 +33,19 @@
 | 17 | `clients/cli/commands/joseki-auto.ts` | `new SGFParser()` |
 | 18 | `clients/cli/commands/joseki-build.ts` | `new SGFParser()` |
 | 19 | `clients/cli/commands/joseki.ts` | `new SGFParser()` |
+| 20 | `presentation/core/helpers/DecisionReplayHelper.ts` | `sgfToReplayData()` + gameInfo 覆盖（原 `ReplayHelper`，已改名） |
 
 ### ⚠️ 第二类：已用 domain 接口但有正则 fallback（可优化，共 2 个文件）
 
 | # | 文件 | 问题 |
 |---|------|------|
-| 20 | `presentation/adapters/web/pages/review/ReviewPage.ts` | `parseMovesCount()`、`parseNewMoves()` 有正则 fallback |
-| 21 | `presentation/adapters/web/pages/review/LiveModeManager.ts` | `parseMovesByRegex()` 正则 fallback |
+| 21 | `presentation/adapters/web/pages/review/ReviewPage.ts` | `parseMovesCount()`、`parseNewMoves()` 有正则 fallback |
+| 22 | `presentation/adapters/web/pages/review/LiveModeManager.ts` | `parseMovesByRegex()` 正则 fallback |
 
-### ❌ 第三类：自己写 SGF 解析逻辑（需整改，共 10 个文件）
+### ❌ 第三类：自己写 SGF 解析逻辑（需整改，共 9 个文件）
 
 | # | 文件 | 解析内容 | 优先级 | 改动建议 |
 |---|------|----------|--------|----------|
-| 22 | `presentation/core/helpers/ReplayHelper.ts` | 手写完整 SGF 树解析器（~100 行），自定义 `SGFNode` 类型 | 🔴 高 | 改用 `SGFParser.parse()` + `sgfToReplayData()` |
 | 23 | `services/game/providers/goproblems/GoProblemsProvider.ts` | 手写 tokenizer + 树解析器（~200 行），自定义 `SgfNode` 类型 | 🔴 高 | 改用 `SGFParser.parse()` |
 | 24 | `services/game/providers/foxwq/FoxwqLiveProviderBase.ts` | `parseSgfMetadata()` 正则提取 PB/PW/SZ/KM/HA/RU/DT/RE | 🟡 中 | 改用 `parseSGF().gameInfo` |
 | 25 | `services/game/providers/foxwq/FoxwqShareProvider.ts` | `parseSgfMetadata()` + `countMoves()` 正则 | 🟡 中 | 改用 `parseSGF().gameInfo` + `.moves.length` |
@@ -57,9 +58,9 @@
 
 ## 统计
 
-- 已用 domain 接口：19 个文件 ✅
+- 已用 domain 接口：20 个文件 ✅
 - 有 fallback 正则：2 个文件 ⚠️
-- 自己写解析逻辑：10 个文件 ❌（预计可消除重复代码 ~300+ 行）
+- 自己写解析逻辑：9 个文件 ❌（预计可消除重复代码 ~200+ 行）
 
 ## 整改原则
 
@@ -72,9 +73,22 @@
 
 ## 整改顺序
 
-1. 🔴 #22 ReplayHelper — 手写解析器 → domain 接口
+1. ✅ ~~#22 ReplayHelper~~ → DecisionReplayHelper — 已完成（2026-10-01，commit 0e0fef7）
 2. 🔴 #23 GoProblemsProvider — 手写解析器 → domain 接口
 3. 🟡 #24-27 Foxwq/IZIS/Txwq — 正则元数据提取 → domain 接口
 4. 🟡 #28-29 Xinboduiyi/Yuanluobo — 评估后整改
 5. 🟢 #30 HHGameDialogRenderer — 简单手数统计
-6. ⚠️ #20-21 ReviewPage/LiveModeManager — 清理正则 fallback
+6. ⚠️ #21-22 ReviewPage/LiveModeManager — 清理正则 fallback
+
+## 整改记录
+
+### ✅ #22 ReplayHelper → DecisionReplayHelper（2026-10-01）
+
+- **commit**: `0e0fef7`
+- **改动**:
+  - 删除 `ReplayHelper.ts`（~300 行手写 SGF 解析器、自定义 `SGFNode`/`SGFParseResult`/`GameInfo` 类型）
+  - 新建 `DecisionReplayHelper.ts`（110 行），SGF 解析全部委托给 `domain/sgf` 的 `sgfToReplayData()`
+  - 保留 gameInfo 覆盖逻辑 + localStorage 存储功能
+  - **改名原因**：原名称与 `clients/web/replay` 页面容易混淆，实际唯一调用方是决策题页面（`DecisionPage`）
+  - 新增 20 个单测，全量 2071 测试通过
+  - 删减净 ~230 行手写解析逻辑
