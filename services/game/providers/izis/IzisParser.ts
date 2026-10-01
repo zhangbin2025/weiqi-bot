@@ -36,6 +36,28 @@ class IzisParser extends HtmlParserBase {
   }
 
   /**
+   * 从 HTML 中提取对局结果
+   * izis 分享页面的结果不在 SGF 的 RE[] 字段中，而是在 HTML 中：
+   * - <span id="result">对局结果：黑中盘胜</span>
+   * - var result = "黑中盘胜";
+   * @param html - HTML 页面内容
+   * @returns 解析后的 SGF RE[] 格式结果，或空字符串
+   */
+  extractResultFromHtml(html: string): string {
+    // 优先从 var result = "xxx" 提取
+    const varMatch = html.match(/var\s+result\s*=\s*["']([^"']+)["']/);
+    if (varMatch && varMatch[1]) {
+      return parseResultFromText(varMatch[1].trim());
+    }
+    // 从 <span id="result">对局结果：xxx</span> 提取
+    const spanMatch = html.match(/<span\s+id="result"[^>]*>对局结果：([^<]+)<\/span>/);
+    if (spanMatch && spanMatch[1]) {
+      return parseResultFromText(spanMatch[1].trim());
+    }
+    return '';
+  }
+
+  /**
    * 从 SGF 提取元数据（使用 domain/sgf 接口）
    */
   parseSgfMetadata(sgf: string, gameId: string): GameMetadata {

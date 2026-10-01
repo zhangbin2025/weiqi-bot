@@ -75,6 +75,11 @@ export class IzisArchiveProvider extends BaseProvider implements IIzisProvider {
       // 解析 SGF 提取元数据
       const metadata = this.parser.parseSgfMetadata(sgfContent, gameId);
 
+      // izis 分享页面的对局结果不在 SGF RE[] 中，需要从 HTML 单独提取
+      if (!metadata.result) {
+        metadata.result = this.parser.extractResultFromHtml(html);
+      }
+
       timing.total = this.now() - startTime;
 
       return {
