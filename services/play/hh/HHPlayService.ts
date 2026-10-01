@@ -1,7 +1,7 @@
 /**
  * @fileoverview 真人对弈服务实现
  */
-import type { IGame, PlayerColor } from '../../../domain';
+import { type IGame, type PlayerColor, komiForHandicap } from '../../../domain';
 import { SGFWriter } from '../../../domain/sgf';
 import type { IHHPlayService, IHHPlayState, IHHPlayCallbacks } from './IHHPlayService';
 import type { IHHPlayConfig, IRoomInfo, IPlayerInfo } from './types';
@@ -369,9 +369,8 @@ export class HHPlayService implements IHHPlayService {
     this.inGame = true;
 
     // 初始化游戏
-    // 计算让子后的贴目
-    const baseKomi = 7.5;
-    const handicapKomi = baseKomi - info.handicap;
+    // 计算让子后的贴目（使用 domain 层 komiForHandicap）
+    const handicapKomi = komiForHandicap(info.handicap);
 
     this.game.newGame({
       size: 19,
@@ -613,10 +612,9 @@ export class HHPlayService implements IHHPlayService {
         const roomState = this.roomManager?.getState();
         const handicap = roomState?.room?.handicap ?? 0;
 
-        // 计算让子后的贴目
+        // 计算让子后的贴目（使用 domain 层 komiForHandicap）
         // 标准规则:让 N 子,贴目减少 N 目
-        const baseKomi = 7.5;
-        const handicapKomi = baseKomi - handicap;
+        const handicapKomi = komiForHandicap(handicap);
 
         // 初始化游戏
         this.game.newGame({
@@ -811,9 +809,8 @@ export class HHPlayService implements IHHPlayService {
     const result = parser.parse(draft.sgf);
 
     // 2. 初始化游戏
-    // 计算让子后的贴目
-    const baseKomi = 7.5;
-    const handicapKomi = baseKomi - draft.handicap;
+    // 计算让子后的贴目（使用 domain 层 komiForHandicap）
+    const handicapKomi = komiForHandicap(draft.handicap);
 
     this.game.newGame({
       size: 19,

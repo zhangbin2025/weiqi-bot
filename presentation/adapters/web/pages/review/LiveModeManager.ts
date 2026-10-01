@@ -355,7 +355,7 @@ export class LiveModeManager {
 
       // 7. 检测棋局结束（方式3：末尾双 Pass）
       if (newMovesCount >= 2 && this.isDoublePassAtEnd(newMoves)) {
-        const resultStr = this.formatGameResult(newMoves);
+        const resultStr = this.formatMoveCount(newMoves);
         gameResult = resultStr || '双Pass';
         console.info('[LiveModeManager] 棋局已结束（末尾双Pass）');
       }
@@ -732,7 +732,7 @@ export class LiveModeManager {
   /**
    * 格式化棋局结果
    */
-  private formatGameResult(moves: Array<{ x: number; y: number; color: PlayerColor }>): string {
+  private formatMoveCount(moves: Array<{ x: number; y: number; color: PlayerColor }>): string {
     // 统计有效手数（排除 Pass）
     const effectiveMoves = moves.filter(m => m.x >= 0 && m.y >= 0).length;
     return effectiveMoves + '手';

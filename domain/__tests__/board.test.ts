@@ -36,8 +36,18 @@ describe('board module', () => {
       const points = getHandicapPoints(2, 19);
       expect(points).toHaveLength(2);
     });
-    it('should return empty array for non-19 board', () => {
+    it('should return correct handicap points for 9x9 board', () => {
       const points = getHandicapPoints(2, 9);
+      expect(points).toHaveLength(2);
+      expect(points).toContainEqual({ x: 6, y: 2 });
+      expect(points).toContainEqual({ x: 2, y: 6 });
+    });
+    it('should return correct handicap points for 13x13 board', () => {
+      const points = getHandicapPoints(4, 13);
+      expect(points).toHaveLength(4);
+    });
+    it('should return empty array for handicap=1', () => {
+      const points = getHandicapPoints(1, 19);
       expect(points).toHaveLength(0);
     });
   });

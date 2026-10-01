@@ -69,3 +69,22 @@ export function komiFromProto(protoKomi: number): number {
   // 直接传给 normalizeKomi 统一处理（>50→/100, <5→×2）
   return normalizeKomi(protoKomi);
 }
+
+/**
+ * 计算让子棋的贴目值
+ * 标准规则：让 N 子，贴目 = 基础贴目 - N 目
+ *
+ * @param handicap - 让子数（0-9）
+ * @param baseKomi - 基础贴目值（默认 7.5 目）
+ * @returns 让子后的贴目值
+ *
+ * @ai-example
+ * komiForHandicap(0)  → 7.5   // 分先棋，标准贴目
+ * komiForHandicap(2)  → 5.5   // 让2子，贴目 7.5-2=5.5
+ * komiForHandicap(3)  → 4.5   // 让3子，贴目 7.5-3=4.5
+ * komiForHandicap(0, 6.5) → 6.5  // 日本规则基础贴目
+ */
+export function komiForHandicap(handicap: number, baseKomi: number = 7.5): number {
+  if (handicap <= 0) return baseKomi;
+  return baseKomi - handicap;
+}

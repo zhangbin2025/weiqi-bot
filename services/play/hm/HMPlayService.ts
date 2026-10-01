@@ -5,7 +5,7 @@ import type { IConfigProvider } from '../../../infrastructure/config/interfaces/
 import type { IHMPlayServiceConfig } from '../../../infrastructure/config/schemas/HMPlayConfigSchema';
 import type { HMPlayDraft } from './HMPlayDraftTypes';
 import type { IGame } from '../../../domain/game/IGame';
-import type { PlayerColor, BoardState } from '../../../domain';
+import { type PlayerColor, type BoardState, komiForHandicap } from '../../../domain';
 import type { Difficulty } from '../../ai/types';
 import { AIController } from '../../ai/AIController';
 import { HMGameStateManager } from './HMGameStateManager';
@@ -65,10 +65,9 @@ export class HMPlayService implements IHMPlayService {
     this.gameState.reset();
     this.gameState.setConfig(merged);
     
-    // 计算让子后的贴目
+    // 计算让子后的贴目（使用 domain 层 komiForHandicap）
     // 标准规则：让 N 子，贴目减少 N 目
-    const baseKomi = 7.5;
-    const handicapKomi = baseKomi - (merged.handicap ?? 0);
+    const handicapKomi = komiForHandicap(merged.handicap ?? 0);
     
     this.game.newGame({ 
       handicap: merged.handicap, 

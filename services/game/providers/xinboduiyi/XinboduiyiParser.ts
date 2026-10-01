@@ -5,6 +5,7 @@
 import { HtmlParserBase } from '../../../../infrastructure/utils/html';
 import type { GameMetadata } from '../base/types';
 import type { XinboduiyiGameData } from './types';
+import { parseResultFromCode } from '../../../../domain/game/GameResult';
 
 /**
  * 新博对弈数据解析器
@@ -36,14 +37,8 @@ class XinboduiyiParser extends HtmlParserBase {
    * 解析对局结果
    */
   parseResult(resultCode?: number, resultType?: number): string {
-    if (resultCode === 0 || resultCode === undefined) return '';
-
-    const winner = resultCode === 1 ? 'B' : 'W';
-    const typeMap: Record<number, string> = {
-      1: '+R', 2: '+', 3: '+T', 4: '+R',
-    };
-
-    return `${winner}${typeMap[resultType || 1]}`;
+    // 使用 domain 层 parseResultFromCode 统一解析
+    return parseResultFromCode(resultCode, resultType);
   }
 
   /**

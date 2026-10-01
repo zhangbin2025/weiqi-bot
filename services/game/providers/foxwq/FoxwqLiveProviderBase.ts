@@ -9,6 +9,8 @@ import type { NetworkManager } from '../../../../infrastructure/network/core/Net
 import type { ISnifferProvider } from '../../../../infrastructure/network/interfaces/ISnifferProvider';
 import type { WsMessageData } from '../../../../infrastructure/network/interfaces/SnifferTypes';
 import { parseSGF, SGFWriter } from '../../../../domain/sgf';
+import { normalizeKomi, komiForHandicap } from '../../../../domain/game/KomiNormalizer';
+import { getHandicapPoints } from '../../../../domain/board/IBoardSize';
 import type { MoveOrPass } from '../../../../domain/move';
 
 /** 着法信息 */
@@ -386,16 +388,14 @@ export abstract class FoxwqLiveProviderBase extends BaseProvider {
       const komi = parseFloat(kmMatch[1]);
       if (!Number.isNaN(komi)) {
         console.info(`[FoxwqLive] 从数据中提取贴目: ${komi}`);
-        return komi;
+        // 使用 domain 层 normalizeKomi 统一处理（目/子/毫单位转换）
+        return normalizeKomi(komi);
       }
     }
 
-    // 2. 根据让子数计算贴目
-    // 标准规则：让 N 子，贴目减少 N 目
-    // 参考：services/play/hm/HMPlayService.ts
+    // 2. 根据让子数计算贴目（使用 domain 层 komiForHandicap）
     if (handicap >= 2) {
-      const baseKomi = 7.5;
-      const handicapKomi = baseKomi - handicap;
+      const handicapKomi = komiForHandicap(handicap);
       console.info(`[FoxwqLive] 让 ${handicap} 子，计算贴目: ${handicapKomi} 目`);
       return handicapKomi;
     }
@@ -490,69 +490,8 @@ export abstract class FoxwqLiveProviderBase extends BaseProvider {
    * 获取标准让子位置（星位）
    */
   protected getStandardHandicapCoords(handicap: number): Array<{ x: number; y: number }> {
-    const coords: Record<number, Array<{ x: number; y: number }>> = {
-      2: [
-        { x: 3, y: 3 },   // D4 (左上星)
-        { x: 15, y: 15 }, // P16 (右下星)
-      ],
-      3: [
-        { x: 3, y: 3 },
-        { x: 15, y: 15 },
-        { x: 3, y: 15 },  // D16 (左下星)
-      ],
-      4: [
-        { x: 3, y: 3 },
-        { x: 15, y: 15 },
-        { x: 3, y: 15 },
-        { x: 15, y: 3 },  // P4 (右上星)
-      ],
-      5: [
-        { x: 3, y: 3 },
-        { x: 15, y: 15 },
-        { x: 3, y: 15 },
-        { x: 15, y: 3 },
-        { x: 9, y: 9 },   // J10 (天元)
-      ],
-      6: [
-        { x: 3, y: 3 },
-        { x: 15, y: 15 },
-        { x: 3, y: 15 },
-        { x: 15, y: 3 },
-        { x: 9, y: 3 },   // J4
-        { x: 9, y: 15 },  // J16
-      ],
-      7: [
-        { x: 3, y: 3 },
-        { x: 15, y: 15 },
-        { x: 3, y: 15 },
-        { x: 15, y: 3 },
-        { x: 9, y: 3 },
-        { x: 9, y: 15 },
-        { x: 9, y: 9 },
-      ],
-      8: [
-        { x: 3, y: 3 },
-        { x: 15, y: 15 },
-        { x: 3, y: 15 },
-        { x: 15, y: 3 },
-        { x: 9, y: 3 },
-        { x: 9, y: 15 },
-        { x: 3, y: 9 },   // D10
-        { x: 15, y: 9 },  // P10
-      ],
-      9: [
-        { x: 3, y: 3 },
-        { x: 15, y: 15 },
-        { x: 3, y: 15 },
-        { x: 15, y: 3 },
-        { x: 9, y: 3 },
-        { x: 9, y: 15 },
-        { x: 3, y: 9 },
-        { x: 15, y: 9 },
-        { x: 9, y: 9 },
-      ],
-    };
-    return coords[handicap] || [];
+    // 使用 domain 层 getHandicapPoints 统一获取标准让子位置
+    return getHandicapPoints(handicap, 19);
   }
 
   /**

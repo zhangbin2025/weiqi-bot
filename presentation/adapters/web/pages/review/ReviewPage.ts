@@ -1368,19 +1368,6 @@ export class ReviewPage implements IPage {
   }
 
   /**
-   * 从着法列表格式化对局结果描述
-   */
-  private formatGameResult(moves: Array<{ x: number; y: number; color: PlayerColor }>): string {
-    // 去掉末尾的 Pass，统计有效手数
-    let effectiveMoves = moves.length;
-    // 末尾双 Pass 不算有效手数
-    if (moves.length >= 2 && this.isDoublePassAtEnd(moves)) {
-      effectiveMoves -= 2;
-    }
-    return effectiveMoves + '手';
-  }
-
-  /**
    * 使用 SGFParser 正确解析 SGF，获取着法总数
    * （避免简单正则误匹配让子棋 AB[xx] 等属性）
    */

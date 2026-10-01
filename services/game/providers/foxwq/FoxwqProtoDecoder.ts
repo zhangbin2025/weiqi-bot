@@ -15,11 +15,13 @@
  * 5. opType==107 → game.StartSetPieceNotify.decode(data) → { rule, gameUsers, stoneMoves }
  * 6. opType==203 → game.SetPieceNotify.decode(data) → { x, y, color }
  * 7. opType==403 → game.SetGameResultNotify.decode(data) → { winner, points, reason }
+
  * 8. opType==609 → GC_UPDATE_FINE_ART_WIN_RATE (绝艺AI胜率)
  * 9. opType==603 → GC_ADD_REF_BRANCH_NOTIFY (绝艺AI变化图)
  */
 
 // ========== Protobuf 基础解码 ==========
+import { getHandicapPoints, type BoardSizeValue } from '../../../../domain/board/IBoardSize';
 
 /** 读取 varint，返回 [value, newOffset] */
 function readVarint(data: Uint8Array, offset: number): [number, number] {
@@ -514,43 +516,8 @@ export function decodeLiveGameData(data: Uint8Array): LiveGameData | null {
  * 8子: + (4,2),(4,6) = ec,eg
  */
 function getStandardHandicapStones(boardsize: number, handicap: number): Array<{ x: number; y: number }> {
-  const positions: Record<number, Record<number, Array<[number, number]>>> = {
-    19: {
-      2: [[15, 3], [3, 15]],
-      3: [[15, 3], [3, 15], [3, 3]],
-      4: [[15, 3], [3, 15], [3, 3], [15, 15]],
-      5: [[15, 3], [3, 15], [3, 3], [15, 15], [9, 9]],
-      6: [[15, 3], [3, 15], [3, 3], [15, 15], [3, 9], [15, 9]],
-      7: [[15, 3], [3, 15], [3, 3], [15, 15], [3, 9], [15, 9], [9, 9]],
-      8: [[15, 3], [3, 15], [3, 3], [15, 15], [3, 9], [15, 9], [9, 3], [9, 15]],
-      9: [[15, 3], [3, 15], [3, 3], [15, 15], [3, 9], [15, 9], [9, 3], [9, 15], [9, 9]],
-    },
-    13: {
-      2: [[9, 3], [3, 9]],
-      3: [[9, 3], [3, 9], [3, 3]],
-      4: [[3, 3], [3, 9], [9, 3], [9, 9]],
-      5: [[3, 3], [3, 9], [9, 3], [9, 9], [6, 6]],
-      6: [[3, 3], [3, 9], [9, 3], [9, 9], [3, 6], [9, 6]],
-      7: [[3, 3], [3, 9], [9, 3], [9, 9], [3, 6], [9, 6], [6, 6]],
-      8: [[3, 3], [3, 9], [9, 3], [9, 9], [3, 6], [9, 6], [6, 3], [6, 9]],
-    },
-    9: {
-      2: [[6, 2], [2, 6]],
-      3: [[6, 2], [2, 6], [2, 2]],
-      4: [[2, 2], [2, 6], [6, 2], [6, 6]],
-      5: [[2, 2], [2, 6], [6, 2], [6, 6], [6, 4]],
-      6: [[2, 2], [2, 6], [6, 2], [6, 6], [2, 4], [6, 4]],
-      7: [[2, 2], [2, 6], [6, 2], [6, 6], [2, 4], [6, 4], [4, 4]],
-      8: [[2, 2], [2, 6], [6, 2], [6, 6], [2, 4], [6, 4], [4, 2], [4, 6]],
-    },
-  };
-
-  const sizeMap = positions[boardsize];
-  if (!sizeMap) return [];
-  const stones = sizeMap[handicap];
-  if (!stones) return [];
-
-  return stones.map(([x, y]) => ({ x, y }));
+  // 使用 domain 层 getHandicapPoints 统一获取标准让子位置
+  return getHandicapPoints(handicap, boardsize as BoardSizeValue);
 }
 
 /**

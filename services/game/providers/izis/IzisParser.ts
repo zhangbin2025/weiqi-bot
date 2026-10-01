@@ -6,6 +6,7 @@ import { HtmlParserBase } from '../../../../infrastructure/utils/html';
 import type { GameMetadata } from '../base/types';
 import { parseSGF, SGFWriter } from '../../../../domain/sgf';
 import type { MoveOrPass } from '../../../../domain/move';
+import { parseResultFromText } from '../../../../domain/game/GameResult';
 
 /**
  * izis数据解析器
@@ -81,19 +82,12 @@ class IzisParser extends HtmlParserBase {
     if (rank.includes('d')) return rank.replace('d', '段');
     return rank;
   }
-
   /**
    * 解析对局结果
    */
   parseResult(resultStr: string): string {
-    const map: Record<string, string> = {
-      '白胜': 'W+R',
-      '黑胜': 'B+R',
-      '白中盘胜': 'W+R',
-      '黑中盘胜': 'B+R',
-      '和棋': 'Draw',
-    };
-    return map[resultStr] || resultStr;
+    // 使用 domain 层 parseResultFromText 统一解析
+    return parseResultFromText(resultStr);
   }
 
   /**

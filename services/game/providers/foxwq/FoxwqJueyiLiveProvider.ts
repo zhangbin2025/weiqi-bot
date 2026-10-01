@@ -21,6 +21,8 @@ import {
   type LiveGameData,
 } from './FoxwqProtoDecoder';
 import { komiFromProto } from '../../../../domain/game/KomiNormalizer';
+import { komiForHandicap } from '../../../../domain/game/KomiNormalizer';
+import { parseResultFromWinnerReason } from '../../../../domain/game/GameResult';
 
 /**
  * 野狐直播提供者（Protobuf 协议版）
@@ -252,9 +254,9 @@ export class FoxwqJueyiLiveProvider extends FoxwqLiveProviderBase {
       if (gameData.gameRule.handicap > 0) return 0;
     }
 
-    // 根据让子数计算（兜底）
+    // 根据让子数计算（兜底，使用 domain 层 komiForHandicap）
     if (handicap >= 2) {
-      return 7.5 - handicap;
+      return komiForHandicap(handicap);
     }
 
     return 7.5;
@@ -263,14 +265,8 @@ export class FoxwqJueyiLiveProvider extends FoxwqLiveProviderBase {
   private extractResultFromGameData(gameData: LiveGameData): string | null {
     if (!gameData.gameResult) return null;
 
+    // 使用 domain 层 parseResultFromWinnerReason 统一解析
     const { winner, points, reason } = gameData.gameResult;
-    if (winner === 0) return '0';
-
-    const winnerStr = winner === 1 ? 'B' : 'W';
-    if (reason === 3) return `${winnerStr}+R`;  // 中盘胜
-    if (reason === 2) return `${winnerStr}+T`;  // 超时胜
-    if (reason === 4) return `${winnerStr}+R`;  // 认输
-    if (points > 0) return `${winnerStr}+${points}`;
-    return `${winnerStr}+`;
+    return parseResultFromWinnerReason(winner, points, reason);
   }
 }
