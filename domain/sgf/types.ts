@@ -55,6 +55,8 @@ export interface ISGFGameInfoFull {
   blackRank?: string;
   whiteRank?: string;
   event?: string;
+  application?: string;
+  source?: string;
   gameName: string;
   date?: string;
   result?: string;
@@ -129,6 +131,11 @@ export interface ISGFGameInfo {
   readonly handicap?: number | undefined;
   readonly handicapStones?: readonly { x: number; y: number; color: 'B' | 'W' }[] | undefined;
   readonly rules?: string | undefined;
+  readonly blackRank?: string | undefined;
+  readonly whiteRank?: string | undefined;
+  readonly event?: string | undefined;
+  readonly application?: string | undefined;
+  readonly source?: string | undefined;
   /** 先手方 */
   readonly initialPlayer?: PlayerColor | undefined;
 }

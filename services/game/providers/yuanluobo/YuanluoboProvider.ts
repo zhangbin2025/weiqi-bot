@@ -8,6 +8,8 @@ import { BaseProvider } from '../base/BaseProvider';
 import type { FetchResult, PerformanceTiming } from '../base/types';
 import type { IYuanluoboProvider } from './IYuanluoboProvider';
 import type { YuanluoboApiResponse } from './types';
+import { SGFWriter } from '../../../../domain/sgf';
+import type { MoveOrPass } from '../../../../domain/move';
 
 /**
  * 元萝卜 API URL
@@ -21,6 +23,7 @@ const YUANLUOBO_API_URL = 'https://jupiter.yuanluobo.com/r2/chess/wq/sdr/v3/reco
  * - https://jupiter.yuanluobo.com/robot-public/all-in-app/go/review?session_id={ID}
  */
 export class YuanluoboProvider extends BaseProvider implements IYuanluoboProvider {
+  private readonly sgfWriter = new SGFWriter();
   readonly name = 'yuanluobo';
   readonly displayName = '元萝卜';
   readonly urlPatterns = [
@@ -96,7 +99,7 @@ export class YuanluoboProvider extends BaseProvider implements IYuanluoboProvide
       timing.sgfGeneration = this.now() - parseStart;
 
       // 生成 SGF
-      const sgfContent = this.generateSgf(gameInfo, moves);
+      const sgfContent = this.generateSgf(gameInfo, moves, gameData.recording?.fen);
 
       timing.total = this.now() - startTime;
 
@@ -114,7 +117,7 @@ export class YuanluoboProvider extends BaseProvider implements IYuanluoboProvide
           whiteRank: '',
           width: 19,
           height: 19,
-          komi: 6.5,
+          komi: gameInfo.handicap > 0 ? 0 : 6.5,
           handicap: gameInfo.handicap,
           rules: 'chinese',
           date: '',
@@ -169,27 +172,82 @@ export class YuanluoboProvider extends BaseProvider implements IYuanluoboProvide
   }
 
   /**
-   * 生成 SGF 内容
+   * 生成 SGF 内容（使用 domain/sgf 接口）
+   *
+   * 让子棋处理：
+   * 元萝卜 API 通过 recording.fen 字段返回初始局面，从中提取让子位置。
+   * fen 格式：每行用数字+字母表示，如 "3b11b3" 表示第4行位置3和15有黑子。
    */
   private generateSgf(
     info: { blackName: string; whiteName: string; handicap: number },
-    moves: Array<{ color: string; coord: string }>
+    moves: Array<{ color: string; coord: string }>,
+    fen?: string
   ): string {
-    const parts: string[] = [];
-    parts.push('(;GM[1]FF[4]CA[UTF-8]');
-    parts.push('SZ[19]');
-    parts.push(`PB[${info.blackName}]`);
-    parts.push(`PW[${info.whiteName}]`);
+    // 从 fen 解析让子位置
+    const handicapStones = info.handicap > 0 && fen
+      ? this.parseHandicapStonesFromFen(fen)
+      : [];
 
-    if (info.handicap > 0) {
-      parts.push(`HA[${info.handicap}]`);
+    const moveOrPass: MoveOrPass[] = moves.map((m, i) => ({
+      x: m.coord.charCodeAt(0) - 97,
+      y: m.coord.charCodeAt(1) - 97,
+      color: m.color === 'B' ? 'black' : 'white',
+      number: i + 1,
+    }));
+
+    return this.sgfWriter.write(moveOrPass, {
+      size: 19,
+      blackName: info.blackName,
+      whiteName: info.whiteName,
+      handicap: info.handicap > 0 ? info.handicap : undefined,
+      handicapStones: handicapStones.length > 0 ? handicapStones : undefined,
+      komi: info.handicap > 0 ? 0 : 6.5,
+      rules: 'chinese',
+    });
+  }
+
+  /**
+   * 从 fen 解析让子位置
+   *
+   * fen 格式：用 / 分隔每行，数字表示连续空位，b/w 表示棋子
+   * 注意：fen 的 x 轴是镜像的（与 SGF 相反），需转换：sgf_x = 18 - fen_x
+   * y 轴直接对应行索引（0-based）
+   *
+   * 例："19/19/19/3b11b3/..." → 第4行(y=3) fen_x=3 和 fen_x=15 有黑子
+   *       → sgf (18-3, 3)=(15,3) 和 (18-15, 3)=(3,3) → pd 和 dd
+   */
+  private parseHandicapStonesFromFen(fen: string): Array<{ x: number; y: number; color: 'B' }> {
+    const stones: Array<{ x: number; y: number; color: 'B' }> = [];
+    const rows = fen.split('/');
+
+    for (let y = 0; y < rows.length && y < 19; y++) {
+      const row = rows[y];
+      if (!row) continue;
+
+      let fenX = 0;
+      for (let i = 0; i < row.length; i++) {
+        const ch = row[i]!;
+        if (ch >= '0' && ch <= '9') {
+          let num = parseInt(ch, 10);
+          while (i + 1 < row.length) {
+            const nextCh = row[i + 1]!;
+            if (nextCh < '0' || nextCh > '9') break;
+            i++;
+            num = num * 10 + parseInt(nextCh, 10);
+          }
+          fenX += num;
+        } else if (ch === 'b') {
+          // fen x 轴镜像：sgf_x = 18 - fen_x
+          const sgfX = 18 - fenX;
+          stones.push({ x: sgfX, y, color: 'B' });
+          fenX++;
+        } else {
+          // w 或其他字符
+          fenX++;
+        }
+      }
     }
 
-    for (const move of moves) {
-      parts.push(`;${move.color}[${move.coord}]`);
-    }
-
-    parts.push(')');
-    return parts.join('');
+    return stones;
   }
 }

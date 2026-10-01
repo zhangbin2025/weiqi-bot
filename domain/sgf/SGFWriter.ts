@@ -45,8 +45,28 @@ export class SGFWriter implements ISGFWriter {
     if (info?.date) {
       lines.push('DT[' + info.date + ']');
     }
+    if (info?.application) {
+      lines.push('AP[' + info.application + ']');
+    }
+    if (info?.blackRank) {
+      lines.push('BR[' + info.blackRank + ']');
+    }
+    if (info?.whiteRank) {
+      lines.push('WR[' + info.whiteRank + ']');
+    }
+    if (info?.event) {
+      lines.push('EV[' + info.event + ']');
+    }
+    if (info?.source) {
+      lines.push('SO[' + info.source + ']');
+    }
 
-    // 写入让子棋（如果有）
+    // 写入让子数（如果有）
+    if (info?.handicap && info.handicap > 0) {
+      lines.push('HA[' + info.handicap + ']');
+    }
+
+    // 写入让子棋位置（如果有）
     if (info?.handicapStones && info.handicapStones.length > 0) {
       const handicapText = this.writeHandicapStones(
         info.handicapStones.map(s => ({

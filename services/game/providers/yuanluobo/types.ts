@@ -21,6 +21,7 @@ export interface YuanluoboGameData {
   handicap?: number;
   total_round?: number;
   recording?: {
+    fen?: string;
     moves: Array<{ coordinate: string }>;
   };
 }

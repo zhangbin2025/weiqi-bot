@@ -704,48 +704,17 @@ export class LiveModeManager {
    * 解析所有着法
    */
   private parseAllMoves(sgf: string): Array<{ x: number; y: number; color: PlayerColor }> {
-    try {
-      const parsed = this.sgfParser.parse(sgf);
-      return parsed.moves.map((m) => {
-        if (!m.coord || m.coord.length < 2) {
-          return { x: -1, y: -1, color: sgfColorToPlayerColor(m.color as 'B' | 'W') };
-        }
-        return {
-          x: m.coord.charCodeAt(0) - 97,
-          y: m.coord.charCodeAt(1) - 97,
-          color: sgfColorToPlayerColor(m.color as 'B' | 'W'),
-        };
-      });
-    } catch (e) {
-      console.warn('[LiveModeManager] SGF解析失败，fallback到正则:', e);
-      return this.parseMovesByRegex(sgf);
-    }
-  }
-
-  /**
-   * 使用正则解析着法（fallback）
-   */
-  private parseMovesByRegex(sgf: string): Array<{ x: number; y: number; color: PlayerColor }> {
-    const moves: Array<{ x: number; y: number; color: PlayerColor }> = [];
-    const movePattern = /([BW])\[([a-z]{0,2})\]/g;
-    let match;
-
-    while ((match = movePattern.exec(sgf)) !== null) {
-      const color = match[1] === 'B' ? 'black' : 'white';
-      const coord = match[2];
-
-      if (!coord || coord.length < 2) {
-        moves.push({ x: -1, y: -1, color });
-      } else {
-        moves.push({
-          x: coord.charCodeAt(0) - 97,
-          y: coord.charCodeAt(1) - 97,
-          color,
-        });
+    const parsed = this.sgfParser.parse(sgf);
+    return parsed.moves.map((m) => {
+      if (!m.coord || m.coord.length < 2) {
+        return { x: -1, y: -1, color: sgfColorToPlayerColor(m.color as 'B' | 'W') };
       }
-    }
-
-    return moves;
+      return {
+        x: m.coord.charCodeAt(0) - 97,
+        y: m.coord.charCodeAt(1) - 97,
+        color: sgfColorToPlayerColor(m.color as 'B' | 'W'),
+      };
+    });
   }
 
   /**

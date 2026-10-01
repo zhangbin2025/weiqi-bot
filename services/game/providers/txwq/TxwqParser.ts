@@ -8,6 +8,7 @@
  */
 
 import type { GameMetadata } from '../base/types';
+import { parseSGF } from '../../../../domain/sgf';
 
 /**
  * 腾讯围棋 API 响应数据
@@ -40,57 +41,27 @@ export class TxwqParser {
    * @returns 元数据
    */
   static buildMetadata(sgf: string, chessId: string): GameMetadata {
+    const result = parseSGF(sgf);
+    const info = result.gameInfo;
+    // domain 默认 komi='375'（表示 3.75），txwq 原默认 6.5
+    const komiNum = parseFloat(info.komi);
+    const komi = (info.komi === '375' || isNaN(komiNum)) ? 6.5 : komiNum;
     return {
       source: 'txwq',
       gameId: chessId,
-      blackName: this.extractSgfProp(sgf, 'PB') || '黑棋',
-      whiteName: this.extractSgfProp(sgf, 'PW') || '白棋',
-      blackRank: this.extractSgfProp(sgf, 'BR') || '',
-      whiteRank: this.extractSgfProp(sgf, 'WR') || '',
-      width: this.extractSgfNumber(sgf, 'SZ') || 19,
-      height: this.extractSgfNumber(sgf, 'SZ') || 19,
-      komi: this.extractSgfNumber(sgf, 'KM') || 6.5,
-      handicap: this.extractSgfNumber(sgf, 'HA') || 0,
-      rules: 'chinese',
-      date: this.extractSgfProp(sgf, 'DT') || '',
-      result: this.extractSgfProp(sgf, 'RE') || '',
-      movesCount: this.countMoves(sgf),
+      blackName: info.black || '黑棋',
+      whiteName: info.white || '白棋',
+      blackRank: info.blackRank || '',
+      whiteRank: info.whiteRank || '',
+      width: info.boardSize,
+      height: info.boardSize,
+      komi,
+      handicap: info.handicap,
+      rules: info.rules || 'chinese',
+      date: info.date || '',
+      result: info.result || '',
+      movesCount: result.moves.length,
     };
-  }
-
-  /**
-   * 提取 SGF 属性（字符串）
-   * @param sgf SGF 字符串
-   * @param prop 属性名
-   * @returns 属性值，如果不存在返回空字符串
-   */
-  private static extractSgfProp(sgf: string, prop: string): string {
-    const match = sgf.match(new RegExp(`${prop}\\[([^\\]]+)\\]`));
-    return match ? match[1] || '' : '';
-  }
-
-  /**
-   * 提取 SGF 属性（数字）
-   * @param sgf SGF 字符串
-   * @param prop 属性名
-   * @returns 属性值，如果不存在返回 null
-   */
-  private static extractSgfNumber(sgf: string, prop: string): number | null {
-    const value = this.extractSgfProp(sgf, prop);
-    if (!value) return null;
-    
-    const num = parseFloat(value);
-    return isNaN(num) ? null : num;
-  }
-
-  /**
-   * 统计着法数
-   * @param sgf SGF 字符串
-   * @returns 着法数量
-   */
-  private static countMoves(sgf: string): number {
-    const matches = sgf.match(/[BW]\[[a-z]{2}\]/g);
-    return matches ? matches.length : 0;
   }
 
   /**

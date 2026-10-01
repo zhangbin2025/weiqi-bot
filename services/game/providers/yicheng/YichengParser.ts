@@ -3,11 +3,14 @@
  */
 
 import { HtmlParserBase } from '../../../../infrastructure/utils/html';
+import { SGFWriter } from '../../../../domain/sgf';
+import type { MoveOrPass } from '../../../../domain/move';
 
 /**
  * 弈城解析器
  */
 class YichengParser extends HtmlParserBase {
+  private readonly sgfWriter = new SGFWriter();
   /**
    * 解析弈城格式数据
    */
@@ -65,7 +68,7 @@ class YichengParser extends HtmlParserBase {
   }
 
   /**
-   * 生成 SGF 内容
+   * 生成 SGF 内容（使用 domain/sgf 接口）
    */
   generateSgf(parsed: {
     blackName: string;
@@ -73,26 +76,21 @@ class YichengParser extends HtmlParserBase {
     date: string;
     moves: Array<{ color: string; x: number; y: number }>;
   }): string {
-    const parts: string[] = [];
-    parts.push('(;GM[1]FF[4]CA[UTF-8]');
-    parts.push('AP[弈城围棋]');
-    parts.push('SZ[19]');
-    parts.push(`PB[${parsed.blackName}]`);
-    parts.push(`PW[${parsed.whiteName}]`);
-    if (parsed.date) {
-      parts.push(`DT[${parsed.date}]`);
-    }
-    parts.push('RU[Chinese]');
-
-    // 着法转换：0-based -> SGF (a-s)
-    for (const move of parsed.moves) {
-      const sgfX = String.fromCharCode('a'.charCodeAt(0) + move.x);
-      const sgfY = String.fromCharCode('a'.charCodeAt(0) + move.y);
-      parts.push(`;${move.color}[${sgfX}${sgfY}]`);
-    }
-
-    parts.push(')');
-    return parts.join('');
+    const moveOrPass: MoveOrPass[] = parsed.moves.map((m, i) => ({
+      x: m.x,
+      y: m.y,
+      color: m.color === 'B' ? 'black' : 'white',
+      number: i + 1,
+    }));
+    return this.sgfWriter.write(moveOrPass, {
+      size: 19,
+      blackName: parsed.blackName,
+      whiteName: parsed.whiteName,
+      date: parsed.date || undefined,
+      komi: 6.5,
+      rules: 'chinese',
+      application: '弈城围棋',
+    });
   }
 }
 

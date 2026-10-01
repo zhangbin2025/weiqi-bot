@@ -4,11 +4,14 @@
 
 import { HtmlParserBase } from '../../../../infrastructure/utils/html';
 import type { GameMetadata } from '../base/types';
+import { parseSGF, SGFWriter } from '../../../../domain/sgf';
+import type { MoveOrPass } from '../../../../domain/move';
 
 /**
  * izis数据解析器
  */
 class IzisParser extends HtmlParserBase {
+  private readonly sgfWriter = new SGFWriter();
   /**
    * 从 HTML 中提取 SGF 数据
    * 支持两种格式：
@@ -32,37 +35,29 @@ class IzisParser extends HtmlParserBase {
   }
 
   /**
-   * 解析 SGF 中的元数据
+   * 从 SGF 提取元数据（使用 domain/sgf 接口）
    */
   parseSgfMetadata(sgf: string, gameId: string): GameMetadata {
-    const extractTag = (tag: string): string => {
-      const match = sgf.match(new RegExp(`${tag}\\[([^\\]]*)\\]`));
-      return match && match[1] !== undefined ? match[1] : '';
-    };
-
-    const boardSize = parseInt(extractTag('SZ'), 10) || 19;
-    const result = extractTag('RE');
-    const resultStr = result || '';
-
-    // 计算手数
-    const moveMatches = sgf.match(/;[BW]\[[a-z]{0,2}\]/g);
-    const movesCount = moveMatches ? moveMatches.length : 0;
-
+    const result = parseSGF(sgf);
+    const info = result.gameInfo;
+    // domain 默认 komi='375'（表示 3.75），izis 原默认 6.5
+    const komiNum = parseFloat(info.komi);
+    const komi = (info.komi === '375' || isNaN(komiNum)) ? 6.5 : komiNum;
     return {
       source: 'izis-archive',
       gameId,
-      blackName: extractTag('PB') || '黑棋',
-      whiteName: extractTag('PW') || '白棋',
-      blackRank: extractTag('BR'),
-      whiteRank: extractTag('WR'),
-      width: boardSize,
-      height: boardSize,
-      komi: 6.5,
-      handicap: 0,
-      rules: 'chinese',
-      date: '',
-      result: resultStr,
-      movesCount,
+      blackName: info.black || '黑棋',
+      whiteName: info.white || '白棋',
+      blackRank: info.blackRank || '',
+      whiteRank: info.whiteRank || '',
+      width: info.boardSize,
+      height: info.boardSize,
+      komi,
+      handicap: info.handicap,
+      rules: info.rules || 'chinese',
+      date: info.date || '',
+      result: info.result || '',
+      movesCount: result.moves.length,
     };
   }
 
@@ -154,29 +149,26 @@ class IzisParser extends HtmlParserBase {
   }
 
   /**
-   * 生成 SGF
+   * 生成 SGF（使用 domain/sgf 接口）
    */
   generateSgf(metadata: GameMetadata, moves: Array<[string, string]>): string {
-    const parts: string[] = [];
-
-    parts.push("(;GM[1]FF[4]CA[UTF-8]");
-    parts.push("AP[隐智智能棋盘]");
-    parts.push(`SZ[${metadata.width}]`);
-    parts.push(`PB[${metadata.blackName}]`);
-    parts.push(`PW[${metadata.whiteName}]`);
-
-    if (metadata.blackRank) parts.push(`BR[${metadata.blackRank}]`);
-    if (metadata.whiteRank) parts.push(`WR[${metadata.whiteRank}]`);
-    if (metadata.result) parts.push(`RE[${metadata.result}]`);
-
-    parts.push("RU[Chinese]");
-
-    for (const [color, coord] of moves) {
-      parts.push(`;${color}[${coord}]`);
-    }
-
-    parts.push(")");
-    return parts.join('');
+    const moveOrPass: MoveOrPass[] = moves.map(([color, coord], i) => ({
+      x: coord.charCodeAt(0) - 97,
+      y: coord.charCodeAt(1) - 97,
+      color: color === 'B' ? 'black' : 'white',
+      number: i + 1,
+    }));
+    return this.sgfWriter.write(moveOrPass, {
+      size: metadata.width,
+      blackName: metadata.blackName,
+      whiteName: metadata.whiteName,
+      blackRank: metadata.blackRank || undefined,
+      whiteRank: metadata.whiteRank || undefined,
+      komi: metadata.komi,
+      result: metadata.result || undefined,
+      rules: 'chinese',
+      application: '隐智智能棋盘',
+    });
   }
 }
 

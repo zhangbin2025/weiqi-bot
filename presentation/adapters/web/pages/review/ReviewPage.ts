@@ -1385,14 +1385,7 @@ export class ReviewPage implements IPage {
    * （避免简单正则误匹配让子棋 AB[xx] 等属性）
    */
   private parseMovesCount(sgf: string): number {
-    try {
-      const parsed = this.sgfParser.parse(sgf);
-      return parsed.moves.length;
-    } catch (e) {
-      console.warn('[ReviewPage] SGF解析失败，fallback到正则:', e);
-      const moves = sgf.match(/[BW]\[[a-z]{0,2}\]/g);
-      return moves ? moves.length : 0;
-    }
+    return this.sgfParser.parse(sgf).moves.length;
   }
 
   /**
@@ -1400,55 +1393,21 @@ export class ReviewPage implements IPage {
    * （避免简单正则误匹配让子棋 AB[xx] 等属性）
    */
   private parseNewMoves(sgf: string, fromMove: number): Array<{ x: number; y: number; color: PlayerColor }> {
-    try {
-      const parsed = this.sgfParser.parse(sgf);
-      const allMoves: Array<{ x: number; y: number; color: PlayerColor }> = parsed.moves.map((m) => {
-        if (!m.coord || m.coord.length < 2) {
-          return { x: -1, y: -1, color: sgfColorToPlayerColor(m.color as 'B' | 'W') };
-        }
-        return {
-          x: m.coord.charCodeAt(0) - 97,
-          y: m.coord.charCodeAt(1) - 97,
-          color: sgfColorToPlayerColor(m.color as 'B' | 'W'),
-        };
-      });
-
-      const newMoves = allMoves.slice(fromMove);
-      console.info('[ReviewPage] 解析新增着法:', newMoves.length, '手（总共', allMoves.length, '手，从第', fromMove + 1, '手开始）');
-      return newMoves;
-    } catch (e) {
-      console.warn('[ReviewPage] SGF解析失败，fallback到正则:', e);
-      // fallback: 使用简单正则（兼容异常 SGF）
-      const moves: Array<{ x: number; y: number; color: PlayerColor }> = [];
-      const movePattern = /([BW])\[([a-z]{0,2})\]/g;
-      let match;
-      let moveIndex = 0;
-
-      while ((match = movePattern.exec(sgf)) !== null) {
-        const color = match[1] === 'B' ? 'black' : 'white';
-        const pos = match[2];
-
-        if (moveIndex < fromMove) {
-          moveIndex++;
-          continue;
-        }
-
-        if (pos && pos.length === 2) {
-          const x = pos.charCodeAt(0) - 97;
-          const y = pos.charCodeAt(1) - 97;
-          if (x >= 0 && x < this.boardSize && y >= 0 && y < this.boardSize) {
-            moves.push({ x, y, color });
-          }
-        } else if (pos === '' || pos === 'tt') {
-          moves.push({ x: -1, y: -1, color });
-        }
-
-        moveIndex++;
+    const parsed = this.sgfParser.parse(sgf);
+    const allMoves: Array<{ x: number; y: number; color: PlayerColor }> = parsed.moves.map((m) => {
+      if (!m.coord || m.coord.length < 2) {
+        return { x: -1, y: -1, color: sgfColorToPlayerColor(m.color as 'B' | 'W') };
       }
+      return {
+        x: m.coord.charCodeAt(0) - 97,
+        y: m.coord.charCodeAt(1) - 97,
+        color: sgfColorToPlayerColor(m.color as 'B' | 'W'),
+      };
+    });
 
-      console.info('[ReviewPage] 解析新增着法(fallback):', moves.length, '手');
-      return moves;
-    }
+    const newMoves = allMoves.slice(fromMove);
+    console.info('[ReviewPage] 解析新增着法:', newMoves.length, '手（总共', allMoves.length, '手，从第', fromMove + 1, '手开始）');
+    return newMoves;
   }
 
 

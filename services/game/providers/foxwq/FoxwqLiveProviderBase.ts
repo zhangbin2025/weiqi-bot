@@ -8,7 +8,8 @@ import type { FetchResult, GameMetadata, PerformanceTiming } from '../base/types
 import type { NetworkManager } from '../../../../infrastructure/network/core/NetworkManager';
 import type { ISnifferProvider } from '../../../../infrastructure/network/interfaces/ISnifferProvider';
 import type { WsMessageData } from '../../../../infrastructure/network/interfaces/SnifferTypes';
-import { parseSGF } from '../../../../domain/sgf';
+import { parseSGF, SGFWriter } from '../../../../domain/sgf';
+import type { MoveOrPass } from '../../../../domain/move';
 
 /** 着法信息 */
 export interface Move {
@@ -27,6 +28,7 @@ export interface HandicapInfo {
  * 野狐直播提供者基类
  */
 export abstract class FoxwqLiveProviderBase extends BaseProvider {
+  private readonly sgfWriter = new SGFWriter();
   /** URL 模式（子类共用） */
   static readonly URL_PATTERNS = [
     /h5\.foxwq\.com\/yehunewshare/i,
@@ -702,57 +704,53 @@ export abstract class FoxwqLiveProviderBase extends BaseProvider {
   ): string {
     if (moves.length === 0) return '';
 
-    const coordMap = 'abcdefghijklmnopqrs';
-    let sgf = '(;GM[1]FF[4]CA[UTF-8]SZ[19]\n';
-    sgf += `PB[${playerNames[0]}]PW[${playerNames[1]}]\n`;
-    
-    // 设置贴目（关键！）
-    sgf += `KM[${komi}]\n`;
-
-    if (result) {
-      sgf += `RE[${result}]\n`;
-    }
-
     // 构建让子位置集合，用于过滤着法列表中的让子棋子
     const handicapSet = new Set<string>();
     if (handicap.count > 0 && handicap.stones.length > 0) {
-      sgf += `HA[${handicap.count}]\n`;
-      sgf += 'AB';
-      handicap.stones.forEach(({ x, y }) => {
-        sgf += `[${coordMap[x]}${coordMap[y]}]`;
+      for (const { x, y } of handicap.stones) {
         handicapSet.add(`${x},${y}`);
-      });
-      sgf += '\n';
+      }
     }
 
-    // 添加着法（跳过与让子位置重复的黑棋）
+    // 转换着法：跳过与让子位置重复的黑棋（已在 AB[] 中摆放）
     let handicapSkipped = 0;
-    for (let i = 0; i < moves.length; i++) {
-      const move = moves[i];
-      if (!move) continue;
-
+    const moveOrPass: MoveOrPass[] = [];
+    for (const move of moves) {
       const { x, y, color } = move;
 
-      // 让子棋：跳过前几步在让子位置上的黑棋（已在AB[]中摆放）
+      // 让子棋：跳过前几步在让子位置上的黑棋
       if (handicap.count > 0 && color === 1 && handicapSet.has(`${x},${y}`) && handicapSkipped < handicap.count) {
         handicapSkipped++;
         continue;
       }
 
-      // 让子棋：白先（白棋第一手）
-      // 非让子棋：黑先（黑棋第一手）
-      // 但是！我们优先使用实际颜色信息（从 WebSocket 数据中提取）
-      // color: 1=黑, 2=白
-
-      const colorStr = color === 1 ? 'B' : 'W';
-
       if (0 <= x && x < 19 && 0 <= y && y < 19) {
-        sgf += `;${colorStr}[${coordMap[x]}${coordMap[y]}]\n`;
+        moveOrPass.push({
+          x,
+          y,
+          color: color === 1 ? 'black' : 'white',
+          number: moveOrPass.length + 1,
+        });
       }
     }
 
-    sgf += ')';
-    return sgf;
+    // 让子位置 → ISGFGameInfo.handicapStones
+    const handicapStones = handicap.stones.map(({ x, y }) => ({
+      x,
+      y,
+      color: 'B' as const,
+    }));
+
+    return this.sgfWriter.write(moveOrPass, {
+      size: 19,
+      blackName: playerNames[0],
+      whiteName: playerNames[1],
+      komi,
+      result: result || undefined,
+      handicap: handicap.count > 0 ? handicap.count : undefined,
+      handicapStones: handicapStones.length > 0 ? handicapStones : undefined,
+      rules: 'chinese',
+    });
   }
 
   /**

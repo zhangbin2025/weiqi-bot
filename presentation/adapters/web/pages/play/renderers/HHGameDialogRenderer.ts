@@ -3,6 +3,7 @@
  * @description 负责渲染数子请求、草稿恢复等对话框
  */
 import type { HHPlayDraft } from '../../../../../../services/play/hh/DraftTypes';
+import { parseSGF } from '../../../../../../domain/sgf';
 /**
  * 游戏对话框渲染器
  * @description 封装游戏相关对话框的 HTML 渲染逻辑
@@ -90,11 +91,13 @@ export class HHGameDialogRenderer {
     document.getElementById('refuseUndoBtn')?.addEventListener('click', onRefuse);
   }
   /**
-   * 从 SGF 统计手数
+   * 从 SGF 统计着法（使用 domain/sgf 接口）
    */
   private countMovesFromSGF(sgf: string): number {
-    const blackMoves = (sgf.match(/B\[/g) || []).length;
-    const whiteMoves = (sgf.match(/W\[/g) || []).length;
-    return blackMoves + whiteMoves;
+    try {
+      return parseSGF(sgf).moves.length;
+    } catch {
+      return 0;
+    }
   }
 }

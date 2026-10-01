@@ -3,6 +3,8 @@
  */
 
 import type { ShoutanGameData } from './types';
+import { SGFWriter } from '../../../../domain/sgf';
+import type { MoveOrPass } from '../../../../domain/move';
 
 /**
  * 解析结果
@@ -71,30 +73,32 @@ export function parseYamlData(data: ShoutanGameData): ParsedGameData {
   return { gameInfo, moves };
 }
 
+const sgfWriter = new SGFWriter();
+
 /**
- * 生成 SGF 内容
+ * 生成 SGF 内容（使用 domain/sgf 接口）
  */
 export function generateSgf(
   info: ParsedGameData['gameInfo'],
   moves: Array<{ color: string; coord: string }>
 ): string {
-  const parts: string[] = [];
-  parts.push('(;GM[1]FF[4]CA[UTF-8]');
-  parts.push(`SZ[${info.boardSize}]`);
-  parts.push('AP[GoStarV7]');
-  parts.push(`PB[${info.blackName}]`);
-  parts.push(`PW[${info.whiteName}]`);
-
-  if (info.event) parts.push(`EV[${info.event}]`);
-  if (info.date) parts.push(`DT[${info.date}]`);
-  if (info.resultSgf) parts.push(`RE[${info.resultSgf}]`);
-
-  parts.push('SO[丹朱对局集]');
-
-  for (const move of moves) {
-    parts.push(`;${move.color}[${move.coord}]`);
-  }
-
-  parts.push(')');
-  return parts.join('');
+  const boardSize = parseInt(info.boardSize, 10) || 19;
+  const moveOrPass: MoveOrPass[] = moves.map((m, i) => ({
+    x: m.coord.charCodeAt(0) - 97,
+    y: m.coord.charCodeAt(1) - 97,
+    color: m.color === 'B' ? 'black' : 'white',
+    number: i + 1,
+  }));
+  return sgfWriter.write(moveOrPass, {
+    size: boardSize,
+    blackName: info.blackName,
+    whiteName: info.whiteName,
+    komi: 6.5,
+    rules: 'chinese',
+    event: info.event || undefined,
+    date: info.date || undefined,
+    result: info.resultSgf || undefined,
+    application: 'GoStarV7',
+    source: '丹朱对局集',
+  });
 }

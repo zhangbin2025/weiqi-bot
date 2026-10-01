@@ -195,6 +195,8 @@ export class SGFParser {
       blackRank: getProp('BR'),
       whiteRank: getProp('WR'),
       event: getProp('EV'),
+      application: getProp('AP'),
+      source: getProp('SO'),
       gameName: getProp('GN', '围棋棋谱'),
       date: getProp('DT'),
       result: getProp('RE'),
