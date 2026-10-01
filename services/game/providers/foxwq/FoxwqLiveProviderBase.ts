@@ -8,6 +8,7 @@ import type { FetchResult, GameMetadata, PerformanceTiming } from '../base/types
 import type { NetworkManager } from '../../../../infrastructure/network/core/NetworkManager';
 import type { ISnifferProvider } from '../../../../infrastructure/network/interfaces/ISnifferProvider';
 import type { WsMessageData } from '../../../../infrastructure/network/interfaces/SnifferTypes';
+import { parseSGF } from '../../../../domain/sgf';
 
 /** 着法信息 */
 export interface Move {
@@ -755,27 +756,27 @@ export abstract class FoxwqLiveProviderBase extends BaseProvider {
   }
 
   /**
-   * 解析 SGF 元数据
+   * 从 SGF 提取元数据（使用 domain/sgf 接口）
    */
-  protected parseSgfMetadata(sgf: string): GameMetadata {
-    const getTag = (tag: string): string => {
-      const match = sgf.match(new RegExp(`${tag}\\[([^\\]]*)\\]`));
-      return match && match[1] ? match[1] : '';
-    };
-
+  protected sgfToMetadata(sgf: string, source?: string): GameMetadata {
+    const result = parseSGF(sgf);
+    const info = result.gameInfo;
+    // domain 默认 komi='375'（表示 3.75），foxwq 原默认 6.5
+    const komiNum = parseFloat(info.komi);
+    const komi = (info.komi === '375' || isNaN(komiNum)) ? 6.5 : komiNum;
     return {
-      source: this.name,
-      gameId: getTag('GC') || '',
-      blackName: getTag('PB') || '黑方',
-      whiteName: getTag('PW') || '白方',
-      width: parseInt(getTag('SZ') || '19', 10),
-      height: parseInt(getTag('SZ') || '19', 10),
-      komi: parseFloat(getTag('KM') || '6.5'),
-      handicap: parseInt(getTag('HA') || '0', 10),
-      rules: getTag('RU') || 'chinese',
-      date: getTag('DT') || '',
-      result: getTag('RE') || '',
-      movesCount: this.countMoves(sgf),
+      source: source ?? this.name,
+      gameId: info.gameName || '',
+      blackName: info.black || '黑方',
+      whiteName: info.white || '白方',
+      width: info.boardSize,
+      height: info.boardSize,
+      komi,
+      handicap: info.handicap,
+      rules: info.rules || 'chinese',
+      date: info.date || '',
+      result: info.result || '',
+      movesCount: result.moves.length,
     };
   }
 
@@ -843,8 +844,4 @@ export abstract class FoxwqLiveProviderBase extends BaseProvider {
     return decoder.decode(bytes);
   }
 
-  private countMoves(sgf: string): number {
-    const matches = sgf.match(/[BW]\[[^\]]*\]/g);
-    return matches ? matches.length : 0;
-  }
 }

@@ -153,7 +153,7 @@ export class FoxwqJueyiLiveProvider extends FoxwqLiveProviderBase {
     }
 
     // 解析元数据
-    const metadata = this.parseSgfMetadata(sgfContent);
+    const metadata = this.sgfToMetadata(sgfContent);
     metadata.source = this.name;
     metadata.isEnded = !!metadata.result;
     metadata.isLive = !metadata.isEnded;

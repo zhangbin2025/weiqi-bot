@@ -47,20 +47,20 @@
 | # | 文件 | 解析内容 | 优先级 | 改动建议 |
 |---|------|----------|--------|----------|
 | 23 | `services/game/providers/goproblems/GoProblemsProvider.ts` | ✅ 已改用 `parseSGF()`，删除手写解析器 | ✅ 完成 | — |
-| 24 | `services/game/providers/foxwq/FoxwqLiveProviderBase.ts` | `parseSgfMetadata()` 正则提取 PB/PW/SZ/KM/HA/RU/DT/RE | 🟡 中 | 改用 `parseSGF().gameInfo` |
-| 25 | `services/game/providers/foxwq/FoxwqShareProvider.ts` | `parseSgfMetadata()` + `countMoves()` 正则 | 🟡 中 | 改用 `parseSGF().gameInfo` + `.moves.length` |
+| 24 | `services/game/providers/foxwq/FoxwqLiveProviderBase.ts` | ✅ 已改用 `parseSGF().gameInfo`，删除 `parseSgfMetadata()` + `countMoves()` | ✅ 完成 | — |
+| 25 | `services/game/providers/foxwq/FoxwqShareProvider.ts` | ✅ 已改用 `parseSGF().gameInfo` + `.moves.length`，删除 `parseSgfMetadata()` + `countMoves()` | ✅ 完成 | — |
 | 26 | `services/game/providers/izis/IzisParser.ts` | `parseSgfMetadata()` 正则提取元数据 + 手数 | 🟡 中 | 改用 `parseSGF().gameInfo` + `.moves.length` |
 | 27 | `services/game/providers/txwq/TxwqParser.ts` | `countMoves()` 正则统计 `[BW][xx]` | 🟡 中 | 改用 `parseSGF().moves.length` |
 | 28 | `services/game/providers/xinboduiyi/XinboduiyiParser.ts` | `parseMoves()` 正则提取 `[BW][XX]` + 坐标转换 | 🟡 中 | 需评估：有自定义坐标旋转逻辑 |
 | 29 | `services/game/providers/yuanluobo/YuanluoboProvider.ts` | `parseMoves()` 正则提取 `([BW])([a-z]{2})` | 🟡 中 | 改用 `parseSGF().moves` |
 | 30 | `presentation/adapters/web/pages/play/renderers/HHGameDialogRenderer.ts` | `countMovesFromSGF()` 正则统计 `B[` + `W[` | 🟢 低 | 改用 `parseSGF().moves.length` |
-| 31 | `services/game/providers/foxwq/FoxwqJueyiLiveProvider.ts` | 调用继承的 `parseSgfMetadata()` | 🟡 中 | 随 #24 改动后自动生效 |
+| 31 | `services/game/providers/foxwq/FoxwqJueyiLiveProvider.ts` | ✅ 调用继承的 `sgfToMetadata()`（原 `parseSgfMetadata()`） | ✅ 完成 | — |
 
 ## 统计
 
-- 已用 domain 接口：21 个文件 ✅（#23 已完成）
+- 已用 domain 接口：21 个文件 ✅（#23、#24-25、#31 已完成）
 - 有 fallback 正则：2 个文件 ⚠️
-- 自己写解析逻辑：8 个文件 ❌（#23 已消除 ~200 行）
+- 自己写解析逻辑：5 个文件 ❌（#24-25、#31 已消除 ~40 行正则解析）
 
 ## 整改原则
 
@@ -75,10 +75,14 @@
 
 1. ✅ ~~#22 ReplayHelper~~ → DecisionReplayHelper — 已完成（2026-10-01，commit 0e0fef7）
 2. ✅ #23 GoProblemsProvider — 手写解析器 → domain 接口（2026-10-01，commit f68a7da）
-3. 🟡 #24-27 Foxwq/IZIS/Txwq — 正则元数据提取 → domain 接口
-4. 🟡 #28-29 Xinboduiyi/Yuanluobo — 评估后整改
-5. 🟢 #30 HHGameDialogRenderer — 简单手数统计
-6. ⚠️ #21-22 ReviewPage/LiveModeManager — 清理正则 fallback
+3. ✅ ~~#22 ReplayHelper~~ → DecisionReplayHelper — 已完成（2026-10-01，commit 0e0fef7）
+4. ✅ #23 GoProblemsProvider — 手写解析器 → domain 接口（2026-10-01，commit f68a7da）
+5. ✅ #24-25 FoxwqLiveProviderBase/FoxwqShareProvider — 正则元数据提取 → domain 接口（2026-10-01）
+6. ✅ #31 FoxwqJueyiLiveProvider — 随 #24 改动自动生效
+7. 🟡 #26-27 IZIS/Txwq — 正则元数据提取 → domain 接口
+8. 🟡 #28-29 Xinboduiyi/Yuanluobo — 评估后整改
+9. 🟢 #30 HHGameDialogRenderer — 简单手数统计
+10. ⚠️ #21-22 ReviewPage/LiveModeManager — 清理正则 fallback
 
 ## 整改记录
 
@@ -92,6 +96,17 @@
   - **改名原因**：原名称与 `clients/web/replay` 页面容易混淆，实际唯一调用方是决策题页面（`DecisionPage`）
   - 新增 20 个单测，全量 2071 测试通过
   - 删减净 ~230 行手写解析逻辑
+
+### ✅ #24-25 FoxwqLiveProviderBase/FoxwqShareProvider — 正则元数据提取 → domain 接口（2026-10-01）
+
+- **改动**:
+  - `FoxwqLiveProviderBase.ts`：删除 `parseSgfMetadata()`（正则逐字段提取 PB/PW/SZ/KM/HA/RU/DT/RE）+ `countMoves()`（正则统计 `[BW][xx]`），新增 `sgfToMetadata()` 调用 `parseSGF().gameInfo` + `.moves.length`
+  - `FoxwqShareProvider.ts`：同样删除两个方法，新增 `sgfToMetadata()` 调用 `parseSGF()`
+  - `FoxwqJueyiLiveProvider.ts`：调用点从 `parseSgfMetadata()` 改为 `sgfToMetadata()`
+  - 新增 `FoxwqSgfMetadata.test.ts`：29 个单测覆盖标准 SGF、让子棋、缺失字段、Pass 着法、直播生成 SGF 回解析、空/异常输入
+  - **komi 类型适配**：domain 返回 `string`（默认 `'375'`），转换层用 `parseFloat` + 特判 domain 默认值 `'375'` 回退到 foxwq 默认 `6.5`；`KM[0]` 正确处理（0 是 falsy，改用 `isNaN` 判断）
+  - 删减净 ~40 行正则解析逻辑
+  - 全量 2135 测试通过
 
 ### ✅ #23 GoProblemsProvider — 手写解析器 → domain 接口（2026-10-01）
 

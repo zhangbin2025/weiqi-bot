@@ -14,6 +14,7 @@ import type { ISnifferProvider } from '../../../../infrastructure/network/interf
 import { FoxwqChessProvider } from './FoxwqChessProvider';
 import { FoxwqPublicProvider } from './FoxwqPublicProvider';
 import { FoxwqJueyiLiveProvider } from './FoxwqJueyiLiveProvider';
+import { parseSGF } from '../../../../domain/sgf';
 
 /**
  * 野狐分享链接提供者
@@ -71,7 +72,7 @@ export class FoxwqShareProvider extends BaseProvider {
       if (url.includes('qipu')) {
         const detail = await this.publicProvider.fetchPublicQipuSgf(url);
         if (detail.sgf) {
-          const metadata = this.parseSgfMetadata(detail.sgf);
+          const metadata = this.sgfToMetadata(detail.sgf);
           timing.total = this.now() - startTime;
           return {
             success: true,
@@ -128,7 +129,7 @@ export class FoxwqShareProvider extends BaseProvider {
     try {
       const sgf = await this.chessProvider.fetchSGF(chessId);
       if (sgf) {
-        const metadata = this.parseSgfMetadata(sgf);
+        const metadata = this.sgfToMetadata(sgf);
         timing.total = this.now() - startTime;
         return {
           success: true,
@@ -170,30 +171,25 @@ export class FoxwqShareProvider extends BaseProvider {
     }
   }
 
-  private parseSgfMetadata(sgf: string): GameMetadata {
-    const getTag = (tag: string): string => {
-      const match = sgf.match(new RegExp(`${tag}\\[([^\\]]*)\\]`));
-      return match ? match[1]! : '';
-    };
-
+  private sgfToMetadata(sgf: string): GameMetadata {
+    const result = parseSGF(sgf);
+    const info = result.gameInfo;
+    // domain 默认 komi='375'（表示 3.75），foxwq 原默认 6.5
+    const komiNum = parseFloat(info.komi);
+    const komi = (info.komi === '375' || isNaN(komiNum)) ? 6.5 : komiNum;
     return {
       source: this.name,
-      gameId: getTag('GC') || '',
-      blackName: getTag('PB') || '黑方',
-      whiteName: getTag('PW') || '白方',
-      width: parseInt(getTag('SZ') || '19', 10),
-      height: parseInt(getTag('SZ') || '19', 10),
-      komi: parseFloat(getTag('KM') || '6.5'),
-      handicap: parseInt(getTag('HA') || '0', 10),
-      rules: getTag('RU') || 'chinese',
-      date: getTag('DT') || '',
-      result: getTag('RE') || '',
-      movesCount: this.countMoves(sgf),
+      gameId: info.gameName || '',
+      blackName: info.black || '黑方',
+      whiteName: info.white || '白方',
+      width: info.boardSize,
+      height: info.boardSize,
+      komi,
+      handicap: info.handicap,
+      rules: info.rules || 'chinese',
+      date: info.date || '',
+      result: info.result || '',
+      movesCount: result.moves.length,
     };
-  }
-
-  private countMoves(sgf: string): number {
-    const matches = sgf.match(/[BW]\[[^\]]*\]/g);
-    return matches ? matches.length : 0;
   }
 }
