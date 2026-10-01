@@ -2,7 +2,7 @@
 
 > 调查日期：2026-09-30
 > 最后更新：2026-10-01
-> 状态：整改中（#22 已完成）
+> 状态：整改中（#22、#23 已完成）
 
 ## 背景
 
@@ -46,7 +46,7 @@
 
 | # | 文件 | 解析内容 | 优先级 | 改动建议 |
 |---|------|----------|--------|----------|
-| 23 | `services/game/providers/goproblems/GoProblemsProvider.ts` | 手写 tokenizer + 树解析器（~200 行），自定义 `SgfNode` 类型 | 🔴 高 | 改用 `SGFParser.parse()` |
+| 23 | `services/game/providers/goproblems/GoProblemsProvider.ts` | ✅ 已改用 `parseSGF()`，删除手写解析器 | ✅ 完成 | — |
 | 24 | `services/game/providers/foxwq/FoxwqLiveProviderBase.ts` | `parseSgfMetadata()` 正则提取 PB/PW/SZ/KM/HA/RU/DT/RE | 🟡 中 | 改用 `parseSGF().gameInfo` |
 | 25 | `services/game/providers/foxwq/FoxwqShareProvider.ts` | `parseSgfMetadata()` + `countMoves()` 正则 | 🟡 中 | 改用 `parseSGF().gameInfo` + `.moves.length` |
 | 26 | `services/game/providers/izis/IzisParser.ts` | `parseSgfMetadata()` 正则提取元数据 + 手数 | 🟡 中 | 改用 `parseSGF().gameInfo` + `.moves.length` |
@@ -58,9 +58,9 @@
 
 ## 统计
 
-- 已用 domain 接口：20 个文件 ✅
+- 已用 domain 接口：21 个文件 ✅（#23 已完成）
 - 有 fallback 正则：2 个文件 ⚠️
-- 自己写解析逻辑：9 个文件 ❌（预计可消除重复代码 ~200+ 行）
+- 自己写解析逻辑：8 个文件 ❌（#23 已消除 ~200 行）
 
 ## 整改原则
 
@@ -74,7 +74,7 @@
 ## 整改顺序
 
 1. ✅ ~~#22 ReplayHelper~~ → DecisionReplayHelper — 已完成（2026-10-01，commit 0e0fef7）
-2. 🔴 #23 GoProblemsProvider — 手写解析器 → domain 接口
+2. ✅ #23 GoProblemsProvider — 手写解析器 → domain 接口（2026-10-01，commit f68a7da）
 3. 🟡 #24-27 Foxwq/IZIS/Txwq — 正则元数据提取 → domain 接口
 4. 🟡 #28-29 Xinboduiyi/Yuanluobo — 评估后整改
 5. 🟢 #30 HHGameDialogRenderer — 简单手数统计
@@ -92,3 +92,15 @@
   - **改名原因**：原名称与 `clients/web/replay` 页面容易混淆，实际唯一调用方是决策题页面（`DecisionPage`）
   - 新增 20 个单测，全量 2071 测试通过
   - 删减净 ~230 行手写解析逻辑
+
+### ✅ #23 GoProblemsProvider — 手写解析器 → domain 接口（2026-10-01）
+
+- **commit**: `f68a7da`
+- **改动**:
+  - 删除 ~200 行手写 SGF tokenizer/解析器（`tokenize`/`parseSgf`/`parseSequence`/`parseNodeProperties`/`findClosingParen`）
+  - 删除自定义 `SgfNode` 接口，统一使用 `ISGFNode`
+  - 删除正则提取方法（`extractBoardSize`/`extractStones`/`extractPlayerColor`），改用 `parseSGF()` 结果
+  - 保留 goproblems 特有分支分类逻辑（RIGHT/CHOICE/NOTTHIS → 正解图/变化图/失败图），适配 `ISGFNode` 树结构
+  - `collectMoves` 从 `next` 链改为 `children[0]` 链
+  - 新增 35 个单测，全量 2106 测试通过
+  - 删减净 196 行（77 增 / 273 删）
