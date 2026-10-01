@@ -28,10 +28,18 @@ export function formatGameResult(result?: string): string {
 
   if (specialResults[result]) return specialResults[result];
 
+  // 带数字的结果：B+2.5, W+10 等
   const match = result.match(/^([BW])\+([\d.]+)$/);
   if (match) {
     const winner = match[1] === "B" ? "黑" : "白";
     return `${winner}胜${match[2]}目`;
+  }
+
+  // 无数字的结果：B+, W+ 等（胜方已知但具体目数未知）
+  const bareMatch = result.match(/^([BW])\+$/);
+  if (bareMatch) {
+    const winner = bareMatch[1] === "B" ? "黑" : "白";
+    return `${winner}胜`;
   }
 
   return result;
