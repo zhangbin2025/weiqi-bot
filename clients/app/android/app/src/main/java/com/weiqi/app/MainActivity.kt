@@ -610,6 +610,15 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoView.
             // 自动恢复有概率失效（compositor 未重新挂载 → 黑屏），此处主动 setSession 强制重连。
             // setSession 不触发页面 reload，只重建 view<->session 的 compositor 绑定。
             geckoView.setSession(session)
+            // 延迟重挂：SurfaceView 的 Surface 在 onResume 后异步创建（通常 100-300ms）。
+            // 上面的 setSession 执行时 Surface 尚未就绪，compositor 可能挂到空 Surface。
+            // 延迟 300ms 后 Surface 已创建，再次 setSession 确保 compositor 正确挂载出图。
+            // 修复「切回前台偶发黑屏，按几下屏幕才出图」的残留问题。
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (!isDestroyed && session.isOpen) {
+                    geckoView.setSession(session)
+                }
+            }, 300)
         } else if (session != null && geckoRuntime != null) {
             // 兜底：session 未 open（理论上 onStart 已处理）
             try {
