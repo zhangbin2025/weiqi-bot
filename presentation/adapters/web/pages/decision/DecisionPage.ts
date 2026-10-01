@@ -9,7 +9,7 @@ import { VariationViewer } from './VariationViewer';
 import { DecisionController } from '../../../../core/controllers/DecisionController';
 import { MoveNavigator } from '../../../../core/controllers/MoveNavigator';
 import { TrialController, type TrialMove } from '../../../../core/controllers/TrialController';
-import { ReplayHelper } from '../../../../core/helpers/ReplayHelper';
+import { DecisionReplayHelper } from '../../../../core/helpers/DecisionReplayHelper';
 import { BoardRebuilder, type MoveNumber } from '../../../../core/helpers/BoardRebuilder';
 import { BoardSyncer } from '../../../../core/helpers/BoardSyncer';
 import { Game } from '../../../../../domain/game';
@@ -103,7 +103,7 @@ export class DecisionPage implements IPage {
     this.currentProblem = problem;
     // 1. 从题目位置生成SGF并解析
     const sgf = this.buildSGFFromPosition(problem.position);
-    const replayData = ReplayHelper.generateReplayData(sgf, {}, problem.metadata.moveNumber);
+    const replayData = DecisionReplayHelper.generateReplayData(sgf, {}, problem.metadata.moveNumber);
     // 2. 重建棋盘到题目局面
     this.moveNumbersList = BoardRebuilder.rebuild(
       this.game,
