@@ -7,6 +7,7 @@ import type { ReplayApp } from '../../../../../../application/replay';
 import type { ReplayData, ReplayNode } from '../../../../../../domain/sgf';
 import type { ReplayPageState } from '../state/ReplayPageState';
 import type { MoveNavigator } from '../../../../../core/controllers';
+import { formatGameResult } from '../../../../../../domain/game/GameResult';
 export class ReplayDataManager {
   constructor(
     private state: ReplayPageState,
@@ -99,18 +100,8 @@ export class ReplayDataManager {
    * 翻译胜负结果
    */
   translateResult(result: string): string {
-    if (!result) return '';
-    result = result.trim();
-    if (result === '0' || result === 'Draw' || result === 'Void') return '和棋';
-    if (result === 'B+R' || result === 'B+Resign') return '黑中盘胜';
-    if (result === 'W+R' || result === 'W+Resign') return '白中盘胜';
-    if (result === 'B+T' || result === 'B+Time') return '黑超时胜';
-    if (result === 'W+T' || result === 'W+Time') return '白超时胜';
-    const match = result.match(/^B\+(\d+\.?\d*)$/);
-    if (match) return '黑胜' + match[1] + '目';
-    const matchW = result.match(/^W\+(\d+\.?\d*)$/);
-    if (matchW) return '白胜' + matchW[1] + '目';
-    return result;
+    // 使用 domain 层 formatGameResult 统一翻译
+    return formatGameResult(result);
   }
   /**
    * 计算最大手数（只计算主分支）
