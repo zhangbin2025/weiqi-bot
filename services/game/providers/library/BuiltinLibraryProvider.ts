@@ -96,6 +96,25 @@ export interface BuiltinLibraryGameItem {
 }
 
 /**
+ * 从 SGF 内容中提取难度级别（PW 字段）。
+ * 内置死活题的 PW 字段存储难度，如 5D、2K、15K、10K+ 等。
+ */
+function extractDifficulty(sgfContent: string): string {
+  const m = sgfContent.match(/PW\[([^\]]+)\]/);
+  return m ? m[1]! : '';
+}
+
+/**
+ * 判断难度是否匹配关键字。
+ * 支持模糊匹配：输入 "5k" 可匹配 "5K"、"15K"、"25K" 等（包含即匹配）。
+ * 输入为空时始终匹配。
+ */
+function difficultyMatches(difficulty: string, keyword: string): boolean {
+  if (!keyword) return true;
+  return difficulty.toUpperCase().startsWith(keyword.toUpperCase());
+}
+
+/**
  * 归档读取器：负责 index.json.gz 与 .tar.bz2 的下载、解压、内存缓存。
  */
 export class BuiltinLibraryArchiveProvider {
@@ -192,22 +211,34 @@ export class BuiltinLibraryProvider extends BaseProvider {
 
   /**
    * 展开某分类的「最新」列表（供 FetcherApp.fetchLatestGames 使用）。
-   * title="#N"，subtitle 为 md5(id)（可追溯），date 为包日期。
+   * 死活题（life-and-death）的 subtitle 为难度级别（从 SGF PW 字段提取），
+   * 棋谱（ai-review）的 subtitle 为 md5(id)。
+   * @param keyword - 可选关键字过滤（如难度 "5K"、"2D"），仅对死活题生效
    */
-  async listGameItems(category: string, count?: number): Promise<BuiltinLibraryGameItem[]> {
+  async listGameItems(category: string, count?: number, keyword?: string): Promise<BuiltinLibraryGameItem[]> {
+    const kw = keyword?.trim() || '';
     const dates = await this.archive.listDates(category);
     const results: BuiltinLibraryGameItem[] = [];
+    const isLifeAndDeath = category === 'life-and-death';
     for (const date of dates) {
       if (count && results.length >= count) break;
       try {
         const games = await this.archive.fetchGamesByDate(category, date);
         for (let i = 0; i < games.length; i++) {
           if (count && results.length >= count) break;
-          const id = games[i]!.filename.replace(/\.sgf$/i, '');
+          const entry = games[i]!;
+          const id = entry.filename.replace(/\.sgf$/i, '');
+          // 死活题：从 SGF 提取难度作为 subtitle，并按关键字过滤
+          let subtitle = id;
+          if (isLifeAndDeath) {
+            const difficulty = extractDifficulty(entry.sgfContent);
+            if (kw && !difficultyMatches(difficulty, kw)) continue;
+            subtitle = difficulty || id;
+          }
           results.push({
-            source: category === 'life-and-death' ? 'lib-life-death' : 'lib-ai-review',
+            source: isLifeAndDeath ? 'lib-life-death' : 'lib-ai-review',
             title: '#' + (i + 1),
-            subtitle: id,
+            subtitle,
             date,
             url: `lib://${category}/${date}/${i}`,
           });

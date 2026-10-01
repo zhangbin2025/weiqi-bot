@@ -198,7 +198,7 @@ export class FetcherApp {
         if (!registry) return [];
         const libProvider = registry.getLibraryProvider?.();
         if (!libProvider) return [];
-        const items = await libProvider.listGameItems(category, count);
+        const items = await libProvider.listGameItems(category, undefined, kw || undefined);
         return items.map((item: any) => ({
           source,
           title: item.title,
