@@ -23,31 +23,34 @@ export interface JosekiListRendererConfig {
  */
 export class JosekiListRenderer {
   constructor(private config: JosekiListRendererConfig) {}
-  /** 渲染过滤标签 */
+  /** 渲染过滤下拉框 */
   renderFilterTabs(patterns: IJosekiPattern[], currentFilter: string): void {
     const container = document.getElementById('filter-tabs');
     if (!container) return;
     const counts = this.config.filterManager.getCounts(patterns);
-    const tabs = [
+    const options = [
       { id: 'all', label: `全部`, count: counts.all },
       { id: 'hot', label: `🔥热门`, count: counts.hot },
       { id: 'hit', label: `🎯命中`, count: counts.hit },
       { id: 'complex', label: `🧩复杂`, count: counts.complex },
     ];
-    container.innerHTML = tabs.map(tab => `
-      <button class="filter-tab ${currentFilter === tab.id ? 'active' : ''}" data-filter="${tab.id}">
-        ${tab.label} <span class="count">${tab.count}</span>
-      </button>
-    `).join('');
-    container.querySelectorAll('.filter-tab').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const filter = (btn as HTMLElement).dataset['filter'];
-        if (filter) {
-          this.config.filterManager.setFilter(filter as any);
-          this.render(patterns);
-        }
+    container.innerHTML = `
+      <select class="filter-select" id="filter-select">
+        ${options.map(opt => `
+          <option value="${opt.id}" ${currentFilter === opt.id ? 'selected' : ''}>
+            ${opt.label} (${opt.count})
+          </option>
+        `).join('')}
+      </select>
+    `;
+    const selectEl = container.querySelector('#filter-select') as HTMLSelectElement;
+    if (selectEl) {
+      selectEl.addEventListener('change', () => {
+        const filter = selectEl.value;
+        this.config.filterManager.setFilter(filter as any);
+        this.render(patterns);
       });
-    });
+    }
   }
   /** 渲染列表 */
   render(patterns: IJosekiPattern[]): void {
