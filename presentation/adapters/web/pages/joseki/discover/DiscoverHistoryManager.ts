@@ -41,6 +41,7 @@ export class DiscoverHistoryManager {
       const sourceMap: Record<string, { icon: string; text: string }> = {
         foxwq: { icon: '🦊', text: '野狐棋谱' },
         katago: { icon: '🤖', text: 'KataGo棋谱' },
+        lib: { icon: '📚', text: '内置棋谱' },
         local: { icon: '📁', text: '导入棋谱' },
       };
       const sourceInfo = sourceMap[record.source] || { icon: '📁', text: '导入棋谱' };
