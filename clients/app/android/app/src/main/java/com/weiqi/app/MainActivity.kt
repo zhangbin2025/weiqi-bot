@@ -605,20 +605,19 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoView.
 
         val session = geckoSession
         if (session != null && session.isOpen) {
-            // 切回前台时重新挂载 session 到 GeckoView，确保 compositor 重新连接 Surface。
-            // GeckoView 的 SurfaceView 在切后台时 Surface 被销毁，切回前台时异步重建。
-            // 自动恢复有概率失效（compositor 未重新挂载 → 黑屏），此处主动 setSession 强制重连。
-            // setSession 不触发页面 reload，只重建 view<->session 的 compositor 绑定。
+            // 切回前台时强制重建 compositor 绑定。
+            //
+            // 根因：GeckoView.setSession(session) 字节码中，若传入 session 与 mSession
+            // 是同一引用则直接 return（no-op）。所以单纯调 setSession 无法重挂 compositor。
+            //
+            // 修复：先 releaseSession() 释放 display（分离 compositor 与 Surface），
+            // 再 setSession(session) 重新 acquire display，compositor 会重新挂载到
+            // SurfaceView 当前/即将创建的 Surface 上。
+            // 不触发页面 reload，页面状态完整保留。
+            // coverUntilFirstPaint 保证首帧绘制前显示白色而非黑屏。
+            geckoView.releaseSession()
             geckoView.setSession(session)
-            // 延迟重挂：SurfaceView 的 Surface 在 onResume 后异步创建（通常 100-300ms）。
-            // 上面的 setSession 执行时 Surface 尚未就绪，compositor 可能挂到空 Surface。
-            // 延迟 300ms 后 Surface 已创建，再次 setSession 确保 compositor 正确挂载出图。
-            // 修复「切回前台偶发黑屏，按几下屏幕才出图」的残留问题。
-            Handler(Looper.getMainLooper()).postDelayed({
-                if (!isDestroyed && session.isOpen) {
-                    geckoView.setSession(session)
-                }
-            }, 300)
+            geckoView.coverUntilFirstPaint(FALLBACK_COLOR)
         } else if (session != null && geckoRuntime != null) {
             // 兜底：session 未 open（理论上 onStart 已处理）
             try {
