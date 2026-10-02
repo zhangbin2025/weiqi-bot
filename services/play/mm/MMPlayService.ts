@@ -163,15 +163,20 @@ export class MMPlayService implements IMMPlayService {
     if (this.config) this.config.visits = visits;
   }
 
-  exportSgf(): string {
+  exportSgf(result?: string): string {
     const moves = this.stateManager.getMoveHistory();
-    const scores = this.stateManager.getScores();
-    const blackScore = scores.black ?? 0;
-    const whiteScore = scores.white ?? 0;
-    const result =
-      blackScore > whiteScore
-        ? `B+${(blackScore - whiteScore).toFixed(1)}`
-        : `W+${(whiteScore - blackScore).toFixed(1)}`;
+
+    // 如果外部传入了数目结果（来自 KataGo finalScore），直接使用
+    // 否则 fallback 到提子数比较（不精确，仅用于无 AI 数目时的兜底）
+    if (!result) {
+      const scores = this.stateManager.getScores();
+      const blackScore = scores.black ?? 0;
+      const whiteScore = scores.white ?? 0;
+      result =
+        blackScore > whiteScore
+          ? `B+${(blackScore - whiteScore).toFixed(1)}`
+          : `W+${(whiteScore - blackScore).toFixed(1)}`;
+    }
 
     return this.sgfWriter.write(moves as any, {
       size: 19,

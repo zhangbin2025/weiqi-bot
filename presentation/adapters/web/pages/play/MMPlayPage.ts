@@ -589,7 +589,7 @@ export class MMPlayPage implements IPage {
    */
   private async saveGame(result: MMGameEndResult): Promise<void> {
     try {
-      const sgf = this.mmPlayApp.exportSgf();
+      const sgf = this.mmPlayApp.exportSgf(result.sgfResult);
       const state = this.mmPlayApp.getState();
       
       if (this.historyManager) {

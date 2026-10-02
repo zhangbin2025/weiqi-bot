@@ -112,7 +112,7 @@ export interface IMMPlayService {
   /**
    * 导出 SGF
    */
-  exportSgf(): string;
+  exportSgf(result?: string): string;
 
   /**
    * 保存草稿

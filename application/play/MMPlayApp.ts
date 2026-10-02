@@ -168,7 +168,7 @@ export class MMPlayApp {
   /** 从草稿恢复 */
   restoreFromDraft = (draft: any) => this.requirePlay().restoreFromDraft(draft);
   // ========== SGF 导出 ==========
-  exportSgf = (): string => this.requirePlay().exportSgf();
+  exportSgf = (result?: string): string => this.requirePlay().exportSgf(result);
   // ========== 形势判断和数目 ==========
   /**
    * 形势判断
