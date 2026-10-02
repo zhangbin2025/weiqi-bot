@@ -49,6 +49,9 @@ export class AssistantRenderer implements IMessageRenderer {
     }
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
+    if (text.includes('\n')) {
+      contentDiv.classList.add('multi-line');
+    }
     if (intent && !isUser) {
       const badge = document.createElement('span');
       badge.className = 'intent-badge';
@@ -571,6 +574,9 @@ export class AssistantRenderer implements IMessageRenderer {
     
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
+    if (text.includes('\n')) {
+      contentDiv.classList.add('multi-line');
+    }
     
     if (intent && !isUser) {
       const badge = document.createElement('span');
@@ -823,6 +829,9 @@ export class AssistantRenderer implements IMessageRenderer {
     
     // 存储 markdown 内容，用于下次比较
     contentDiv.setAttribute('data-markdown-content', content);
+    if (content.includes('\n')) {
+      contentDiv.classList.add('multi-line');
+    }
     
     // 渲染 markdown 内容
     const markdownDiv = contentDiv.querySelector('.markdown-content');
@@ -913,7 +922,11 @@ export class AssistantRenderer implements IMessageRenderer {
     if (chatContainer) {
       const lastMessage = chatContainer.lastElementChild as HTMLElement;
       if (lastMessage) {
-        lastMessage.querySelector('.message-content')?.appendChild(countdownDiv);
+        const contentDiv = lastMessage.querySelector('.message-content');
+        if (contentDiv) {
+          contentDiv.appendChild(countdownDiv);
+          contentDiv.classList.add('multi-line');
+        }
         lastMessage.scrollIntoView({ behavior: 'smooth', block: 'end' });
       }
     }
