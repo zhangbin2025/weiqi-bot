@@ -37,8 +37,6 @@ export function updateStats(moveCount: number, blackCaptures: number, whiteCaptu
  * 更新按钮状态
  */
 export function updateButtons(isPlayerTurn: boolean, isEnded: boolean, canUndo: boolean): void {
-  const situationBtn = document.getElementById('situationBtn') as HTMLButtonElement;
-  if (situationBtn) situationBtn.disabled = isEnded;
   // 注意：悔棋、停一手、认输按钮已经移到菜单中，由 hm.ts 的 onUpdateButtons 回调更新
 }
 /**

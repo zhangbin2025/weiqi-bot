@@ -66,7 +66,6 @@ export class HMEventBinder {
    */
   private bindToolbarEvents(): void {
     const confirmBtn = document.getElementById('confirmBtn');
-    const situationBtn = document.getElementById('situationBtn');
 
     // 菜单中的按钮
     const menuUndoBtn = document.getElementById('menuUndoBtn');
@@ -76,10 +75,6 @@ export class HMEventBinder {
     // 工具栏按钮
     confirmBtn?.addEventListener('click', () => {
       this.config.page.confirmMove();
-    });
-
-    situationBtn?.addEventListener('click', () => {
-      this.config.page.showSituation();
     });
 
     // 菜单按钮事件
@@ -113,13 +108,6 @@ export class HMEventBinder {
    * 绑定弹框按钮事件
    */
   private bindDialogEvents(): void {
-    // 关闭形势判断弹框
-    const closeSituationBtn = document.getElementById('closeSituationBtn');
-    closeSituationBtn?.addEventListener('click', () => {
-      const dialog = document.getElementById('situationDialog');
-      if (dialog) dialog.style.display = 'none';
-    });
-
     // 确认对话框按钮
     const confirmCancelBtn = document.getElementById('confirmCancelBtn');
     const confirmOkBtn = document.getElementById('confirmOkBtn');

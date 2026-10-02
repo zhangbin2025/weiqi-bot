@@ -64,21 +64,14 @@ export class HMUIUpdater {
    * 更新按钮状态
    */
   private updateButtonStates(state: GameState): void {
-    const situationBtn = document.getElementById('situationBtn') as HTMLButtonElement;
-
     // 菜单中的按钮
     const menuUndoBtn = document.getElementById('menuUndoBtn') as HTMLButtonElement;
     const menuPassBtn = document.getElementById('menuPassBtn') as HTMLButtonElement;
     const menuResignBtn = document.getElementById('menuResignBtn') as HTMLButtonElement;
 
-    if (!situationBtn) return;
-
     switch (state) {
       case 'idle':
       case 'loading':
-        // 形势判断按钮禁用
-        situationBtn.disabled = true;
-
         // 禁用菜单按钮
         if (menuUndoBtn) menuUndoBtn.disabled = true;
         if (menuPassBtn) menuPassBtn.disabled = true;
@@ -86,9 +79,6 @@ export class HMUIUpdater {
         break;
 
       case 'running':
-        // 形势判断按钮启用
-        situationBtn.disabled = false;
-
         // 启用菜单按钮(悔棋根据 noUndo 设置)
         if (menuUndoBtn) menuUndoBtn.disabled = this.currentOptions?.noUndo ?? false;
         if (menuPassBtn) menuPassBtn.disabled = false;
@@ -96,9 +86,6 @@ export class HMUIUpdater {
         break;
 
       case 'ended':
-        // 形势判断按钮禁用
-        situationBtn.disabled = true;
-
         // 禁用菜单按钮
         if (menuUndoBtn) menuUndoBtn.disabled = true;
         if (menuPassBtn) menuPassBtn.disabled = true;

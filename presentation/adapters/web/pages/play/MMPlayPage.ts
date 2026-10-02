@@ -91,7 +91,7 @@ export class MMPlayPage implements IPage {
     
     // 设置回调监听自对弈落子
     this.mmPlayApp.setCallbacks({
-      onMove: (x: number, y: number, color: PlayerColor, moveNum: number, captured?: Array<{x: number; y: number}>) => {
+      onMove: (x: number, y: number, color: PlayerColor, moveNum: number, captured?: Array<{x: number; y: number}>, winRate?: number, scoreLead?: number) => {
         // 处理 pass（停一手）
         if (x === -1 && y === -1) {
           updateStatus(`${color === 'black' ? '黑方' : '白方'} 停一手`);
@@ -124,6 +124,11 @@ export class MMPlayPage implements IPage {
         // 立即更新手数和提子数显示
         const state = this.mmPlayApp.getState();
         this.renderStats(state);
+        
+        // 更新副标题显示胜率和目差
+        if (winRate !== undefined && scoreLead !== undefined) {
+          this.updateSubtitleWithScore(winRate, scoreLead);
+        }
       },
       onPlayerChange: (player: PlayerColor) => {
         updatePlayerIndicator(player);
@@ -171,7 +176,6 @@ export class MMPlayPage implements IPage {
       mmPlayApp: this.mmPlayApp,
       getGameState: () => this.gameState,
       setGameState: (state) => this.setGameState(state as MMGameState),
-      showSituationDialog: () => this.showSituationDialog(),
       handleEarlyStop: () => this.handleEarlyStop(),
     });
     
@@ -406,6 +410,35 @@ export class MMPlayPage implements IPage {
   }
 
   /**
+   * 更新副标题显示胜率和目差
+   */
+  private updateSubtitleWithScore(blackWinRate: number, blackScoreLead: number): void {
+    const subtitle = document.getElementById('modelInfo');
+    if (!subtitle) return;
+    
+    const blackPercent = Math.round(blackWinRate * 100);
+    const leader = blackScoreLead > 0 ? '黑' : '白';
+    const lead = Math.abs(blackScoreLead).toFixed(1);
+    
+    // 保留模型信息前缀，追加胜率信息
+    const baseText = this.getModelInfoBaseText();
+    subtitle.textContent = `${baseText} | ${leader}领先${lead}目 黑胜率${blackPercent}%`;
+  }
+
+  /**
+   * 获取模型信息基础文本（不含胜率）
+   */
+  private getModelInfoBaseText(): string {
+    if (this.currentOptions) {
+      const model = this.modelCards.find(m => m.id === this.currentOptions.modelId);
+      const modelName = model?.name || this.currentOptions.modelId;
+      const speed = this.currentOptions.speed || 'normal';
+      return `${modelName} · ${this.currentOptions.visits} visits`;
+    }
+    return this.modelId || 'AI自对弈';
+  }
+
+  /**
    * 设置游戏状态
    */
   private setGameState(state: MMGameState): void {
@@ -444,45 +477,6 @@ export class MMPlayPage implements IPage {
     }
   }
 
-  /**
-   * 显示形势判断弹框
-   */
-  private async showSituationDialog(): Promise<void> {
-    const dialog = document.getElementById('situationDialog');
-    const winRateEl = document.getElementById('winRate');
-    const scoreDiffEl = document.getElementById('scoreDiff');
-    const noteEl = document.getElementById('situationNote');
-    
-    if (!dialog || !winRateEl || !scoreDiffEl || !noteEl) return;
-    
-    dialog.style.display = 'flex';
-    winRateEl.textContent = '分析中...';
-    scoreDiffEl.textContent = '分析中...';
-    noteEl.textContent = 'KataGo 正在计算...';
-    
-    try {
-      const result = await this.mmPlayApp.analyzePosition();
-      
-      winRateEl.textContent = `${(result.winRate * 100).toFixed(1)}%`;
-      
-      if (result.scoreLead > 0) {
-        scoreDiffEl.textContent = `黑领先 ${result.scoreLead.toFixed(1)} 目`;
-      } else {
-        scoreDiffEl.textContent = `白领先 ${Math.abs(result.scoreLead).toFixed(1)} 目`;
-      }
-      
-      noteEl.textContent = result.winRate > 0.5 ? '黑方形势占优' : '白方形势占优';
-    } catch (error) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      winRateEl.textContent = '分析失败';
-      scoreDiffEl.textContent = '--';
-      if (errMsg.includes('远程服务端不在线') || errMsg.includes('隧道未连接')) {
-        noteEl.textContent = '远程服务端不在线，请检查服务端是否已启动';
-      } else {
-        noteEl.textContent = '请检查 KataGo 是否正常运行';
-      }
-    }
-  }
 
   /**
    * 处理提前结束

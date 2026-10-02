@@ -9,7 +9,6 @@ export interface MMEventBinderConfig {
   mmPlayApp: MMPlayApp;
   getGameState: () => string;
   setGameState: (state: string) => void;
-  showSituationDialog: () => void;
   handleEarlyStop: () => void;
 }
 
@@ -20,14 +19,12 @@ export class MMEventBinder {
   private mmPlayApp: MMPlayApp;
   private getGameState: () => string;
   private setGameState: (state: string) => void;
-  private showSituationDialog: () => void;
   private handleEarlyStop: () => void;
 
   constructor(config: MMEventBinderConfig) {
     this.mmPlayApp = config.mmPlayApp;
     this.getGameState = config.getGameState;
     this.setGameState = config.setGameState;
-    this.showSituationDialog = config.showSituationDialog;
     this.handleEarlyStop = config.handleEarlyStop;
   }
 
@@ -46,7 +43,6 @@ export class MMEventBinder {
   private bindMenuEvents(): void {
     const menuBtn = document.getElementById('menuBtn');
     const dropdownMenu = document.getElementById('dropdownMenu');
-    const menuSituationBtn = document.getElementById('menuSituationBtn');
     const menuStopBtn = document.getElementById('menuStopBtn');
     
     if (!menuBtn || !dropdownMenu) return;
@@ -62,15 +58,6 @@ export class MMEventBinder {
       const target = e.target as HTMLElement;
       if (!target.closest('.dropdown')) {
         dropdownMenu.classList.remove('visible');
-      }
-    });
-    
-    // 形势判断菜单项
-    menuSituationBtn?.addEventListener('click', () => {
-      dropdownMenu.classList.remove('visible');
-      const gameState = this.getGameState();
-      if (gameState === 'running' || gameState === 'paused') {
-        this.showSituationDialog();
       }
     });
     
@@ -107,13 +94,6 @@ export class MMEventBinder {
    * 绑定弹框按钮事件
    */
   private bindDialogEvents(): void {
-    // 关闭形势判断弹框
-    const closeSituationBtn = document.getElementById('closeSituationBtn');
-    closeSituationBtn?.addEventListener('click', () => {
-      const dialog = document.getElementById('situationDialog');
-      if (dialog) dialog.style.display = 'none';
-    });
-    
     // 确认对话框按钮
     const confirmCancelBtn = document.getElementById('confirmCancelBtn');
     const confirmOkBtn = document.getElementById('confirmOkBtn');

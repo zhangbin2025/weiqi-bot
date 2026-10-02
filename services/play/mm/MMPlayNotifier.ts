@@ -38,8 +38,8 @@ export class MMPlayNotifier {
   /**
    * 通知落子
    */
-  notifyMove(x: number, y: number, color: PlayerColor, moveNum: number, captured?: Array<{x: number; y: number}>): void {
-    this.callbacks.onMove?.(x, y, color, moveNum, captured);
+  notifyMove(x: number, y: number, color: PlayerColor, moveNum: number, captured?: Array<{x: number; y: number}>, winRate?: number, scoreLead?: number): void {
+    this.callbacks.onMove?.(x, y, color, moveNum, captured, winRate, scoreLead);
   }
 
   /**

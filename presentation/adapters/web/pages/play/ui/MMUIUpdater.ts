@@ -27,7 +27,6 @@ export class MMUIUpdater {
    */
   updateButtonStates(state: MMGameState): void {
     const pauseBtn = document.getElementById('pauseBtn') as HTMLButtonElement;
-    const menuSituationBtn = document.getElementById('menuSituationBtn');
     const menuStopBtn = document.getElementById('menuStopBtn');
     
     if (!pauseBtn) return;
@@ -35,13 +34,11 @@ export class MMUIUpdater {
     switch (state) {
       case 'idle':
         pauseBtn.disabled = true;
-        if (menuSituationBtn) menuSituationBtn.style.display = 'none';
         if (menuStopBtn) menuStopBtn.style.display = 'none';
         break;
         
       case 'loading':
         pauseBtn.disabled = true;
-        if (menuSituationBtn) menuSituationBtn.style.display = 'none';
         if (menuStopBtn) menuStopBtn.style.display = 'none';
         break;
         
@@ -54,7 +51,6 @@ export class MMUIUpdater {
           </svg>
         `;
         pauseBtn.title = '暂停';
-        if (menuSituationBtn) menuSituationBtn.style.display = 'flex';
         if (menuStopBtn) menuStopBtn.style.display = 'flex';
         break;
         
@@ -66,13 +62,11 @@ export class MMUIUpdater {
           </svg>
         `;
         pauseBtn.title = '继续';
-        if (menuSituationBtn) menuSituationBtn.style.display = 'flex';
         if (menuStopBtn) menuStopBtn.style.display = 'flex';
         break;
         
       case 'ended':
         pauseBtn.disabled = true;
-        if (menuSituationBtn) menuSituationBtn.style.display = 'none';
         if (menuStopBtn) menuStopBtn.style.display = 'none';
         break;
     }

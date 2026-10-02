@@ -29,13 +29,11 @@ export class HMPlayPageUIState {
   /** 显示确认按钮 */
   showConfirmButton(): void {
     const confirmBtn = document.getElementById('confirmBtn');
-    const situationBtn = document.getElementById('situationBtn');
     const statsInfo = document.getElementById('statsInfo');
     const toolbar = document.querySelector('.toolbar') as HTMLElement;
     if (confirmBtn) {
       confirmBtn.style.display = 'flex';
     }
-    if (situationBtn) situationBtn.style.display = 'none';
     if (statsInfo) statsInfo.style.display = 'none';
     // 改变工具栏布局为居中
     if (toolbar) {
@@ -45,13 +43,11 @@ export class HMPlayPageUIState {
   /** 隐藏确认按钮 */
   hideConfirmButton(): void {
     const confirmBtn = document.getElementById('confirmBtn');
-    const situationBtn = document.getElementById('situationBtn');
     const statsInfo = document.getElementById('statsInfo');
     const toolbar = document.querySelector('.toolbar') as HTMLElement;
     if (confirmBtn) {
       confirmBtn.style.display = 'none';
     }
-    if (situationBtn) situationBtn.style.display = 'flex';
     if (statsInfo) statsInfo.style.display = 'flex';
     // 恢复工具栏布局
     if (toolbar) {

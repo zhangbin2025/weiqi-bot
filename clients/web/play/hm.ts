@@ -155,7 +155,6 @@ async function main() {
       // 更新菜单按钮状态
       const menuUndoBtn = document.getElementById('menuUndoBtn') as HTMLButtonElement;
       const menuPassBtn = document.getElementById('menuPassBtn') as HTMLButtonElement;
-      const menuSituationBtn = document.getElementById('menuSituationBtn') as HTMLButtonElement;
       const menuResignBtn = document.getElementById('menuResignBtn') as HTMLButtonElement;
 
       // 悔棋按钮:游戏结束、禁止悔棋、或轮到 AI 时禁用
@@ -165,7 +164,6 @@ async function main() {
       }
       // 停一手按钮:游戏结束或轮到 AI 时禁用
       if (menuPassBtn) menuPassBtn.disabled = gameEnded || !isPlayerTurn;
-      if (menuSituationBtn) menuSituationBtn.disabled = gameEnded;
       if (menuResignBtn) menuResignBtn.disabled = gameEnded;
     },
   });

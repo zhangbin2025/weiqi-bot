@@ -145,7 +145,7 @@ export class MMPlayLoopRunner {
       const currentMove = this.stateManager.getCurrentMove();
       this.notifier.notifyBoardChange(this.stateManager.getBoard());
       this.notifier.notifyPlayerChange(this.stateManager.getCurrentPlayer());
-      this.notifier.notifyMove(move.x, move.y, currentPlayer, currentMove, captured);
+      this.notifier.notifyMove(move.x, move.y, currentPlayer, currentMove, captured, move.winRate, move.scoreLead);
 
       // 保存草稿
       await saveDraft();

@@ -8,7 +8,7 @@ import type { IPage, IBoard, ICard, IDialog, IToast, IProgress, PageParams } fro
 import type { HMPlayApp, PlayHistoryEntry } from '../../../../../application/play';
 import type { PlayerColor, BoardSize, Position } from '../../../../core/types';
 import { DefaultModelService } from '../../../../../services/model';
-import { renderPlayState, renderSituation } from './HMPlayRenderer';
+import { renderPlayState } from './HMPlayRenderer';
 import { createHMPlayCallbacks } from './HMPlayPageCallbacks';
 import { updatePlayerIndicator, updateStatus, updateButtons, showGameEndDialog, updateStats } from './HMPlayPageHelpers';
 import { HMPlayPageUIState } from './HMPlayPageUIState';
@@ -292,33 +292,6 @@ export class HMPlayPage implements IPage {
     if (moveCountEl) moveCountEl.textContent = String(this.moveCount);
     // 再执行 pass（内部会触发 AI 思考，callback 自动更新状态为AI思考中...）
     await this.hmPlayApp.playerPass();
-  }
-  async showSituation(): Promise<void> {
-    try {
-      // 显示加载提示
-      this.updateStatus('正在分析形势...');
-      const result = await this.hmPlayApp.analyze();
-      await renderSituation(this.dialog, result);
-      // 恢复状态栏
-      if (this.hmPlayApp.isPlayerTurn()) {
-        this.updateStatus('轮到你落子');
-      } else {
-        this.updateStatus('AI思考中...');
-      }
-    } catch (error) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      if (errMsg.includes('远程服务端不在线') || errMsg.includes('隧道未连接')) {
-        this.toast.error('远程服务端不在线，无法进行形势判断');
-      } else {
-        this.toast.error('形势判断失败');
-      }
-      // 恢复状态栏
-      if (this.hmPlayApp.isPlayerTurn()) {
-        this.updateStatus('轮到你落子');
-      } else {
-        this.updateStatus('AI思考中...');
-      }
-    }
   }
   async resign(): Promise<void> {
     const confirmed = await this.dialog.show({

@@ -75,12 +75,7 @@
             <polyline points="20 6 9 17 4 12"/>
           </svg>
         </button>
-        <button class="icon-btn" id="situationBtn" title="形势判断" disabled>
-          <svg viewBox="0 0 24 24">
-            <path d="M3 3v18h18"/>
-            <path d="M7 16l4-6 4 3 5-8"/>
-          </svg>
-        </button>
+
       </div>
       <div class="stats-info" id="statsInfo">
         <span class="move-count">第 <strong id="moveCount">0</strong> 手</span>
@@ -168,39 +163,7 @@
       </div>
     </div>
   </div>
-  
-  <!-- 形势判断弹框 -->
-  <div class="dialog-overlay" id="situationDialog" style="display:none;">
-    <div class="dialog">
-      <div class="dialog-title">📊 形势判断</div>
-      <div class="situation-content">
-        <div class="situation-row">
-          <span class="situation-label">黑方胜率</span>
-          <span class="situation-value" id="winRate">--</span>
-        </div>
-        <div class="situation-row">
-          <span class="situation-label">目差</span>
-          <span class="situation-value" id="scoreDiff">--</span>
-        </div>
-        <div class="situation-note" id="situationNote"></div>
-      </div>
-      <button class="dialog-btn secondary" id="closeSituationBtn">关闭</button>
-    </div>
-  </div>
-  
-  <!-- 确认对话框 -->
-  <div class="dialog-overlay" id="confirmDialog" style="display:none;">
-    <div class="dialog">
-      <div class="dialog-title" id="confirmTitle">确认</div>
-      <div class="confirm-message" id="confirmMessage"></div>
-      <div class="dialog-btn-group">
-        <button class="dialog-btn secondary" id="confirmCancelBtn">取消</button>
-        <button class="dialog-btn primary" id="confirmOkBtn">确定</button>
-      </div>
-    </div>
-  </div>
-  
-  <!-- AI 难度配置弹框 -->
+<!-- AI 难度配置弹框 -->
   <div class="dialog-overlay" id="difficultyConfigDialog" style="display:none;">
     <div class="dialog difficulty-config-dialog">
       <div class="dialog-title">⚙️ AI 难度配置</div>

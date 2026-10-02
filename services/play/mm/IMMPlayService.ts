@@ -25,7 +25,9 @@ export interface IMMPlayCallbacks {
     y: number,
     color: PlayerColor,
     moveNum: number,
-    captured?: Array<{x: number; y: number}>
+    captured?: Array<{x: number; y: number}>,
+    winRate?: number,
+    scoreLead?: number
   ) => void;
 
   /** 对局结束回调 */
