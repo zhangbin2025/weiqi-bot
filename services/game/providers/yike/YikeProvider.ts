@@ -15,6 +15,10 @@ import type { IYikeProvider } from './IYikeProvider';
 import type { NetworkManager } from '../../../../infrastructure/network/core/NetworkManager';
 import type { ISnifferProvider } from '../../../../infrastructure/network/interfaces/ISnifferProvider';
 import type { HttpResponseData } from '../../../../infrastructure/network/interfaces/SnifferTypes';
+import { SGFParser } from '../../../../domain/sgf';
+import { SGFWriter } from '../../../../domain/sgf';
+import { createMove, createPassMove } from '../../../../domain/move';
+import { coordToPos } from '../../../../domain/sgf';
 
 /**
  * 弈客围棋提供者
@@ -29,6 +33,9 @@ export class YikeProvider extends BaseProvider implements IYikeProvider {
     /yikeweiqi\.com.*room\/(\d+)/,
     /home\.yikeweiqi\.com.*room\/(\d+)/,
   ];
+
+  private readonly parser = new SGFParser();
+  private readonly writer = new SGFWriter();
 
   constructor(
     network: NetworkManager,
@@ -210,11 +217,15 @@ export class YikeProvider extends BaseProvider implements IYikeProvider {
       }
 
       // 使用第一个 SGF
-      const sgfData = sgfCandidates[0]!;
+      const rawSgf = sgfCandidates[0]!;
 
       // 判断对局是否结束（有结果字段）
       const gameResult = String(gameInfo['result'] || '');
       const isEnded = gameResult.length > 0;
+
+      // 将 API 元数据注入 SGF（RE[], DT[] 等属性）
+      // 弈客 golive/dtl API 返回的 Content 不包含 RE[] 和 DT[]，需要手动注入
+      const sgfData = this.enhanceSgf(rawSgf, gameInfo);
 
       timing.total = this.now() - startTime;
 
@@ -249,6 +260,60 @@ export class YikeProvider extends BaseProvider implements IYikeProvider {
         `获取失败: ${error instanceof Error ? error.message : String(error)}`,
         timing
       );
+    }
+  }
+
+  /**
+   * 将 API 元数据注入 SGF 文本
+   *
+   * 弈客 golive/dtl API 返回的 Content 字段不包含 RE[]（结果）和 DT[]（日期）
+   * 等 SGF 属性，需要从 API JSON 字段中提取并注入到 SGF 中。
+   *
+   * 使用 SGFParser 解析原始 SGF，再用 SGFWriter 重新构造，
+   * 确保输出包含完整的元数据属性。
+   */
+  private enhanceSgf(rawSgf: string, gameInfo: Record<string, string | number>): string {
+    try {
+      const parseResult = this.parser.parse(rawSgf);
+
+      if (parseResult.errors.length > 0) {
+        console.warn('[YikeProvider] SGF 解析警告:', parseResult.errors);
+      }
+
+      const info = {
+        size: parseResult.gameInfo.boardSize ?? 19,
+        blackName: String(gameInfo['blackName'] || parseResult.gameInfo.black || '黑棋'),
+        whiteName: String(gameInfo['whiteName'] || parseResult.gameInfo.white || '白棋'),
+        komi: parseFloat(parseResult.gameInfo.komi ?? '6.5'),
+        result: String(gameInfo['result'] || parseResult.gameInfo.result || ''),
+        date: String(gameInfo['date'] || parseResult.gameInfo.date || ''),
+        handicap: parseResult.gameInfo.handicap ?? 0,
+        handicapStones: parseResult.gameInfo.handicapStones,
+      };
+
+      // 转换 moves 为 MoveOrPass 格式
+      const moves = parseResult.moves.map((move, index) => {
+        const color = move.color === 'B' ? 'black' as const : 'white' as const;
+        const number = index + 1;
+
+        if (move.coord === 'tt') {
+          return createPassMove(color, number);
+        }
+
+        const pos = coordToPos(move.coord);
+        if (!pos) {
+          console.warn('[YikeProvider] 无效坐标:', move.coord);
+          return createPassMove(color, number);
+        }
+
+        return createMove(pos.x, pos.y, color, number);
+      });
+
+      const enhancedSgf = this.writer.write(moves, info);
+      return enhancedSgf;
+    } catch (error) {
+      console.error('[YikeProvider] SGF 增强失败，返回原始 SGF:', error);
+      return rawSgf;
     }
   }
 }
