@@ -115,6 +115,15 @@ export class EntityValidator {
       }
     }
     
+    // 尝试匹配双单姓 + 名（如张陈志远，前两字各自为单姓，后两字为名）
+    if (name.length === 4) {
+      const firstIsSurname = SURNAMES.some(s => s.length === 1 && s === name[0]);
+      const secondIsSurname = SURNAMES.some(s => s.length === 1 && s === name[1]);
+      if (firstIsSurname && secondIsSurname) {
+        return true;
+      }
+    }
+    
     // 尝试匹配复姓 + 名
     for (const surname of SURNAMES) {
       if (surname.length === 2 && name.startsWith(surname)) {
