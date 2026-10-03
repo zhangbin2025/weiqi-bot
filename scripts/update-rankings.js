@@ -213,6 +213,32 @@ async function gzipRankings(downloaded) {
   }
 }
 
+
+// ============================================
+// 步骤 4: 清理旧数据（保留最近 N 个月）
+// ============================================
+
+function cleanupOldRankings(outputDir, keepMonths = 3) {
+  if (!fs.existsSync(outputDir)) return;
+
+  const files = fs.readdirSync(outputDir)
+    .filter(f => /^月度榜单_\d+_\d+\.json\.gz$/.test(f))
+    .map(f => {
+      const m = f.match(/月度榜单_(\d+)_(\d+)\.json\.gz/);
+      return { filename: f, year: parseInt(m[1]), month: parseInt(m[2]), sortKey: m[1] + m[2].padStart(2, '0') };
+    })
+    .sort((a, b) => b.sortKey.localeCompare(a.sortKey));
+
+  if (files.length <= keepMonths) return;
+
+  const toDelete = files.slice(keepMonths);
+  for (const f of toDelete) {
+    fs.unlinkSync(path.join(outputDir, f.filename));
+    console.log(`🗑️  清理旧数据: ${f.filename}`);
+  }
+  console.log(`   保留最近 ${keepMonths} 个月，清理 ${toDelete.length} 个文件\n`);
+}
+
 // ============================================
 // 主函数
 // ============================================
@@ -237,6 +263,9 @@ async function main() {
 
   // 步骤 3: 压缩
   await gzipRankings(downloaded);
+
+  // 步骤 4: 清理旧数据（保留最近 3 个月）
+  cleanupOldRankings(OUTPUT_DIR, 3);
 
   console.log(`\n✅ 更新完成！\n`);
 }
