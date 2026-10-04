@@ -147,7 +147,7 @@ export class PdfMatchParser {
       if (!/^\s*\d/.test(line)) continue;
 
       const m = line.match(
-        /^\s*(\d+)\s+(\d+)\s+(.*?)\s+(\S{2,4})\s+(\d+)\s*[:：]\s*(\d+)\s+(\S{2,4})\s+(.*?)\s+(\d+)\s*$/
+        /^\s*(\d+)\s+(\d+)\s+(.+?)\s+([\u4e00-\u9fa5]{1,4}(?: {1,8}[\u4e00-\u9fa5]{1,4})?)\s+(\d+)\s+(\d+)\s+([\u4e00-\u9fa5]{1,4}(?: {1,8}[\u4e00-\u9fa5]{1,4})?)\s+(.+?)\s+(\d+)\s*$/
       );
       if (!m) continue;
 
@@ -155,9 +155,9 @@ export class PdfMatchParser {
         table: +m[1]!,
         blackNo: +m[2]!,
         blackTeam: this.cls(m[3]!),
-        blackName: m[4]!,
+        blackName: this.cls(m[4]!),
         blackScore: +m[5]!,
-        whiteName: m[7]!,
+        whiteName: this.cls(m[7]!),
         whiteScore: +m[6]!,
         whiteTeam: this.cls(m[8]!),
         whiteNo: +m[9]!,
