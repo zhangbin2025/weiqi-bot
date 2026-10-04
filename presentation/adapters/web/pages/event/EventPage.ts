@@ -143,6 +143,7 @@ export class EventPage implements IPage {
 
   async clearHistory(): Promise<void> {
     await this.eventQuerier.clearHistory();
+    await this.pdfService.clearAll();
     this.renderer.renderRecent([]);
     this.renderer.toast.success('历史记录已清除');
   }
