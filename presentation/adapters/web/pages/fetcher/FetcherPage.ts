@@ -241,10 +241,7 @@ export class FetcherPage implements IPage {
             reviewLink = `/assistant?text=${encodeURIComponent('复盘棋谱 ' + result.archiveId)}`;
           } else {
             // 非 App 环境：直接跳转 review 页面
-            // 必须用相对路径，与打谱(../replay)保持一致；
-            // 绝对路径在 App 内会被打开到不同 WebView/Origin，
-            // 导致 IndexedDB 棋谱归档无法共享，复盘读取报“棋谱不存在”。
-            reviewLink = `../review/index.html?archiveId=${result.archiveId}`;
+            reviewLink = `/review/index.html?archiveId=${result.archiveId}`;
           }
           
           // 题目棋谱链接加 move=0（从初始局面开始）
