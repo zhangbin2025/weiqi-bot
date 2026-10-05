@@ -24,7 +24,11 @@ export class GameHistoryStorage implements IGameHistoryStorage {
 
   async archive(params: ArchiveParams): Promise<ArchiveResult> {
     const ts = Date.now();
-    const id = `${ts}-${params.gameId || 'game'}`;
+    // 过滤 gameId 中的非法字符（中文、空格、特殊符号等），
+    // 保证 archiveId 只含 [a-zA-Z0-9_-]，避免被 URL / 实体提取正则截断，
+    // 否则复盘页用截断后的 id 查归档会报“棋谱不存在”。
+    const safeGameId = (params.gameId || 'game').replace(/[^a-zA-Z0-9_-]/g, '') || 'game';
+    const id = `${ts}-${safeGameId}`;
     
     // 生成文件路径（使用 archiveId 作为文件名，保证唯一性）
     const date = new Date(ts);
