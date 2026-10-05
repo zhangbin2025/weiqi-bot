@@ -283,21 +283,35 @@ export class EventDetailPage implements IPage {
     return m;
   }
 
+  /** PDF 模式：从全部对阵数据中按轮次过滤 */
+  private filterMatchesByRound(data: AgainstPlanResult, round: number): AgainstPlanResult {
+    if (this.source !== 'pdf') return data;
+    return {
+      rows: data.rows.filter(m => m.bout === round),
+      totalBout: data.totalBout,
+      success: data.success,
+    };
+  }
+
   private renderContent(): void {
     if (this.curTab === 'ranking' && this.rankData) {
       this.renderer.renderRanking(this.rankData);
     } else if (this.curTab === 'matches' && this.matchData) {
       this.renderer.renderRoundNav(this.curRound, this.totRounds);
-      this.renderer.renderMatches(this.matchData, this.buildScoreMap(this.curRound));
+      const roundMatches = this.filterMatchesByRound(this.matchData, this.curRound);
+      this.renderer.renderMatches(roundMatches, this.buildScoreMap(this.curRound));
     }
   }
 
   private async loadRound(): Promise<void> {
     if (!this.selGid) return;
     if (this.source === 'pdf') {
-      // PDF 模式：对阵数据已在内存中，只切换轮次显示
+      // PDF 模式：对阵数据已在内存中，按轮次过滤后显示
       this.renderer.renderRoundNav(this.curRound, this.totRounds);
-      if (this.matchData) this.renderer.renderMatches(this.matchData, this.buildScoreMap(this.curRound));
+      if (this.matchData) {
+        const roundMatches = this.filterMatchesByRound(this.matchData, this.curRound);
+        this.renderer.renderMatches(roundMatches, this.buildScoreMap(this.curRound));
+      }
       return;
     }
     try {
