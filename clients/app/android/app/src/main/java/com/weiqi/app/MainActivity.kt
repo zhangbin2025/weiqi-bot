@@ -95,6 +95,7 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoView.
     private lateinit var taskManager: TaskManager
     
     private var pendingSgfFile: File? = null
+    private var pendingPdfFile: File? = null
     private var pendingSharedText: String? = null
 
     private var lastLoadedUrl: String? = null
@@ -142,6 +143,7 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoView.
         setupKeyboardInsetsListener()
 
         handleSgfIntent(intent)
+        handlePdfIntent(intent)
         
         handleNotificationIntent(intent)
 
@@ -235,6 +237,43 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoView.
         }
     }
 
+    private fun handlePdfIntent(intent: Intent?) {
+        if (intent?.action == Intent.ACTION_VIEW) {
+            val uri = intent.data
+            if (uri != null) {
+                val fileName = uri.lastPathSegment ?: "pdf_${System.currentTimeMillis()}.pdf"
+                if (fileName.endsWith(".pdf", ignoreCase = true)) {
+                    try {
+                        pendingPdfFile = copyPdfToCache(uri)
+                        Logger.i(TAG, "Pending PDF file: ${pendingPdfFile?.path}")
+                    } catch (e: Exception) {
+                        Logger.e(TAG, "Failed to open PDF file", e)
+                        uiHelper.showError("Cannot open PDF file")
+                    }
+                }
+            }
+        }
+    }
+
+    private fun copyPdfToCache(uri: Uri): File {
+        val pdfCacheDir = File(cacheDir, "pdf-cache")
+        if (!pdfCacheDir.exists()) {
+            pdfCacheDir.mkdirs()
+        }
+
+        val fileName = uri.lastPathSegment ?: "pdf_${System.currentTimeMillis()}.pdf"
+        val safeName = if (fileName.endsWith(".pdf", ignoreCase = true)) fileName else "${fileName}.pdf"
+        val cacheFile = File(pdfCacheDir, safeName)
+
+        contentResolver.openInputStream(uri)?.use { input ->
+            cacheFile.outputStream().use { output ->
+                input.copyTo(output)
+            }
+        } ?: throw Exception("Cannot open file: $uri")
+
+        return cacheFile
+    }
+
     private fun handleNotificationIntent(intent: Intent?) {
         val detailUrl = intent?.getStringExtra("detailUrl")
         
@@ -292,6 +331,7 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoView.
         super.onNewIntent(intent)
         setIntent(intent)
         handleSgfIntent(intent)
+        handlePdfIntent(intent)
         
         handleNotificationIntent(intent)
         
@@ -305,6 +345,10 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoView.
         
         if (pendingSgfFile != null) {
             loadSgfFile(pendingSgfFile!!)
+        }
+        
+        if (pendingPdfFile != null) {
+            loadPdfFile(pendingPdfFile!!)
         }
         
         if (pendingSharedText != null) {
@@ -378,6 +422,66 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoView.
         } catch (e: Exception) {
             Logger.e(TAG, "Failed to send SGF to assistant", e)
             uiHelper.showError("Cannot send to assistant")
+        }
+    }
+
+    private fun loadPdfFile(pdfFile: File) {
+        try {
+            val eventUrl = "${SERVER_URL}/event/index.html"
+            Logger.i(TAG, "Loading event page: $eventUrl")
+            geckoSession?.loadUri(eventUrl)
+            lastLoadedUrl = eventUrl
+
+            Handler(Looper.getMainLooper()).postDelayed({
+                sendPdfToEventPage(pdfFile)
+            }, 2000)
+
+            pendingPdfFile = null
+        } catch (e: Exception) {
+            Logger.e(TAG, "Failed to load PDF file", e)
+            uiHelper.showError("Cannot read PDF file")
+        }
+    }
+
+    private fun sendPdfToEventPage(pdfFile: File) {
+        try {
+            val pdfBytes = pdfFile.readBytes()
+            val encodedPdf = android.util.Base64.encodeToString(pdfBytes, android.util.Base64.NO_WRAP)
+            val encodedFileName = android.util.Base64.encodeToString(
+                pdfFile.name.toByteArray(Charsets.UTF_8),
+                android.util.Base64.NO_WRAP
+            )
+
+            val js = """
+                (function() {
+                    try {
+                        const pdfBase64 = "$encodedPdf";
+                        const fileNameBase64 = "$encodedFileName";
+
+                        const pdfBytes = Uint8Array.from(atob(pdfBase64), c => c.charCodeAt(0));
+                        const fileNameBytes = Uint8Array.from(atob(fileNameBase64), c => c.charCodeAt(0));
+                        const fileName = new TextDecoder("utf-8").decode(fileNameBytes);
+
+                        const file = new File([pdfBytes], fileName, { type: "application/pdf" });
+
+                        console.log("[Android] PDF file prepared:", fileName, "size:", file.size);
+
+                        if (window.handlePdfImport) {
+                            console.log("[Android] Calling handlePdfImport");
+                            window.handlePdfImport(file);
+                        } else {
+                            console.error("[Android] handlePdfImport not found, event page may not be ready");
+                        }
+                    } catch (e) {
+                        console.error("[Android] Error sending PDF:", e);
+                    }
+                })();
+            """.trimIndent()
+
+            geckoSession?.loadUri("javascript:$js")
+        } catch (e: Exception) {
+            Logger.e(TAG, "Failed to send PDF to event page", e)
+            uiHelper.showError("Cannot send PDF to event page")
         }
     }
 
@@ -542,6 +646,12 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoView.
         if (pendingSgfFile != null) {
             Handler(Looper.getMainLooper()).postDelayed({
                 loadSgfFile(pendingSgfFile!!)
+            }, 2000)
+        }
+        
+        if (pendingPdfFile != null) {
+            Handler(Looper.getMainLooper()).postDelayed({
+                loadPdfFile(pendingPdfFile!!)
             }, 2000)
         }
         

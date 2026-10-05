@@ -72,6 +72,19 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
             
+            <!-- 关联 .pdf 文件（PDF 对阵表）-->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                
+                <data android:scheme="file" />
+                <data android:scheme="content" />
+                <data android:mimeType="application/pdf" />
+                <data android:pathPattern=".*\.pdf" />
+                <data android:host="*" />
+            </intent-filter>
+            
             <!-- 分享文本/链接 -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />

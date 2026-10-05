@@ -76,6 +76,11 @@ export class EventPage implements IPage {
     this.renderer.bindActions();
     await this.pdfService.init();
     this.initialized = true;
+
+    // 暴露全局入口，供 Android 注入 JS 调用
+    (window as any).handlePdfImport = (file: File) => {
+      this.handleImportFiles([file]);
+    };
   }
 
   handleParams(params: PageParams): void {
