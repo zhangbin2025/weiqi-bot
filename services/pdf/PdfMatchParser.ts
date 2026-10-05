@@ -57,7 +57,9 @@ export class PdfMatchParser {
       }).sort((a, b) => a.y - b.y || a.x - b.x);
 
       // 按行分组 + 重建布局文本
-      const rows = this.groupByRows(mapped, 2);
+      // 注意：同一行内台号/代号/姓名/单位的 y 坐标会有 3~4px 抖动，
+      // 而相邻数据行的行间距约 22~24px，故容差取 5（远小于行距，避免并错行）。
+      const rows = this.groupByRows(mapped, 5);
       const pageLines = this.buildLayoutText(rows);
 
       // 提取比赛标题
