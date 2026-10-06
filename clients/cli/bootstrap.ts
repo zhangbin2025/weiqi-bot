@@ -224,6 +224,10 @@ export async function createCliContext(
     snifferProvider,
   });
 
+  // CLI 专属：101 实战题（shizhan）提供者，需环境变量认证，不注册到 Web/Desktop
+  const { Weiqi101ShizhanProvider } = await import('../../services/game/providers/weiqi101/Weiqi101ShizhanProvider');
+  gameService.registerProvider(new Weiqi101ShizhanProvider(network));
+
   // ── 2. 应用层编排器组装 ──
   const favoriteService = new FavoriteService(favoritesStorage);
   const playerQuerier = new PlayerQuerier(new PlayerService(network, cache, config), favoriteService);
