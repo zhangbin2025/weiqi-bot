@@ -17,6 +17,82 @@ const ENV_CSRFTOKEN = 'WEIQI101_CSRFTOKEN';
 const ENV_SESSIONID = 'WEIQI101_SESSIONID';
 const ENV_X_CSRFTOKEN = 'WEIQI101_X_CSRFTOKEN';
 
+const SHIZHAN_SGF_GENERATOR = new Weiqi101SgfGenerator();
+
+/**
+ * 解密 101 加密字段（base64 + XOR）
+ * key 规则：'101' + i + i + i，其中 i = String(ru + 1)
+ */
+function decryptShizhanField(encryptedBase64: string, ru?: number): any {
+  if (!encryptedBase64 || ru == null || ru < 1 || ru > 2) {
+    try {
+      return JSON.parse(encryptedBase64);
+    } catch {
+      return null;
+    }
+  }
+  const i = String(ru + 1);
+  const key = '101' + i + i + i;
+  const buf = Buffer.from(encryptedBase64, 'base64');
+  const bytes: number[] = [];
+  for (let k = 0; k < buf.length; k++) {
+    bytes.push(buf[k]! ^ key.charCodeAt(k % key.length));
+  }
+  try {
+    return JSON.parse(Buffer.from(bytes).toString('utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 将 101 实战题 qq 对象转换为死活题 SGF（最小棋盘）。
+ * 独立导出，供 Provider 与 CLI 脚本复用。
+ */
+export function convertShizhanQQToSgf(qq: any): string {
+  const contentRaw = decryptShizhanField(qq.content, qq.ru);
+  const content: [string[], string[]] = Array.isArray(contentRaw)
+    ? (contentRaw as [string[], string[]])
+    : [[], []];
+
+  const prepos: [string[], string[]] = Array.isArray(qq.prepos)
+    ? (qq.prepos as [string[], string[]])
+    : [[], []];
+
+  // content 通常已包含完整初始局面（prepos 为其子集），合并去重确保幂等
+  const uniq = (arr: string[]) => Array.from(new Set(arr));
+  const blackStones = uniq([...(content[0] || []), ...(prepos[0] || [])]);
+  const whiteStones = uniq([...(content[1] || []), ...(prepos[1] || [])]);
+
+  const questionData: Weiqi101QuestionData = {
+    qid: qq.qid,
+    publicid: qq.publicid || 0,
+    name: qq.name || '',
+    levelname: qq.levelname || '',
+    qtypename: qq.qtypename || '棋理题',
+    blackfirst: qq.blackfirst ?? true,
+    content: [blackStones, whiteStones],
+    answers: (qq.answers || []).map((a: any) => ({
+      pts: a.pts || [],
+      st: a.st ?? 0,
+      ty: a.ty ?? 1,
+      nu: a.nu,
+      username: a.username,
+    })),
+    lu: qq.lu || 19,
+  };
+
+  const sgfRaw = SHIZHAN_SGF_GENERATOR.generateQuestion(questionData);
+  const minBoard = buildTsumegoMinBoard(sgfRaw);
+  return minBoard ? minBoard.sgf : sgfRaw;
+}
+
+/** 从 SGF 头部提取 SZ 尺寸 */
+function extractMinSize(sgf: string): number {
+  const m = sgf.match(/SZ\[(\d+)\]/);
+  return m && m[1] ? parseInt(m[1], 10) : 19;
+}
+
 /**
  * 101围棋网实战题（shizhan）提供者
  */
@@ -27,8 +103,6 @@ export class Weiqi101ShizhanProvider extends BaseProvider {
     /101weiqi\.com\/shizhan\/question\/(next|prev)\/\d+\/\d+\/\d+/,
     /101weiqi\.cn\/shizhan\/question\/(next|prev)\/\d+\/\d+\/\d+/,
   ];
-
-  private readonly sgfGenerator = new Weiqi101SgfGenerator();
 
   /** 从环境变量读取认证头；缺失则抛出清晰错误 */
   private getAuthHeaders(): Record<string, string> {
@@ -79,11 +153,12 @@ export class Weiqi101ShizhanProvider extends BaseProvider {
         return this.createErrorResult(url, '响应中缺少 pagedata.qq', timing);
       }
 
-      const sgfContent = this.convertToSgf(pagedata.qq, timing);
+      const sgfContent = convertShizhanQQToSgf(pagedata.qq);
+      timing.sgfGeneration = this.now() - startTime - (timing.apiRequest || 0);
       timing.total = this.now() - startTime;
 
       const qq = pagedata.qq;
-      const minSize = this.extractMinSize(sgfContent);
+      const minSize = extractMinSize(sgfContent);
 
       return {
         success: true,
@@ -114,77 +189,5 @@ export class Weiqi101ShizhanProvider extends BaseProvider {
         timing
       );
     }
-  }
-
-  /** 解密 content 字段（base64 + XOR），返回 [黑子[], 白子[]] */
-  private decryptContent(encryptedBase64: string, ru?: number): [string[], string[]] {
-    if (!encryptedBase64 || ru == null || ru < 1 || ru > 2) {
-      try {
-        const parsed = JSON.parse(encryptedBase64);
-        return Array.isArray(parsed) ? (parsed as [string[], string[]]) : [[], []];
-      } catch {
-        return [[], []];
-      }
-    }
-
-    const i = String(ru + 1);
-    const key = '101' + i + i + i;
-    const buf = Buffer.from(encryptedBase64, 'base64');
-    const bytes: number[] = [];
-    for (let k = 0; k < buf.length; k++) {
-      bytes.push(buf[k]! ^ key.charCodeAt(k % key.length));
-    }
-    const decrypted = Buffer.from(bytes).toString('utf-8');
-    try {
-      const parsed = JSON.parse(decrypted);
-      return Array.isArray(parsed) ? (parsed as [string[], string[]]) : [[], []];
-    } catch {
-      return [[], []];
-    }
-  }
-
-  /** 将 API 返回的 qq 对象转换为死活题 SGF */
-  private convertToSgf(qq: any, timing: PerformanceTiming): string {
-    const content = this.decryptContent(qq.content, qq.ru);
-    const prepos: [string[], string[]] = Array.isArray(qq.prepos)
-      ? (qq.prepos as [string[], string[]])
-      : [[], []];
-
-    // content 通常已包含完整初始局面（prepos 为其子集），合并后去重确保幂等
-    const uniq = (arr: string[]) => Array.from(new Set(arr));
-    const blackStones = uniq([...(content[0] || []), ...(prepos[0] || [])]);
-    const whiteStones = uniq([...(content[1] || []), ...(prepos[1] || [])]);
-
-    const questionData: Weiqi101QuestionData = {
-      qid: qq.qid,
-      publicid: qq.publicid || 0,
-      name: qq.name || '',
-      levelname: qq.levelname || '',
-      qtypename: qq.qtypename || '棋理题',
-      blackfirst: qq.blackfirst ?? true,
-      content: [blackStones, whiteStones],
-      answers: (qq.answers || []).map((a: any) => ({
-        pts: a.pts || [],
-        st: a.st ?? 0,
-        ty: a.ty ?? 1,
-        nu: a.nu,
-        username: a.username,
-      })),
-      lu: qq.lu || 19,
-    };
-
-    const sgfStart = this.now();
-    const sgfRaw = this.sgfGenerator.generateQuestion(questionData);
-    const minBoard = buildTsumegoMinBoard(sgfRaw);
-    const sgfContent = minBoard ? minBoard.sgf : sgfRaw;
-    timing.sgfGeneration = this.now() - sgfStart;
-
-    return sgfContent;
-  }
-
-  /** 从 SGF 头部提取 SZ 尺寸 */
-  private extractMinSize(sgf: string): number {
-    const m = sgf.match(/SZ\[(\d+)\]/);
-    return m && m[1] ? parseInt(m[1], 10) : 19;
   }
 }
