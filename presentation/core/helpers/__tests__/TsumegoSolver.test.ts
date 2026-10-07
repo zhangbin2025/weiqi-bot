@@ -133,3 +133,49 @@ function twoCorrectShared(): ReplayData {
     }
   } as any;
 }
+
+// 分支以「应对方」着法收尾：B(0) W(1) B(2) W(3)，两个正解分支着法一一对应
+function oppEnding(): ReplayData {
+  return {
+    game_name: 't', black: 'b', white: 'w', board_size: 9, max_moves: 0,
+    handicap_stones: [{ x: 1, y: 1, color: 'B' }],
+    tree: {
+      color: null, coord: null,
+      children: [
+        { color: 'B', coord: 'cc', properties: { C: '正解图' }, children: [
+          { color: 'W', coord: 'gc', children: [
+            { color: 'B', coord: 'cg', children: [
+              { color: 'W', coord: 'gg' }
+            ] }
+          ] }
+        ] },
+        { color: 'B', coord: 'cc', properties: { C: '正解图' }, children: [
+          { color: 'W', coord: 'gc', children: [
+            { color: 'B', coord: 'cg', children: [
+              { color: 'W', coord: 'gg' }
+            ] }
+          ] }
+        ] },
+      ]
+    }
+  } as any;
+}
+
+describe('分支以应对方收尾（回归）', () => {
+  it('用户走完最后一手黑棋后，应手标记 doneAfterReply=true', () => {
+    const c = new TsumegoChecker();
+    c.init(oppEnding());
+    expect(c.getCorrectBranches().length).toBe(2);
+
+    const r1 = c.solveMove({ x: 2, y: 2, color: 'B' });
+    expect(r1.status).toBe('continue');
+    expect(r1.opponentMove).toEqual({ x: 6, y: 2, color: 'W' });
+    expect(r1.doneAfterReply).toBe(false);
+
+    const r2 = c.solveMove({ x: 2, y: 6, color: 'B' });
+    expect(r2.status).toBe('continue');
+    expect(r2.opponentMove).toEqual({ x: 6, y: 6, color: 'W' });
+    expect(r2.doneAfterReply).toBe(true);
+  });
+});
+

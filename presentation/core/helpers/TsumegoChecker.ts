@@ -15,6 +15,8 @@ export interface TsumegoSolveResult {
   status: TsumegoSolveStatus;
   /** status==='continue' 时有效：应对方（机器）应回应的着法 */
   opponentMove?: { x: number; y: number; color: 'B' | 'W' };
+  /** status==='continue' 且该应手为该正解分支的收尾着法：落完此手即正解完成 */
+  doneAfterReply?: boolean;
 }
 
 /** 匹配结果类型 */
@@ -276,9 +278,18 @@ export class TsumegoChecker {
     });
     this.solveViable = narrowed.length > 0 ? narrowed : candidates;
 
+    // 若收窄后的所有分支在应手之后已无更多着法（即这手应手是正解收尾着法），
+    // 则落完此手即正解完成
+    const replyIdx = n * 2 + 1;
+    const anyFollowUp = this.solveViable.some(idx => {
+      const b = this.branches.find(x => x.index === idx);
+      return !!b && !!b.moves[replyIdx + 1];
+    });
+
     return {
       status: 'continue',
       opponentMove: { x: pickedReply.x, y: pickedReply.y, color: pickedReply.color },
+      doneAfterReply: !anyFollowUp,
     };
   }
 

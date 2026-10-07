@@ -108,6 +108,14 @@ export class SolveHandler {
       this.replayApp.playSound('stone');
     }
     this.syncBoardToDisplay();
+
+    // 该应手为正解收尾着法：落完即正解完成
+    if (solveResult.doneAfterReply) {
+      this.state.set('solveDone', true);
+      this.showToast('正解完成 🎉', 'success', [
+        { text: '研究', onClick: () => this.onStudy() },
+      ]);
+    }
   }
 
   /**
