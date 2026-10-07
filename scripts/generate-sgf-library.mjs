@@ -440,7 +440,7 @@ function processSgf(text, category, perspective) {
 
 // ─── 扫描 / 水位 ─────────────────────────────────────────
 
-function scanSource(inputDir, sourceName, fromDateInclusive) {
+function scanSource(inputDir, sourceName, fromDateInclusive, today) {
   const dir = join(inputDir, sourceName);
   if (!existsSync(dir)) return [];
   const out = [];
@@ -448,6 +448,9 @@ function scanSource(inputDir, sourceName, fromDateInclusive) {
     const dp = join(dir, dateDir);
     if (!statSync(dp).isDirectory()) continue;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dateDir)) continue;
+    // 跳过当天：实时追加类来源（如 shizhan101 每 5 分钟更新）当天数据不完整，
+    // 次日再纳入，避免同日新增被水位逻辑遗漏或打包冲突。其它来源无当天数据，无影响。
+    if (today && dateDir === today) continue;
     if (fromDateInclusive && dateDir <= fromDateInclusive) continue;
     for (const f of readdirSync(dp)) {
       if (!f.toLowerCase().endsWith('.sgf')) continue;
@@ -542,13 +545,17 @@ function main() {
   const watermark = {};
   for (const cat of CATEGORIES) {
     watermark[cat] = opts.rebuild ? null : maxExistingDate(opts.output, cat);
+  }
+  // 当天日期（本地时区），用于跳过实时追加类来源的当日数据
+  const today = new Date().toISOString().slice(0, 10);
+  for (const cat of CATEGORIES) {
     console.log(`水位 [${cat}]: ${watermark[cat] ? watermark[cat] + '（不含）' : '(无，全量)'}`);
   }
 
   const buckets = { 'life-and-death': {}, 'ai-review': {} };
 
   for (const [srcName, cfg] of Object.entries(SOURCES)) {
-    const files = scanSource(opts.input, srcName, watermark[cfg.category]);
+    const files = scanSource(opts.input, srcName, watermark[cfg.category], today);
     if (files.length === 0) continue;
     console.log(`\n来源 ${srcName} → ${cfg.category}: ${files.length} 盘`);
 
