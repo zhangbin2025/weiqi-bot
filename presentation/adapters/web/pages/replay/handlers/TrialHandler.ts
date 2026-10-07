@@ -44,6 +44,13 @@ export class TrialHandler {
   }
 
   /**
+   * 暴露内部 TsumegoChecker 实例（供 SolveHandler 做题判定复用）
+   */
+  getTsumegoChecker(): TsumegoChecker {
+    return this.tsumegoChecker;
+  }
+
+  /**
    * 处理棋盘点击
    * 如果不在试下模式，点击交叉点进入试下模式
    */

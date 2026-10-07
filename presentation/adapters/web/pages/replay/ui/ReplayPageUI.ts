@@ -481,6 +481,11 @@ export class ReplayPageUI {
    */
   updateVariationPanel(onEnterVariation: (index: number) => void): void {
     if (!this.variationPanel) return;
+    // 做题模式下不显示变化图面板
+    if (this.state.get('mode') === 'solve') {
+      this.variationPanel.classList.remove('visible');
+      return;
+    }
     const inVariation = this.state.get('inVariation');
     // 分支模式下，隐藏变化图面板
     if (inVariation) {
@@ -554,6 +559,26 @@ export class ReplayPageUI {
     // 更新分支选点标记
     this.updateBranchMarks();
   }
+  /**
+   * 设置/取消做题模式 UI
+   * 做题模式下：隐藏变化图面板（不显示分支选项）
+   * @param visible - true=进入做题模式, false=退出
+   */
+  setSolveModeUI(visible: boolean): void {
+    const container = document.querySelector('.container');
+    if (visible) {
+      container?.classList.add('solve-mode');
+    } else {
+      container?.classList.remove('solve-mode');
+    }
+    const variationPanel = document.getElementById('variationPanel');
+    if (variationPanel) {
+      if (visible) {
+        variationPanel.classList.remove('visible');
+      }
+    }
+  }
+
   /**
    * 更新试下模式 UI
    */

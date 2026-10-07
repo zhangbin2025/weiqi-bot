@@ -24,9 +24,25 @@ function positionHash(content: string, move: number): string {
 /**
  * 显示 toast 提示
  */
-function showToast(message: string, linkText?: string, linkHref?: string) {
+interface ToastLink {
+  text: string;
+  onClick: () => void;
+}
+
+type ToastType = 'success' | 'error' | 'info';
+
+/** 各类 toast 的配色与图标 */
+const TOAST_STYLE: Record<ToastType, { bg: string; border: string; icon: string }> = {
+  success: { bg: 'rgba(22, 101, 52, 0.96)', border: '#4ade80', icon: '✓' },
+  error:   { bg: 'rgba(153, 27, 27, 0.96)', border: '#f87171', icon: '✕' },
+  info:    { bg: 'rgba(0, 0, 0, 0.82)',      border: 'rgba(255,255,255,0.25)', icon: 'ℹ' },
+};
+
+function showToast(message: string, type: ToastType = 'info', links?: ToastLink[]): void {
   const existing = document.getElementById('replay-toast');
   if (existing) existing.remove();
+
+  const st = TOAST_STYLE[type] || TOAST_STYLE.info;
 
   const toast = document.createElement('div');
   toast.id = 'replay-toast';
@@ -35,37 +51,88 @@ function showToast(message: string, linkText?: string, linkHref?: string) {
     'top: 50%',
     'left: 50%',
     'transform: translate(-50%, -50%)',
-    'background: rgba(0,0,0,0.8)',
+    'background: ' + st.bg,
     'color: white',
-    'padding: 16px 24px',
-    'border-radius: 12px',
-    'font-size: 14px',
+    'padding: 18px 28px',
+    'border-radius: 14px',
+    'border: 2px solid ' + st.border,
+    'box-shadow: 0 8px 30px rgba(0,0,0,0.4)',
+    'font-size: 16px',
+    'font-weight: 600',
     'z-index: 99999',
     'opacity: 0',
     'transition: opacity 0.3s',
     'text-align: center',
-    'max-width: 300px',
-    'pointer-events: auto'
+    'max-width: 320px',
+    'pointer-events: auto',
+    'display: flex',
+    'flex-direction: column',
+    'align-items: center',
+    'gap: 4px'
   ].join(';');
-  
-  let html = '';
-  const div = document.createElement('div');
-  div.textContent = message;
-  html += div.innerHTML;
-  if (linkText && linkHref) {
-    html += '<br><a href="' + linkHref + '" style="color:#8ab4ff;text-decoration:underline;display:block;margin-top:8px;">' + linkText + '</a>';
+
+  // 图标 + 文案
+  const mainRow = document.createElement('div');
+  mainRow.style.cssText = 'display:flex;align-items:center;gap:10px;';
+
+  const iconEl = document.createElement('span');
+  iconEl.textContent = st.icon;
+  iconEl.style.cssText = [
+    'display:inline-flex',
+    'align-items:center',
+    'justify-content:center',
+    'width:26px',
+    'height:26px',
+    'border-radius:50%',
+    'background:' + st.border,
+    'color:#fff',
+    'font-size:16px',
+    'font-weight:bold',
+    'flex-shrink:0'
+  ].join(';');
+
+  const textEl = document.createElement('span');
+  textEl.textContent = message;
+
+  mainRow.appendChild(iconEl);
+  mainRow.appendChild(textEl);
+  toast.appendChild(mainRow);
+
+  if (links && links.length > 0) {
+    const linkWrap = document.createElement('div');
+    linkWrap.style.cssText = 'margin-top:10px;display:flex;gap:20px;justify-content:center;';
+    for (const lk of links) {
+      const a = document.createElement('a');
+      a.textContent = lk.text;
+      a.href = 'javascript:void(0)';
+      a.style.cssText = 'color:#fff;text-decoration:underline;font-size:15px;font-weight:500;';
+      a.addEventListener('click', (e) => {
+        e.preventDefault();
+        toast.remove();
+        lk.onClick();
+      });
+      linkWrap.appendChild(a);
+    }
+    toast.appendChild(linkWrap);
   }
-  toast.innerHTML = html;
+
   document.body.appendChild(toast);
   requestAnimationFrame(() => { toast.style.opacity = '1'; });
 
+  // 停留时间：有链接时更长，便于用户点击
+  const duration = (links && links.length > 0) ? 8000 : 5000;
   setTimeout(() => {
     toast.style.opacity = '0';
     setTimeout(() => toast.remove(), 300);
-  }, 3000);
+  }, duration);
 }
 
 const sessionStore = new SessionStorageAdapter('weiqi-bot');
+
+// 暴露给页面内的 SolveHandler 调用（做题模式的 toast 提示）
+(window as any).__replayShowToast = (msg: string, type?: ToastType, links?: ToastLink[]) => {
+  showToast(msg, type ?? 'info', links);
+};
 
 async function main() {
   const ctx = await WebBootstrap.init({
@@ -88,6 +155,7 @@ async function main() {
 
   await page.initialize();
 
+  // 做题模式下点击「查看棋谱」：退出做题，进入常规打谱
   /**
    * 获取当前局面的二维码内容（URL 或精简 SGF）
    */
@@ -142,7 +210,7 @@ async function main() {
   window.addEventListener('favoritePosition', async () => {
     const printData = page.getPrintData();
     if (printData.stones.length === 0) {
-      showToast('当前没有棋盘数据');
+      showToast('当前没有棋盘数据', 'info');
       return;
     }
 
@@ -172,12 +240,12 @@ async function main() {
       await ctx.favoriteService.addFavorite('position', key, favData);
       showToast(
         existing ? '已更新收藏' : '收藏成功',
-        '查看收藏',
-        './favorites.html'
+        'success',
+        [{ text: '查看收藏', onClick: () => { window.location.href = './favorites.html'; } }]
       );
     } catch (e) {
       console.error('收藏失败', e);
-      showToast('收藏失败: ' + (e instanceof Error ? e.message : String(e)));
+      showToast('收藏失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
     }
   });
 

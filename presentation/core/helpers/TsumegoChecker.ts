@@ -7,6 +7,16 @@
 import type { ReplayData, ReplayNode } from '../../../domain/sgf';
 import { coordToPos } from '../../../domain/sgf';
 
+/** 做题模式相关类型 */
+export type TsumegoSolveStatus = 'wrong' | 'continue' | 'solved';
+
+/** 做题模式单步判定结果 */
+export interface TsumegoSolveResult {
+  status: TsumegoSolveStatus;
+  /** status==='continue' 时有效：应对方（机器）应回应的着法 */
+  opponentMove?: { x: number; y: number; color: 'B' | 'W' };
+}
+
 /** 匹配结果类型 */
 export type TsumegoMatchResult = 
   | { type: 'correct'; branchComment: string; branchIndex: number }
@@ -37,6 +47,10 @@ export interface BranchInfo {
 export class TsumegoChecker {
   private branches: BranchInfo[] = [];
   private isTsumego: boolean = false;
+  /** 做题模式下锁定的正解分支索引 */
+  private solveTrackBranch: number | null = null;
+  /** 做题模式下用户已落子数（不含机器回应） */
+  private solveUserMoves: number = 0;
 
   /**
    * 从 ReplayData 初始化
@@ -186,6 +200,88 @@ export class TsumegoChecker {
 
     // 没有匹配任何分支
     return { type: 'no_match', message: '未匹配任何已知变化' };
+  }
+
+  /**
+   * 获取所有「正解」分支（branchType === 'correct'）
+   */
+  getCorrectBranches(): BranchInfo[] {
+    return this.branches.filter(b => b.branchType === 'correct');
+  }
+
+  /**
+   * 做题模式：重置解题状态（重新开始时调用）
+   */
+  resetSolve(): void {
+    this.solveTrackBranch = null;
+    this.solveUserMoves = 0;
+  }
+
+  /**
+   * 做题模式单步判定
+   *
+   * 规则：
+   * - 用户（先手方）下第 2k 手（k 从 0 起），机器（应对方）下第 2k+1 手
+   * - 第一步：在所有「正解」分支里找第一步着法与用户一致的，随机锁定其一；
+   *   若无匹配，返回 wrong
+   * - 后续步：与锁定分支的对应着法比对；命中则返回应对方下一手（continue），
+   *   若已走完该分支所有着法则返回 solved；不符返回 wrong
+   *
+   * @param userMove - 用户刚落下的一手
+   * @returns 判定结果
+   */
+  solveMove(userMove: { x: number; y: number; color: 'B' | 'W' }): TsumegoSolveResult {
+    if (!this.isTsumego) return { status: 'wrong' };
+
+    const correctBranches = this.getCorrectBranches();
+    if (correctBranches.length === 0) return { status: 'wrong' };
+
+    // 第一步：尚未锁定分支
+    if (this.solveTrackBranch === null) {
+      const candidates = correctBranches.filter(b => {
+        const first = b.moves[0];
+        return first && first.color === userMove.color && first.x === userMove.x && first.y === userMove.y;
+      });
+      if (candidates.length === 0) {
+        return { status: 'wrong' };
+      }
+      // 随机锁定一个正确分支
+      const picked = candidates[Math.floor(Math.random() * candidates.length)]!;
+      this.solveTrackBranch = picked.index;
+      this.solveUserMoves = 1;
+      // 取应对方下一手（moves[1]）
+      const opponent = picked.moves[1];
+      if (!opponent) {
+        // 正解分支只有一手，用户走完即正解
+        return { status: 'solved' };
+      }
+      return {
+        status: 'continue',
+        opponentMove: { x: opponent.x, y: opponent.y, color: opponent.color },
+      };
+    }
+
+    // 后续步：与锁定分支比对
+    const branch = this.branches.find(b => b.index === this.solveTrackBranch);
+    if (!branch) return { status: 'wrong' };
+
+    const expectedUser = branch.moves[this.solveUserMoves * 2];
+    if (!expectedUser ||
+        expectedUser.color !== userMove.color ||
+        expectedUser.x !== userMove.x ||
+        expectedUser.y !== userMove.y) {
+      return { status: 'wrong' };
+    }
+
+    this.solveUserMoves++;
+    const opponent = branch.moves[this.solveUserMoves * 2];
+    if (!opponent) {
+      return { status: 'solved' };
+    }
+    return {
+      status: 'continue',
+      opponentMove: { x: opponent.x, y: opponent.y, color: opponent.color },
+    };
   }
 
   /**
