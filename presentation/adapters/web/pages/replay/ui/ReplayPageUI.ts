@@ -571,6 +571,11 @@ export class ReplayPageUI {
     } else {
       container?.classList.remove('solve-mode');
     }
+    // 做题模式隐藏右上角三点菜单按钮
+    const menuBtn = document.getElementById('menuBtn');
+    if (menuBtn) {
+      menuBtn.style.display = visible ? 'none' : '';
+    }
     const variationPanel = document.getElementById('variationPanel');
     if (variationPanel) {
       if (visible) {
