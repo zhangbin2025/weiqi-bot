@@ -51,6 +51,7 @@ export class SolveHandler {
   exitSolve(): void {
     this.state.set('mode', 'review');
     this.state.set('solveDone', false);
+    this.state.set('solveFailed', false);
     this.tsumegoChecker.resetSolve();
     this.ui.setSolveModeUI(false);
   }
@@ -59,8 +60,8 @@ export class SolveHandler {
    * 处理棋盘点击（仅做题模式调用）
    */
   handleBoardClick(x: number, y: number): void {
-    if (this.state.get('solveDone')) {
-      // 已完成：不再接受落子，等待用户「研究」或刷新重做
+    if (this.state.get('solveDone') || this.state.get('solveFailed')) {
+      // 已完成 / 已答错待处理：不再接受落子，等待用户点击「重做」或「研究」
       return;
     }
     // 已有棋子 / 非法点：不处理（按需求非法着法视为 bug，不提示）
@@ -83,12 +84,12 @@ export class SolveHandler {
     });
 
     if (solveResult.status === 'wrong') {
+      // 先不重置棋谱：提示错误并给出「重做/研究」链接，用户点击「重做」才重置
+      this.state.set('solveFailed', true);
       this.showToast('答错了，再试一次', 'error', [
         { text: '重做', onClick: () => this.restart() },
         { text: '研究', onClick: () => this.onStudy() },
       ]);
-      // 重置到初始棋局
-      this.resetToInitial();
       return;
     }
 
@@ -123,6 +124,7 @@ export class SolveHandler {
    */
   restart(): void {
     this.state.set('solveDone', false);
+    this.state.set('solveFailed', false);
     this.resetToInitial();
   }
 
@@ -132,6 +134,7 @@ export class SolveHandler {
   private resetToInitial(): void {
     this.tsumegoChecker.resetSolve();
     this.state.set('solveDone', false);
+    this.state.set('solveFailed', false);
     this.rebuildBoard([], 0);
     this.syncBoardToDisplay();
   }

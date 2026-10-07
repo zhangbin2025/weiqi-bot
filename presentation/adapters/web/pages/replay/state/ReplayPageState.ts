@@ -35,6 +35,8 @@ export interface ReplayPageStateData {
   mode: 'review' | 'solve';
   // 做题模式是否已完成（走完某正确分支）
   solveDone: boolean;
+  // 做题模式是否答错（等待用户点「重做」重置，期间冻结落子）
+  solveFailed: boolean;
 }
 /**
  * ReplayPage 状态管理类
@@ -63,6 +65,7 @@ export class ReplayPageState {
       trialMatchResult: null,
       mode: 'review',
       solveDone: false,
+      solveFailed: false,
     };
   }
   // 获取状态
@@ -95,6 +98,7 @@ export class ReplayPageState {
     this.state.trialMatchResult = null;
     this.state.mode = 'review';
     this.state.solveDone = false;
+    this.state.solveFailed = false;
   }
   // 保存路径（进入分支前）
   savePath(): void {
