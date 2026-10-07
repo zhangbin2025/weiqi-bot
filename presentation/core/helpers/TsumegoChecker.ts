@@ -262,19 +262,25 @@ export class TsumegoChecker {
     }
 
     // 后续步：与锁定分支比对
+    // 着法序列交替：用户=moves[0]，应手=moves[1]，用户=moves[2]，应手=moves[3]...
+    // 即用户第 n 手（n 从 0 起）= moves[2n]，应手 = moves[2n+1]
     const branch = this.branches.find(b => b.index === this.solveTrackBranch);
     if (!branch) return { status: 'wrong' };
 
-    const expectedUser = branch.moves[this.solveUserMoves * 2];
-    if (!expectedUser ||
-        expectedUser.color !== userMove.color ||
+    const userIdx = this.solveUserMoves * 2;
+    const expectedUser = branch.moves[userIdx];
+    if (!expectedUser) {
+      // 该正解分支用户侧已无更多着法，视为完成
+      return { status: 'solved' };
+    }
+    if (expectedUser.color !== userMove.color ||
         expectedUser.x !== userMove.x ||
         expectedUser.y !== userMove.y) {
       return { status: 'wrong' };
     }
 
     this.solveUserMoves++;
-    const opponent = branch.moves[this.solveUserMoves * 2];
+    const opponent = branch.moves[userIdx + 1];
     if (!opponent) {
       return { status: 'solved' };
     }
