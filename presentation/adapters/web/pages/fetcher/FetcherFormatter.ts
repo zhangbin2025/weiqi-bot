@@ -112,7 +112,7 @@ export class FetcherFormatter {
     const sourceLabels: Record<string, string> = {
       foxwq: '🏆 野狐', weiqi101: '📝 101围棋', 'ogs-live': '🎬 OGS', 'yike-live': '📹 弈客',
       goproblems: '🧩 GoProblems', 'ogs-puzzle': '🧩 OGS死活题', katago: '🤖 KataGo',
-      'lib-life-death': '📚 内置死活题', 'lib-ai-review': '📚 内置棋谱',
+      'lib-life-death': '📚 内置题库', 'lib-ai-review': '📚 内置棋谱',
     };
     const sourceLabel = sourceLabels[entry.source] || this.formatSource(entry.source);
     // 日期统一为抓取（收藏）时间，仅显示年月日，不显示时分秒
@@ -208,7 +208,7 @@ export class FetcherFormatter {
       'yuanluobo': '元萝卜',
       'goproblems': 'GoProblems',
       'katago': 'KataGo',
-      'lib-life-death': '内置死活题',
+      'lib-life-death': '内置题库',
       'lib-ai-review': '内置棋谱',
       'txwq': '腾讯围棋',
       'unknown': '未知',

@@ -128,7 +128,7 @@ describe('FetcherRenderer 三点菜单（真实 DOM）', () => {
     expect(c.querySelector('[data-menu-template]')).toBeNull();
   });
 
-  it('内置死活题（lib-life-death）不显示三点按钮', () => {
+  it('内置题库（lib-life-death）不显示三点按钮', () => {
     renderer.renderLatestGames([
       { source: 'lib-life-death', title: '死活题A', date: '2026-09-14', url: 'lib://life-and-death/2026-09-14/0' },
     ]);

@@ -6,7 +6,7 @@
  * 供前端「内置题库 / 内置棋谱」使用。
  *
  * 分类（按源目录）：
- *   life-and-death  死活题   : weiqi101 / ogs-puzzle / goproblems
+ *   life-and-death  题库     : weiqi101 / shizhan101 / ogs-puzzle / goproblems
  *   ai-review       实战AI   : foxwq / ogs
  *
  * 唯一 id = HMAC-MD5( 明文记录, 口令 )，不可逆（需口令才能重算）。
@@ -63,6 +63,7 @@ const SOURCES = {
   foxwq:        { code: 'FWQ', category: 'ai-review', perspective: 'mover' },
   ogs:          { code: 'OGS', category: 'ai-review', perspective: 'black' },
   weiqi101:     { code: 'W101', category: 'life-and-death', perspective: null },
+  shizhan101:   { code: 'SHZ', category: 'life-and-death', perspective: null },
   'ogs-puzzle': { code: 'OGP', category: 'life-and-death', perspective: null },
   goproblems:   { code: 'GPR', category: 'life-and-death', perspective: null },
 };
@@ -200,14 +201,42 @@ function extractDifficulty(pw, rootComment) {
     // "25 kyu" / "29 kyu" / "17 kyu" → 25k
     let m = s.match(/(\d+)\s*kyu/i);
     if (m) return m[1] + 'K';
-    // "13K 死活题" / "8K+ 死活题" / "4D+ 死活题" / "2D 死活题" → 保留完整
-    m = s.match(/(\d+\s*[kKdD]\+?)\s*[死对]\S*题/);
+    // "13K 死活题" / "8K+ 死活题" / "2D+ 官子题" / "4D+ 中盘作战题" → 保留完整“+”（类型不限）
+    m = s.match(/(\d+\s*[kKdD]\+?)\s*\S*题/);
     if (m) return m[1].replace(/\s/g, '').toUpperCase();
     // "life_and_death 18k" / "joseki 12k" → 18k
     m = s.match(/(\d+\s*[kKdDpP])(?!\s*kyu)(?!\s*死)/);
     if (m) return m[1].replace(/\s/g, '').toUpperCase();
   }
   return '';
+}
+
+/**
+ * 从死活题 PW 字段 / 根节点 C[] 提取「题目类型」并归一化为中文。
+ * 归一化映射：
+ *   死活题 / life_and_death / elementary → 死活题
+ *   手筋题 / tesuji                      → 手筋题
+ *   对杀题                              → 对杀题
+ *   官子题 / endgame                    → 官子题
+ *   中盘作战题 / middlegame             → 中盘题
+ *   布局题 / fuseki / opening           → 布局题
+ *   棋理题                              → 棋理题
+ *   best_move                           → 一选题
+ *   定式题 / joseki                     → 定式题
+ *   无法识别                            → 死活题（默认）
+ */
+function extractType(pw, rootComment) {
+  const s = `${pw || ''} ${rootComment || ''}`;
+  if (/死活|life_and_death|elementary/i.test(s)) return '死活题';
+  if (/手筋|tesuji/i.test(s)) return '手筋题';
+  if (/对杀/.test(s)) return '对杀题';
+  if (/官子|endgame/i.test(s)) return '官子题';
+  if (/中盘|middlegame/i.test(s)) return '中盘题';
+  if (/布局|fuseki|opening/i.test(s)) return '布局题';
+  if (/棋理/.test(s)) return '棋理题';
+  if (/best_move/i.test(s)) return '一选题';
+  if (/定式|joseki/i.test(s)) return '定式题';
+  return '死活题';
 }
 
 /**
@@ -358,7 +387,9 @@ function processSgf(text, category, perspective) {
       if (category === 'life-and-death') {
         const origC = getProp(props, 'C') || '';
         const diff = extractDifficulty(origPW, origC);
-        newProps['PW'] = diff || '白棋';
+        const type = extractType(origPW, origC);
+        // PW 存「类型·难度」，供前端按类型/难度筛选；无难度时只存类型
+        newProps['PW'] = diff ? `${type}·${diff}` : type;
       } else {
         newProps['PW'] = '白棋';
       }

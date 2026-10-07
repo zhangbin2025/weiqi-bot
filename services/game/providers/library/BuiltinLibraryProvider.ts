@@ -96,22 +96,116 @@ export interface BuiltinLibraryGameItem {
 }
 
 /**
- * 从 SGF 内容中提取难度级别（PW 字段）。
- * 内置死活题的 PW 字段存储难度，如 5D、2K、15K、10K+ 等。
+ * 从 SGF 内容中解析题库标签（PW 字段）。
+ * 内置题库的 PW 字段形如「类型·难度」，如 死活题·5D、官子题·2D+、中盘题·1K 等。
+ * 无难度时仅含类型（如 死活题）。
  */
-function extractDifficulty(sgfContent: string): string {
+interface PuzzleTags { type: string; difficulty: string; raw: string; }
+function parsePuzzleTags(sgfContent: string): PuzzleTags {
   const m = sgfContent.match(/PW\[([^\]]+)\]/);
-  return m ? m[1]! : '';
+  const raw = m ? m[1]!.trim() : '';
+  if (!raw.includes('·')) {
+    // 仅类型（无难度分隔符）
+    return { type: raw, difficulty: '', raw };
+  }
+  const [type, difficulty] = raw.split('·').map(s => s.trim());
+  return { type: type || '', difficulty: difficulty || '', raw };
 }
 
 /**
- * 判断难度是否匹配关键字。
- * 支持模糊匹配：输入 "5k" 可匹配 "5K"、"15K"、"25K" 等（包含即匹配）。
- * 输入为空时始终匹配。
+ * 判断难度是否匹配难度型原子。
+ * 难度型原子（如 "5K"、"2D+"）锚定到难度段：
+ *   - 大小写不敏感，按确切数字匹配（避免 "5K" 误命中 "15K"）；
+ *   - 不带 “+” 的原子（如 "2D"）匹配同数字的同级（2D 与 2D+ 均命中）；
+ *   - 带 “+” 的原子（如 "2D+"）仅匹配带 “+” 的同级。
  */
-function difficultyMatches(difficulty: string, keyword: string): boolean {
-  if (!keyword) return true;
-  return difficulty.toUpperCase().startsWith(keyword.toUpperCase());
+function difficultyMatches(difficulty: string, atom: string): boolean {
+  const diff = difficulty.toUpperCase();
+  const a = atom.toUpperCase();
+  if (!/^\d+[KD]\+?$/.test(a)) return false;
+  const m = a.match(/^(\d+)([KD])(\+)?$/);
+  if (!m) return false;
+  const targetNum = parseInt(m[1]!, 10);
+  const targetRank = m[2]!;
+  const targetPlus = !!m[3];
+  // 解析难度段（可能含多个，如 "2D+ 死活题" 里取 2D+）
+  const candidates = diff.match(/\d+[KD]\+?/g);
+  if (!candidates) return false;
+  return candidates.some(c => {
+    const cm = c.match(/^(\d+)([KD])(\+)?$/);
+    if (!cm) return false;
+    const num = parseInt(cm[1]!, 10);
+    const rank = cm[2]!;
+    const plus = !!cm[3];
+    if (rank !== targetRank || num !== targetNum) return false;
+    return targetPlus ? plus : true; // "2D+" 只匹配 2D+；"2D" 匹配 2D 与 2D+
+  });
+}
+
+/**
+ * 判断题库标签是否匹配一个筛选原子（类型或难度）。
+ * - 类型原子：对 raw（类型·难度）做大小写不敏感子串匹配。
+ * - 难度原子（^⁤\d+[KD]\+?⁤）：走 difficultyMatches 边界匹配。
+ */
+function atomMatches(tags: PuzzleTags, atom: string): boolean {
+  const a = atom.trim().toUpperCase();
+  if (!a) return true;
+  if (/^\d+[KD]\+?$/.test(a)) return difficultyMatches(tags.difficulty, a);
+  return tags.raw.toUpperCase().includes(a);
+}
+
+/**
+ * 筛选表达式求值：支持括号、and、or，大小写不敏感。
+ * 语法：
+ *   expr   := term ('or' term)*
+ *   term   := factor ('and' factor)*
+ *   factor := '(' expr ')' | atom
+ * 连续原子之间默认视为 and（兼容单关键字模糊匹配）。
+ * 空表达式始终匹配。
+ */
+function evaluateFilter(expr: string, tags: PuzzleTags): boolean {
+  const tokens = expr
+    .replace(/\(/g, ' ( ')
+    .replace(/\)/g, ' ) ')
+    .trim()
+    .split(/\s+/)
+    .map(t => t.toLowerCase());
+  if (tokens.length === 0) return true;
+
+  let pos = 0;
+  function peek(): string | undefined { return tokens[pos]; }
+  function parseExpr(): boolean {
+    let left = parseTerm();
+    while (peek() !== undefined && peek() === 'or') {
+      pos++;
+      const right = parseTerm(); // 必须先解析右侧以推进 pos（避免短路导致的死循环）
+      left = left || right;
+    }
+    return left;
+  }
+  function parseTerm(): boolean {
+    let left = parseFactor();
+    while (
+      peek() !== undefined &&
+      (peek() === 'and' || (peek() !== 'or' && peek() !== ')'))
+    ) {
+      if (peek() === 'and') pos++;
+      const right = parseFactor(); // 必须先解析右侧以推进 pos（避免短路导致的死循环）
+      left = left && right;
+      if (peek() === 'and') pos++;
+    }
+    return left;
+  }
+  function parseFactor(): boolean {
+    const t = peek();
+    if (t === '(') { pos++; const v = parseExpr(); if (peek() === ')') pos++; return v; }
+    if (t === 'and' || t === 'or' || t === undefined || t === ')') return true; // 空因子
+    pos++;
+    return atomMatches(tags, t);
+  }
+
+  const result = parseExpr();
+  return result;
 }
 
 /**
@@ -211,9 +305,9 @@ export class BuiltinLibraryProvider extends BaseProvider {
 
   /**
    * 展开某分类的「最新」列表（供 FetcherApp.fetchLatestGames 使用）。
-   * 死活题（life-and-death）的 subtitle 为难度级别（从 SGF PW 字段提取），
+   * 题库（life-and-death）的 subtitle 为题目标签「类型·难度」（从 SGF PW 字段解析），
    * 棋谱（ai-review）的 subtitle 为 md5(id)。
-   * @param keyword - 可选关键字过滤（如难度 "5K"、"2D"），仅对死活题生效
+   * @param keyword - 可选筛选表达式（支持 and/or 语法，如 "(官子 or 死活) and 2D"），仅对题库生效
    */
   async listGameItems(category: string, count?: number, keyword?: string): Promise<BuiltinLibraryGameItem[]> {
     const kw = keyword?.trim() || '';
@@ -228,12 +322,12 @@ export class BuiltinLibraryProvider extends BaseProvider {
           if (count && results.length >= count) break;
           const entry = games[i]!;
           const id = entry.filename.replace(/\.sgf$/i, '');
-          // 死活题：从 SGF 提取难度作为 subtitle，并按关键字过滤
+          // 题库：解析「类型·难度」，按筛选表达式过滤
           let subtitle = id;
           if (isLifeAndDeath) {
-            const difficulty = extractDifficulty(entry.sgfContent);
-            if (kw && !difficultyMatches(difficulty, kw)) continue;
-            subtitle = difficulty || id;
+            const tags = parsePuzzleTags(entry.sgfContent);
+            if (kw && !evaluateFilter(kw, tags)) continue;
+            subtitle = tags.raw || id;
           }
           results.push({
             source: isLifeAndDeath ? 'lib-life-death' : 'lib-ai-review',

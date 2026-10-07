@@ -142,7 +142,7 @@ export class FetcherRenderer {
     this.updateSourceOptions('archive');
     this.keywordInput.setConfig({
       type: 'text',
-      placeholder: '关键字过滤（棋手/赛事/难度等）',
+      placeholder: '筛选（支持 and/or 语法）',
       clearable: true,
     });
     this.bookmarkPanel.setVisible(false);
@@ -204,7 +204,7 @@ export class FetcherRenderer {
       { value: 'weiqi101', label: '101围棋' },
       { value: 'ogs-puzzle', label: 'OGS死活题' },
       { value: 'goproblems', label: 'GoProblems' },
-      { value: 'lib-life-death', label: '内置死活题' },
+      { value: 'lib-life-death', label: '内置题库' },
     ],
     live: [
       { value: 'ogs-live', label: 'OGS在线' },
@@ -465,7 +465,7 @@ export class FetcherRenderer {
       this._displayedLatest = Math.min(this._displayedLatest, items.length);
     }
     const html = this._latestItems.slice(0, this._displayedLatest).map(item => {
-      const sourceLabels: Record<string, string> = { foxwq: '🏆 野狐', weiqi101: '📝 101围棋', 'ogs-live': '🎬 OGS', 'yike-live': '📹 弈客', goproblems: '🧩 GoProblems', 'ogs-puzzle': '🧩 OGS死活题', katago: '🤖 KataGo', 'lib-life-death': '📚 内置死活题', 'lib-ai-review': '📚 内置棋谱' };
+      const sourceLabels: Record<string, string> = { foxwq: '🏆 野狐', weiqi101: '📝 101围棋', 'ogs-live': '🎬 OGS', 'yike-live': '📹 弈客', goproblems: '🧩 GoProblems', 'ogs-puzzle': '🧩 OGS死活题', katago: '🤖 KataGo', 'lib-life-death': '📚 内置题库', 'lib-ai-review': '📚 内置棋谱' };
       const sourceLabel = sourceLabels[item.source] || item.source;
       const subtitle = item.subtitle
         ? `<div style="font-size:0.85em;color:#666;margin-top:4px;">${item.subtitle}</div>`
