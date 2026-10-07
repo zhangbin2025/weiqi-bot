@@ -47,8 +47,8 @@ export interface BranchInfo {
 export class TsumegoChecker {
   private branches: BranchInfo[] = [];
   private isTsumego: boolean = false;
-  /** 做题模式下锁定的正解分支索引 */
-  private solveTrackBranch: number | null = null;
+  /** 做题模式下仍然可行的正解分支索引集合（null = 尚未开始） */
+  private solveViable: number[] | null = null;
   /** 做题模式下用户已落子数（不含机器回应） */
   private solveUserMoves: number = 0;
 
@@ -213,7 +213,7 @@ export class TsumegoChecker {
    * 做题模式：重置解题状态（重新开始时调用）
    */
   resetSolve(): void {
-    this.solveTrackBranch = null;
+    this.solveViable = null;
     this.solveUserMoves = 0;
   }
 
@@ -236,57 +236,49 @@ export class TsumegoChecker {
     const correctBranches = this.getCorrectBranches();
     if (correctBranches.length === 0) return { status: 'wrong' };
 
-    // 第一步：尚未锁定分支
-    if (this.solveTrackBranch === null) {
-      const candidates = correctBranches.filter(b => {
-        const first = b.moves[0];
-        return first && first.color === userMove.color && first.x === userMove.x && first.y === userMove.y;
-      });
-      if (candidates.length === 0) {
-        return { status: 'wrong' };
-      }
-      // 随机锁定一个正确分支
-      const picked = candidates[Math.floor(Math.random() * candidates.length)]!;
-      this.solveTrackBranch = picked.index;
-      this.solveUserMoves = 1;
-      // 取应对方下一手（moves[1]）
-      const opponent = picked.moves[1];
-      if (!opponent) {
-        // 正解分支只有一手，用户走完即正解
-        return { status: 'solved' };
-      }
-      return {
-        status: 'continue',
-        opponentMove: { x: opponent.x, y: opponent.y, color: opponent.color },
-      };
-    }
+    // 用户第 n 手（n 从 0 起）= moves[2n]，应手 = moves[2n+1]
+    const n = this.solveUserMoves;
 
-    // 后续步：与锁定分支比对
-    // 着法序列交替：用户=moves[0]，应手=moves[1]，用户=moves[2]，应手=moves[3]...
-    // 即用户第 n 手（n 从 0 起）= moves[2n]，应手 = moves[2n+1]
-    const branch = this.branches.find(b => b.index === this.solveTrackBranch);
-    if (!branch) return { status: 'wrong' };
+    // 候选分支池：首次用全部正解分支，之后用上一轮收窄后的可行分支
+    const pool: number[] = this.solveViable ?? correctBranches.map(b => b.index);
 
-    const userIdx = this.solveUserMoves * 2;
-    const expectedUser = branch.moves[userIdx];
-    if (!expectedUser) {
-      // 该正解分支用户侧已无更多着法，视为完成
-      return { status: 'solved' };
-    }
-    if (expectedUser.color !== userMove.color ||
-        expectedUser.x !== userMove.x ||
-        expectedUser.y !== userMove.y) {
+    // 用本次用户着法过滤：分支的 moves[2n] 必须与用户着法一致
+    const candidates = pool.filter(idx => {
+      const b = this.branches.find(x => x.index === idx);
+      const mv = b?.moves[n * 2];
+      return !!mv && mv.color === userMove.color && mv.x === userMove.x && mv.y === userMove.y;
+    });
+
+    if (candidates.length === 0) {
+      // 没有任何正解分支容忍这一手 → 未命中
       return { status: 'wrong' };
     }
 
-    this.solveUserMoves++;
-    const opponent = branch.moves[userIdx + 1];
-    if (!opponent) {
+    this.solveViable = candidates;
+    this.solveUserMoves = n + 1;
+
+    // 收集候选分支的应手（moves[2n+1]）
+    const withReply = candidates
+      .map(idx => this.branches.find(x => x.index === idx)!)
+      .filter(b => !!b.moves[n * 2 + 1]);
+
+    // 所有候选分支都在用户这一手后结束 → 正解完成
+    if (withReply.length === 0) {
       return { status: 'solved' };
     }
+
+    // 随机挑一个应手，并把可行分支收窄到与该应手一致的
+    const pickedReply = withReply[Math.floor(Math.random() * withReply.length)]!.moves[n * 2 + 1]!;
+    const narrowed = candidates.filter(idx => {
+      const b = this.branches.find(x => x.index === idx)!;
+      const om = b.moves[n * 2 + 1];
+      return !!om && om.color === pickedReply.color && om.x === pickedReply.x && om.y === pickedReply.y;
+    });
+    this.solveViable = narrowed.length > 0 ? narrowed : candidates;
+
     return {
       status: 'continue',
-      opponentMove: { x: opponent.x, y: opponent.y, color: opponent.color },
+      opponentMove: { x: pickedReply.x, y: pickedReply.y, color: pickedReply.color },
     };
   }
 
