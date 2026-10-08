@@ -241,15 +241,15 @@ export class FetcherRenderer {
   /** 分类 → 来源 映射 */
   private static readonly CATEGORY_SOURCES: Record<string, Array<{ value: string; label: string }>> = {
     archive: [
+      { value: 'lib-ai-review', label: '内置棋谱' },
       { value: 'foxwq', label: '野狐围棋' },
       { value: 'katago', label: 'KataGo' },
-      { value: 'lib-ai-review', label: '内置棋谱' },
     ],
     puzzle: [
+      { value: 'lib-life-death', label: '内置题库' },
       { value: 'weiqi101', label: '101围棋' },
       { value: 'ogs-puzzle', label: 'OGS死活题' },
       { value: 'goproblems', label: 'GoProblems' },
-      { value: 'lib-life-death', label: '内置题库' },
     ],
     live: [
       { value: 'ogs-live', label: 'OGS在线' },
