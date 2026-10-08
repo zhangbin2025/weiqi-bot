@@ -6,7 +6,7 @@
  * 供前端「内置题库 / 内置棋谱」使用。
  *
  * 分类（按源目录）：
- *   life-and-death  题库     : weiqi101 / shizhan101 / ogs-puzzle / goproblems
+ *   life-and-death  题库     : weiqi101 / shizhan101
  *   ai-review       实战AI   : foxwq / ogs
  *
  * 唯一 id = HMAC-MD5( 明文记录, 口令 )，不可逆（需口令才能重算）。
@@ -64,8 +64,6 @@ const SOURCES = {
   ogs:          { code: 'OGS', category: 'ai-review', perspective: 'black' },
   weiqi101:     { code: 'W101', category: 'life-and-death', perspective: null },
   shizhan101:   { code: 'SHZ', category: 'life-and-death', perspective: null },
-  'ogs-puzzle': { code: 'OGP', category: 'life-and-death', perspective: null },
-  goproblems:   { code: 'GPR', category: 'life-and-death', perspective: null },
 };
 const CATEGORIES = ['life-and-death', 'ai-review'];
 
