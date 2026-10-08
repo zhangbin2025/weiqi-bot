@@ -27,7 +27,7 @@ export class SolveHandler {
     private boardRebuilderClass: typeof BoardRebuilder,
     private boardSyncerClass: typeof BoardSyncer,
     private tsumegoChecker: TsumegoChecker,
-    private showToast: (msg: string, type?: ToastType, links?: ToastLink[]) => void,
+    private showToast: (msg: string, type?: ToastType, links?: ToastLink[], persist?: boolean) => void,
     private onStudy: () => void,
     private onRestart: () => void
   ) {}
@@ -89,7 +89,7 @@ export class SolveHandler {
       this.showToast('答错了，再试一次', 'error', [
         { text: '重做', onClick: () => this.restart() },
         { text: '研究', onClick: () => this.onStudy() },
-      ]);
+      ], true);
       return;
     }
 
@@ -98,7 +98,7 @@ export class SolveHandler {
       this.syncBoardToDisplay();
       this.showToast('正解完成 🎉', 'success', [
         { text: '研究', onClick: () => this.onStudy() },
-      ]);
+      ], true);
       return;
     }
 
@@ -115,7 +115,7 @@ export class SolveHandler {
       this.state.set('solveDone', true);
       this.showToast('正解完成 🎉', 'success', [
         { text: '研究', onClick: () => this.onStudy() },
-      ]);
+      ], true);
     }
   }
 

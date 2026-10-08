@@ -38,7 +38,7 @@ const TOAST_STYLE: Record<ToastType, { bg: string; border: string; icon: string 
   info:    { bg: 'rgba(0, 0, 0, 0.82)',      border: 'rgba(255,255,255,0.25)', icon: 'ℹ' },
 };
 
-function showToast(message: string, type: ToastType = 'info', links?: ToastLink[]): void {
+function showToast(message: string, type: ToastType = 'info', links?: ToastLink[], persist: boolean = false): void {
   const existing = document.getElementById('replay-toast');
   if (existing) existing.remove();
 
@@ -119,7 +119,8 @@ function showToast(message: string, type: ToastType = 'info', links?: ToastLink[
   document.body.appendChild(toast);
   requestAnimationFrame(() => { toast.style.opacity = '1'; });
 
-  // 停留时间：有链接时更长，便于用户点击
+  // 停留时间：有链接时更长，便于用户点击；persist=true 时不自动消失（需用户点击链接/关闭）
+  if (persist) return;
   const duration = (links && links.length > 0) ? 8000 : 5000;
   setTimeout(() => {
     toast.style.opacity = '0';
@@ -130,8 +131,8 @@ function showToast(message: string, type: ToastType = 'info', links?: ToastLink[
 const sessionStore = new SessionStorageAdapter('weiqi-bot');
 
 // 暴露给页面内的 SolveHandler 调用（做题模式的 toast 提示）
-(window as any).__replayShowToast = (msg: string, type?: ToastType, links?: ToastLink[]) => {
-  showToast(msg, type ?? 'info', links);
+(window as any).__replayShowToast = (msg: string, type?: ToastType, links?: ToastLink[], persist?: boolean) => {
+  showToast(msg, type ?? 'info', links, persist ?? false);
 };
 
 async function main() {

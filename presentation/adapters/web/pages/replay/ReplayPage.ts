@@ -136,8 +136,8 @@ export class ReplayPage implements IPage {
       BoardRebuilder,
       BoardSyncer,
       this.trialHandler.getTsumegoChecker(),
-      (msg: string, type?: 'success' | 'error' | 'info', links?: { text: string; onClick: () => void }[]) => {
-        (window as any).__replayShowToast?.(msg, type, links);
+      (msg: string, type?: 'success' | 'error' | 'info', links?: { text: string; onClick: () => void }[], persist?: boolean) => {
+        (window as any).__replayShowToast?.(msg, type, links, persist);
       },
       () => this.enterReviewMode(),
       () => this.restartSolve()
