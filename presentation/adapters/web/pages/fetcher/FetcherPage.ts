@@ -11,6 +11,8 @@ import { detectClipboardUrl } from './utils/clipboardDetector';
 import { TaskHelper } from '../../../../../clients/web/shared/task-helper';
 import { buildArchiveUrl } from '../../../../../domain/sgf/SGFUtils';
 import { SessionStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/SessionStorageAdapter';
+import { LocalStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/LocalStorageAdapter';
+import type { FilterSelection } from './FetcherRenderer';
 export interface FetcherPageConfig {
   fetcherApp: FetcherApp;
   adapterFactory: IAdapterFactory;
@@ -26,6 +28,9 @@ export class FetcherPage implements IPage {
   private _onNavigate?: (page: string, params?: Record<string, string>) => void;
   private sessionService?: ISessionService;
   private readonly sessionStore = new SessionStorageAdapter('weiqi-bot');
+  private readonly localStore = new LocalStorageAdapter('weiqi-bot');
+  /** 筛选题型/难度缓存（来自 localStorage，供弹框同步读取） */
+  private filterState: FilterSelection | null = null;
   private initialized = false;
   private bookmarks: FetcherBookmark[] = [];
   private currentResult: FetcherResult | undefined;
@@ -50,6 +55,8 @@ export class FetcherPage implements IPage {
       onSelectLatest: (url) => this.selectLatestGame(url),
       onSelectLatestView: (url) => this.viewLatestGame(url),
       onViewUrl: (url) => this.viewUrl(url),
+      onLoadFilterState: () => this.loadFilterState(),
+      onSaveFilterState: (state) => this.saveFilterState(state),
     };
     // 渲染器事件：浏览位置变化时持久化到 sessionStorage
     const events: FetcherRendererEvents = {
@@ -69,6 +76,9 @@ export class FetcherPage implements IPage {
     // 恢复缓存的最新棋谱列表及查询条件
     try {
       await this.sessionStore.initialize();
+      // 读取持久化的筛选题型/难度（localStorage）
+      try { this.filterState = await this.localStore.read<FilterSelection>('fetcher_filter_state'); }
+      catch { this.filterState = null; }
       const cached = await this.sessionStore.read<any[]>('fetcher_latest_items');
       if (cached && Array.isArray(cached) && cached.length > 0) {
         // 恢复查询条件
@@ -90,6 +100,8 @@ export class FetcherPage implements IPage {
         this.renderer.switchToLatestTab();
       }
     } catch { /* ignore */ }
+    // 根据恢复后的分类/来源刷新筛选图标显隐（仅做题+内置题库显示）
+    this.renderer.updateFilterIconVisibility();
     this.initialized = true;
     console.info('FetcherPage initialized');
   }
@@ -316,6 +328,17 @@ export class FetcherPage implements IPage {
   }
 
   /** 从缓存恢复指定来源的关键字 */
+  /** 读取上次保存的筛选题型/难度（localStorage 持久化，取缓存） */
+  private loadFilterState(): FilterSelection | null {
+    return this.filterState;
+  }
+
+  /** 保存筛选题型/难度（localStorage 持久化） */
+  private saveFilterState(state: FilterSelection): void {
+    this.filterState = state;
+    try { void this.localStore.write('fetcher_filter_state', state); } catch { /* ignore */ }
+  }
+
   private restoreKeyword(source: string): string | null {
     try {
       const val = sessionStorage.getItem(`weiqi-bot:fetcher_latest_keyword_${source}`);

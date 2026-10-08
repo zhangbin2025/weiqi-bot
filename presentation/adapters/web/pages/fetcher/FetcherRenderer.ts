@@ -7,6 +7,12 @@ import type { FetcherResult, FetcherBookmark, ShareResult, LatestGameItem } from
 import type { FetcherFormatter } from './FetcherFormatter';
 import { WebOverlay } from '../../components/Overlay';
 import { WebQRCodeDialog } from '../../components/QRCodeDialog';
+/** 筛选关键字生成的题型/难度选择状态（持久化用） */
+export interface FilterSelection {
+  types: string[];
+  difficulty: string;
+}
+
 /** 渲染器事件回调（非用户交互事件） */
 export interface FetcherRendererEvents {
   /** 浏览位置变化（_displayedLatest 改变），需要持久化 */
@@ -28,6 +34,10 @@ export interface FetcherRendererCallbacks {
   onRestoreKeyword?: (source: string) => string | null;
   onSelectLatest: (url: string) => void;
   onViewUrl: (url: string) => void;
+  /** 打开筛选框时，恢复上次保存的题型/难度（无则返回 null） */
+  onLoadFilterState?: () => FilterSelection | null;
+  /** 生成筛选后，保存题型/难度（用于下次打开时恢复） */
+  onSaveFilterState?: (state: FilterSelection) => void;
 }
 export class FetcherRenderer {
   readonly tabs: ITabs;
@@ -42,6 +52,7 @@ export class FetcherRenderer {
   readonly categorySelect: ISelect;
   readonly sourceSelect: ISelect;
   readonly keywordInput: IInput;
+  readonly filterIconBtn: HTMLButtonElement;
   readonly latestCard: ICard;
   private overlay: IOverlay;
   private qrDialog: WebQRCodeDialog;
@@ -92,6 +103,37 @@ export class FetcherRenderer {
     this.sourceSelect = factory.createSelect(lc);
     this.keywordInput = factory.createInput(lc);
     this.latestCard = factory.createCard(lc);
+    // 筛选关键字生成图标（仅做题+内置题库显示）
+    this.filterIconBtn = document.createElement('button');
+    this.filterIconBtn.type = 'button';
+    this.filterIconBtn.className = 'fetcher-filter-icon';
+    this.filterIconBtn.title = '筛选关键字生成';
+    this.filterIconBtn.setAttribute('aria-label', '筛选关键字生成');
+    // 用内联 SVG 保证图标在按钮内水平/垂直居中
+    this.filterIconBtn.innerHTML =
+      '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" ' +
+      'stroke="#667eea" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<line x1="4" y1="6" x2="20" y2="6"></line>' +
+      '<line x1="4" y1="12" x2="20" y2="12"></line>' +
+      '<line x1="4" y1="18" x2="20" y2="18"></line>' +
+      '<circle cx="9" cy="6" r="2" fill="#fff"></circle>' +
+      '<circle cx="15" cy="12" r="2" fill="#fff"></circle>' +
+      '<circle cx="8" cy="18" r="2" fill="#fff"></circle>' +
+      '</svg>';
+    this.filterIconBtn.style.display = 'none';
+    this.filterIconBtn.addEventListener('click', () => this.openFilterDialog());
+    // 把图标放到关键字输入框同一行右侧
+    const kwContainer = this.keywordInput.getContainer?.() as HTMLElement | undefined;
+    if (kwContainer) {
+      const row = document.createElement('div');
+      row.className = 'fetcher-keyword-row';
+      // 用 row 替换 keyword 输入框容器（若无父节点则直接包裹）
+      if (kwContainer.parentElement) {
+        kwContainer.parentElement.replaceChild(row, kwContainer);
+      }
+      row.appendChild(kwContainer);
+      row.appendChild(this.filterIconBtn);
+    }
     this.overlay = new WebOverlay();
     this.qrDialog = new WebQRCodeDialog({ title: '扫码下载棋谱', hint: '截图或长按二维码识别后即可下载SGF文件' });
   }
@@ -253,6 +295,126 @@ export class FetcherRenderer {
   /** 设置最新标签页的关键字 */
   setLatestKeyword(keyword: string): void { this.keywordInput.setValue(keyword); }
 
+  // —— 筛选关键字生成（仅做题分类 + 内置题库来源） ——
+  /** 题型选项（复选），值即题库标签子串 */
+  private static readonly FILTER_TYPES: Array<{ value: string; label: string }> = [
+    { value: '布局', label: '布局' },
+    { value: '死活', label: '死活' },
+    { value: '官子', label: '官子' },
+    { value: '中盘', label: '中盘' },
+    { value: '对杀', label: '对杀' },
+    { value: '手筋', label: '手筋' },
+    { value: '定式', label: '定式' },
+  ];
+  /** 难度选项（单选，30K→7D） */
+  private static readonly FILTER_DIFFICULTIES: string[] = (() => {
+    const arr: string[] = [];
+    for (let k = 30; k >= 1; k--) arr.push(k + 'K');
+    for (let d = 1; d <= 7; d++) arr.push(d + 'D');
+    return arr;
+  })();
+
+  /** 是否允许显示筛选图标（仅做题 + 内置题库） */
+  private canShowFilterIcon(): boolean {
+    return this.categorySelect.getValue() === 'puzzle' && this.sourceSelect.getValue() === 'lib-life-death';
+  }
+
+  /** 更新筛选图标显隐 */
+  updateFilterIconVisibility(): void {
+    if (!this.filterIconBtn) return;
+    this.filterIconBtn.style.display = this.canShowFilterIcon() ? '' : 'none';
+  }
+
+  /** 打开筛选关键字生成弹框 */
+  private openFilterDialog(): void {
+    if (!this.canShowFilterIcon()) return;
+    const dialog = document.createElement('div');
+    dialog.className = 'fetcher-filter-dialog';
+
+    // 恢复上次保存的筛选状态（无则用默认：首项题型）
+    const savedState = this.cb.onLoadFilterState?.() ?? null;
+    const savedTypes = savedState && savedState.types.length > 0
+      ? savedState.types
+      : [FetcherRenderer.FILTER_TYPES[0]!.value];
+    const savedDifficulty = savedState ? savedState.difficulty : '';
+
+    const typeCheckboxes = FetcherRenderer.FILTER_TYPES.map((t) => (
+      '<label class="fetcher-filter-type">' +
+        '<input type="checkbox" data-type="' + t.value + '"' +
+          (savedTypes.includes(t.value) ? ' checked' : '') + ' />' +
+        '<span>' + t.label + '</span>' +
+      '</label>'
+    )).join('');
+
+    const difficultyOptions = FetcherRenderer.FILTER_DIFFICULTIES
+      .map((d) => ({ value: d, label: d }));
+
+    dialog.innerHTML = (
+      '<div class="dialog-overlay show">' +
+        '<div class="dialog">' +
+          '<div class="dialog-title">筛选关键字生成</div>' +
+          '<div class="fetcher-filter-section">' +
+            '<div class="fetcher-filter-label">题型（可多选，不选=全部）</div>' +
+            '<div class="fetcher-filter-types">' + typeCheckboxes + '</div>' +
+          '</div>' +
+          '<div class="fetcher-filter-section">' +
+            '<div class="fetcher-filter-label">难度（单选）</div>' +
+            '<select class="fetcher-filter-difficulty" id="fetcherFilterDifficulty">' +
+              '<option value="">请选择难度（不选=全部）</option>' +
+            '</select>' +
+          '</div>' +
+          '<div class="dialog-btn-group">' +
+            '<button class="dialog-btn secondary" data-act="cancel">取消</button>' +
+            '<button class="dialog-btn primary" data-act="ok">生成并筛选</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>'
+    );
+    document.body.appendChild(dialog);
+
+    // 难度下拉（原生 select，避免 fixed 浮层内自绘下拉定位异常）
+    const diffSelect = dialog.querySelector('#fetcherFilterDifficulty') as HTMLSelectElement;
+    difficultyOptions.forEach((d) => {
+      const opt = document.createElement('option');
+      opt.value = d.value;
+      opt.textContent = d.label;
+      diffSelect.appendChild(opt);
+    });
+    if (savedDifficulty) diffSelect.value = savedDifficulty;
+
+    const close = () => dialog.remove();
+    const onCancel = () => close();
+    const onOk = () => {
+      const types: string[] = [];
+      dialog.querySelectorAll<HTMLInputElement>('input[type="checkbox"][data-type]:checked')
+        .forEach((cb) => { const v = cb.dataset['type']; if (v) types.push(v); });
+      const difficulty = diffSelect ? diffSelect.value : '';
+      const keyword = this.buildFilterKeyword(types, difficulty);
+      this.cb.onSaveFilterState?.({ types, difficulty });
+      close();
+      const source = this.sourceSelect.getValue() || 'lib-life-death';
+      this.keywordInput.setValue(keyword);
+      this.cb.onFetchLatest(source, keyword || undefined);
+    };
+
+    dialog.querySelector('[data-act="cancel"]')?.addEventListener('click', onCancel);
+    dialog.querySelector('[data-act="ok"]')?.addEventListener('click', onOk);
+    const overlayEl = dialog.querySelector('.dialog-overlay');
+    overlayEl?.addEventListener('click', (e) => { if (e.target === overlayEl) onCancel(); });
+  }
+
+  /** 根据题型（复选）与难度（单选）生成筛选关键字串（and/or 语法） */
+  private buildFilterKeyword(types: string[], difficulty: string): string {
+    const parts: string[] = [];
+    if (types.length === 1) {
+      parts.push(types[0]!);
+    } else if (types.length > 1) {
+      parts.push('(' + types.join(' or ') + ')');
+    }
+    if (difficulty) parts.push(difficulty);
+    return parts.join(' and ');
+  }
+
   /** 切换到最新标签页 */
   switchToLatestTab(): void {
     this.tabs.setActiveId('latest');
@@ -368,6 +530,7 @@ export class FetcherRenderer {
     this.categorySelect.onChange((category) => {
       this.updateSourceOptions(category);
       const source = this.sourceSelect.getValue() || '';
+      this.updateFilterIconVisibility();
       if (!source) return;
       const restored = this.cb.onRestoreKeyword?.(source);
       this.keywordInput.setValue(restored || '');
@@ -377,6 +540,7 @@ export class FetcherRenderer {
     this.sourceSelect.onChange(() => {
       if (this._suppressSourceChange) return;
       const source = this.sourceSelect.getValue() || 'foxwq';
+      this.updateFilterIconVisibility();
       const restored = this.cb.onRestoreKeyword?.(source);
       this.keywordInput.setValue(restored || '');
       this.cb.onFetchLatest(source, restored || undefined);

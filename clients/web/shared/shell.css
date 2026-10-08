@@ -203,3 +203,114 @@ footer {
 .page-header {
   padding-top: calc(12px + env(safe-area-inset-top));
 }
+
+/* ===== 最新标签页：筛选关键字输入框 + 生成图标 同一行 ===== */
+.fetcher-keyword-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+.fetcher-keyword-row > div:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-bottom: 0;
+  display: flex;
+}
+.fetcher-keyword-row .web-input {
+  width: 100%;
+  margin-bottom: 0;
+}
+.fetcher-filter-icon {
+  flex: 0 0 44px;
+  width: 44px;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 18px;
+  line-height: 1;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.fetcher-filter-icon:hover {
+  border-color: #667eea;
+  background: #f0f3ff;
+}
+.fetcher-filter-icon:active {
+  transform: scale(0.96);
+}
+
+/* ===== 筛选关键字生成弹框（复用 ui.css 的 .dialog-overlay/.dialog 体系） ===== */
+.fetcher-filter-dialog .dialog {
+  max-width: 360px;
+  width: 90%;
+}
+.fetcher-filter-section {
+  margin-bottom: 18px;
+}
+.fetcher-filter-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 10px;
+  text-align: left;
+}
+.fetcher-filter-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+}
+.fetcher-filter-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: #444;
+  cursor: pointer;
+  user-select: none;
+  line-height: 1;
+}
+.fetcher-filter-type input {
+  /* 覆盖 shell.css 全局 input 规则（width:100%/padding/border/margin） */
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  margin: 0;
+  flex: 0 0 auto;
+  vertical-align: middle;
+  accent-color: #667eea;
+  cursor: pointer;
+}
+.fetcher-filter-difficulty {
+  width: 100%;
+  padding: 10px 36px 10px 12px;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  color: #333;
+  line-height: 1.4;
+  min-height: 40px;
+  box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M1 3l4 4 4-4' fill='none' stroke='%23888' stroke-width='2'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  cursor: pointer;
+}
+.fetcher-filter-difficulty:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.18);
+}
