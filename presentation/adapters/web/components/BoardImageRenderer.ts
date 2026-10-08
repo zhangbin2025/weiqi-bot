@@ -338,6 +338,39 @@ export class BoardImageRenderer {
   }
 
   /**
+   * 绘制选点导航标记（试下/研究死活题的下一步选点）
+   * 仅分红蓝两色，小圆圈，不显眼：
+   * - correct 正解选点 → 蓝色
+   * - wrong 错误选点 → 红色
+   * （variation/unknown 亦按红色处理，提示非正解）
+   * @param kind - 'correct' | 'wrong'
+   */
+  drawCandidateMarker(
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    cy: number,
+    cellSize: number,
+    kind: 'correct' | 'wrong'
+  ): void {
+    const color = kind === 'correct'
+      ? { stroke: 'rgba(33, 108, 214, 0.95)', fill: 'rgba(33, 108, 214, 0.14)' }
+      : { stroke: 'rgba(214, 45, 45, 0.95)', fill: 'rgba(214, 45, 45, 0.14)' };
+    // 小圈：约为格宽的 0.30
+    const radius = cellSize * 0.30;
+    const lineWidth = Math.max(1.5, cellSize * 0.055);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.fillStyle = color.fill;
+    ctx.fill();
+    ctx.strokeStyle = color.stroke;
+    ctx.lineWidth = lineWidth;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
    * 坐标转画布位置
    */
   static toCanvas(x: number, y: number, cellSize: number): { cx: number; cy: number } {

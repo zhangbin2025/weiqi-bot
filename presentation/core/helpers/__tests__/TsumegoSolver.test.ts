@@ -179,3 +179,46 @@ describe('分支以应对方收尾（回归）', () => {
   });
 });
 
+
+describe('TsumegoChecker.getNextCandidates', () => {
+  it('empty sequence shows first-move candidates (correct=blue, wrong=red)', () => {
+    const c = new TsumegoChecker();
+    c.init(buildTsumego());
+    const cands = c.getNextCandidates([]);
+    // 三个分支首手：正解A cc(2,2)、正解B gc(6,2)、失败 cc(2,2)
+    // cc 命中正解+失败 → 正解优先(蓝)；gc 命中正解(蓝)
+    const map = new Map(cands.map(k => [`${k.x},${k.y}`, k.branchType]));
+    expect(map.get('2,2')).toBe('correct');
+    expect(map.get('6,2')).toBe('correct');
+    expect(map.size).toBe(2);
+  });
+
+  it('after first correct move, candidates are the next hands', () => {
+    const c = new TsumegoChecker();
+    c.init(buildTsumego());
+    const cands = c.getNextCandidates([{ x: 2, y: 2, color: 'black' }]);
+    // 走 cc 后：正解A下一手 gc(6,2)=W；失败图下一手 gg(6,6)=W
+    const map = new Map(cands.map(k => [`${k.x},${k.y}`, k.branchType]));
+    expect(map.get('6,2')).toBe('correct');
+    expect(map.get('6,6')).toBe('wrong');
+  });
+
+  it('returns empty when sequence completed all candidates', () => {
+    const c = new TsumegoChecker();
+    c.init(buildTsumego());
+    const cands = c.getNextCandidates([
+      { x: 2, y: 2, color: 'black' },
+      { x: 6, y: 2, color: 'white' },
+      { x: 2, y: 6, color: 'black' },
+      { x: 6, y: 6, color: 'white' },
+      { x: 4, y: 4, color: 'black' },
+    ]);
+    expect(cands.length).toBe(0);
+  });
+
+  it('non-tsumego returns empty', () => {
+    const c = new TsumegoChecker();
+    c.init(null);
+    expect(c.getNextCandidates([])).toEqual([]);
+  });
+});

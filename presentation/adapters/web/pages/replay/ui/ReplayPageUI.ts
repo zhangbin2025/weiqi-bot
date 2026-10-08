@@ -486,6 +486,14 @@ export class ReplayPageUI {
       this.variationPanel.classList.remove('visible');
       return;
     }
+    // 死活题研究模式：隐藏变化图面板（选点导航已覆盖分支查看）
+    if (this.state.get('tsumegoReview')) {
+      this.variationPanel.classList.remove('visible');
+      // 仍更新分支选点标记与菜单项（便于用户切换分支选点字母）
+      this.updateBranchMarks();
+      this.updateBranchMarksMenuItem(false);
+      return;
+    }
     const inVariation = this.state.get('inVariation');
     // 分支模式下，隐藏变化图面板
     if (inVariation) {
@@ -582,6 +590,32 @@ export class ReplayPageUI {
         variationPanel.classList.remove('visible');
       }
     }
+    // 切回做题模式：解除死活题研究态，恢复正常浏览栏
+    if (visible) {
+      this.state.set('tsumegoReview', false);
+    }
+  }
+
+  /**
+   * 设置/取消死活题研究模式 UI
+   * 研究模式下：隐藏变化图面板与着法浏览栏（含第几手信息）。
+   * 选点导航已覆盖分支查看功能，无需通过变化图面板与主线浏览查看所有分支。
+   * @param visible - true=进入死活题研究模式, false=退出（如切回做题模式）
+   */
+  setTsumegoReviewUI(visible: boolean): void {
+    this.state.set('tsumegoReview', visible);
+    const variationPanel = document.getElementById('variationPanel');
+    if (variationPanel) {
+      variationPanel.classList.toggle('visible', !visible);
+    }
+    const controlsBar = document.querySelector('.controls-row');
+    if (controlsBar) {
+      (controlsBar as HTMLElement).style.display = visible ? 'none' : 'flex';
+    }
+    const moveInfo = document.getElementById('moveInfo');
+    if (moveInfo) {
+      moveInfo.style.display = visible ? 'none' : 'block';
+    }
   }
 
   /**
@@ -655,6 +689,33 @@ export class ReplayPageUI {
     } else {
       hintEl.className = 'trial-hint';
     }
+  }
+
+  /**
+   * 在棋盘上显示选点导航候选（试下模式/研究死活题）。
+   * 正解分支的下一手 → 蓝色圈；错误/失败分支的下一手 → 红色圈。
+   */
+  showCandidateMoves(candidates: Array<{ x: number; y: number; branchType: string }>): void {
+    // 已开启「分支选点」（字母标记）时，剔除选点圆圈，避免与字母重叠；
+    // 关闭后再由调用方重新计算还原。
+    if (this.state.get('showBranchMarks')) {
+      this.board.clearCandidates();
+      return;
+    }
+    const mapped = candidates.map(c => ({
+      x: c.x,
+      y: c.y,
+      // 仅分两种颜色：正确=蓝，其余（错误/失败/变化/未知）=红
+      kind: (c.branchType === 'correct' ? 'correct' : 'wrong') as 'correct' | 'wrong',
+    }));
+    this.board.setCandidates(mapped);
+  }
+
+  /**
+   * 清除棋盘上的选点导航候选
+   */
+  clearCandidateMoves(): void {
+    this.board.clearCandidates();
   }
 
   /**

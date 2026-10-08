@@ -11,6 +11,8 @@ import { BoardRebuilder } from '../../../../../core/helpers/BoardRebuilder';
 import { BoardSyncer } from '../../../../../core/helpers/BoardSyncer';
 export class VariationHandler {
   private onEnterVariation?: (index: number) => void;
+  /** 常规研究视图刷新回调（退出/进入分支后用来重新绘制选点导航） */
+  private onReviewRefresh?: () => void;
   constructor(
     private state: ReplayPageState,
     private ui: ReplayPageUI,
@@ -26,6 +28,12 @@ export class VariationHandler {
    */
   setOnEnterVariation(callback: (index: number) => void): void {
     this.onEnterVariation = callback;
+  }
+  /**
+   * 设置常规研究视图刷新回调（进入/退出分支后触发，用于重新绘制选点导航）
+   */
+  setOnReviewRefresh(callback: () => void): void {
+    this.onReviewRefresh = callback;
   }
   /**
    * 进入分支
@@ -59,6 +67,8 @@ export class VariationHandler {
     if (this.state.get('soundEnabled')) {
       this.replayApp.playSound('stone');
     }
+    // 进入分支：隐藏选点导航
+    this.onReviewRefresh?.();
   }
   /**
    * 返回主分支
@@ -74,6 +84,8 @@ export class VariationHandler {
     if (this.onEnterVariation) {
       this.ui.updateVariationPanel(this.onEnterVariation);
     }
+    // 退出分支：回到始局/分支选项处，重新绘制选点导航
+    this.onReviewRefresh?.();
   }
   /**
    * 更新显示

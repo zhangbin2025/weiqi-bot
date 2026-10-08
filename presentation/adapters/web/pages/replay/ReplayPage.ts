@@ -115,6 +115,8 @@ export class ReplayPage implements IPage {
     );
     // 设置进入分支的回调
     this.variationHandler.setOnEnterVariation((index) => this.variationHandler.enterVariation(index));
+    // 进入/退出分支后，刷新选点导航（回到始局/分支选项处重绘红蓝选点）
+    this.variationHandler.setOnReviewRefresh(() => this.trialHandler.updateCandidateMoves());
     this.trialHandler = new TrialHandler(
       this.state,
       this.ui,
@@ -303,6 +305,8 @@ export class ReplayPage implements IPage {
     this.ui.updateBranchMarksButton(showBranchMarks);
     // 立即刷新当前局面
     this.ui.updateVariationPanel((index) => this.variationHandler.enterVariation(index));
+    // 分支选点开关变化：开启则剔除选点圆圈，关闭则还原选点圆圈
+    this.trialHandler.updateCandidateMoves();
   }
 
   /**
@@ -538,6 +542,10 @@ export class ReplayPage implements IPage {
     this.ui.updateGameInfo();
     // 退出做题模式后，变化图面板需主动重新渲染（之前被 mode==='solve' 拦截）
     this.ui.updateVariationPanel((index: number) => this.variationHandler.enterVariation(index));
+    // 死活题：在初始局面绘制第一手选点导航（不改变原研究行为）
+    this.trialHandler.updateCandidateMoves();
+    // 死活题研究模式：隐藏变化图面板与着法浏览栏（选点导航已覆盖分支查看）
+    this.ui.setTsumegoReviewUI(true);
   }
 
   /**

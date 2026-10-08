@@ -18,6 +18,8 @@ export interface ReplayPageStateData {
   showMoveNumbers: boolean;
   soundEnabled: boolean;
   showBranchMarks: boolean;
+  /** 死活题研究模式：隐藏变化图面板与着法浏览栏 */
+  tsumegoReview: boolean;
   // 分支状态
   savedPath: number[];
   savedDisplayIndex: number;
@@ -53,6 +55,7 @@ export class ReplayPageState {
       showMoveNumbers: false,
       soundEnabled: true,
       showBranchMarks: false,
+      tsumegoReview: false,
       savedPath: [],
       savedDisplayIndex: 0,
       savedShowMoveNumbers: false,

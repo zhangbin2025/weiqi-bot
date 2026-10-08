@@ -27,6 +27,19 @@ export type TsumegoMatchResult =
   | { type: 'no_match'; message: string }
   | { type: 'not_tsumego' };
 
+/** 选点导航候选：当前着法命中某分支后，该分支的下一手选点 */
+export interface TsumegoCandidate {
+  /** 下一手坐标 */
+  x: number;
+  y: number;
+  /** 下一手颜色（'B' | 'W'） */
+  color: 'B' | 'W';
+  /** 候选所属分支类型：correct=正确选点(蓝)，wrong=错误选点(红) */
+  branchType: BranchInfo['branchType'];
+  /** 所属分支索引 */
+  branchIndex: number;
+}
+
 /** 分支信息 */
 export interface BranchInfo {
   index: number;
@@ -422,6 +435,60 @@ export class TsumegoChecker {
       default:
         return '';
     }
+  }
+
+
+  /**
+   * 获取选点导航候选（试下模式下引导研究死活题）
+   *
+   * 计算当前试下着法序列（preMoves + trialMoves）之后，所有命中分支的下一手选点。
+   * - 当前序列与某分支前 k 手完全一致（k = 序列长度）：该分支第 k+1 手即一个候选。
+   * - 序列为空（刚开始试下）：所有分支第一手均为候选。
+   * - 序列超出/不匹配任何分支：返回空数组。
+   *
+   * 同一坐标若被多个分支命中，颜色优先级：correct > wrong > variation/unknown
+   * （正确优先显示为蓝，其次错误红；变化/未知分支不再单独着色，并入红圈以提示非正解）。
+   *
+   * @returns 去重后的候选选点列表
+   */
+  getNextCandidates(
+    trialMoves: Array<{ x: number; y: number; color: string }>,
+    preMoves?: Array<{ x: number; y: number; color: string }>
+  ): TsumegoCandidate[] {
+    if (!this.isTsumego) return [];
+
+    // 空序列时也允许（刚开始试下，展示第一手候选）
+    const fullMoves = [...(preMoves ?? []), ...trialMoves];
+
+    const byPos = new Map<string, TsumegoCandidate>();
+    // 颜色优先级：correct 最高，wrong 次之，其余最低
+    const rank: Record<string, number> = { correct: 0, wrong: 1, variation: 2, unknown: 2 };
+
+    for (const branch of this.branches) {
+      // 序列长度 >= 分支长度：分支已被走完，无下一手
+      if (fullMoves.length >= branch.moves.length) continue;
+      // 前缀必须完全匹配
+      const ok = this.matchMoves(fullMoves, branch.moves, fullMoves.length);
+      if (!ok) continue;
+
+      const next = branch.moves[fullMoves.length]!;
+      const key = `${next.x},${next.y}`;
+      const cand: TsumegoCandidate = {
+        x: next.x,
+        y: next.y,
+        color: next.color,
+        branchType: branch.branchType,
+        branchIndex: branch.index,
+      };
+      const existing = byPos.get(key);
+      const rNew = rank[branch.branchType] ?? 99;
+      const rOld = existing ? (rank[existing.branchType] ?? 99) : 99;
+      if (!existing || rNew < rOld) {
+        byPos.set(key, cand);
+      }
+    }
+
+    return Array.from(byPos.values());
   }
 
   /**

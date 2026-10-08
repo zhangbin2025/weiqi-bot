@@ -121,6 +121,31 @@ export class TrialHandler {
     this.state.set('trialMatchResult', result);
     this.state.set('trialHint', hint);
     this.ui.updateTrialHint(hint, hintClass);
+    // 选点导航：绘制当前着法命中的各分支下一手选点（正解=蓝，错误=红）
+    this.updateCandidateMoves();
+  }
+
+  /**
+   * 计算并绘制选点导航候选。
+   * 适用位置：试下模式中，或常规研究（生死题）停在始局/分支选项处。
+   * 取前导着法 + 当前可见试下着法之后所有命中分支的下一手选点。
+   * 处于变化分支内或做题模式时不清空也不绘制，交由调用方决定。
+   */
+  updateCandidateMoves(): void {
+    // 做题模式不提示答案
+    if (this.state.get('mode') === 'solve') {
+      this.ui.clearCandidateMoves();
+      return;
+    }
+    // 变化分支内不绘制选点导航
+    if (this.state.get('inVariation')) {
+      this.ui.clearCandidateMoves();
+      return;
+    }
+    const trialMoves = this.trialController.getVisibleMoves();
+    const preMoves = this.collectPreTrialMoves();
+    const candidates = this.tsumegoChecker.getNextCandidates(trialMoves, preMoves);
+    this.ui.showCandidateMoves(candidates);
   }
 
   /**
@@ -180,7 +205,9 @@ export class TrialHandler {
   private updateTrialButtons(): void {
     const index = this.trialController.getTrialIndex();
     const total = this.trialController.getTrialMoves().length;
-    this.ui.updateTrialButtons(index > 0, index < total);
+    // 试下回退最小只能回退到第一着（index=1）。
+    // 想回到第 0 着（进入试下前的局面）只能关闭试下面板。
+    this.ui.updateTrialButtons(index > 1, index < total);
   }
 
   /**
@@ -227,6 +254,12 @@ export class TrialHandler {
       this.state.set('trialHint', '');
       this.state.set('trialMatchResult', null);
       this.ui.updateTrialHint('');
+      // 清除选点导航候选
+      this.ui.clearCandidateMoves();
+      // 退出试下后回到常规研究始局/分支选项处，重新绘制选点导航圆圈
+      this.updateCandidateMoves();
+      // 退出试下仍处于死活题研究：重新隐藏变化图面板与着法浏览栏
+      this.ui.setTsumegoReviewUI(true);
     }
   }
 

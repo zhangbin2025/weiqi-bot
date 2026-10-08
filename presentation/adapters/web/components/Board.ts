@@ -15,6 +15,7 @@ export class WebBoard implements IBoard {
   private transparentMarkers: Set<string> = new Set();
   private moveNumbers: Map<string, number> = new Map();
   private recommendationCircles: RecommendationCircle[] = []; // AI 推荐圆圈
+  private candidates: Array<{ x: number; y: number; kind: 'correct' | 'wrong' }> = []; // 选点导航候选（试下/研究死活题）
   private config: IBoardConfig = {};
   private events: IBoardEvents = {};
   private cellSize = 0;
@@ -90,6 +91,7 @@ export class WebBoard implements IBoard {
     this.drawMoveNumbers();
     this.drawMarkers();
     this.drawRecommendationCircles();
+    this.drawCandidates();
   }
   private drawBoard(): void {
     const boardWidth = this.cellSize * (this.size + 1);
@@ -158,6 +160,16 @@ export class WebBoard implements IBoard {
       this.imageRenderer.drawRecommendationCircle(this.ctx, cx, cy, this.cellSize, circle.rank, total, circle.isActualMove, circle.nextColor);
     }
   }
+
+  /**
+   * 绘制选点导航候选（正解=蓝圈，错误=红圈），独立图层，不受 marker/高亮/同步影响
+   */
+  private drawCandidates(): void {
+    for (const c of this.candidates) {
+      const { cx, cy } = BoardImageRenderer.toCanvas(c.x, c.y, this.cellSize);
+      this.imageRenderer.drawCandidateMarker(this.ctx, cx, cy, this.cellSize, c.kind);
+    }
+  }
   placeStone(pos: Position, color: PlayerColor): void {
     this.stones.set(`${pos.x},${pos.y}`, color);
     this.render();
@@ -174,6 +186,7 @@ export class WebBoard implements IBoard {
     this.moveNumbers.clear();
     this.previewStone = null;
     this.recommendationCircles = [];
+    this.candidates = [];
     this.render();
   }
   clearHighlights(): void {
@@ -267,6 +280,18 @@ export class WebBoard implements IBoard {
   /** 清除 AI 推荐圆圈 */
   clearRecommendationCircles(): void {
     this.recommendationCircles = [];
+    this.render();
+  }
+
+  /** 设置选点导航候选（正解/错误选点） */
+  setCandidates(candidates: Array<{ x: number; y: number; kind: 'correct' | 'wrong' }>): void {
+    this.candidates = candidates.map(c => ({ x: c.x, y: c.y, kind: c.kind }));
+    this.render();
+  }
+  /** 清除选点导航候选 */
+  clearCandidates(): void {
+    if (this.candidates.length === 0) return;
+    this.candidates = [];
     this.render();
   }
   /** 检查点击是否在某个推荐圆圈上，返回该圆圈 */
