@@ -307,7 +307,7 @@ export class FetcherRenderer {
     { value: '中盘', label: '中盘' },
     { value: '对杀', label: '对杀' },
     { value: '手筋', label: '手筋' },
-    { value: '定式', label: '定式' },
+    { value: '棋理', label: '棋理' },
   ];
   /** 难度选项（单选，30K→7D） */
   private static readonly FILTER_DIFFICULTIES: string[] = (() => {
