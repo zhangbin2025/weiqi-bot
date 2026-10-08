@@ -165,23 +165,32 @@ function createInstance(root: HTMLElement, init: SelectOptions): SelectInstance 
 
   function positionPanel() {
     const triggerRect = trigger.getBoundingClientRect();
-    const panelHeight = panel.scrollHeight;
     const viewportHeight = window.innerHeight;
-    
+    // 面板有 max-height 限制（可滚动），必须用「实际可见高度」而非全部内容的 scrollHeight，
+    // 否则长列表会被误判为超高而翻转到触发按钮上方，定位跑到屏幕外。
+    const maxHeight = (() => {
+      const mh = parseFloat(getComputedStyle(panel).maxHeight);
+      return Number.isFinite(mh) && mh > 0 ? mh : panel.scrollHeight;
+    })();
+    const panelHeight = Math.min(panel.scrollHeight, maxHeight);
+    const margin = 8;
+
     // 默认在按钮下方显示
     let top = triggerRect.bottom + 4;
     let left = triggerRect.left;
-    
-    // 如果下方空间不够，改为上方显示
-    if (top + panelHeight > viewportHeight - 20) {
-      top = triggerRect.top - panelHeight - 4;
+
+    // 下方空间不足时改为上方显示
+    if (top + panelHeight > viewportHeight - margin) {
+      const aboveTop = triggerRect.top - panelHeight - 4;
+      // 若上方空间也不够，取能容纳的位置（优先让面板完整可见）
+      top = aboveTop >= margin ? aboveTop : Math.max(margin, viewportHeight - panelHeight - margin);
     }
-    
-    // 确保不超出屏幕左侧
-    if (left < 8) left = 8;
-    
-    // 设置面板宽度和位置
-    panel.style.width = `${Math.max(triggerRect.width, 100)}px`;
+
+    // 确保不超出屏幕左右边界
+    const panelWidth = Math.max(triggerRect.width, 100);
+    left = Math.min(Math.max(left, margin), Math.max(margin, window.innerWidth - panelWidth - margin));
+
+    panel.style.width = `${panelWidth}px`;
     panel.style.left = `${left}px`;
     panel.style.top = `${top}px`;
   }

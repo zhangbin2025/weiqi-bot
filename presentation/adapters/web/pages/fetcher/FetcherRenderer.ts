@@ -7,6 +7,7 @@ import type { FetcherResult, FetcherBookmark, ShareResult, LatestGameItem } from
 import type { FetcherFormatter } from './FetcherFormatter';
 import { WebOverlay } from '../../components/Overlay';
 import { WebQRCodeDialog } from '../../components/QRCodeDialog';
+import { Select } from '../../../../../clients/web/shared/ui';
 /** 筛选关键字生成的题型/难度选择状态（持久化用） */
 export interface FilterSelection {
   types: string[];
@@ -359,9 +360,7 @@ export class FetcherRenderer {
           '</div>' +
           '<div class="fetcher-filter-section">' +
             '<div class="fetcher-filter-label">难度（单选）</div>' +
-            '<select class="fetcher-filter-difficulty" id="fetcherFilterDifficulty">' +
-              '<option value="">请选择难度（不选=全部）</option>' +
-            '</select>' +
+            '<div class="fetcher-filter-difficulty" id="fetcherFilterDifficulty"></div>' +
           '</div>' +
           '<div class="dialog-btn-group">' +
             '<button class="dialog-btn secondary" data-act="cancel">取消</button>' +
@@ -372,15 +371,13 @@ export class FetcherRenderer {
     );
     document.body.appendChild(dialog);
 
-    // 难度下拉（原生 select，避免 fixed 浮层内自绘下拉定位异常）
-    const diffSelect = dialog.querySelector('#fetcherFilterDifficulty') as HTMLSelectElement;
-    difficultyOptions.forEach((d) => {
-      const opt = document.createElement('option');
-      opt.value = d.value;
-      opt.textContent = d.label;
-      diffSelect.appendChild(opt);
+    // 难度下拉（自绘 @ui/Select，与 event/detail 一致，避免原生控件在 Android WebView 崩溃）
+    const diffHost = dialog.querySelector('#fetcherFilterDifficulty') as HTMLElement;
+    const diffSelect = Select.mount(diffHost, {
+      options: difficultyOptions,
+      value: savedDifficulty,
+      placeholder: '请选择难度（不选=全部）',
     });
-    if (savedDifficulty) diffSelect.value = savedDifficulty;
 
     const close = () => dialog.remove();
     const onCancel = () => close();
@@ -388,7 +385,7 @@ export class FetcherRenderer {
       const types: string[] = [];
       dialog.querySelectorAll<HTMLInputElement>('input[type="checkbox"][data-type]:checked')
         .forEach((cb) => { const v = cb.dataset['type']; if (v) types.push(v); });
-      const difficulty = diffSelect ? diffSelect.value : '';
+      const difficulty = diffSelect ? diffSelect.getValue() : '';
       const keyword = this.buildFilterKeyword(types, difficulty);
       this.cb.onSaveFilterState?.({ types, difficulty });
       close();
