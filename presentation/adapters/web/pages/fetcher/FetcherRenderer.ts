@@ -35,6 +35,8 @@ export interface FetcherRendererCallbacks {
   onRestoreKeyword?: (source: string) => string | null;
   onSelectLatest: (url: string) => void;
   onViewUrl: (url: string) => void;
+  /** 研究题目：跳 replay 页面「研究题目模式」（非做题模式） */
+  onStudyLatest?: (url: string) => void;
   /** 打开筛选框时，恢复上次保存的题型/难度（无则返回 null） */
   onLoadFilterState?: () => FilterSelection | null;
   /** 生成筛选后，保存题型/难度（用于下次打开时恢复） */
@@ -558,6 +560,8 @@ export class FetcherRenderer {
         this.cb.onSelectLatestView(data['url'] as string);
       } else if (action === 'viewUrl' && data?.['url']) {
         this.cb.onViewUrl(data['url'] as string);
+      } else if (action === 'studyLatest' && data?.['url']) {
+        this.cb.onStudyLatest?.(data['url'] as string);
       }
     });
   }
@@ -635,6 +639,8 @@ export class FetcherRenderer {
       const bg = isSelected ? '#eef2ff' : '';
       const border = isSelected ? 'border-left:3px solid #667eea;padding-left:8px;' : '';
       const isLiveSource = item.source === 'ogs-live' || item.source === 'yike-live';
+      const isQuestion = item.source === 'lib-life-death' || item.source === 'goproblems' || item.source === 'ogs-puzzle' ||
+        (item.source === 'weiqi101' && /^https?:\/\/[^/]*101weiqi\.(com|cn)\/(qday|q)\//i.test(item.url));
       // "查看链接"优先使用外部链接（如 KataGo 归档压缩包下载地址）
       const linkUrl = item.externalUrl || item.url;
       // 仅当是可打开的 http(s) 链接时才显示"查看链接"（katago:// 等伪协议不显示）
@@ -647,14 +653,19 @@ export class FetcherRenderer {
         ? `<div data-action="viewLatest" data-url="${item.url}" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#2d3748;white-space:nowrap;">👁\ufe0f 查看棋谱</div>
            <div data-action="selectLatest" data-url="${item.url}" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#c53030;font-weight:600;white-space:nowrap;">🔴 直播棋谱</div>`
         : '';
-      // 菜单内容为空时（如内置棋谱无外部链接）不显示三点按钮
-      const hasMenuContent = !!(liveMenu || linkMenuItem);
+      // 题目类条目：增加“研究题目”菜单项（跳 replay 研究题目模式，而非做题模式）
+      const studyMenuItem = isQuestion
+        ? `<div data-action="studyLatest" data-url="${item.url}" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#2d3748;white-space:nowrap;">🔬 研究题目</div>`
+        : '';
+      // 菜单内容为空时不显示三点按钮
+      const hasMenuContent = !!(liveMenu || linkMenuItem || studyMenuItem);
       const menu = hasMenuContent ? `
         <div class="latest-dots" data-action="openMenu" data-url="${item.url}"
              style="position:absolute;top:8px;right:8px;width:24px;height:24px;line-height:22px;text-align:center;border-radius:50%;color:#999;font-size:16px;cursor:pointer;user-select:none;"
              onmouseover="this.style.background='#f0f0f0'" onmouseout="this.style.background=''">⋮</div>
         <div data-menu-template style="display:none;position:absolute;top:34px;right:8px;min-width:96px;background:white;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,0.15);z-index:50;overflow:hidden;">
           ${liveMenu}
+          ${studyMenuItem}
           ${linkMenuItem}
         </div>` : '';
       return `<div data-action="selectLatest" data-url="${item.url}" style="position:relative;padding:10px 30px 10px 0;border-top:1px solid #eee;cursor:pointer;background:${bg};${border}" ${hoverScript}>

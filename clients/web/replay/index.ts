@@ -306,6 +306,11 @@ async function main() {
       console.error('SGF 参数解析失败', e instanceof Error ? e : new Error(String(e)));
     }
   }
+
+  // 研究题目模式（来自 fetcher「研究题目」菜单）：进入常规打谱/研究模式，而非默认的做题模式
+  if (params.get('mode') === 'review') {
+    page.enterReviewMode();
+  }
 }
 
 main().catch(console.error);

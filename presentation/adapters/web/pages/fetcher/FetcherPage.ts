@@ -54,6 +54,7 @@ export class FetcherPage implements IPage {
       onRestoreKeyword: (source) => this.restoreKeyword(source),
       onSelectLatest: (url) => this.selectLatestGame(url),
       onSelectLatestView: (url) => this.viewLatestGame(url),
+      onStudyLatest: (url) => this.studyLatestGame(url),
       onViewUrl: (url) => this.viewUrl(url),
       onLoadFilterState: () => this.loadFilterState(),
       onSaveFilterState: (state) => this.saveFilterState(state),
@@ -496,6 +497,36 @@ export class FetcherPage implements IPage {
       console.error('[FetcherPage] viewLatestGame failed:', error);
     }
   }
+  /**
+   * 研究题目：抓取后在 replay 页面进入「研究题目模式」（非做题模式）
+   * 与 selectLatestGame 一致，仅在导航参数中附加 mode=review。
+   */
+  private async studyLatestGame(url: string): Promise<void> {
+    this.renderer.setSelectedLatestUrl(url);
+    this.renderer.rerenderLatest();
+    try {
+      await this.sessionStore.write('fetcher_latest_selected', url);
+      await this.sessionStore.write('fetcher_latest_displayed', this.renderer.getLatestDisplayed());
+    } catch { /* ignore */ }
+    this.renderer.showLatestItemLoading(url);
+    try {
+      const result = await this.fetcherApp.fetch(url);
+      this.renderer.showLatestItemLoading(url, false);
+      if (result.success) {
+        this.currentResult = result;
+        await this.loadBookmarks();
+        const srcUrl = this.filterSrcUrl(result.url);
+        if (!result.archiveId) return;
+        this._onNavigate?.('replay', { archiveId: result.archiveId, move: '0', mode: 'review', src: srcUrl });
+      } else {
+        this.toast.show(result.error || '抓取失败');
+      }
+    } catch (error) {
+      this.renderer.showLatestItemLoading(url, false);
+      console.error('[FetcherPage] studyLatestGame failed:', error);
+    }
+  }
+
   /** 直接在新标签页打开条目的原始 URL */
   private viewUrl(url: string): void {
     if (!url) return;
