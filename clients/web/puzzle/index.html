@@ -67,18 +67,6 @@
       margin-bottom: 10px;
     }
     .source-row .select-host { flex: 1; min-width: 0; }
-    .icon-btn {
-      background: #f0f0f0;
-      border: none;
-      color: #555;
-      cursor: pointer;
-      border-radius: 8px;
-      padding: 8px 12px;
-      font-size: 14px;
-      white-space: nowrap;
-    }
-    .icon-btn:active { background: #e0e0e0; }
-    .icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .filter-keyword {
       font-size: 12px;
       color: #888;
@@ -205,30 +193,59 @@
     .puzzle-modal-buttons { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 
     /* ===== 历史 ===== */
-    .toolbar {
+    .history-head {
       display: flex;
       justify-content: space-between;
       align-items: center;
       margin-bottom: 10px;
+      gap: 8px;
     }
     .toolbar-count { font-size: 13px; color: #666; }
+    /* 清除按钮：右上角小图标，不占宽度 */
+    .history-clear-btn {
+      width: 28px;
+      height: 28px;
+      min-width: 28px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      line-height: 1;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      background: #fff;
+      color: #888;
+      cursor: pointer;
+    }
+    .history-clear-btn:hover { background: #f7fafc; color: #c53030; border-color: #feb2b2; }
+    .history-clear-btn:active { opacity: 0.85; }
     .puzzle-history-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
       border: 1px solid #eee;
       border-radius: 10px;
-      padding: 10px 12px;
+      padding: 8px 10px;
       margin-bottom: 8px;
       background: #fafafa;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
     }
-    .phi-head {
-      display: flex;
-      justify-content: space-between;
-      font-size: 12px;
-      color: #888;
-      margin-bottom: 4px;
+    .puzzle-history-item:hover { background: #f0f4ff; border-color: #c7d2fe; }
+    .puzzle-history-item:active { background: #e6ebff; }
+    .puzzle-history-item:focus-visible { outline: 2px solid #667eea; outline-offset: 1px; }
+    .phi-thumb {
+      flex: 0 0 auto;
+      width: 72px;
+      height: 72px;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #DCB35C;
+      line-height: 0;
     }
-    .phi-result { font-weight: 600; }
-    .phi-result.ok { color: #16a34a; }
-    .phi-result.fail { color: #dc2626; }
+    .phi-thumb canvas { display: block; }
+    .phi-body { flex: 1 1 auto; min-width: 0; }
     .phi-title {
       font-size: 14px;
       color: #333;
@@ -239,17 +256,16 @@
     }
     .phi-meta {
       display: flex;
-      gap: 10px;
+      gap: 8px;
       flex-wrap: wrap;
       font-size: 11px;
       color: #999;
     }
-    .puzzle-pagination {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      gap: 10px;
-      margin-top: 10px;
+    .history-more-hint {
+      text-align: center;
+      font-size: 12px;
+      color: #aaa;
+      padding: 8px 0 2px;
     }
     #history-empty { display: none; text-align: center; padding: 30px; color: #888; }
     #history-empty .empty-icon { font-size: 2.4em; opacity: 0.5; margin-bottom: 8px; }
@@ -334,16 +350,11 @@
       <div id="history-tab" class="tab-content">
         <div class="card">
           <h2>📋 做题历史</h2>
-          <div class="toolbar">
-            <span id="history-count" class="toolbar-count">已完成 0 题</span>
-            <button class="icon-btn" id="clear-btn">🗑️ 清空</button>
+          <div class="history-head">
+            <span id="history-count" class="toolbar-count">已做 0 题</span>
+            <button type="button" class="history-clear-btn" id="clear-btn" title="清空历史" aria-label="清空历史">🗑</button>
           </div>
           <div id="history-grid"></div>
-          <div id="history-pagination" class="puzzle-pagination" style="display:none;">
-            <button class="puzzle-btn secondary" id="prev-page-btn">◀</button>
-            <span id="page-info">1/1</span>
-            <button class="puzzle-btn secondary" id="next-page-btn">▶</button>
-          </div>
           <div id="history-empty">
             <div class="empty-icon">📭</div>
             <div>暂无记录</div>

@@ -40,6 +40,10 @@ export class ActivityLogService implements IActivityLogService {
     return id;
   }
 
+  async update(id: string, patch: Partial<ActivityEntry>): Promise<void> {
+    await this.storage.update(id, patch);
+  }
+
   async query(filter?: ActivityQuery): Promise<ActivityEntry[]> {
     // 构建 where 条件
     const where: Record<string, unknown> = {};

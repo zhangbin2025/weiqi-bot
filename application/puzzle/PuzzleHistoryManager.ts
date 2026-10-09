@@ -1,8 +1,17 @@
 /**
  * 做题历史管理器
- * @description 管理做题历史的增删查改、导入导出、统计（复用 ActivityLogService）
+ * @description 管理做题历史的记录、查询、统计（复用 ActivityLogService）。
+ *              同一题目（按 URL）只保留一条记录：重复做会累加次数并合并结果，
+ *              只要解出过一次即为「已解出」。
  */
 import type { IActivityLogService, ActivityEntry, ActivityStats } from '../../services/activity';
+
+/** 初始局面摆子 */
+export interface PuzzleInitialStone {
+  x: number;
+  y: number;
+  color: 'black' | 'white';
+}
 
 /** 做题历史查询选项 */
 export interface PuzzleHistoryOptions {
@@ -22,14 +31,20 @@ export interface PuzzleHistoryEntry {
   source: string;
   /** 题目标签（内置题库为「类型·难度」，如 死活题·5D） */
   tag: string;
+  /** 是否曾解出（做过但没解出为 false） */
   success: boolean;
-  /** 本题尝试次数（答错重做的累计次数） */
+  /** 本题累计做过次数 */
   attempts: number;
-  /** 用户实际落子手数 */
+  /** 最近一次的用户落子手数 */
   moves: number;
-  /** 耗时（毫秒） */
+  /** 最近一次耗时（毫秒） */
   duration: number;
+  /** 最近一次做题时间（毫秒时间戳） */
   solvedAt: number;
+  /** 棋盘路数，用于缩略图还原 */
+  boardSize: number;
+  /** 题目初始局面摆子，用于渲染缩略图 */
+  initialStones: PuzzleInitialStone[];
 }
 
 /** 做题统计 */
@@ -48,10 +63,15 @@ export interface PuzzleResult {
   title: string;
   source: string;
   tag: string;
+  /** 本次是否解出 */
   success: boolean;
   attempts: number;
   moves: number;
   duration: number;
+  /** 棋盘路数，用于缩略图还原 */
+  boardSize: number;
+  /** 题目初始局面摆子，用于渲染缩略图 */
+  initialStones: PuzzleInitialStone[];
 }
 
 /** 活动日志中的做题类型标识 */
@@ -63,23 +83,74 @@ export const PUZZLE_ACTIVITY_TYPE = 'puzzle';
 export class PuzzleHistoryManager {
   constructor(private readonly activityLogService?: IActivityLogService) {}
 
-  /** 记录做题结果 */
+  /**
+   * 记录一次做题
+   *
+   * 同一题目（URL 相同）合并为一条记录：
+   * - 次数累加，最近信息（手数/耗时/时间）刷新
+   * - 只要解出过一次，success 保持 true
+   * - 缩略图数据（路数/摆子）缺失时补齐
+   */
   async record(result: PuzzleResult): Promise<string | undefined> {
-    return this.activityLogService?.record(
+    if (!this.activityLogService) return undefined;
+
+    const existing = await this.findByUrl(result.url);
+    const tags = ['做题', result.source, result.tag].filter(Boolean) as string[];
+
+    if (existing) {
+      const prevSuccess = (existing.data['success'] as boolean) ?? false;
+      const prevAttempts = (existing.data['attempts'] as number) ?? 0;
+      const prevStones = (existing.data['initialStones'] as PuzzleInitialStone[]) ?? [];
+      const prevSize = (existing.data['boardSize'] as number) ?? 0;
+      const success = prevSuccess || result.success;
+      const data: Record<string, unknown> = {
+        ...existing.data,
+        title: result.title || existing.data['title'],
+        tag: result.tag || existing.data['tag'],
+        source: result.source || existing.data['source'],
+        success,
+        attempts: prevAttempts + Math.max(1, result.attempts),
+        moves: result.moves,
+        duration: result.duration,
+        boardSize: prevSize || result.boardSize,
+        initialStones: prevStones.length > 0 ? prevStones : result.initialStones,
+      };
+      // 更新时间戳，让最近做过的题排在最前
+      await this.activityLogService.update?.(existing.id, {
+        data,
+        ...(tags.length > 0 ? { tags } : {}),
+        createdAt: Date.now(),
+      });
+      return existing.id;
+    }
+
+    return this.activityLogService.record(
       PUZZLE_ACTIVITY_TYPE,
-      `做题：${result.success ? '成功' : '失败'} ${result.title}`.trim(),
+      `做题：${result.title}`.trim(),
       {
         url: result.url,
         title: result.title,
         source: result.source,
         tag: result.tag,
         success: result.success,
-        attempts: result.attempts,
+        attempts: Math.max(1, result.attempts),
         moves: result.moves,
         duration: result.duration,
+        boardSize: result.boardSize,
+        initialStones: result.initialStones,
       },
-      ['做题', result.source, result.tag, result.success ? '成功' : '失败'].filter(Boolean) as string[],
+      tags,
     );
+  }
+
+  /** 按题目 URL 查找已有记录 */
+  private async findByUrl(url: string): Promise<ActivityEntry | null> {
+    if (!url) return null;
+    const entries = (await this.activityLogService?.query({
+      type: PUZZLE_ACTIVITY_TYPE,
+      limit: 1000,
+    })) ?? [];
+    return entries.find((e) => e.data['url'] === url) ?? null;
   }
 
   /** 查询做题历史 */
@@ -102,6 +173,8 @@ export class PuzzleHistoryManager {
       moves: (e.data['moves'] as number) ?? 0,
       duration: (e.data['duration'] as number) ?? 0,
       solvedAt: e.createdAt,
+      boardSize: (e.data['boardSize'] as number) ?? 19,
+      initialStones: (e.data['initialStones'] as PuzzleInitialStone[]) ?? [],
     }));
   }
 

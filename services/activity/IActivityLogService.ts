@@ -88,6 +88,13 @@ export interface IActivityLogService {
   getById(id: string): Promise<ActivityEntry | null>;
 
   /**
+   * 更新活动记录（可选能力：部分实现可能不支持）
+   * @param id - 记录 ID
+   * @param patch - 要更新的字段
+   */
+  update?(id: string, patch: Partial<ActivityEntry>): Promise<void>;
+
+  /**
    * 统计信息
    * @returns 统计结果
    */

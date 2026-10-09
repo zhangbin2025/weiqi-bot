@@ -23,6 +23,7 @@ import { PuzzleSolveHandler } from './handlers/PuzzleSolveHandler';
 import { PuzzleStudyHandler } from './handlers/PuzzleStudyHandler';
 import { PuzzleFilterDialog } from './ui/PuzzleFilterDialog';
 import { PuzzleHistoryPanel } from './ui/PuzzleHistoryPanel';
+import type { PuzzleInitialStone } from '../../../../../application/puzzle/PuzzleHistoryManager';
 import { Select } from '@ui';
 
 /** 在线来源每批拉取的题目数（只取一页，避免换题时反复翻页） */
@@ -57,6 +58,13 @@ export class PuzzlePage implements IPage {
   private audioPlayer?: IAudioPlayer | undefined;
   private onNavigate?: ((page: string, params?: Record<string, string>) => void) | undefined;
 
+  /** 当前题目初始局面摆子（用于历史缩略图） */
+  private initialStones: PuzzleInitialStone[] = [];
+  /** 当前题目棋盘路数 */
+  private currentBoardSize = 19;
+  /** 本题是否已记入历史（避免每次落子重复写） */
+  private hasRecordedAttempt = false;
+
   /** 当前题库条目（用于换题） */
   private items: PuzzleItem[] = [];
   private currentIndex = -1;
@@ -89,7 +97,10 @@ export class PuzzlePage implements IPage {
       checker: this.checker,
       playSound: (t) => this.playSound(t),
     });
-    this.historyPanel = new PuzzleHistoryPanel({ puzzleApp: config.puzzleApp });
+    this.historyPanel = new PuzzleHistoryPanel({
+      puzzleApp: config.puzzleApp,
+      onOpenPuzzle: (entry) => this.openHistoryPuzzle(entry),
+    });
   }
 
   // ==================== 初始化 ====================
@@ -190,10 +201,8 @@ export class PuzzlePage implements IPage {
     document.getElementById('answer-btn')?.addEventListener('click', () => this.toggleAnswer());
     document.getElementById('next-btn')?.addEventListener('click', () => void this.nextPuzzle());
 
-    // 历史面板
-    document.getElementById('clear-btn')?.addEventListener('click', () => void this.historyPanel.clearHistory(() => this.renderHistoryPanel()));
-    document.getElementById('prev-page-btn')?.addEventListener('click', () => this.historyPanel.prevPage(() => this.renderHistoryPanel()));
-    document.getElementById('next-page-btn')?.addEventListener('click', () => this.historyPanel.nextPage(() => this.renderHistoryPanel()));
+    // 历史面板（滚动加载，无翻页按钮）
+    document.getElementById('clear-btn')?.addEventListener('click', () => void this.historyPanel.clearHistory());
 
     // 正解弹框：研究 / 换题
     document.getElementById('solved-next-btn')?.addEventListener('click', () => {
@@ -354,6 +363,10 @@ export class PuzzlePage implements IPage {
       this.ui.setLoading(false);
       this.ui.hideEmpty();
       this.startSolve();
+      // 记录初始局面（AB/AW 摆子），供历史缩略图使用
+      this.currentBoardSize = size;
+      this.initialStones = this.captureInitialStones(size);
+      this.hasRecordedAttempt = false;
     } catch (e) {
       this.ui.setLoading(false);
       console.error('[PuzzlePage] 加载题目失败', e);
@@ -383,6 +396,8 @@ export class PuzzlePage implements IPage {
     this.state.set('mode', 'solve');
     this.state.set('solved', false);
     this.state.set('startedAt', Date.now());
+    // 新一轮作答可以再次写历史（管理层按 URL 累加次数）
+    this.hasRecordedAttempt = false;
     this.solveHandler.enterSolve();
     this.ui.updateMode('solve');
     this.refresh();
@@ -438,10 +453,13 @@ export class PuzzlePage implements IPage {
       const result = this.solveHandler.handleBoardClick(x, y);
       if (result === 'solved') this.onSolved();
       else if (result === 'wrong') {
+        this.recordAttempt(false);
         this.playSound('wrong');
         this.ui.showWrongModal();
       }
       else if (result === 'placed') {
+        // 落子即视为「做过」，先入历史（未解出），解出时再更新
+        this.recordAttempt(false);
         this.playSound('stone');
       }
     }
@@ -475,6 +493,7 @@ export class PuzzlePage implements IPage {
     this.playSound('correct');
     const startedAt = this.state.get('startedAt');
     const duration = startedAt > 0 ? Date.now() - startedAt : 0;
+    this.hasRecordedAttempt = true;
     void this.config.puzzleApp.recordResult({
       url: this.state.get('url'),
       title: this.state.get('title'),
@@ -484,8 +503,63 @@ export class PuzzlePage implements IPage {
       attempts: this.state.get('attempts') + 1,
       moves: this.solveHandler.getUserMoveCount(),
       duration,
+      boardSize: this.currentBoardSize,
+      initialStones: this.initialStones,
     }).then(() => this.historyPanel.loadHistory());
     this.ui.showSolvedModal(duration);
+  }
+
+  /**
+   * 记一次做题（未解出也会入历史，解出时再更新为已解出）
+   * 同一题只写一次，避免每落一子都写历史
+   */
+  private recordAttempt(success: boolean): void {
+    if (this.hasRecordedAttempt && !success) return;
+    if (!this.state.get('url')) return;
+    this.hasRecordedAttempt = true;
+    const startedAt = this.state.get('startedAt');
+    void this.config.puzzleApp.recordResult({
+      url: this.state.get('url'),
+      title: this.state.get('title'),
+      source: this.state.get('source'),
+      tag: this.state.get('tag'),
+      success,
+      attempts: 1,
+      moves: this.solveHandler.getUserMoveCount(),
+      duration: startedAt > 0 ? Date.now() - startedAt : 0,
+      boardSize: this.currentBoardSize,
+      initialStones: this.initialStones,
+    }).then(() => this.historyPanel.loadHistory());
+  }
+
+  /** 采集棋盘上的初始摆子（用于历史缩略图） */
+  private captureInitialStones(size: number): PuzzleInitialStone[] {
+    const stones: PuzzleInitialStone[] = [];
+    const board = this.game.getState().board;
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const c = board.getStone(x, y);
+        if (c === 'black' || c === 'white') stones.push({ x, y, color: c });
+      }
+    }
+    return stones;
+  }
+
+  /** 从历史条目打开题目：等价于 fetcher 跳转的单题模式 */
+  private openHistoryPuzzle(entry: { url: string; title: string; tag: string; source: string }): void {
+    if (!entry.url) return;
+    // 切回做题标签
+    this.switchTab('quiz');
+    this.state.set('singlePuzzle', true);
+    Select.get('#source-select')?.setDisabled(true);
+    // 来源与历史条目一致，保证下拉框显示正确
+    const src = entry.source as PuzzleSource;
+    if (src && PUZZLE_SOURCE_LABELS[src]) {
+      this.source = src;
+      Select.get('#source-select')?.setValue(src, true);
+    }
+    this.applySourceUiState();
+    void this.loadPuzzleByUrl(entry.url, entry.title, entry.tag);
   }
 
   /** 刷新棋盘与 UI */
@@ -534,7 +608,7 @@ export class PuzzlePage implements IPage {
   // ==================== 历史 ====================
 
   private renderHistoryPanel(): void {
-    this.historyPanel.render(() => this.renderHistoryPanel());
+    this.historyPanel.render();
   }
 
   // ==================== 工具 ====================
