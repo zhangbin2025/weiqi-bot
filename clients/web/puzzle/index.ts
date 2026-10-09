@@ -56,7 +56,7 @@ async function main() {
     audioPlayer: new WebAudioPlayer(),
     onNavigate: (pageId, params) => {
       if (pageId === 'home') window.location.replace('../index.html');
-      // 跳打谱页查看本题棋谱（SGF 原文以 base64 传递）
+      // 跳打谱页查看本题棋谱（按 archiveId 传递，打谱页从归档读 SGF）
       if (pageId === 'replay') {
         const searchParams = new URLSearchParams(params);
         window.location.href = `../replay/index.html?${searchParams.toString()}`;

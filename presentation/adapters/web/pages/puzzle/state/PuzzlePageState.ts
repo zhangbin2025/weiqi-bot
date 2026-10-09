@@ -11,6 +11,8 @@ export type PuzzleMode = 'solve' | 'study';
 export interface PuzzlePageStateData {
   /** 当前题目 SGF 原文 */
   sgfContent: string | null;
+  /** 当前题目归档ID（抓题时由 GameService 写入历史归档，供打谱页按 archiveId 打开） */
+  archiveId: string;
   /** 解析后的打谱数据 */
   replayData: ReplayData | null;
   /** 当前题目标题（题号/题名） */
@@ -50,6 +52,7 @@ export class PuzzlePageState {
   constructor() {
     this.data = {
       sgfContent: null,
+      archiveId: '',
       replayData: null,
       title: '',
       tag: '',

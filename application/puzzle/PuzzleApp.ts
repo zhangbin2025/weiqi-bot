@@ -79,15 +79,29 @@ export class PuzzleApp {
    * 抓取题目 SGF 内容
    * @param url - 题目 URL（lib://... 或 https://...）
    * @returns SGF 文本，失败返回 null
+   * @description 保留原签名，内部委托 fetchPuzzle，仅供只需 SGF 的调用方使用
    */
   async fetchPuzzleSGF(url: string): Promise<string | null> {
+    const r = await this.fetchPuzzle(url);
+    return r ? r.sgfContent : null;
+  }
+
+  /**
+   * 抓取题目（SGF + 归档ID）
+   * @param url - 题目 URL（lib://... 或 https://...）
+   * @returns 成功返回 { sgfContent, archiveId }，失败返回 null
+   * @description gameService.fetch 会把抓到的棋谱写入归档并返回 archiveId，
+   *              做题页跳打谱页时按 archiveId 传递（与 fetcher 一致），避免超长 SGF 塞进 URL。
+   *              归档不可用时 archiveId 为空串，调用方需自行兜底。
+   */
+  async fetchPuzzle(url: string): Promise<{ sgfContent: string | null; archiveId: string } | null> {
     if (!this.gameService) return null;
     const result = await this.gameService.fetch(url);
     if (!result.success) {
       console.warn('[PuzzleApp] 抓题失败', { url, error: result.error });
       return null;
     }
-    return result.sgfContent;
+    return { sgfContent: result.sgfContent, archiveId: result.archiveId };
   }
 
   // ========== 历史管理（委托给 PuzzleHistoryManager） ==========

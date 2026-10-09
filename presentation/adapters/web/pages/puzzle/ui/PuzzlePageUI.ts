@@ -42,8 +42,8 @@ export class PuzzlePageUI {
       if (el) el.disabled = disabled;
     };
     setDisabled('answer-btn', !hasData);
-    // 打谱页查看本题：有题目即可用（单题模式也可用）
-    setDisabled('replay-btn', !hasData);
+    // 打谱页查看本题：需已归档拿到 archiveId（单题模式也可用）
+    setDisabled('replay-btn', !hasData || !state.get('archiveId'));
     // 换题：单题模式禁用
     setDisabled('next-btn', !hasData || single);
     // 筛选：仅内置题库可用；单题模式禁用

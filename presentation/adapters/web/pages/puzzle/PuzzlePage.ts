@@ -23,7 +23,6 @@ import { PuzzleSolveHandler } from './handlers/PuzzleSolveHandler';
 import { PuzzleStudyHandler } from './handlers/PuzzleStudyHandler';
 import { PuzzleFilterDialog } from './ui/PuzzleFilterDialog';
 import { PuzzleHistoryPanel } from './ui/PuzzleHistoryPanel';
-import { encodeSgfForUrl } from './utils/encodeSgfForUrl';
 import type { PuzzleInitialStone } from '../../../../../application/puzzle/PuzzleHistoryManager';
 import { Select } from '@ui';
 
@@ -334,13 +333,14 @@ export class PuzzlePage implements IPage {
   private async loadPuzzleByUrl(url: string, title: string, tag: string): Promise<void> {
     this.ui.setLoading(true, '加载题目...');
     try {
-      const raw = await this.config.puzzleApp.fetchPuzzleSGF(url);
-      if (!raw) {
+      const fetched = await this.config.puzzleApp.fetchPuzzle(url);
+      if (!fetched || !fetched.sgfContent) {
         this.ui.setLoading(false);
         this.ui.showEmpty('题目加载失败', '请检查网络或更换题目来源');
         return;
       }
       // 死活题最小路数压缩（101/OGS/GoProblems 通用）
+      const raw = fetched.sgfContent;
       const remapped = buildTsumegoMinBoard(raw);
       let sgf = raw;
       if (remapped) {
@@ -355,6 +355,8 @@ export class PuzzlePage implements IPage {
       }
 
       this.state.set('sgfContent', sgf);
+      // 归档ID：跳打谱页时按 archiveId 传递（抓题已写入历史归档）
+      this.state.set('archiveId', fetched.archiveId ?? '');
       this.state.set('replayData', data);
       this.state.set('title', title);
       this.state.set('tag', tag);
@@ -392,14 +394,18 @@ export class PuzzlePage implements IPage {
 
   /**
    * 在打谱页查看本题棋谱
-   * @description 把当前题的 SGF 原文以 sgf 参数带给 replay 页（base64 + move=0，从头看）。
-   *              SGF 已含正解分支，打谱页可自由查看变化图/试下，与做题页的答题流程互不干扰。
+   * @description 按 archiveId 传递（与 fetcher 一致），打谱页自行从归档读 SGF，
+   *              避免超长 SGF 塞进 URL。抓题时 GameService 已写入历史归档，
+   *              故 archiveId 一般可用；归档不可用时按钮本身即为禁用态（见 updateControls）。
    *              优先走宿主导航（onNavigate），无宿主时直接拼 URL 兜底。
    */
   private viewInReplay(): void {
-    const sgf = this.state.get('sgfContent');
-    if (!sgf) return;
-    const params = { sgf: encodeSgfForUrl(sgf), move: '0' };
+    const archiveId = this.state.get('archiveId');
+    if (!archiveId) {
+      console.warn('[PuzzlePage] 本题未归档，无法跳打谱页');
+      return;
+    }
+    const params = { archiveId, move: '0' };
     if (this.onNavigate) {
       this.onNavigate('replay', params);
       return;
