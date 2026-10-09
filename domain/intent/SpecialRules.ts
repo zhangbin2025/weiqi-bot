@@ -91,15 +91,14 @@ export const SPECIAL_RULES: SpecialRule[] = [
     description: '泛化做题词产生候选',
   },
   {
-    name: 'tsumego_download',
+    name: 'tsumego_puzzle',
     priority: 80,
     match: (text: string): boolean => {
       const trimmed = text.trim();
       return trimmed === '死活' || trimmed.includes('死活题');
     },
-    intent: 'download_game',
-    extractParams: (): Record<string, any> => ({ source: 'weiqi101' }),
-    description: '死活/死活题关键词识别为下载101围棋棋谱',
+    intent: 'start_puzzle',
+    description: '死活/死活题关键词识别为进入做题页练习',
   },
   {
     name: 'live_stream',
