@@ -54,8 +54,13 @@ async function main() {
   const page = new PuzzlePage({
     puzzleApp,
     audioPlayer: new WebAudioPlayer(),
-    onNavigate: (pageId) => {
+    onNavigate: (pageId, params) => {
       if (pageId === 'home') window.location.replace('../index.html');
+      // 跳打谱页查看本题棋谱（SGF 原文以 base64 传递）
+      if (pageId === 'replay') {
+        const searchParams = new URLSearchParams(params);
+        window.location.href = `../replay/index.html?${searchParams.toString()}`;
+      }
     },
   });
 

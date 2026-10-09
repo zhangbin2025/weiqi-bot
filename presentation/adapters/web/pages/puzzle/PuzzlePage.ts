@@ -23,6 +23,7 @@ import { PuzzleSolveHandler } from './handlers/PuzzleSolveHandler';
 import { PuzzleStudyHandler } from './handlers/PuzzleStudyHandler';
 import { PuzzleFilterDialog } from './ui/PuzzleFilterDialog';
 import { PuzzleHistoryPanel } from './ui/PuzzleHistoryPanel';
+import { encodeSgfForUrl } from './utils/encodeSgfForUrl';
 import type { PuzzleInitialStone } from '../../../../../application/puzzle/PuzzleHistoryManager';
 import { Select } from '@ui';
 
@@ -240,6 +241,9 @@ export class PuzzlePage implements IPage {
       void this.nextPuzzle();
     });
 
+    // 在打谱页查看本题棋谱
+    document.getElementById('replay-btn')?.addEventListener('click', () => this.viewInReplay());
+
     // 返回
     document.getElementById('back-btn')?.addEventListener('click', () => {
       if (this.onNavigate) this.onNavigate('home');
@@ -384,6 +388,24 @@ export class PuzzlePage implements IPage {
       console.error('[PuzzlePage] 加载题目失败', e);
       this.ui.showEmpty('加载失败', e instanceof Error ? e.message : String(e));
     }
+  }
+
+  /**
+   * 在打谱页查看本题棋谱
+   * @description 把当前题的 SGF 原文以 sgf 参数带给 replay 页（base64 + move=0，从头看）。
+   *              SGF 已含正解分支，打谱页可自由查看变化图/试下，与做题页的答题流程互不干扰。
+   *              优先走宿主导航（onNavigate），无宿主时直接拼 URL 兜底。
+   */
+  private viewInReplay(): void {
+    const sgf = this.state.get('sgfContent');
+    if (!sgf) return;
+    const params = { sgf: encodeSgfForUrl(sgf), move: '0' };
+    if (this.onNavigate) {
+      this.onNavigate('replay', params);
+      return;
+    }
+    const query = new URLSearchParams(params).toString();
+    window.location.href = `../replay/index.html?${query}`;
   }
 
   /**
