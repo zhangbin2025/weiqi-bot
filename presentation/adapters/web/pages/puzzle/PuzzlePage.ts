@@ -16,8 +16,8 @@ import type { IAudioPlayer } from '../../../../../infrastructure/audio/IAudioPla
 import type { ReplayData } from '../../../../../domain/sgf';
 import type { PuzzleApp, PuzzleItem, PuzzleSource } from '../../../../../application/puzzle/PuzzleApp';
 import { PUZZLE_SOURCE_LABELS, DEFAULT_PUZZLE_SOURCE } from '../../../../../application/puzzle/PuzzleApp';
-import { buildPuzzleKeyword } from '../../../../../services/game/providers/library/puzzleFilter';
 import { PuzzlePageState, PuzzleMode } from './state/PuzzlePageState';
+import { PuzzlePreferences } from './state/PuzzlePreferences';
 import { PuzzlePageUI } from './ui/PuzzlePageUI';
 import { PuzzleSolveHandler } from './handlers/PuzzleSolveHandler';
 import { PuzzleStudyHandler } from './handlers/PuzzleStudyHandler';
@@ -71,6 +71,8 @@ export class PuzzlePage implements IPage {
   /** 当前来源/筛选关键字 */
   private source: PuzzleSource = DEFAULT_PUZZLE_SOURCE;
   private keyword = '';
+  /** 来源与筛选偏好（localStorage 持久化，刷新后恢复） */
+  private readonly preferences = new PuzzlePreferences();
 
   constructor(private config: PuzzlePageConfig) {
     this.state = new PuzzlePageState();
@@ -121,10 +123,12 @@ export class PuzzlePage implements IPage {
     this.bindEvents();
     await this.historyPanel.loadHistory();
 
-    // 恢复来源偏好
-    const savedSource = this.readLocal<PuzzleSource>('puzzle_source');
-    if (savedSource && PUZZLE_SOURCE_LABELS[savedSource]) this.source = savedSource;
+    // 恢复上次来源与筛选条件（刷新后按上次条件出题）
+    await this.preferences.load();
+    this.source = this.preferences.getSource();
     Select.get('#source-select')?.setValue(this.source, true);
+    this.keyword = this.preferences.resolveKeyword();
+    this.ui.setKeyword(this.keyword);
 
     this.state.set('initialized', true);
   }
@@ -133,9 +137,14 @@ export class PuzzlePage implements IPage {
   async handleParams(params: PageParams): Promise<void> {
     const p = params as Record<string, string>;
     if (p['source'] && PUZZLE_SOURCE_LABELS[p['source'] as PuzzleSource]) {
+      // 显式来源（fetcher 跳转）覆盖偏好并落盘，刷新后仍停留在该来源
       this.source = p['source'] as PuzzleSource;
+      this.preferences.setSource(this.source);
     }
     Select.get('#source-select')?.setValue(this.source, true);
+    // 筛选条件只在来源确定后生效：内置题库用偏好条件，其他来源清空
+    this.keyword = this.preferences.resolveKeyword();
+    this.ui.setKeyword(this.keyword);
 
     // 单题模式：从 fetcher 跳过来只做这一道题
     // 禁用换题、筛选、来源切换，只能看来源
@@ -147,7 +156,10 @@ export class PuzzlePage implements IPage {
       return;
     }
 
-    if (p['keyword']) this.keyword = p['keyword'];
+    if (p['keyword']) {
+      this.keyword = p['keyword'];
+      this.ui.setKeyword(this.keyword);
+    }
     this.applySourceUiState();
     await this.loadPuzzleList();
   }
@@ -172,8 +184,9 @@ export class PuzzlePage implements IPage {
     // 来源下拉
     Select.get('#source-select')?.onChange((v) => {
       this.source = v as PuzzleSource;
-      this.writeLocal('puzzle_source', this.source);
-      this.keyword = '';
+      this.preferences.setSource(this.source);
+      // 内置题库恢复其筛选关键词；其他来源不应用筛选（条件本身保留在偏好里）
+      this.keyword = this.preferences.resolveKeyword();
       this.ui.setKeyword(this.keyword);
       this.applySourceUiState();
       void this.loadPuzzleList();
@@ -184,12 +197,11 @@ export class PuzzlePage implements IPage {
       if (this.state.get('singlePuzzle')) return;
       if (this.source !== 'lib-life-death') return;
       PuzzleFilterDialog.open(
-        () => this.readLocal('puzzle_filter_state') ?? null,
+        () => this.preferences.getFilter(),
         (st) => {
-          this.writeLocal('puzzle_filter_state', st);
-          this.keyword = st.types.length || st.difficulty
-            ? buildPuzzleKeyword(st.types, st.difficulty)
-            : '';
+          this.preferences.setFilter(st);
+          // 全空表示不筛选，resolveKeyword 统一处理
+          this.keyword = this.preferences.resolveKeyword();
           this.ui.setKeyword(this.keyword);
           void this.loadPuzzleList();
         },
@@ -616,21 +628,6 @@ export class PuzzlePage implements IPage {
   private playSound(type: 'stone' | 'capture' | 'pass' | 'error' | 'correct' | 'wrong' | 'undo'): void {
     if (!this.state.get('soundEnabled')) return;
     void this.audioPlayer?.play(type);
-  }
-
-  private readLocal<T>(key: string): T | null {
-    try {
-      const v = localStorage.getItem(`weiqi-bot:puzzle_${key}`);
-      return v ? (JSON.parse(v) as T) : null;
-    } catch {
-      return null;
-    }
-  }
-
-  private writeLocal(key: string, value: unknown): void {
-    try {
-      localStorage.setItem(`weiqi-bot:puzzle_${key}`, JSON.stringify(value));
-    } catch { /* ignore */ }
   }
 
   destroy(): void {
