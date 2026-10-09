@@ -54,7 +54,7 @@ export class FetcherPage implements IPage {
       onRestoreKeyword: (source) => this.restoreKeyword(source),
       onSelectLatest: (url) => this.selectLatestGame(url),
       onSelectLatestView: (url) => this.viewLatestGame(url),
-      onStudyLatest: (url) => this.studyLatestGame(url),
+      onPuzzleLatest: (url) => this.puzzleLatestGame(url),
       onViewUrl: (url) => this.viewUrl(url),
       onLoadFilterState: () => this.loadFilterState(),
       onSaveFilterState: (state) => this.saveFilterState(state),
@@ -498,10 +498,9 @@ export class FetcherPage implements IPage {
     }
   }
   /**
-   * 研究题目：抓取后在 replay 页面进入「研究题目模式」（非做题模式）
-   * 与 selectLatestGame 一致，仅在导航参数中附加 mode=review。
+   * 做题：抓取题目后跳到做题页面（puzzle）进行交替落子答题
    */
-  private async studyLatestGame(url: string): Promise<void> {
+  private async puzzleLatestGame(url: string): Promise<void> {
     this.renderer.setSelectedLatestUrl(url);
     this.renderer.rerenderLatest();
     try {
@@ -517,13 +516,21 @@ export class FetcherPage implements IPage {
         await this.loadBookmarks();
         const srcUrl = this.filterSrcUrl(result.url);
         if (!result.archiveId) return;
-        this._onNavigate?.('replay', { archiveId: result.archiveId, move: '0', mode: 'review', src: srcUrl });
+        // 带上来源，做题页面才能把下拉框显示成实际来源
+        // （否则会回落到默认的「内置题库」，与题目实际来源不符）
+        const navParams: Record<string, string> = {
+          archiveId: result.archiveId,
+          url,
+          src: srcUrl,
+        };
+        if (result.source) navParams['source'] = result.source;
+        this._onNavigate?.('puzzle', navParams);
       } else {
         this.toast.show(result.error || '抓取失败');
       }
     } catch (error) {
       this.renderer.showLatestItemLoading(url, false);
-      console.error('[FetcherPage] studyLatestGame failed:', error);
+      console.error('[FetcherPage] puzzleLatestGame failed:', error);
     }
   }
 

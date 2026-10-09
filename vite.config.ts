@@ -52,6 +52,7 @@ export default defineConfig({
         'joseki/explore': path.resolve(__dirname, 'clients/web/joseki/explore.html'),
         'joseki/discover': path.resolve(__dirname, 'clients/web/joseki/discover.html'),
         'joseki/quiz': path.resolve(__dirname, 'clients/web/joseki/quiz.html'),
+        'puzzle/index': path.resolve(__dirname, 'clients/web/puzzle/index.html'),
         'opponent/index': path.resolve(__dirname, 'clients/web/opponent/index.html'),
         'decision/index': path.resolve(__dirname, 'clients/web/decision/index.html'),
         'decision/list': path.resolve(__dirname, 'clients/web/decision/list.html'),

@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>做题 - 围棋智能助手</title>
+  <link rel="stylesheet" href="../shared/shell.css">
+  <style>
+    /* ===== 标签页 ===== */
+    .tabs {
+      display: flex;
+      background: rgba(255,255,255,0.15);
+      border-radius: 12px;
+      padding: 4px;
+      margin-bottom: 14px;
+    }
+    .tab {
+      flex: 1;
+      padding: 10px;
+      text-align: center;
+      color: rgba(255,255,255,0.85);
+      cursor: pointer;
+      border-radius: 10px;
+      transition: all 0.3s ease;
+      font-size: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .tab.active {
+      background: white;
+      color: #667eea;
+      font-weight: 500;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* ===== 模式徽章 ===== */
+    .mode-badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: bold;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+    .mode-badge.explore { background: #4CAF50; color: white; }
+    .mode-badge.challenge { background: #f44336; color: white; }
+
+    /* ===== 卡片 ===== */
+    .card {
+      background: white;
+      border-radius: 14px;
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+    .card h2 { font-size: 16px; margin-bottom: 10px; color: #333; }
+
+    /* ===== 来源行（一行显示） ===== */
+    .source-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .source-row .select-host { flex: 1; min-width: 0; }
+    .icon-btn {
+      background: #f0f0f0;
+      border: none;
+      color: #555;
+      cursor: pointer;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 14px;
+      white-space: nowrap;
+    }
+    .icon-btn:active { background: #e0e0e0; }
+    .icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .filter-keyword {
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 8px;
+      min-height: 16px;
+    }
+
+    /* ===== 棋盘 ===== */
+    .puzzle-board-wrapper {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 8px;
+      position: relative;
+    }
+    #board-container { width: 100%; }
+
+    /* ===== 题目信息（棋盘下方一行文字） ===== */
+    .puzzle-info {
+      text-align: center;
+      font-size: 13px;
+      color: #555;
+      margin-bottom: 10px;
+      min-height: 18px;
+      padding: 0 6px;
+      word-break: break-all;
+    }
+
+    /* ===== 图标按钮排（棋盘下方一排） ===== */
+    .puzzle-controls {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      align-items: center;
+    }
+    .puzzle-btn {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      font-size: 18px;
+      line-height: 1;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+    }
+    .puzzle-btn.secondary { background: #f0f0f0; color: #555; }
+    .puzzle-btn.success { background: linear-gradient(135deg, #16a34a, #4ade80); }
+    .puzzle-btn.active { background: linear-gradient(135deg, #f59e0b, #fbbf24); }
+    .puzzle-btn:disabled { background: #ccc; color: #999; cursor: not-allowed; opacity: 0.6; }
+    .puzzle-btn:active:not(:disabled) { opacity: 0.85; }
+
+    /* ===== 弹框按钮：覆盖 .puzzle-btn 的 44px 方形图标尺寸，避免文字换行 ===== */
+    .puzzle-btn.modal-btn {
+      width: auto;
+      height: auto;
+      min-width: 72px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 14px;
+      line-height: 1.2;
+      white-space: nowrap;
+      gap: 5px;
+    }
+
+    /* ===== 空态 ===== */
+    #puzzle-empty {
+      display: none;
+      text-align: center;
+      padding: 30px 16px;
+      color: #888;
+    }
+    .empty-icon { font-size: 2.6em; margin-bottom: 10px; opacity: 0.5; }
+    .empty-title { font-size: 15px; font-weight: 600; color: #555; }
+    .empty-subtitle { font-size: 13px; margin-top: 6px; }
+
+    /* ===== 加载遮罩 ===== */
+    #puzzle-loading {
+      display: none;
+      position: absolute;
+      inset: 0;
+      background: rgba(255,255,255,0.9);
+      z-index: 50;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+    .loading-spinner {
+      width: 28px;
+      height: 28px;
+      border: 3px solid #e0e0e0;
+      border-top-color: #667eea;
+      border-radius: 50%;
+      animation: puzzle-spin 0.8s linear infinite;
+    }
+    @keyframes puzzle-spin { to { transform: rotate(360deg); } }
+    .loading-title { font-size: 14px; color: #666; }
+
+    /* ===== 弹框 ===== */
+    .puzzle-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+    .puzzle-modal.show { display: flex; }
+    .puzzle-modal-content {
+      background: white;
+      padding: 22px;
+      border-radius: 16px;
+      max-width: 360px;
+      width: 88%;
+      text-align: center;
+    }
+    .puzzle-modal-content h3 { margin: 0 0 10px; font-size: 18px; }
+    .puzzle-modal-content p { color: #666; font-size: 14px; margin-bottom: 14px; }
+    .puzzle-modal-buttons { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+    /* ===== 历史 ===== */
+    .toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .toolbar-count { font-size: 13px; color: #666; }
+    .puzzle-history-item {
+      border: 1px solid #eee;
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+      background: #fafafa;
+    }
+    .phi-head {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 4px;
+    }
+    .phi-result { font-weight: 600; }
+    .phi-result.ok { color: #16a34a; }
+    .phi-result.fail { color: #dc2626; }
+    .phi-title {
+      font-size: 14px;
+      color: #333;
+      margin-bottom: 4px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .phi-meta {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      font-size: 11px;
+      color: #999;
+    }
+    .puzzle-pagination {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    #history-empty { display: none; text-align: center; padding: 30px; color: #888; }
+    #history-empty .empty-icon { font-size: 2.4em; opacity: 0.5; margin-bottom: 8px; }
+
+    /* 筛选弹框（复用 ui.css 的 .dialog 体系） */
+    .puzzle-filter-dialog .dialog { max-width: 360px; width: 90%; }
+    .puzzle-filter-section { margin-bottom: 18px; }
+    .puzzle-filter-label { font-size: 14px; font-weight: 600; color: #333; margin-bottom: 10px; text-align: left; }
+    .puzzle-filter-types { display: flex; flex-wrap: wrap; gap: 10px 16px; }
+    .puzzle-filter-type {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 14px;
+      color: #444;
+      cursor: pointer;
+      user-select: none;
+      line-height: 1;
+    }
+    .puzzle-filter-type input {
+      width: 16px; height: 16px; padding: 0; border: 0; margin: 0;
+      flex: 0 0 auto; vertical-align: middle; accent-color: #667eea; cursor: pointer;
+    }
+    .puzzle-filter-difficulty { width: 100%; }
+  </style>
+</head>
+<body>
+  <div class="glass-container">
+    <header class="glass-header">
+      <h1 class="glass-title">🧩 做题 <span id="mode-badge" class="mode-badge challenge">答题</span></h1>
+      <p class="glass-subtitle">交替落子，解出正解</p>
+    </header>
+
+    <div class="glass-content">
+      <div class="tabs">
+        <div class="tab active" data-tab="quiz"><span>🧩</span><span>做题</span></div>
+        <div class="tab" data-tab="history"><span>📋</span><span>历史</span></div>
+      </div>
+
+      <!-- ============ 做题标签 ============ -->
+      <div id="quiz-tab" class="tab-content active">
+        <div class="card">
+          <!-- 来源（一行显示） -->
+          <div class="source-row">
+            <div class="select-host">
+              <div data-ui="select" id="source-select"
+                   data-value="lib-life-death"
+                   data-options='[{"value":"lib-life-death","label":"内置题库"},{"value":"weiqi101","label":"101围棋"},{"value":"goproblems","label":"GoProblems"},{"value":"ogs-puzzle","label":"OGS死活题"}]'></div>
+            </div>
+          </div>
+          <div class="filter-keyword" id="filter-keyword"></div>
+
+          <!-- 棋盘（含加载遮罩 / 空态） -->
+          <div class="puzzle-board-wrapper" style="position: relative;">
+            <div id="board-container"></div>
+            <div id="puzzle-loading">
+              <div class="loading-spinner"></div>
+              <div class="loading-title">加载中...</div>
+            </div>
+          </div>
+
+          <div id="puzzle-empty">
+            <div class="empty-icon">📭</div>
+            <div class="empty-title"></div>
+            <div class="empty-subtitle"></div>
+          </div>
+
+          <!-- 题目信息：先手必显示，有题型/题号则显示 -->
+          <div class="puzzle-info" id="puzzle-info"></div>
+
+          <!-- 图标按钮排：回撤(研究) / 研究(看答案) / 换题 / 筛选 -->
+          <div class="puzzle-controls">
+            <button class="puzzle-btn secondary" id="undo-btn" title="回撤一手" style="display:none;" disabled>↩</button>
+            <button class="puzzle-btn" id="answer-btn" title="看答案（研究模式）" disabled>👁</button>
+            <button class="puzzle-btn success" id="next-btn" title="换题" disabled>⏭</button>
+            <button class="puzzle-btn secondary" id="filter-btn" title="筛选题型/难度" disabled>🔍</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ 历史标签 ============ -->
+      <div id="history-tab" class="tab-content">
+        <div class="card">
+          <h2>📋 做题历史</h2>
+          <div class="toolbar">
+            <span id="history-count" class="toolbar-count">已完成 0 题</span>
+            <button class="icon-btn" id="clear-btn">🗑️ 清空</button>
+          </div>
+          <div id="history-grid"></div>
+          <div id="history-pagination" class="puzzle-pagination" style="display:none;">
+            <button class="puzzle-btn secondary" id="prev-page-btn">◀</button>
+            <span id="page-info">1/1</span>
+            <button class="puzzle-btn secondary" id="next-page-btn">▶</button>
+          </div>
+          <div id="history-empty">
+            <div class="empty-icon">📭</div>
+            <div>暂无记录</div>
+            <div style="font-size:13px;margin-top:6px;">解出题目后会自动记录</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <footer><p>围棋智能助手 &copy; 2026</p></footer>
+  </div>
+
+  <!-- Shell 容器（隐藏） -->
+  <div id="page-root" style="display: none;"></div>
+
+  <!-- 正解弹框（按钮：研究 / 换题） -->
+  <div id="solved-modal" class="puzzle-modal">
+    <div class="puzzle-modal-content">
+      <h3>🎉 正解完成！</h3>
+      <p id="solved-duration"></p>
+      <div class="puzzle-modal-buttons">
+        <button class="puzzle-btn modal-btn secondary" id="solved-study-btn">🔍 研究</button>
+        <button class="puzzle-btn modal-btn success" id="solved-next-btn">⏭ 换题</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 答错弹框（按钮：重做 / 研究 / 换题） -->
+  <div id="wrong-modal" class="puzzle-modal">
+    <div class="puzzle-modal-content">
+      <h3>✗ 不是正解</h3>
+      <p>这一手不在正解分支里</p>
+      <div class="puzzle-modal-buttons">
+        <button class="puzzle-btn modal-btn secondary" id="wrong-restart-btn">⟲ 重做</button>
+        <button class="puzzle-btn modal-btn secondary" id="wrong-study-btn">🔍 研究</button>
+        <button class="puzzle-btn modal-btn success" id="wrong-next-btn">⏭ 换题</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../shared/error-catch.js"></script>
+  <script type="module" src="./index.ts"></script>
+</body>
+</html>

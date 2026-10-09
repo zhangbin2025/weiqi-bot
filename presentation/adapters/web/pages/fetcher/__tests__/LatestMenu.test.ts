@@ -128,16 +128,19 @@ describe('FetcherRenderer 三点菜单（真实 DOM）', () => {
     expect(c.querySelector('[data-menu-template]')).toBeNull();
   });
 
-  it('内置题库（lib-life-death）显示三点菜单含「研究题目」', () => {
+  it('内置题库（lib-life-death）显示三点菜单含「做题」与「查看棋谱」', () => {
     renderer.renderLatestGames([
       { source: 'lib-life-death', title: '死活题A', date: '2026-09-14', url: 'lib://life-and-death/2026-09-14/0' },
     ]);
     const c = latestContainer();
     expect(c.querySelector('.latest-dots')).toBeTruthy();
     const tpl = c.querySelector('[data-menu-template]') as HTMLElement;
-    const study = tpl.querySelector('[data-action="studyLatest"]') as HTMLElement;
-    expect(study).toBeTruthy();
-    expect(study.textContent).toContain('研究题目');
+    const puzzle = tpl.querySelector('[data-action="puzzleLatest"]') as HTMLElement;
+    expect(puzzle).toBeTruthy();
+    expect(puzzle.textContent).toContain('做题');
+    const view = tpl.querySelector('[data-action="viewLatest"]') as HTMLElement;
+    expect(view).toBeTruthy();
+    expect(view.textContent).toContain('查看棋谱');
   });
 
   it('goproblems 列表项 URL 为 /problems/<id> 形式（回归）', () => {

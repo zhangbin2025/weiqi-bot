@@ -30,6 +30,7 @@ export class TrialHandler {
 
   /**
    * 初始化死活题检查器（加载数据后调用）
+   * 仅用于识别棋谱类型（是否带摆子），不做任何解题判定或提示
    */
   initTsumegoChecker(replayData: ReplayData | null): void {
     this.tsumegoChecker.init(replayData);
@@ -37,17 +38,10 @@ export class TrialHandler {
   }
 
   /**
-   * 是否为死活题模式
+   * 是否为死活题棋谱（仅作类型标记，不触发做题行为）
    */
   isTsumego(): boolean {
     return this.tsumegoChecker.getIsTsumego();
-  }
-
-  /**
-   * 暴露内部 TsumegoChecker 实例（供 SolveHandler 做题判定复用）
-   */
-  getTsumegoChecker(): TsumegoChecker {
-    return this.tsumegoChecker;
   }
 
   /**
@@ -76,12 +70,6 @@ export class TrialHandler {
       this.rebuildBoardWithTrial();
       // 更新试下导航按钮状态
       this.updateTrialButtons();
-      // 死活题模式：清除之前的提示
-      if (this.isTsumego()) {
-        this.state.set('trialHint', '开始解题');
-        this.state.set('trialMatchResult', null);
-        this.ui.updateTrialHint('');
-      }
     }
     // 试下落子
     const state = this.game.getState();
@@ -100,102 +88,9 @@ export class TrialHandler {
         this.replayApp.playSound('stone');
       }
       this.syncBoardToDisplay();
-      // 死活题模式：检查匹配
-      if (this.isTsumego()) {
-        this.checkTsumegoMatch();
-      }
       // 更新试下导航按钮状态
       this.updateTrialButtons();
     }
-  }
-
-  /**
-   * 检查死活题匹配
-   */
-  private checkTsumegoMatch(): void {
-    const trialMoves = this.trialController.getVisibleMoves();
-    const preMoves = this.collectPreTrialMoves();
-    const result = this.tsumegoChecker.checkMatch(trialMoves, preMoves);
-    const hint = this.tsumegoChecker.formatHint(result);
-    const hintClass = this.tsumegoChecker.getHintClass(result);
-    this.state.set('trialMatchResult', result);
-    this.state.set('trialHint', hint);
-    this.ui.updateTrialHint(hint, hintClass);
-    // 选点导航：绘制当前着法命中的各分支下一手选点（正解=蓝，错误=红）
-    this.updateCandidateMoves();
-  }
-
-  /**
-   * 计算并绘制选点导航候选。
-   * 适用位置：试下模式中，或常规研究（生死题）停在始局/分支选项处。
-   * 取前导着法 + 当前可见试下着法之后所有命中分支的下一手选点。
-   * 处于变化分支内或做题模式时不清空也不绘制，交由调用方决定。
-   */
-  updateCandidateMoves(): void {
-    // 做题模式不提示答案
-    if (this.state.get('mode') === 'solve') {
-      this.ui.clearCandidateMoves();
-      return;
-    }
-    // 变化分支内不绘制选点导航
-    if (this.state.get('inVariation')) {
-      this.ui.clearCandidateMoves();
-      return;
-    }
-    const trialMoves = this.trialController.getVisibleMoves();
-    const preMoves = this.collectPreTrialMoves();
-    const candidates = this.tsumegoChecker.getNextCandidates(trialMoves, preMoves);
-    this.ui.showCandidateMoves(candidates);
-  }
-
-  /**
-   * 收集进入试下前主线已走的着法
-   * 用于 move>0 时试下匹配：将前导着法拼到试下着法前面再与分支比对
-   */
-  private collectPreTrialMoves(): Array<{ x: number; y: number; color: string }> {
-    const replayData = this.state.get('replayData');
-    if (!replayData) return [];
-
-    const startPath = this.trialController.getStartPath();
-    const startIndex = this.trialController.getStartIndex();
-
-    if (startPath.length === 0 && startIndex === 0) return [];
-
-    const moves: Array<{ x: number; y: number; color: string }> = [];
-    let node = replayData.tree;
-
-    // 沿 startPath 遍历
-    for (const index of startPath) {
-      if (!node.children || node.children.length <= index) break;
-      node = node.children[index]!;
-      if (node.color && node.coord) {
-        const pos = coordToPos(node.coord);
-        if (pos) {
-          moves.push({
-            x: pos.x,
-            y: pos.y,
-            color: node.color === 'B' ? 'black' : 'white',
-          });
-        }
-      }
-    }
-
-    // 沿主分支走 startIndex 步
-    for (let i = 0; i < startIndex && node.children && node.children.length > 0; i++) {
-      node = node.children[0]!;
-      if (node.color && node.coord) {
-        const pos = coordToPos(node.coord);
-        if (pos) {
-          moves.push({
-            x: pos.x,
-            y: pos.y,
-            color: node.color === 'B' ? 'black' : 'white',
-          });
-        }
-      }
-    }
-
-    return moves;
   }
 
   /**
@@ -216,10 +111,6 @@ export class TrialHandler {
   trialPrev(): void {
     this.trialController.undo();
     this.rebuildBoardWithTrial();
-    // 死活题模式：更新匹配提示
-    if (this.isTsumego()) {
-      this.checkTsumegoMatch();
-    }
     this.updateTrialButtons();
   }
 
@@ -229,10 +120,6 @@ export class TrialHandler {
   trialNext(): void {
     this.trialController.redo();
     this.rebuildBoardWithTrial();
-    // 死活题模式：更新匹配提示
-    if (this.isTsumego()) {
-      this.checkTsumegoMatch();
-    }
     this.updateTrialButtons();
   }
 
@@ -249,18 +136,6 @@ export class TrialHandler {
       this.state.get('displayIndex')
     );
     this.syncBoardToDisplay();
-    // 清除死活题提示
-    if (this.isTsumego()) {
-      this.state.set('trialHint', '');
-      this.state.set('trialMatchResult', null);
-      this.ui.updateTrialHint('');
-      // 清除选点导航候选
-      this.ui.clearCandidateMoves();
-      // 退出试下后回到常规研究始局/分支选项处，重新绘制选点导航圆圈
-      this.updateCandidateMoves();
-      // 退出试下仍处于死活题研究：重新隐藏变化图面板与着法浏览栏
-      this.ui.setTsumegoReviewUI(true);
-    }
   }
 
   /**

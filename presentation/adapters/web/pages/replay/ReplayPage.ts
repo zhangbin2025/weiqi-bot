@@ -13,7 +13,7 @@ import { BoardSyncer } from '../../../../core/helpers/BoardSyncer';
 import { ReplayPageState } from './state';
 import { ReplayDataManager } from './data';
 import { ReplayPageUI } from './ui';
-import { NavigationHandler, VariationHandler, TrialHandler, SolveHandler } from './handlers';
+import { NavigationHandler, VariationHandler, TrialHandler } from './handlers';
 import type { IPage, PageParams } from '../../../../core/interfaces';
 import type { ReplayData } from '../../../../../domain/sgf';
 import type { ReplayApp } from '../../../../../application/replay';
@@ -36,7 +36,6 @@ export class ReplayPage implements IPage {
   private navigationHandler: NavigationHandler;
   private variationHandler: VariationHandler;
   private trialHandler: TrialHandler;
-  private solveHandler: SolveHandler;
   /** 死活题最小路数转换结果（成功压缩时非空），用于小棋盘渲染/试下坐标换算 */
   private minBoardResult: ReturnType<typeof buildTsumegoMinBoard> = null;
   constructor(config: { replayApp: ReplayApp; onNavigate?: (page: string, params?: Record<string, string>) => void }) {
@@ -115,8 +114,6 @@ export class ReplayPage implements IPage {
     );
     // 设置进入分支的回调
     this.variationHandler.setOnEnterVariation((index) => this.variationHandler.enterVariation(index));
-    // 进入/退出分支后，刷新选点导航（回到始局/分支选项处重绘红蓝选点）
-    this.variationHandler.setOnReviewRefresh(() => this.trialHandler.updateCandidateMoves());
     this.trialHandler = new TrialHandler(
       this.state,
       this.ui,
@@ -126,21 +123,6 @@ export class ReplayPage implements IPage {
       this.board,
       BoardRebuilder,
       BoardSyncer
-    );
-    this.solveHandler = new SolveHandler(
-      this.state,
-      this.ui,
-      this.replayApp,
-      this.game,
-      this.board,
-      BoardRebuilder,
-      BoardSyncer,
-      this.trialHandler.getTsumegoChecker(),
-      (msg: string, type?: 'success' | 'error' | 'info', links?: { text: string; onClick: () => void }[], persist?: boolean) => {
-        (window as any).__replayShowToast?.(msg, type, links, persist);
-      },
-      () => this.enterReviewMode(),
-      () => this.restartSolve()
     );
   }
   async initialize(): Promise<void> {
@@ -182,10 +164,6 @@ export class ReplayPage implements IPage {
     // 绑定棋盘点击事件（试下模式）+ 悬停预览
     this.board.on({
       onClick: (pos) => {
-        if (this.state.get('mode') === 'solve') {
-          this.solveHandler.handleBoardClick(pos.x, pos.y);
-          return;
-        }
         this.trialHandler.handleBoardClick(pos.x, pos.y);
       },
       onHover: (pos) => this.handleBoardHover(pos)
@@ -219,12 +197,6 @@ export class ReplayPage implements IPage {
       }
     }
     this.dataManager.loadFromSGF(loadSgf, options);
-    // 初始化死活题检查器
-    this.trialHandler.initTsumegoChecker(this.state.get('replayData'));
-    // 死活题棋谱默认进入做题模式
-    if (this.trialHandler.isTsumego()) {
-      this.solveHandler.enterSolve();
-    }
     // 加载数据后立即更新 UI（包括滑块的最大值）
     this.ui.updateGameInfo();
     // 触发事件通知HTML更新游戏信息
@@ -250,12 +222,6 @@ export class ReplayPage implements IPage {
    */
   setData(data: ReplayData): void {
     this.dataManager.setData(data);
-    // 初始化死活题检查器
-    this.trialHandler.initTsumegoChecker(this.state.get('replayData'));
-    // 死活题棋谱默认进入做题模式
-    if (this.trialHandler.isTsumego()) {
-      this.solveHandler.enterSolve();
-    }
     // 设置数据后立即更新 UI
     this.ui.updateGameInfo();
   }
@@ -305,8 +271,6 @@ export class ReplayPage implements IPage {
     this.ui.updateBranchMarksButton(showBranchMarks);
     // 立即刷新当前局面
     this.ui.updateVariationPanel((index) => this.variationHandler.enterVariation(index));
-    // 分支选点开关变化：开启则剔除选点圆圈，关闭则还原选点圆圈
-    this.trialHandler.updateCandidateMoves();
   }
 
   /**
@@ -530,39 +494,6 @@ export class ReplayPage implements IPage {
     // 初始更新分支面板
     this.ui.updateVariationPanel((index) => this.variationHandler.enterVariation(index));
   }
-  /**
-   * 进入常规打谱模式（toast 内「研究」链接调用）
-   * 退出做题模式，重置到 move=0，恢复变化图面板与常规控制栏
-   */
-  enterReviewMode(): void {
-    // 重置到初始局面（回退所有着法），常规打谱也从 move=0 开始
-    this.dataManager.loadFromSGF(this.state.get('sgfContent') ?? '', { defaultMove: 0 });
-    // loadFromSGF 会按死活题自动进入做题模式，这里强制切回常规打谱
-    this.solveHandler.exitSolve();
-    this.ui.updateGameInfo();
-    // 退出做题模式后，变化图面板需主动重新渲染（之前被 mode==='solve' 拦截）
-    this.ui.updateVariationPanel((index: number) => this.variationHandler.enterVariation(index));
-    // 死活题：在初始局面绘制第一手选点导航（不改变原研究行为）
-    this.trialHandler.updateCandidateMoves();
-    // 死活题研究模式：隐藏变化图面板与着法浏览栏（选点导航已覆盖分支查看）
-    this.ui.setTsumegoReviewUI(true);
-  }
-
-  /**
-   * 重新答题（toast 内「重做」链接调用）
-   */
-  restartSolve(): void {
-    this.solveHandler.restart();
-  }
-
-  /**
-   * 进入做题模式（供外部按需调用，默认死活题已自动进入）
-   */
-  enterSolveMode(): void {
-    if (!this.trialHandler.isTsumego()) return;
-    this.solveHandler.enterSolve();
-  }
-
   destroy(): void {
     this.moveNavigator.destroy();
     this.trialController.reset();

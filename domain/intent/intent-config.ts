@@ -66,6 +66,11 @@ export const INTENT_CONFIG: Record<string, IntentConfig> = {
     path: '../joseki/quiz.html',
     params: ['difficulty', 'count']
   },
+  start_puzzle: {
+    name: '做题',
+    path: '../puzzle/index.html',
+    params: ['source', 'keyword', 'url', 'title', 'tag']
+  },
   start_joseki: {
     name: '定式',
     path: '../joseki/index.html',

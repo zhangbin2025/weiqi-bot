@@ -66,6 +66,8 @@ export class TsumegoChecker {
   private solveViable: number[] | null = null;
   /** 做题模式下用户已落子数（不含机器回应） */
   private solveUserMoves: number = 0;
+  /** 解题状态栈：每次推进前压入快照，供 undoSolve() 回退 */
+  private solveStack: Array<{ viable: number[] | null; userMoves: number }> = [];
 
   /**
    * 从 ReplayData 初始化
@@ -230,6 +232,30 @@ export class TsumegoChecker {
   resetSolve(): void {
     this.solveViable = null;
     this.solveUserMoves = 0;
+    this.solveStack = [];
+  }
+
+  /**
+   * 做题模式：撤销一步（悔棋）
+   *
+   * 一次「用户落子 + 机器回应」对应一次 solveMove 调用，也对应一次 undo。
+   * 通过状态栈恢复当时的可行分支集合与用户落子数。
+   *
+   * @returns 是否成功回退（无步可退时返回 false）
+   */
+  undoSolve(): boolean {
+    const snap = this.solveStack.pop();
+    if (!snap) return false;
+    this.solveViable = snap.viable;
+    this.solveUserMoves = snap.userMoves;
+    return true;
+  }
+
+  /**
+   * 做题模式：当前已推进的步数（用户手数）
+   */
+  getSolveUserMoves(): number {
+    return this.solveUserMoves;
   }
 
   /**
@@ -269,6 +295,8 @@ export class TsumegoChecker {
       return { status: 'wrong' };
     }
 
+    // 推进前压入快照（供悔棋回退）
+    this.solveStack.push({ viable: this.solveViable, userMoves: this.solveUserMoves });
     this.solveViable = candidates;
     this.solveUserMoves = n + 1;
 

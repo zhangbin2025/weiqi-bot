@@ -8,5 +8,6 @@ export * from './joseki';
 export * from './opponent';
 export * from './play';
 export * from './player';
+export * from './puzzle';
 export * from './recorder';
 export * from './replay';

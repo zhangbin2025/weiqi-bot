@@ -73,6 +73,13 @@ export const INTENT_KEYWORDS: IntentConfig[] = [
     description: '定式做题练习',
   },
   {
+    intent: 'start_puzzle',
+    page: '../puzzle/index.html',
+    coreKeywords: ['死活题', '手筋题', '官子题', '对杀题', '做题练习', '围棋练习题'],
+    variantKeywords: ['做题', '练习题', '死活', '手筋', '官子', '对杀', '每日八题'],
+    description: '死活题/手筋/官子做题练习',
+  },
+  {
     intent: 'generate_decision',
     page: '../decision/index.html',
     coreKeywords: ['恶手题', '实战选点', '选点题', '决策题', '生成题目'],
@@ -205,7 +212,7 @@ export const WEIQI_VOCABULARY = {
     '挖掘': ['discover_joseki'],
     '复盘': ['start_review'],
     '打谱': ['start_replay'],
-    '做题': ['start_joseki_quiz', 'generate_decision'],
+    '做题': ['start_puzzle', 'start_joseki_quiz', 'generate_decision'],
     '练习': ['start_joseki_quiz'],
     '下棋': ['start_play'],
     '对弈': ['start_play'],
@@ -217,6 +224,10 @@ export const WEIQI_VOCABULARY = {
     '对手': ['analyze_opponent'],
     '赛事': ['search_event'],
     '定式': ['explore_joseki', 'start_joseki_quiz', 'discover_joseki'],
+    '死活': ['start_puzzle'],
+    '手筋': ['start_puzzle'],
+    '官子': ['start_puzzle'],
+    '练习题': ['start_puzzle'],
     '棋谱': ['start_replay', 'download_game'],
   },
 };

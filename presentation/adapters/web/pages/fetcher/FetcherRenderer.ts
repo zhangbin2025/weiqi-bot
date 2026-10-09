@@ -8,6 +8,11 @@ import type { FetcherFormatter } from './FetcherFormatter';
 import { WebOverlay } from '../../components/Overlay';
 import { WebQRCodeDialog } from '../../components/QRCodeDialog';
 import { Select } from '../../../../../clients/web/shared/ui';
+import {
+  PUZZLE_FILTER_TYPES,
+  PUZZLE_FILTER_DIFFICULTIES,
+  buildPuzzleKeyword,
+} from '../../../../../services/game/providers/library/puzzleFilter';
 /** 筛选关键字生成的题型/难度选择状态（持久化用） */
 export interface FilterSelection {
   types: string[];
@@ -36,7 +41,7 @@ export interface FetcherRendererCallbacks {
   onSelectLatest: (url: string) => void;
   onViewUrl: (url: string) => void;
   /** 研究题目：跳 replay 页面「研究题目模式」（非做题模式） */
-  onStudyLatest?: (url: string) => void;
+  onPuzzleLatest?: (url: string) => void;
   /** 打开筛选框时，恢复上次保存的题型/难度（无则返回 null） */
   onLoadFilterState?: () => FilterSelection | null;
   /** 生成筛选后，保存题型/难度（用于下次打开时恢复） */
@@ -299,24 +304,6 @@ export class FetcherRenderer {
   setLatestKeyword(keyword: string): void { this.keywordInput.setValue(keyword); }
 
   // —— 筛选关键字生成（仅做题分类 + 内置题库来源） ——
-  /** 题型选项（复选），值即题库标签子串 */
-  private static readonly FILTER_TYPES: Array<{ value: string; label: string }> = [
-    { value: '布局', label: '布局' },
-    { value: '死活', label: '死活' },
-    { value: '官子', label: '官子' },
-    { value: '中盘', label: '中盘' },
-    { value: '对杀', label: '对杀' },
-    { value: '手筋', label: '手筋' },
-    { value: '棋理', label: '棋理' },
-  ];
-  /** 难度选项（单选，30K→7D） */
-  private static readonly FILTER_DIFFICULTIES: string[] = (() => {
-    const arr: string[] = [];
-    for (let k = 30; k >= 1; k--) arr.push(k + 'K');
-    for (let d = 1; d <= 7; d++) arr.push(d + 'D');
-    return arr;
-  })();
-
   /** 是否允许显示筛选图标（仅做题 + 内置题库） */
   private canShowFilterIcon(): boolean {
     return this.categorySelect.getValue() === 'puzzle' && this.sourceSelect.getValue() === 'lib-life-death';
@@ -338,10 +325,10 @@ export class FetcherRenderer {
     const savedState = this.cb.onLoadFilterState?.() ?? null;
     const savedTypes = savedState && savedState.types.length > 0
       ? savedState.types
-      : [FetcherRenderer.FILTER_TYPES[0]!.value];
+      : [PUZZLE_FILTER_TYPES[0]!.value];
     const savedDifficulty = savedState ? savedState.difficulty : '';
 
-    const typeCheckboxes = FetcherRenderer.FILTER_TYPES.map((t) => (
+    const typeCheckboxes = PUZZLE_FILTER_TYPES.map((t) => (
       '<label class="fetcher-filter-type">' +
         '<input type="checkbox" data-type="' + t.value + '"' +
           (savedTypes.includes(t.value) ? ' checked' : '') + ' />' +
@@ -349,7 +336,7 @@ export class FetcherRenderer {
       '</label>'
     )).join('');
 
-    const difficultyOptions = FetcherRenderer.FILTER_DIFFICULTIES
+    const difficultyOptions = PUZZLE_FILTER_DIFFICULTIES
       .map((d) => ({ value: d, label: d }));
 
     dialog.innerHTML = (
@@ -388,7 +375,7 @@ export class FetcherRenderer {
       dialog.querySelectorAll<HTMLInputElement>('input[type="checkbox"][data-type]:checked')
         .forEach((cb) => { const v = cb.dataset['type']; if (v) types.push(v); });
       const difficulty = diffSelect ? diffSelect.getValue() : '';
-      const keyword = this.buildFilterKeyword(types, difficulty);
+      const keyword = buildPuzzleKeyword(types, difficulty);
       this.cb.onSaveFilterState?.({ types, difficulty });
       close();
       const source = this.sourceSelect.getValue() || 'lib-life-death';
@@ -402,17 +389,6 @@ export class FetcherRenderer {
     overlayEl?.addEventListener('click', (e) => { if (e.target === overlayEl) onCancel(); });
   }
 
-  /** 根据题型（复选）与难度（单选）生成筛选关键字串（and/or 语法） */
-  private buildFilterKeyword(types: string[], difficulty: string): string {
-    const parts: string[] = [];
-    if (types.length === 1) {
-      parts.push(types[0]!);
-    } else if (types.length > 1) {
-      parts.push('(' + types.join(' or ') + ')');
-    }
-    if (difficulty) parts.push(difficulty);
-    return parts.join(' and ');
-  }
 
   /** 切换到最新标签页 */
   switchToLatestTab(): void {
@@ -560,8 +536,8 @@ export class FetcherRenderer {
         this.cb.onSelectLatestView(data['url'] as string);
       } else if (action === 'viewUrl' && data?.['url']) {
         this.cb.onViewUrl(data['url'] as string);
-      } else if (action === 'studyLatest' && data?.['url']) {
-        this.cb.onStudyLatest?.(data['url'] as string);
+      } else if (action === 'puzzleLatest' && data?.['url']) {
+        this.cb.onPuzzleLatest?.(data['url'] as string);
       }
     });
   }
@@ -653,9 +629,10 @@ export class FetcherRenderer {
         ? `<div data-action="viewLatest" data-url="${item.url}" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#2d3748;white-space:nowrap;">👁\ufe0f 查看棋谱</div>
            <div data-action="selectLatest" data-url="${item.url}" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#c53030;font-weight:600;white-space:nowrap;">🔴 直播棋谱</div>`
         : '';
-      // 题目类条目：增加“研究题目”菜单项（跳 replay 研究题目模式，而非做题模式）
+      // 题目类条目：增加「做题」（跳做题页面）与「查看棋谱」（跳打谱页面）
       const studyMenuItem = isQuestion
-        ? `<div data-action="studyLatest" data-url="${item.url}" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#2d3748;white-space:nowrap;">🔬 研究题目</div>`
+        ? `<div data-action="puzzleLatest" data-url="${item.url}" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#2d3748;white-space:nowrap;">🧩 做题</div>`
+          + `<div data-action="viewLatest" data-url="${item.url}" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#2d3748;white-space:nowrap;">📖 查看棋谱</div>`
         : '';
       // 菜单内容为空时不显示三点按钮
       const hasMenuContent = !!(liveMenu || linkMenuItem || studyMenuItem);

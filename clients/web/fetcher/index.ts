@@ -67,6 +67,9 @@ async function main() {
       if (pageId === 'replay') {
         const searchParams = new URLSearchParams(params);
         window.location.href = `../replay/index.html?${searchParams.toString()}`;
+      } else if (pageId === 'puzzle') {
+        const searchParams = new URLSearchParams(params);
+        window.location.href = `../puzzle/index.html?${searchParams.toString()}`;
       }
     },
   });

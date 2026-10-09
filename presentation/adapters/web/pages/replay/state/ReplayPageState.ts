@@ -18,8 +18,6 @@ export interface ReplayPageStateData {
   showMoveNumbers: boolean;
   soundEnabled: boolean;
   showBranchMarks: boolean;
-  /** 死活题研究模式：隐藏变化图面板与着法浏览栏 */
-  tsumegoReview: boolean;
   // 分支状态
   savedPath: number[];
   savedDisplayIndex: number;
@@ -33,12 +31,6 @@ export interface ReplayPageStateData {
   isTsumego: boolean;
   trialHint: string;
   trialMatchResult: TsumegoMatchResult | null;
-  // 页面模式：review=常规打谱（含试下），solve=死活题做题模式
-  mode: 'review' | 'solve';
-  // 做题模式是否已完成（走完某正确分支）
-  solveDone: boolean;
-  // 做题模式是否答错（等待用户点「重做」重置，期间冻结落子）
-  solveFailed: boolean;
 }
 /**
  * ReplayPage 状态管理类
@@ -55,7 +47,6 @@ export class ReplayPageState {
       showMoveNumbers: false,
       soundEnabled: true,
       showBranchMarks: false,
-      tsumegoReview: false,
       savedPath: [],
       savedDisplayIndex: 0,
       savedShowMoveNumbers: false,
@@ -66,9 +57,6 @@ export class ReplayPageState {
       isTsumego: false,
       trialHint: '',
       trialMatchResult: null,
-      mode: 'review',
-      solveDone: false,
-      solveFailed: false,
     };
   }
   // 获取状态
@@ -99,9 +87,6 @@ export class ReplayPageState {
     this.state.isTsumego = false;
     this.state.trialHint = '';
     this.state.trialMatchResult = null;
-    this.state.mode = 'review';
-    this.state.solveDone = false;
-    this.state.solveFailed = false;
   }
   // 保存路径（进入分支前）
   savePath(): void {
