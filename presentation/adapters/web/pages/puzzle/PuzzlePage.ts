@@ -28,6 +28,12 @@ import { Select } from '@ui';
 
 /** 在线来源每批拉取的题目数（只取一页，避免换题时反复翻页） */
 const ONLINE_BATCH = 20;
+/**
+ * 内置题库单次加载上限
+ * 题库实为 1800 题，全量解析 PW 标签较慢，故截断；筛选题型时命中数通常远低于上限，
+ * 计数精确；不筛选时达到上限，UI 以 "600+" 提示真实总数更多。
+ */
+const LIB_BATCH = 600;
 
 /** 页面配置 */
 export interface PuzzlePageConfig {
@@ -283,12 +289,14 @@ export class PuzzlePage implements IPage {
     this.ui.setLoading(true, '加载题库...');
     try {
       const isLib = this.source === 'lib-life-death';
-      const count = isLib ? 600 : ONLINE_BATCH;
+      const count = isLib ? LIB_BATCH : ONLINE_BATCH;
       this.items = await this.config.puzzleApp.listPuzzles(this.source, count, this.keyword || undefined);
       this.currentIndex = -1;
       // 内置题库随机出题
       if (isLib) this.shuffleItems();
       this.ui.setLoading(false);
+      // 回填筛选出的题目总数；达到单次加载上限时加 "+"（真实总数可能更多）
+      this.ui.setKeyword(this.keyword, this.items.length, this.items.length >= count);
       if (this.items.length === 0) {
         if (refill) this.ui.showEmpty('没有更多题目了', '试试切换来源或调整筛选');
         else this.ui.showEmpty('没有符合条件的题目', isLib ? '试试调整题型或难度筛选' : '试试切换题目来源');

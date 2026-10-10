@@ -105,10 +105,21 @@ export class PuzzlePageUI {
     if (el) el.style.display = 'none';
   }
 
-  /** 设置筛选关键字显示 */
-  setKeyword(keyword: string): void {
+  /**
+   * 设置筛选关键字显示
+   * @param keyword - 当前生效的筛选表达式，空串表示不筛选
+   * @param total - 按当前条件筛出的题目数；省略则不显示数量（尚未加载完题库）
+   * @param capped - 数量是否已达单次加载上限（真实总数可能更多），为 true 时加 "+" 后缀
+   */
+  setKeyword(keyword: string, total?: number, capped = false): void {
     const el = document.getElementById('filter-keyword');
-    if (el) el.textContent = keyword ? `筛选：${keyword}` : '';
+    if (!el) return;
+    const parts: string[] = [];
+    if (keyword) parts.push(`筛选：${keyword}`);
+    if (total !== undefined) {
+      parts.push(capped ? `共 ${total}+ 题` : `共 ${total} 题`);
+    }
+    el.textContent = parts.join(' · ');
   }
 
   /** 显示答错弹框（按钮：重做 / 研究 / 换题） */
