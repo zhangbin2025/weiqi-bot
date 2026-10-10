@@ -17,6 +17,8 @@ const NAMESPACE = 'weiqi-bot';
 const SOURCE_KEY = 'puzzle_source';
 /** 筛选条件偏好键 */
 const FILTER_KEY = 'puzzle_filter_state';
+/** 选点显示偏好键（答题模式是否展示 A/B/C/D 选点） */
+const SHOW_CHOICES_KEY = 'puzzle_show_choices';
 /**
  * 旧版键名（页面内 readLocal 自行拼接 `puzzle_` 前缀导致重复）
  * 仅用于一次性兼容读取，写入一律走新键
@@ -64,6 +66,7 @@ export class PuzzlePreferences {
   private readonly store = new LocalStorageAdapter(NAMESPACE);
   private source: PuzzleSource = DEFAULT_PUZZLE_SOURCE;
   private filter: PuzzleFilterState | null = null;
+  private showChoices = false;
 
   /** 从 localStorage 恢复偏好（读不到时回落到默认值） */
   async load(): Promise<void> {
@@ -72,6 +75,8 @@ export class PuzzlePreferences {
       this.source = source as PuzzleSource;
     }
     this.filter = sanitizeFilter(await this.readKey<unknown>(FILTER_KEY));
+    const showChoices = await this.readKey<unknown>(SHOW_CHOICES_KEY);
+    if (typeof showChoices === 'boolean') this.showChoices = showChoices;
   }
 
   /** 当前来源 */
@@ -98,6 +103,17 @@ export class PuzzlePreferences {
       difficulty: typeof filter.difficulty === 'string' ? filter.difficulty : '',
     };
     void this.store.write(FILTER_KEY, this.filter).catch(() => { /* ignore */ });
+  }
+
+  /** 答题模式是否显示选点（默认关闭） */
+  getShowChoices(): boolean {
+    return this.showChoices;
+  }
+
+  /** 更新选点显示偏好并持久化 */
+  setShowChoices(show: boolean): void {
+    this.showChoices = !!show;
+    void this.store.write(SHOW_CHOICES_KEY, this.showChoices).catch(() => { /* ignore */ });
   }
 
   /**

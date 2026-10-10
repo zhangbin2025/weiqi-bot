@@ -16,6 +16,7 @@ export class WebBoard implements IBoard {
   private moveNumbers: Map<string, number> = new Map();
   private recommendationCircles: RecommendationCircle[] = []; // AI 推荐圆圈
   private candidates: Array<{ x: number; y: number; kind: 'correct' | 'wrong' }> = []; // 选点导航候选（试下/研究死活题）
+  private choices: Array<{ x: number; y: number; label: string }> = []; // 答题模式选点（A/B/C/D，只标字母不区分正误）
   private config: IBoardConfig = {};
   private events: IBoardEvents = {};
   private cellSize = 0;
@@ -92,6 +93,7 @@ export class WebBoard implements IBoard {
     this.drawMarkers();
     this.drawRecommendationCircles();
     this.drawCandidates();
+    this.drawChoices();
   }
   private drawBoard(): void {
     const boardWidth = this.cellSize * (this.size + 1);
@@ -184,6 +186,7 @@ export class WebBoard implements IBoard {
     this.markers.clear();
     this.transparentMarkers.clear();
     this.moveNumbers.clear();
+    this.choices = [];
     this.previewStone = null;
     this.recommendationCircles = [];
     this.candidates = [];
@@ -292,6 +295,30 @@ export class WebBoard implements IBoard {
   clearCandidates(): void {
     if (this.candidates.length === 0) return;
     this.candidates = [];
+    this.render();
+  }
+
+  /**
+   * 绘制答题模式选点（A/B/C/D…），独立图层
+   * 与研究模式候选互斥，由页面按模式择一调用
+   */
+  private drawChoices(): void {
+    for (const c of this.choices) {
+      const { cx, cy } = BoardImageRenderer.toCanvas(c.x, c.y, this.cellSize);
+      this.imageRenderer.drawChoiceMarker(this.ctx, cx, cy, this.cellSize, c.label);
+    }
+  }
+
+  /** 设置答题模式选点（按传入顺序标注 A/B/C/D…） */
+  setChoices(choices: Array<{ x: number; y: number; label: string }>): void {
+    this.choices = choices.map(c => ({ x: c.x, y: c.y, label: c.label }));
+    this.render();
+  }
+
+  /** 清除答题模式选点 */
+  clearChoices(): void {
+    if (this.choices.length === 0) return;
+    this.choices = [];
     this.render();
   }
   /** 检查点击是否在某个推荐圆圈上，返回该圆圈 */

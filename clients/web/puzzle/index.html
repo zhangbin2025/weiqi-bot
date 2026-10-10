@@ -73,12 +73,44 @@
       margin-bottom: 10px;
     }
     .source-row .select-host { flex: 1; min-width: 0; }
+    .filter-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      min-height: 24px;
+    }
     .filter-keyword {
       font-size: 12px;
       color: #888;
-      margin-bottom: 8px;
+      flex: 1 1 auto;
       min-height: 16px;
+      /* 长筛选表达式不挤压右侧按钮 */
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
+
+    /* 筛选行右侧的选点开关（小尺寸，不与主按钮排混淆） */
+    .choices-btn {
+      flex: 0 0 auto;
+      width: 26px;
+      height: 26px;
+      border-radius: 8px;
+      border: none;
+      background: #f0f0f0;
+      color: #555;
+      font-size: 13px;
+      line-height: 1;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+    }
+    .choices-btn.active { background: linear-gradient(135deg, #f59e0b, #fbbf24); color: #fff; }
+    .choices-btn:disabled { background: #f0f0f0; color: #bbb; cursor: not-allowed; opacity: 0.6; }
+    .choices-btn:active:not(:disabled) { opacity: 0.85; }
 
     /* ===== 棋盘 ===== */
     /* 用负 margin 抵消 .card 的 14px 内边距，让棋盘吃满卡片整宽 */
@@ -90,6 +122,8 @@
       position: relative;
     }
     #board-container { width: 100%; }
+
+    /* 选点开关位于筛选行右侧（见 .choices-btn） */
 
     /* ===== 题目信息（棋盘下方一行文字） ===== */
     .puzzle-info {
@@ -324,7 +358,11 @@
                    data-options='[{"value":"lib-life-death","label":"内置题库"},{"value":"weiqi101","label":"101围棋"},{"value":"goproblems","label":"GoProblems"},{"value":"ogs-puzzle","label":"OGS死活题"}]'></div>
             </div>
           </div>
-          <div class="filter-keyword" id="filter-keyword"></div>
+          <!-- 筛选条件行：左侧筛选表达式，右侧选点开关（答题模式显示 A/B/C/D） -->
+          <div class="filter-row">
+            <span class="filter-keyword" id="filter-keyword"></span>
+            <button class="choices-btn" id="choices-btn" title="显示选点（A/B/C/D）" aria-label="显示选点" disabled>🔤</button>
+          </div>
 
           <!-- 棋盘（含加载遮罩 / 空态） -->
           <div class="puzzle-board-wrapper" style="position: relative;">

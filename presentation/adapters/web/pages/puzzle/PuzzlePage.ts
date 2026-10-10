@@ -35,6 +35,9 @@ const ONLINE_BATCH = 20;
  */
 const LIB_BATCH = 600;
 
+/** 选点字母标签（按棋盘扫描序分配 A/B/C/D…） */
+const CHOICE_LABELS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
 /** 页面配置 */
 export interface PuzzlePageConfig {
   puzzleApp: PuzzleApp;
@@ -135,6 +138,8 @@ export class PuzzlePage implements IPage {
     Select.get('#source-select')?.setValue(this.source, true);
     this.keyword = this.preferences.resolveKeyword();
     this.ui.setKeyword(this.keyword);
+    // 恢复选点显示偏好（刷新后保持上次的开关状态）
+    this.state.set('showChoices', this.preferences.getShowChoices());
 
     this.state.set('initialized', true);
   }
@@ -214,6 +219,9 @@ export class PuzzlePage implements IPage {
       );
     });
 
+    // 筛选行右侧的选点开关（答题模式显示 A/B/C/D 选点）
+    document.getElementById('choices-btn')?.addEventListener('click', () => this.toggleChoices());
+
     // 控制按钮（棋盘下方一排图标）
     document.getElementById('undo-btn')?.addEventListener('click', () => this.studyUndo());
     document.getElementById('answer-btn')?.addEventListener('click', () => this.toggleAnswer());
@@ -262,6 +270,27 @@ export class PuzzlePage implements IPage {
     const single = this.state.get('singlePuzzle');
     const filterBtn = document.getElementById('filter-btn') as HTMLButtonElement | null;
     if (filterBtn) filterBtn.disabled = !isLib || single;
+  }
+
+  /** 切换答题模式选点显示（写入偏好，刷新后保持） */
+  private toggleChoices(): void {
+    const next = !this.state.get('showChoices');
+    this.state.set('showChoices', next);
+    this.preferences.setShowChoices(next);
+    this.syncChoicesButton();
+    this.refresh();
+  }
+
+  /** 同步选点按钮外观（激活态 + 研究模式下禁用） */
+  private syncChoicesButton(): void {
+    const btn = document.getElementById('choices-btn') as HTMLButtonElement | null;
+    if (!btn) return;
+    const studying = this.state.get('mode') === 'study';
+    const hasData = !!this.state.get('replayData');
+    btn.classList.toggle('active', this.state.get('showChoices') && !studying);
+    btn.disabled = !hasData || studying;
+    // 研究模式已有蓝/红选点导航，提示文案相应变化
+    btn.title = studying ? '研究模式已显示正解/失败选点' : '显示选点（A/B/C/D）';
   }
 
   private switchTab(tab: 'quiz' | 'history'): void {
@@ -631,18 +660,36 @@ export class PuzzlePage implements IPage {
     // 选点导航：仅研究模式下显示（答题模式不泄露答案）
     // 解出后答题模式也不显示，避免提前暴露其他分支
     if (this.state.get('mode') === 'study') {
+      // 研究模式：蓝圈=正解 / 红圈=失败
       const cands = this.checker.getNextCandidates(
         played.map((m) => ({ ...m, color: m.color === 'B' ? 'black' : 'white' })),
         [],
       );
+      this.board.clearChoices();
       this.board.setCandidates(cands.map((c) => ({
         x: c.x,
         y: c.y,
         kind: c.branchType === 'correct' ? 'correct' as const : 'wrong' as const,
       })));
+    } else if (this.state.get('showChoices')) {
+      // 答题模式：只标字母，不区分正误（颜色/形状均中性）
+      // 按棋盘扫描序（上→下、左→右）分配字母，保证稳定且不让 A 恒为正解
+      this.board.clearCandidates();
+      const cands = this.checker.getNextCandidates(
+        played.map((m) => ({ ...m, color: m.color === 'B' ? 'black' : 'white' })),
+        [],
+      );
+      const sorted = [...cands].sort((a, b) => (a.y - b.y) || (a.x - b.x));
+      this.board.setChoices(sorted.map((c, i) => ({
+        x: c.x,
+        y: c.y,
+        label: CHOICE_LABELS[i] ?? String(i + 1),
+      })));
     } else {
       this.board.clearCandidates();
+      this.board.clearChoices();
     }
+    this.syncChoicesButton();
 
     this.ui.updatePuzzleInfo(this.state);
     this.ui.updateControls(this.state, this.studyHandler.canUndo());

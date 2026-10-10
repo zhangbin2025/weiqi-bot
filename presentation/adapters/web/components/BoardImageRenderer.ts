@@ -371,6 +371,37 @@ export class BoardImageRenderer {
   }
 
   /**
+   * 绘制答题模式选点标记（A/B/C/D…）
+   *
+   * 只画字母，不画圆圈：与研究模式的蓝/红圈区分开，
+   * 也不暗示哪个是正解。配色对齐 replay 的分支选点（#667eea），
+   * 白色描边保证在空交叉点（木色底）上依然清晰。
+   * @param label - 字母标签，如 'A'
+   */
+  drawChoiceMarker(
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    cy: number,
+    cellSize: number,
+    label: string
+  ): void {
+    const fontSize = Math.max(14, cellSize * 0.58);
+
+    ctx.save();
+    ctx.font = `bold ${fontSize}px Arial`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    // 白色描边垫底，避免字母与棋盘底色/星位混淆
+    ctx.lineWidth = Math.max(2, fontSize * 0.20);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.strokeText(label, cx, cy);
+    ctx.fillStyle = '#667eea';
+    ctx.fillText(label, cx, cy);
+    ctx.restore();
+  }
+
+  /**
    * 坐标转画布位置
    */
   static toCanvas(x: number, y: number, cellSize: number): { cx: number; cy: number } {

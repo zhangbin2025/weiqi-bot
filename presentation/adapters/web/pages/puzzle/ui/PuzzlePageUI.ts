@@ -42,6 +42,8 @@ export class PuzzlePageUI {
       if (el) el.disabled = disabled;
     };
     setDisabled('answer-btn', !hasData);
+    // 选点开关：需有题目；研究模式已用蓝/红圈，此处禁用避免两套标记打架
+    setDisabled('choices-btn', !hasData || studying);
     // 打谱页查看本题：需已归档拿到 archiveId（单题模式也可用）
     setDisabled('replay-btn', !hasData || !state.get('archiveId'));
     // 换题：单题模式禁用

@@ -35,6 +35,8 @@ export interface PuzzlePageStateData {
   firstPlayer: 'B' | 'W';
   /** 单题模式：从 fetcher 跳过来只做一道题，禁用换题/筛选/来源切换 */
   singlePuzzle: boolean;
+  /** 答题模式是否显示选点（A/B/C/D，只标字母不区分正误） */
+  showChoices: boolean;
   /** 音效开关 */
   soundEnabled: boolean;
   /** 是否正在加载题目 */
@@ -62,6 +64,7 @@ export class PuzzlePageState {
       startedAt: 0,
       firstPlayer: 'B',
       singlePuzzle: false,
+      showChoices: false,
       soundEnabled: true,
       loading: false,
       initialized: false,
