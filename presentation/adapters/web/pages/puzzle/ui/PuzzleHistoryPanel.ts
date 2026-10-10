@@ -210,11 +210,24 @@ export function drawInitialPosition(
   canvas.style.height = `${cssSize}px`;
 
   const colors = BoardStyles.colors.wooden;
-  const padding = Math.max(3, cssSize * 0.08);
-  const gridSize = boardSize > 1 ? (cssSize - padding * 2) / (boardSize - 1) : 0;
+  // 小棋盘（如 4 路）格距极大，若沿用固定 padding，棋子半径会随格距放大而超出 padding，
+  // 导致边缘棋子画出棋盘外。改为按「棋盘跨度 + 两侧棋子半径 + 外边距」反推格距并居中：
+  //   cssSize = (boardSize-1)*gridSize + 2*radius + 2*margin
+  const margin = Math.max(2, cssSize * 0.03);
+  const stoneRatio = 0.46;
+  const gridSize = boardSize > 1
+    ? (cssSize - margin * 2) / ((boardSize - 1) + stoneRatio * 2)
+    : 0;
+  const boardSpan = boardSize > 1 ? (boardSize - 1) * gridSize : 0;
+  // 棋盘整体居中：1 路棋盘无格线，退回到画布中心
+  const padding = boardSize > 1 ? (cssSize - boardSpan) / 2 : cssSize / 2;
 
   ctx.save();
   ctx.scale(dpr, dpr);
+  // 兜底裁剪：任何尺寸下都不允许画出缩略图边界
+  ctx.beginPath();
+  ctx.rect(0, 0, cssSize, cssSize);
+  ctx.clip();
   ctx.fillStyle = colors.bg;
   ctx.fillRect(0, 0, cssSize, cssSize);
   ctx.strokeStyle = colors.line;
@@ -229,7 +242,7 @@ export function drawInitialPosition(
   }
   ctx.stroke();
 
-  const radius = gridSize * 0.46;
+  const radius = gridSize * stoneRatio;
   for (const s of stones) {
     if (s.x < 0 || s.y < 0 || s.x >= boardSize || s.y >= boardSize) continue;
     BoardRenderer.drawStone(
