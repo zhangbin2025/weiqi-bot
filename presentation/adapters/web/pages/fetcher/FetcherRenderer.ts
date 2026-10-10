@@ -11,6 +11,7 @@ import { Select } from '../../../../../clients/web/shared/ui';
 import {
   PUZZLE_FILTER_TYPES,
   PUZZLE_FILTER_DIFFICULTIES,
+  PUZZLE_FILTER_ALL_DIFFICULTY_OPTION,
   buildPuzzleKeyword,
 } from '../../../../../services/game/providers/library/puzzleFilter';
 /** 筛选关键字生成的题型/难度选择状态（持久化用） */
@@ -336,8 +337,12 @@ export class FetcherRenderer {
       '</label>'
     )).join('');
 
-    const difficultyOptions = PUZZLE_FILTER_DIFFICULTIES
-      .map((d) => ({ value: d, label: d }));
+    // 首位显式放置「全部难度」：自绘 Select 再次点击已选项不会取消，
+    // 只有它是回到「不按难度筛选」的唯一入口（与做题页一致）
+    const difficultyOptions = [
+      PUZZLE_FILTER_ALL_DIFFICULTY_OPTION,
+      ...PUZZLE_FILTER_DIFFICULTIES.map((d) => ({ value: d, label: d })),
+    ];
 
     dialog.innerHTML = (
       '<div class="dialog-overlay show">' +
@@ -348,7 +353,7 @@ export class FetcherRenderer {
             '<div class="fetcher-filter-types">' + typeCheckboxes + '</div>' +
           '</div>' +
           '<div class="fetcher-filter-section">' +
-            '<div class="fetcher-filter-label">难度（单选）</div>' +
+            '<div class="fetcher-filter-label">难度（单选，默认全部）</div>' +
             '<div class="fetcher-filter-difficulty" id="fetcherFilterDifficulty"></div>' +
           '</div>' +
           '<div class="dialog-btn-group">' +
@@ -365,7 +370,7 @@ export class FetcherRenderer {
     const diffSelect = Select.mount(diffHost, {
       options: difficultyOptions,
       value: savedDifficulty,
-      placeholder: '请选择难度（不选=全部）',
+      placeholder: '全部难度',
     });
 
     const close = () => dialog.remove();
