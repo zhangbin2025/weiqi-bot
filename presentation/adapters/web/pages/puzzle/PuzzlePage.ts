@@ -606,7 +606,9 @@ export class PuzzlePage implements IPage {
   private refresh(): void {
     const replayData = this.state.get('replayData') as ReplayData | null;
     if (!replayData) return;
-    const showNumbers = this.state.get('showMoveNumbers');
+    // 做题页不显示手数（无手数开关 UI，且答题模式下暴露手数等于泄露答案进度）。
+    // 固定传 false，让 BoardSyncer 走「高亮最后一手」分支：黑子中心白点、白子中心黑点。
+    // 新开局未落子时 game.getState().lastMove 为 null，不会误标初始摆子。
     // 重建到初始局面：做题/研究都是「初始摆子 + 已落子」，无主线
     const moveNumbers = BoardRebuilder.rebuild(this.game, replayData, [], 0, {
       handicapStones: replayData.handicap_stones,
@@ -616,7 +618,7 @@ export class PuzzlePage implements IPage {
     // 重放当前已下的着法（用户 + 机器回应）
     const played = this.currentPlayedMoves();
     for (const m of played) this.game.placeStone(m.x, m.y);
-    BoardSyncer.sync(this.board, this.game, moveNumbers, showNumbers);
+    BoardSyncer.sync(this.board, this.game, moveNumbers, false);
 
     // 选点导航：仅研究模式下显示（答题模式不泄露答案）
     // 解出后答题模式也不显示，避免提前暴露其他分支
