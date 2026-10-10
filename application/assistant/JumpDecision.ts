@@ -27,6 +27,7 @@ export class JumpDecision implements IJumpDecision {
       'start_recorder',
       'start_replay',
       'start_joseki',
+      'start_puzzle',
       'view_favorites',
     ];
     if (highConfidenceIntents.includes(intent)) {
@@ -47,6 +48,10 @@ export class JumpDecision implements IJumpDecision {
         return { shouldJump: true, countdown: 3, showAlternatives: false };
       }
       if (intent === 'start_joseki') {
+        return { shouldJump: true, countdown: 3, showAlternatives: false };
+      }
+      if (intent === 'start_puzzle') {
+        // 做题：题型关键词（死活/手筋/官子等）明确，3秒倒计时直接进入做题页
         return { shouldJump: true, countdown: 3, showAlternatives: false };
       }
       if (intent === 'view_favorites') {
