@@ -6,6 +6,12 @@
   <title>做题 - 围棋智能助手</title>
   <link rel="stylesheet" href="../shared/shell.css">
   <style>
+    /* ===== 移动端：把宽度尽量让给棋盘 ===== */
+    /* shell.css 默认 0 12px，做题页收到 4px */
+    .glass-content {
+      padding: 0 4px 24px;
+    }
+
     /* ===== 标签页 ===== */
     .tabs {
       display: flex;
@@ -75,10 +81,12 @@
     }
 
     /* ===== 棋盘 ===== */
+    /* 用负 margin 抵消 .card 的 14px 内边距，让棋盘吃满卡片整宽 */
     .puzzle-board-wrapper {
       display: flex;
       justify-content: center;
-      margin-bottom: 8px;
+      margin: 0 -14px 8px;
+      width: calc(100% + 28px);
       position: relative;
     }
     #board-container { width: 100%; }
