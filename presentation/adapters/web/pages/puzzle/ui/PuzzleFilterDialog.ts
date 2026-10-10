@@ -5,6 +5,7 @@
 import {
   PUZZLE_FILTER_TYPES,
   PUZZLE_FILTER_DIFFICULTIES,
+  PUZZLE_FILTER_ALL_DIFFICULTY_OPTION,
   type PuzzleFilterState,
 } from '../../../../../../services/game/providers/library/puzzleFilter';
 import { Select } from '@ui';
@@ -46,7 +47,7 @@ export class PuzzleFilterDialog {
             '<div class="puzzle-filter-types">' + typeCheckboxes + '</div>' +
           '</div>' +
           '<div class="puzzle-filter-section">' +
-            '<div class="puzzle-filter-label">难度（单选）</div>' +
+            '<div class="puzzle-filter-label">难度（单选，默认全部）</div>' +
             '<div class="puzzle-filter-difficulty" id="puzzleFilterDifficulty"></div>' +
           '</div>' +
           '<div class="dialog-btn-group">' +
@@ -59,10 +60,15 @@ export class PuzzleFilterDialog {
     document.body.appendChild(dialog);
 
     const host = dialog.querySelector('#puzzleFilterDifficulty') as HTMLElement;
+    // 首位显式放置「全部难度」：自绘 Select 再次点击已选项不会取消，
+    // 只有它是回到「不按难度筛选」的唯一入口
     const diffSelect = Select.mount(host, {
-      options: PUZZLE_FILTER_DIFFICULTIES.map((d) => ({ value: d, label: d })),
+      options: [
+        PUZZLE_FILTER_ALL_DIFFICULTY_OPTION,
+        ...PUZZLE_FILTER_DIFFICULTIES.map((d) => ({ value: d, label: d })),
+      ],
       value: difficulty,
-      placeholder: '请选择难度（不选=全部）',
+      placeholder: '全部难度',
     });
 
     const close = () => dialog.remove();

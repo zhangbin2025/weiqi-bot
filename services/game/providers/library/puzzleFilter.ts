@@ -16,6 +16,15 @@ export const PUZZLE_FILTER_TYPES: ReadonlyArray<{ value: string; label: string }
   { value: '棋理', label: '棋理' },
 ];
 
+/** 「全部难度」选项值（空串：不按难度筛选） */
+export const PUZZLE_FILTER_ALL_DIFFICULTY = '';
+
+/** 「全部难度」选项（置于难度下拉首位，用于显式回到不筛选状态） */
+export const PUZZLE_FILTER_ALL_DIFFICULTY_OPTION: { value: string; label: string } = {
+  value: PUZZLE_FILTER_ALL_DIFFICULTY,
+  label: '全部难度',
+};
+
 /** 难度选项（单选，30K→7D） */
 export const PUZZLE_FILTER_DIFFICULTIES: readonly string[] = (() => {
   const arr: string[] = [];
