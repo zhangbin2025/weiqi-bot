@@ -6,29 +6,44 @@
   <title>做题 - 围棋智能助手</title>
   <link rel="stylesheet" href="../shared/shell.css">
   <style>
-    /* ===== 移动端：把宽度尽量让给棋盘 ===== */
-    /* shell.css 默认 0 12px，做题页收到 4px */
+    /* ===== 移动端：把宽度/高度尽量让给棋盘 ===== */
+    /* shell.css 默认 0 12px，做题页收到 4px；底部留白同步收窄 */
     .glass-content {
-      padding: 0 4px 24px;
+      padding: 0 4px 12px;
     }
+
+    /* --- 竖向压缩：页头 + 标签页，把棋盘往上提 --- */
+    /* shell.css 默认 padding: 24px(top) ... 20px(bottom) + 28px 标题，太占高 */
+    .glass-header {
+      padding: calc(12px + env(safe-area-inset-top)) 12px 10px;
+    }
+    .glass-title { font-size: 22px; margin-bottom: 4px; }
+    .glass-subtitle { font-size: 12px; }
+
+    /* shell.css 全局 button{margin-top:12px;width:100%} 会给下拉框、选点按钮、
+       底部按钮排各塞 12px 无用上边距，这里全部清零 */
+    .ui-select__trigger,
+    .choices-btn,
+    .puzzle-btn,
+    .history-clear-btn { margin-top: 0; }
 
     /* ===== 标签页 ===== */
     .tabs {
       display: flex;
       background: rgba(255,255,255,0.15);
       border-radius: 12px;
-      padding: 4px;
-      margin-bottom: 14px;
+      padding: 3px;
+      margin-bottom: 8px;
     }
     .tab {
       flex: 1;
-      padding: 10px;
+      padding: 7px;
       text-align: center;
       color: rgba(255,255,255,0.85);
       cursor: pointer;
       border-radius: 10px;
       transition: all 0.3s ease;
-      font-size: 15px;
+      font-size: 14px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -60,8 +75,8 @@
     .card {
       background: white;
       border-radius: 14px;
-      padding: 14px;
-      margin-bottom: 14px;
+      padding: 10px;
+      margin-bottom: 10px;
     }
     .card h2 { font-size: 16px; margin-bottom: 10px; color: #333; }
 
@@ -70,15 +85,20 @@
       display: flex;
       gap: 8px;
       align-items: center;
-      margin-bottom: 10px;
+      margin-bottom: 6px;
     }
     .source-row .select-host { flex: 1; min-width: 0; }
+    /* 下拉框默认 44px（padding 10+10 + 行高），收到 38px */
+    .source-row .ui-select__trigger {
+      min-height: 38px;
+      padding: 8px 32px 8px 10px;
+    }
     .filter-row {
       display: flex;
       align-items: center;
       gap: 8px;
-      margin-bottom: 8px;
-      min-height: 24px;
+      margin-bottom: 6px;
+      min-height: 26px;
     }
     .filter-keyword {
       font-size: 12px;
@@ -117,8 +137,9 @@
     .puzzle-board-wrapper {
       display: flex;
       justify-content: center;
-      margin: 0 -14px 8px;
-      width: calc(100% + 28px);
+      /* 负 margin 抵消 .card 的 10px 内边距，让棋盘吃满卡片整宽 */
+      margin: 0 -10px 6px;
+      width: calc(100% + 20px);
       position: relative;
     }
     #board-container { width: 100%; }
@@ -130,7 +151,7 @@
       text-align: center;
       font-size: 13px;
       color: #555;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
       min-height: 18px;
       padding: 0 6px;
       word-break: break-all;
@@ -332,6 +353,17 @@
       flex: 0 0 auto; vertical-align: middle; accent-color: #667eea; cursor: pointer;
     }
     .puzzle-filter-difficulty { width: 100%; }
+
+    /* ===== 矮屏（iPhone SE / 小屏安卓）：再压一轮，保证棋盘+按钮排一屏放下 ===== */
+    @media (max-height: 720px) {
+      .glass-subtitle { display: none; }
+      .glass-header { padding: calc(8px + env(safe-area-inset-top)) 12px 8px; }
+      .glass-title { font-size: 20px; }
+      .tabs { margin-bottom: 6px; }
+      .tab { padding: 6px; }
+      .card { padding: 8px; }
+      .puzzle-board-wrapper { margin: 0 -8px 6px; width: calc(100% + 16px); }
+    }
   </style>
 </head>
 <body>
