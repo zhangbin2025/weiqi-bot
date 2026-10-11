@@ -1,10 +1,57 @@
 import { defineConfig } from 'vite';
 import path from 'path';
 
+/**
+ * 【构建产物 CSS 顺序修正】
+ *
+ * 问题：源码里 `<link rel="stylesheet" href="../shared/shell.css">` 写在 `<style>` 之前，
+ *       页面内联样式依赖「后写覆盖先写」来覆盖 shell.css 的同名规则（.glass-content / .card 等）。
+ *       但 Vite 构建时会把外链 CSS 打包成 `<link rel="stylesheet" href="../assets/xxx.css">`
+ *       并追加到 </head> 前——也就是**排在内联 <style> 之后**。
+ *       同优先级下后加载者胜出，于是内联样式被 shell.css 反向覆盖：
+ *       dev（3000）正常宽度 vs dist 宽度缩水、竖向留白变大，棋盘无法占满。
+ *
+ * 修复：构建末尾把每个 HTML 里内联的 `<style>` 统一挪到所有 `<link rel="stylesheet">` 之后，
+ *       恢复源码中的「外链在前、内联在后」顺序，使内联覆盖始终生效。
+ */
+function inlineStyleAfterLinkedCss() {
+  return {
+    name: 'inline-style-after-linked-css',
+    apply: 'build',
+    enforce: 'post',
+    generateBundle(_options, bundle) {
+      const STYLE_RE = /<style\b[^>]*>[\s\S]*?<\/style>/gi;
+      for (const [fileName, asset] of Object.entries(bundle)) {
+        if (!fileName.endsWith('.html') || typeof asset.source !== 'string') continue;
+        const html = asset.source;
+        const styles = html.match(STYLE_RE);
+        if (!styles || styles.length === 0) continue;
+
+        // 定位最后一个 stylesheet link（Vite 注入的打包 CSS）
+        const LINK_RE = /<link\b[^>]*rel=["']?stylesheet["']?[^>]*>/gi;
+        const lastLink = [...html.matchAll(LINK_RE)].pop();
+        if (!lastLink || lastLink.index === undefined) continue;
+        const insertAt = lastLink.index + lastLink[0].length;
+
+        // 剔除原有的内联 style，再插到 link 之后
+        const stripped = html.replace(STYLE_RE, '');
+        // 剔除后插入点会前移，按「被删掉的 style 中位于插入点之前的总长度」校正
+        let shift = 0;
+        for (const m of html.matchAll(STYLE_RE)) {
+          if (m.index !== undefined && m.index < insertAt) shift += m[0].length;
+        }
+        const pos = insertAt - shift;
+        asset.source = stripped.slice(0, pos) + styles.join('\n') + stripped.slice(pos);
+      }
+    },
+  };
+}
+
 export default defineConfig({
   root: 'clients/web',
   base: '',
   publicDir: 'public',
+  plugins: [inlineStyleAfterLinkedCss()],
   server: {
     host: '0.0.0.0',
     port: 3000,
