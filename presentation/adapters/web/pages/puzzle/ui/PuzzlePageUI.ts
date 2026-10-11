@@ -11,19 +11,36 @@ export class PuzzlePageUI {
 
   /**
    * 更新题目信息（棋盘下方一行文字）
-   * 规则：先手必显示；有题型显示题型；有题号显示题号；来源不显示（上方下拉框已表明）
+   * 规则：先手必显示（黑白棋子图标 + 文字，非常醒目）；有题型显示题型；有题号显示题号；来源不显示（上方下拉框已表明）
    */
   updatePuzzleInfo(state: PuzzlePageState): void {
     const el = document.getElementById('puzzle-info');
     if (!el) return;
-    const parts: string[] = [
-      state.get('firstPlayer') === 'B' ? '黑先' : '白先',
-    ];
+    const isBlack = state.get('firstPlayer') === 'B';
+    el.textContent = '';
+
+    // 先手徽章：黑白棋子图标 + 加粗文字，最醒目
+    const badge = document.createElement('span');
+    badge.className = 'turn-badge ' + (isBlack ? 'black' : 'white');
+    const icon = document.createElement('span');
+    icon.className = 'turn-stone';
+    const label = document.createElement('span');
+    label.textContent = isBlack ? '黑先' : '白先';
+    badge.append(icon, label);
+    el.append(badge);
+
+    // 题型 / 题号
+    const parts: string[] = [];
     const tag = state.get('tag');
     if (tag) parts.push(tag);
     const title = state.get('title');
     if (title) parts.push(title);
-    el.textContent = parts.join(' · ');
+    if (parts.length) {
+      const meta = document.createElement('span');
+      meta.className = 'turn-meta';
+      meta.textContent = parts.join(' · ');
+      el.append(meta);
+    }
   }
 
   /** 更新按钮可用状态 */
@@ -109,19 +126,23 @@ export class PuzzlePageUI {
 
   /**
    * 设置筛选关键字显示
+   * 布局：左侧筛选表达式（过长截断加 ...），右侧题目总数（右对齐，不收缩）
    * @param keyword - 当前生效的筛选表达式，空串表示不筛选
    * @param total - 按当前条件筛出的题目数；省略则不显示数量（尚未加载完题库）
    * @param capped - 数量是否已达单次加载上限（真实总数可能更多），为 true 时加 "+" 后缀
    */
   setKeyword(keyword: string, total?: number, capped = false): void {
-    const el = document.getElementById('filter-keyword');
-    if (!el) return;
-    const parts: string[] = [];
-    if (keyword) parts.push(`筛选：${keyword}`);
-    if (total !== undefined) {
-      parts.push(capped ? `共 ${total}+ 题` : `共 ${total} 题`);
+    const kwEl = document.getElementById('filter-keyword');
+    const countEl = document.getElementById('filter-count');
+    if (kwEl) {
+      const text = keyword ? `筛选：${keyword}` : '未筛选';
+      kwEl.textContent = text;
+      kwEl.title = keyword ? text : '';
     }
-    el.textContent = parts.join(' · ');
+    if (countEl) {
+      countEl.textContent = total !== undefined ? (capped ? `共 ${total}+ 题` : `共 ${total} 题`) : '';
+      countEl.style.display = total !== undefined ? '' : 'none';
+    }
   }
 
   /** 显示答错弹框（按钮：重做 / 研究 / 换题） */

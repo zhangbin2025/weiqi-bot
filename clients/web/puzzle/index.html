@@ -104,10 +104,19 @@
       font-size: 12px;
       color: #888;
       flex: 1 1 auto;
+      min-width: 0;
       min-height: 16px;
-      /* 长筛选表达式不挤压右侧按钮 */
+      /* 长筛选表达式截断加 ...，不挤压右侧按钮与题数 */
       overflow: hidden;
       text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    /* 题数：靠右显示，固定不收缩 */
+    .filter-count {
+      flex: 0 0 auto;
+      font-size: 12px;
+      color: #667eea;
+      font-weight: 600;
       white-space: nowrap;
     }
 
@@ -146,15 +155,63 @@
 
     /* 选点开关位于筛选行右侧（见 .choices-btn） */
 
-    /* ===== 题目信息（棋盘下方一行文字） ===== */
+    /* ===== 题目信息（棋盘上方一行文字） ===== */
     .puzzle-info {
-      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
       font-size: 13px;
       color: #555;
       margin-bottom: 8px;
-      min-height: 18px;
+      min-height: 26px;
       padding: 0 6px;
-      word-break: break-all;
+      flex-wrap: wrap;
+    }
+    /* 先手徽章：黑白棋子图标 + 加粗文字，非常醒目 */
+    .turn-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 12px 3px 6px;
+      border-radius: 14px;
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1;
+      flex: 0 0 auto;
+    }
+    .turn-badge.black {
+      background: #1a1a1a;
+      color: #fff;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    }
+    .turn-badge.white {
+      background: #f5f5f5;
+      color: #222;
+      border: 1px solid #d0d0d0;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+    }
+    /* 棋子图标：用径向渐变画出立体感 */
+    .turn-stone {
+      display: inline-block;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      flex: 0 0 auto;
+    }
+    .turn-badge.black .turn-stone {
+      background: radial-gradient(circle at 32% 30%, #6b6b6b, #111 62%, #000);
+    }
+    .turn-badge.white .turn-stone {
+      background: radial-gradient(circle at 32% 30%, #fff, #e8e8e8 60%, #c9c9c9);
+    }
+    .turn-meta {
+      font-size: 12px;
+      color: #777;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
     }
 
     /* ===== 图标按钮排（棋盘下方一排） ===== */
@@ -419,11 +476,8 @@
                    data-options='[{"value":"lib-life-death","label":"内置题库"},{"value":"weiqi101","label":"101围棋"},{"value":"goproblems","label":"GoProblems"},{"value":"ogs-puzzle","label":"OGS死活题"}]'></div>
             </div>
           </div>
-          <!-- 筛选条件行：左侧筛选表达式，右侧选点开关（答题模式显示 A/B/C/D） -->
-          <div class="filter-row">
-            <span class="filter-keyword" id="filter-keyword"></span>
-            <button class="choices-btn" id="choices-btn" title="显示选点（A/B/C/D）" aria-label="显示选点" disabled>🔤</button>
-          </div>
+          <!-- 题目信息：先手（黑白棋子图标）+ 题型/题号，棋盘上方 -->
+          <div class="puzzle-info" id="puzzle-info"></div>
 
           <!-- 棋盘（含加载遮罩 / 空态） -->
           <div class="puzzle-board-wrapper" style="position: relative;">
@@ -440,8 +494,12 @@
             <div class="empty-subtitle"></div>
           </div>
 
-          <!-- 题目信息：先手必显示，有题型/题号则显示 -->
-          <div class="puzzle-info" id="puzzle-info"></div>
+          <!-- 筛选条件行（棋盘下方）：左侧筛选表达式（过长截断加...）+ 中右侧题数 + 选点开关 -->
+          <div class="filter-row">
+            <span class="filter-keyword" id="filter-keyword"></span>
+            <span class="filter-count" id="filter-count"></span>
+            <button class="choices-btn" id="choices-btn" title="显示选点（A/B/C/D）" aria-label="显示选点" disabled>🔤</button>
+          </div>
 
           <!-- 图标按钮排：回撤(研究) / 研究(看答案) / 换题 / 筛选 -->
           <div class="puzzle-controls">
