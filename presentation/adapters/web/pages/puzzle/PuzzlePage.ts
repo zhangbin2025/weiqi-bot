@@ -254,6 +254,24 @@ export class PuzzlePage implements IPage {
       void this.nextPuzzle();
     });
 
+    // 弹框关闭：右上角关闭按钮 / 点击弹框外区域 / 按 Esc
+    // 说明：只隐藏弹框，不改变当前答题或研究状态
+    document.querySelectorAll<HTMLElement>('.puzzle-modal').forEach((modal) => {
+      // 点在遮罩自身（内容区之外）才关闭
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) this.ui.hideModal(modal.id);
+      });
+      modal.querySelector<HTMLElement>('[data-modal-close]')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.ui.hideModal(modal.id);
+      });
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' && e.key !== 'Esc') return;
+      const open = document.querySelector<HTMLElement>('.puzzle-modal.show');
+      if (open) this.ui.hideModal(open.id);
+    });
+
     // 在打谱页查看本题棋谱
     document.getElementById('replay-btn')?.addEventListener('click', () => this.viewInReplay());
 

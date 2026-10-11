@@ -250,6 +250,35 @@
       max-width: 360px;
       width: 88%;
       text-align: center;
+      position: relative;
+    }
+    /* 右上角关闭按钮 */
+    .puzzle-modal-close {
+      position: absolute;
+      top: 6px;
+      right: 8px;
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      border: none;
+      background: transparent;
+      color: #9aa0a6;
+      font-size: 22px;
+      line-height: 1;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .puzzle-modal-close:hover { background: #f1f3f4; color: #555; }
+    .puzzle-modal-close:active { background: #e4e6e8; }
+    /* 点击空白处关闭的提示 */
+    .puzzle-modal-tip {
+      margin: 12px 0 0;
+      font-size: 12px;
+      color: #aaa;
     }
     .puzzle-modal-content h3 { margin: 0 0 10px; font-size: 18px; }
     .puzzle-modal-content p { color: #666; font-size: 14px; margin-bottom: 14px; }
@@ -452,18 +481,21 @@
   <!-- 正解弹框（按钮：研究 / 换题） -->
   <div id="solved-modal" class="puzzle-modal">
     <div class="puzzle-modal-content">
+      <button class="puzzle-modal-close" type="button" data-modal-close aria-label="关闭" title="关闭">×</button>
       <h3>🎉 正解完成！</h3>
       <p id="solved-duration"></p>
       <div class="puzzle-modal-buttons">
         <button class="puzzle-btn modal-btn secondary" id="solved-study-btn">🔍 研究</button>
         <button class="puzzle-btn modal-btn success" id="solved-next-btn">⏭ 换题</button>
       </div>
+      <p class="puzzle-modal-tip">点击弹框外区域也可关闭</p>
     </div>
   </div>
 
   <!-- 答错弹框（按钮：重做 / 研究 / 换题） -->
   <div id="wrong-modal" class="puzzle-modal">
     <div class="puzzle-modal-content">
+      <button class="puzzle-modal-close" type="button" data-modal-close aria-label="关闭" title="关闭">×</button>
       <h3>✗ 不是正解</h3>
       <p>这一手不在正解分支里</p>
       <div class="puzzle-modal-buttons">
@@ -471,6 +503,7 @@
         <button class="puzzle-btn modal-btn secondary" id="wrong-study-btn">🔍 研究</button>
         <button class="puzzle-btn modal-btn success" id="wrong-next-btn">⏭ 换题</button>
       </div>
+      <p class="puzzle-modal-tip">点击弹框外区域也可关闭</p>
     </div>
   </div>
 
