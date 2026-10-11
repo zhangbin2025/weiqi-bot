@@ -63,13 +63,16 @@ export class PuzzlePageUI {
     setDisabled('choices-btn', !hasData || studying);
     // 打谱页查看本题：需已归档拿到 archiveId（单题模式也可用）
     setDisabled('replay-btn', !hasData || !state.get('archiveId'));
-    // 换题：单题模式禁用
-    setDisabled('next-btn', !hasData || single);
-    // 筛选：仅内置题库可用；单题模式禁用
-    setDisabled('filter-btn', !isLib || single);
-    // 弹框内的换题同样受单题模式约束
-    setDisabled('solved-next-btn', !hasData || single);
-    setDisabled('wrong-next-btn', !hasData || single);
+    // 换题：始终可用——单题模式下它是「回到题库出题」的出口，禁用会把用户锁死
+    setDisabled('next-btn', !hasData);
+    // 筛选：仅内置题库可用（单题模式下点换题即退出，无需此处禁用）
+    setDisabled('filter-btn', !isLib);
+    setDisabled('solved-next-btn', !hasData);
+    setDisabled('wrong-next-btn', !hasData);
+
+    // 单题模式下换题语义变为「回到题库」，提示文案相应变化，让出口可发现
+    const nextBtn = document.getElementById('next-btn');
+    if (nextBtn) nextBtn.title = single ? '换题（回到题库）' : '换题';
 
     // 回撤仅研究模式可用（重做入口在答错弹框内）
     const undoBtn = document.getElementById('undo-btn') as HTMLButtonElement | null;

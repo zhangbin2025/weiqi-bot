@@ -77,6 +77,11 @@ export class PuzzlePage implements IPage {
   /** 当前题库条目（用于换题） */
   private items: PuzzleItem[] = [];
   private currentIndex = -1;
+  /** items 对应的来源/筛选条件，用于判断缓存是否仍匹配当前设置 */
+  private itemsSource: PuzzleSource | '' = '';
+  private itemsKeyword = '';
+  /** items 是否达到单次加载上限（决定题数是否显示 "+"） */
+  private itemsCapped = false;
   /** 当前来源/筛选关键字 */
   private source: PuzzleSource = DEFAULT_PUZZLE_SOURCE;
   private keyword = '';
@@ -225,7 +230,7 @@ export class PuzzlePage implements IPage {
     // 控制按钮（棋盘下方一排图标）
     document.getElementById('undo-btn')?.addEventListener('click', () => this.studyUndo());
     document.getElementById('answer-btn')?.addEventListener('click', () => this.toggleAnswer());
-    document.getElementById('next-btn')?.addEventListener('click', () => void this.nextPuzzle());
+    document.getElementById('next-btn')?.addEventListener('click', () => void this.requestNext());
 
     // 历史面板（滚动加载，无翻页按钮）
     document.getElementById('clear-btn')?.addEventListener('click', () => void this.historyPanel.clearHistory());
@@ -233,7 +238,7 @@ export class PuzzlePage implements IPage {
     // 正解弹框：研究 / 换题
     document.getElementById('solved-next-btn')?.addEventListener('click', () => {
       this.ui.hideModal('solved-modal');
-      void this.nextPuzzle();
+      void this.requestNext();
     });
     document.getElementById('solved-study-btn')?.addEventListener('click', () => {
       this.ui.hideModal('solved-modal');
@@ -251,7 +256,7 @@ export class PuzzlePage implements IPage {
     });
     document.getElementById('wrong-next-btn')?.addEventListener('click', () => {
       this.ui.hideModal('wrong-modal');
-      void this.nextPuzzle();
+      void this.requestNext();
     });
 
     // 弹框关闭：右上角关闭按钮 / 点击弹框外区域 / 按 Esc
@@ -338,12 +343,15 @@ export class PuzzlePage implements IPage {
       const isLib = this.source === 'lib-life-death';
       const count = isLib ? LIB_BATCH : ONLINE_BATCH;
       this.items = await this.config.puzzleApp.listPuzzles(this.source, count, this.keyword || undefined);
+      this.itemsSource = this.source;
+      this.itemsKeyword = this.keyword;
+      this.itemsCapped = this.items.length >= count;
       this.currentIndex = -1;
       // 内置题库随机出题
       if (isLib) this.shuffleItems();
       this.ui.setLoading(false);
       // 回填筛选出的题目总数；达到单次加载上限时加 "+"（真实总数可能更多）
-      this.ui.setKeyword(this.keyword, this.items.length, this.items.length >= count);
+      this.ui.setKeyword(this.keyword, this.items.length, this.itemsCapped);
       if (this.items.length === 0) {
         if (refill) this.ui.showEmpty('没有更多题目了', '试试切换来源或调整筛选');
         else this.ui.showEmpty('没有符合条件的题目', isLib ? '试试调整题型或难度筛选' : '试试切换题目来源');
@@ -382,6 +390,50 @@ export class PuzzlePage implements IPage {
     }
     const item = this.items[this.currentIndex]!;
     await this.loadPuzzleByUrl(item.url, item.title, item.subtitle ?? '');
+  }
+
+  /**
+   * 退出单题模式，回到正常出题流程
+   *
+   * 单题模式原本服务于 fetcher 深链（?url=xxx），会锁死换题/筛选/来源。
+   * 但历史条目是页内导航，用户本就在做题流程里，若沿用同一把锁就再无出口
+   * ——只能刷新整页。故提供显式退出：清 flag、解锁来源与筛选、恢复筛选条件。
+   */
+  private exitSinglePuzzle(): void {
+    if (!this.state.get('singlePuzzle')) return;
+    this.state.set('singlePuzzle', false);
+    Select.get('#source-select')?.setDisabled(false);
+    // 退出后按当前来源重新解析筛选条件（内置题库用偏好，其他来源不筛）
+    this.keyword = this.preferences.resolveKeyword();
+    this.ui.setKeyword(this.keyword);
+    // 题库缓存若与当前来源/筛选不匹配（如从历史跳到了别的来源），作废后重拉
+    if (this.itemsSource !== this.source || this.itemsKeyword !== this.keyword) {
+      this.items = [];
+      this.itemsSource = '';
+      this.itemsKeyword = '';
+      this.itemsCapped = false;
+      this.currentIndex = -1;
+    } else if (this.items.length > 0) {
+      // 缓存仍匹配：补回被单题模式清掉的题数
+      this.ui.setKeyword(this.keyword, this.items.length, this.itemsCapped);
+    }
+    this.applySourceUiState();
+  }
+
+  /**
+   * 换一题（统一入口）
+   *
+   * 单题模式下先退出单题模式再换题——「换题」的语义就是不想做这道了，
+   * 此时最自然的兑现是回题库给一道新题，而不是把用户锁死在详情页里。
+   * 题库为空（如直接由 URL 参数进入并且尚未拉过列表）时先拉一批。
+   */
+  private async requestNext(): Promise<void> {
+    this.exitSinglePuzzle();
+    if (this.items.length === 0) {
+      await this.loadPuzzleList();
+      return;
+    }
+    await this.nextPuzzle();
   }
 
   /** 按 URL 加载题目 */
