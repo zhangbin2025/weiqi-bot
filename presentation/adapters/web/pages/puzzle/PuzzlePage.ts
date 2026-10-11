@@ -82,6 +82,14 @@ export class PuzzlePage implements IPage {
   private itemsKeyword = '';
   /** items 是否达到单次加载上限（决定题数是否显示 "+"） */
   private itemsCapped = false;
+  /**
+   * items 中每条在本轮已被出过的轮次号
+   * 内置题库一轮内不重复出题；用尽后 cycle+1 重洗，允许再来一轮
+   */
+  private usedCycle: number[] = [];
+  private cycle = 0;
+  /** 在线来源续拉取锁，避免批次用尽时反复续拉 */
+  private refilling = false;
   /** 当前来源/筛选关键字 */
   private source: PuzzleSource = DEFAULT_PUZZLE_SOURCE;
   private keyword = '';
@@ -346,6 +354,9 @@ export class PuzzlePage implements IPage {
       this.itemsSource = this.source;
       this.itemsKeyword = this.keyword;
       this.itemsCapped = this.items.length >= count;
+      // 重置出题轮次：新一轮内每条只出一次
+      this.cycle = 1;
+      this.usedCycle = new Array(this.items.length).fill(0);
       this.currentIndex = -1;
       // 内置题库随机出题
       if (isLib) this.shuffleItems();
@@ -373,22 +384,72 @@ export class PuzzlePage implements IPage {
     }
   }
 
-  /** 换一题（按顺序取下一题；用尽后在线来源续拉一批） */
+  /**
+   * 换一题
+   *
+   * 出题规则：
+   * 1. 必须避开当前正在做的这道题——否则从单题模式退出后「点完还是这道题」
+   * 2. 内置题库一轮内每条只出一次，用尽后 cycle+1 重洗再来一轮
+   * 3. 在线来源批次用尽后续拉一批
+   */
   private async nextPuzzle(): Promise<void> {
     if (this.state.get('singlePuzzle')) return;
     if (this.items.length === 0) return;
-    this.currentIndex++;
-    if (this.currentIndex >= this.items.length) {
-      // 内置题库已全量加载，回到开头再来一轮
-      if (this.source === 'lib-life-death') {
-        this.currentIndex = 0;
-        this.shuffleItems();
-      } else {
-        await this.loadPuzzleList(true);
-        return;
-      }
+
+    // 刚看过的题目 URL：换题必须避开
+    const avoidUrl = this.state.get('url');
+
+    const pick = this.findNextIndex(avoidUrl);
+    if (pick >= 0) {
+      await this.takeIndex(pick);
+      return;
     }
-    const item = this.items[this.currentIndex]!;
+
+    // 本轮已用尽
+    if (this.source !== 'lib-life-death') {
+      // 在线来源续拉一批（refilling 防止递归续拉）
+      if (this.refilling) return;
+      this.refilling = true;
+      try {
+        await this.loadPuzzleList(true);
+      } finally {
+        this.refilling = false;
+      }
+      return;
+    }
+
+    if (this.items.length <= 1) {
+      // 只有一题，无从避开，只能重出
+      await this.takeIndex(0);
+      return;
+    }
+    // 内置题库：开启新一轮，重洗后再挑（仍避开当前题）
+    this.cycle++;
+    this.shuffleItems();
+    this.usedCycle = new Array(this.items.length).fill(0);
+    this.currentIndex = -1;
+    const again = this.findNextIndex(avoidUrl);
+    await this.takeIndex(again >= 0 ? again : 0);
+  }
+
+  /** 从当前位置往后找「本轮未出过且不是 avoidUrl」的下标；找不到返回 -1 */
+  private findNextIndex(avoidUrl: string): number {
+    const n = this.items.length;
+    if (n === 0) return -1;
+    for (let k = 1; k <= n; k++) {
+      const i = (this.currentIndex + k) % n;
+      if (this.usedCycle[i] === this.cycle) continue;
+      if (avoidUrl && this.items[i]!.url === avoidUrl) continue;
+      return i;
+    }
+    return -1;
+  }
+
+  /** 取走指定下标的题目，并标记为本轮已出 */
+  private async takeIndex(index: number): Promise<void> {
+    this.currentIndex = index;
+    this.usedCycle[index] = this.cycle;
+    const item = this.items[index]!;
     await this.loadPuzzleByUrl(item.url, item.title, item.subtitle ?? '');
   }
 

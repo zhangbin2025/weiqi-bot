@@ -65,8 +65,10 @@ export class PuzzlePageUI {
     setDisabled('replay-btn', !hasData || !state.get('archiveId'));
     // 换题：始终可用——单题模式下它是「回到题库出题」的出口，禁用会把用户锁死
     setDisabled('next-btn', !hasData);
-    // 筛选：仅内置题库可用（单题模式下点换题即退出，无需此处禁用）
-    setDisabled('filter-btn', !isLib);
+    // 筛选：仅内置题库可用；单题模式禁用
+    // 注意：必须与 applySourceUiState() 保持一致，否则后者设的 disabled 会被这里覆盖，
+    // 出现「按钮看着能点、点了却被 click 处理里的 singlePuzzle 判断挡掉」的不一致。
+    setDisabled('filter-btn', !isLib || single);
     setDisabled('solved-next-btn', !hasData);
     setDisabled('wrong-next-btn', !hasData);
 
