@@ -36,11 +36,14 @@ export class ReplayPage implements IPage {
   private navigationHandler: NavigationHandler;
   private variationHandler: VariationHandler;
   private trialHandler: TrialHandler;
+  /** 停一手（脱先）回调：浏览到 pass 着法时触发，由入口页面弹出 toast */
+  private onPassMove?: ((moveNumber: number, color: 'black' | 'white') => void) | undefined;
   /** 死活题最小路数转换结果（成功压缩时非空），用于小棋盘渲染/试下坐标换算 */
   private minBoardResult: ReturnType<typeof buildTsumegoMinBoard> = null;
-  constructor(config: { replayApp: ReplayApp; onNavigate?: (page: string, params?: Record<string, string>) => void }) {
+  constructor(config: { replayApp: ReplayApp; onNavigate?: (page: string, params?: Record<string, string>) => void; onPassMove?: (moveNumber: number, color: 'black' | 'white') => void }) {
     this.replayApp = config.replayApp;
     this.onNavigate = config.onNavigate;
+    this.onPassMove = config.onPassMove;
     // 初始化组件
     this.board = new WebBoard();
     this.game = new Game();
@@ -55,6 +58,8 @@ export class ReplayPage implements IPage {
         this.ui.updateSlider(i);
         // 更新变化图面板
         this.ui.updateVariationPanel((index) => this.variationHandler.enterVariation(index));
+        // 停一手（脱先）提示
+        this.navigationHandler?.notifyPassMove();
         // 自动播放时播放音效
         if (this.moveNavigator.getIsPlaying() && this.state.get('soundEnabled')) {
           this.replayApp.playSound('stone');
@@ -102,6 +107,10 @@ export class ReplayPage implements IPage {
       BoardRebuilder,
       BoardSyncer
     );
+    // 注册停一手（脱先）回调：内部转发到页面配置的回调
+    this.navigationHandler.setOnPassMove((moveNumber, color) => {
+      this.onPassMove?.(moveNumber, color);
+    });
     this.variationHandler = new VariationHandler(
       this.state,
       this.ui,

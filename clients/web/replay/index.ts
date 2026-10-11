@@ -38,7 +38,7 @@ const TOAST_STYLE: Record<ToastType, { bg: string; border: string; icon: string 
   info:    { bg: 'rgba(0, 0, 0, 0.82)',      border: 'rgba(255,255,255,0.25)', icon: 'ℹ' },
 };
 
-function showToast(message: string, type: ToastType = 'info', links?: ToastLink[], persist: boolean = false): void {
+function showToast(message: string, type: ToastType = 'info', links?: ToastLink[], persist: boolean = false, duration?: number): void {
   const existing = document.getElementById('replay-toast');
   if (existing) existing.remove();
 
@@ -121,11 +121,11 @@ function showToast(message: string, type: ToastType = 'info', links?: ToastLink[
 
   // 停留时间：有链接时更长，便于用户点击；persist=true 时不自动消失（需用户点击链接/关闭）
   if (persist) return;
-  const duration = (links && links.length > 0) ? 8000 : 5000;
+  const ms = duration ?? ((links && links.length > 0) ? 8000 : 5000);
   setTimeout(() => {
     toast.style.opacity = '0';
     setTimeout(() => toast.remove(), 300);
-  }, duration);
+  }, ms);
 }
 
 const sessionStore = new SessionStorageAdapter('weiqi-bot');
@@ -146,6 +146,12 @@ async function main() {
       } else if (pageId === 'fetcher') {
         window.location.href = '../fetcher/index.html';
       }
+    },
+    onPassMove: (moveNumber, color) => {
+      // 浏览到停一手（脱先）着法时弹出提示
+      const side = color === 'black' ? '黑方' : '白方';
+      const hand = moveNumber > 0 ? `第 ${moveNumber} 手 · ` : '';
+      showToast(`${hand}${side}脱先（停一手）`, 'info', undefined, false, 2000);
     },
   });
 
