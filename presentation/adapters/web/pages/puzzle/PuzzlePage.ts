@@ -18,6 +18,7 @@ import type { PuzzleApp, PuzzleItem, PuzzleSource } from '../../../../../applica
 import { PUZZLE_SOURCE_LABELS, DEFAULT_PUZZLE_SOURCE } from '../../../../../application/puzzle/PuzzleApp';
 import { PuzzlePageState, PuzzleMode } from './state/PuzzlePageState';
 import { PuzzlePreferences } from './state/PuzzlePreferences';
+import { PuzzleSessionStore } from './state/PuzzleSessionStore';
 import { PuzzlePageUI } from './ui/PuzzlePageUI';
 import { PuzzleSolveHandler } from './handlers/PuzzleSolveHandler';
 import { PuzzleStudyHandler } from './handlers/PuzzleStudyHandler';
@@ -95,6 +96,13 @@ export class PuzzlePage implements IPage {
   private keyword = '';
   /** 来源与筛选偏好（localStorage 持久化，刷新后恢复） */
   private readonly preferences = new PuzzlePreferences();
+  /**
+   * 做题会话状态（sessionStorage 持久化）
+   * 跳打谱页看棋谱后返回时，靠它把用户送回原来那道题，而不是随机换一道
+   */
+  private readonly sessionStore = new PuzzleSessionStore();
+  /** 本次页面加载是否已从会话缓存恢复过（避免重复恢复） */
+  private restoredFromSession = false;
 
   constructor(private config: PuzzlePageConfig) {
     this.state = new PuzzlePageState();
@@ -176,6 +184,10 @@ export class PuzzlePage implements IPage {
       this.state.set('singlePuzzle', true);
       Select.get('#source-select')?.setDisabled(true);
       this.applySourceUiState();
+      // 深链是「用户主动指定的那道题」，优先级高于上次会话缓存：
+      // 先清掉缓存，避免被旧题覆盖（loadPuzzleByUrl 会重新写入本题）
+      this.sessionStore.clearCurrent();
+      this.restoredFromSession = true;
       await this.loadPuzzleByUrl(p['url'], p['title'] ?? '', p['tag'] ?? '');
       return;
     }
@@ -185,7 +197,57 @@ export class PuzzlePage implements IPage {
       this.ui.setKeyword(this.keyword);
     }
     this.applySourceUiState();
+
+    // 返回恢复优先：从打谱页（或任何整页返回）回来时，先试着回到刚才那道题。
+    // 无缓存才走常规出题流程。单题模式 / 带 url 的深链已在上面处理，不走这里。
+    if (await this.restoreFromSession()) return;
+
     await this.loadPuzzleList();
+  }
+
+  /**
+   * 从会话缓存恢复上次做的那道题
+   * @returns 命中缓存并成功恢复返回 true，否则 false
+   * @description 只在「本次页面加载第一次进入」时生效，避免重复恢复。
+   *              恢复内容含当前题目 + 题库进度，这样恢复后点「换题」能接着往下走。
+   */
+  private async restoreFromSession(): Promise<boolean> {
+    if (this.restoredFromSession) return false;
+    this.restoredFromSession = true;
+
+    const current = await this.sessionStore.loadCurrent();
+    if (!current) return false;
+
+    // 先定来源：缓存来源可能与 localStorage 偏好不同（如从历史跳到了别的来源）
+    this.source = current.source;
+    Select.get('#source-select')?.setValue(this.source, true);
+    // 来源既定，筛选关键字按新来源重解析（内置题库才应用筛选），
+    // 避免把内置题库的筛选条件带到一个不支持筛选的在线来源上
+    this.keyword = this.preferences.resolveKeyword(this.source);
+    this.ui.setKeyword(this.keyword);
+
+    // 再恢复题库进度：必须按解析后的 keyword 匹配，否则进度被判为失效
+    const progress = await this.sessionStore.loadProgress(this.source, this.keyword);
+    if (progress) {
+      this.items = progress.items;
+      this.currentIndex = progress.currentIndex;
+      this.itemsSource = progress.itemsSource;
+      this.itemsKeyword = progress.itemsKeyword;
+      this.itemsCapped = progress.itemsCapped;
+      this.usedCycle = progress.usedCycle;
+      this.cycle = progress.cycle;
+      this.ui.setKeyword(this.itemsKeyword, this.items.length, this.itemsCapped);
+    }
+
+    // 单题模式：从历史/fetcher 跳入的那道题，返回后必须仍是它
+    if (current.singlePuzzle) {
+      this.state.set('singlePuzzle', true);
+      Select.get('#source-select')?.setDisabled(true);
+    }
+    this.applySourceUiState();
+
+    await this.loadPuzzleByUrl(current.url, current.title, current.tag);
+    return true;
   }
 
   render(): void {
@@ -360,6 +422,9 @@ export class PuzzlePage implements IPage {
       this.currentIndex = -1;
       // 内置题库随机出题
       if (isLib) this.shuffleItems();
+      // 打乱之后再存：缓存里的顺序必须与内存一致，
+      // 否则恢复时 currentIndex 指向的是未打乱数组的下标 → 回到另一道题
+      this.saveProgress();
       this.ui.setLoading(false);
       // 回填筛选出的题目总数；达到单次加载上限时加 "+"（真实总数可能更多）
       this.ui.setKeyword(this.keyword, this.items.length, this.itemsCapped);
@@ -450,7 +515,22 @@ export class PuzzlePage implements IPage {
     this.currentIndex = index;
     this.usedCycle[index] = this.cycle;
     const item = this.items[index]!;
+    // loadPuzzleByUrl 内部会写当前题目与进度，这里无需重复写
     await this.loadPuzzleByUrl(item.url, item.title, item.subtitle ?? '');
+  }
+
+  /** 保存题库进度到会话缓存（供返回时恢复「换题」的续推位置） */
+  private saveProgress(): void {
+    if (this.items.length === 0) return;
+    this.sessionStore.saveProgress({
+      items: this.items,
+      currentIndex: this.currentIndex,
+      itemsSource: this.itemsSource,
+      itemsKeyword: this.itemsKeyword,
+      itemsCapped: this.itemsCapped,
+      usedCycle: this.usedCycle,
+      cycle: this.cycle,
+    });
   }
 
   /**
@@ -464,6 +544,9 @@ export class PuzzlePage implements IPage {
     if (!this.state.get('singlePuzzle')) return;
     this.state.set('singlePuzzle', false);
     Select.get('#source-select')?.setDisabled(false);
+    // 单题模式已退出：会话缓存里的 singlePuzzle 标记同步失效，
+    // 否则返回时又会被恢复成锁死的单题状态
+    this.sessionStore.clearCurrent();
     // 退出后按当前来源重新解析筛选条件（内置题库用偏好，其他来源不筛）
     this.keyword = this.preferences.resolveKeyword();
     this.ui.setKeyword(this.keyword);
@@ -553,6 +636,16 @@ export class PuzzlePage implements IPage {
       this.currentBoardSize = size;
       this.initialStones = this.captureInitialStones(size);
       this.hasRecordedAttempt = false;
+
+      // 记住当前这道题：跳打谱页看棋谱后返回，要能回到这里而不是换一道
+      this.sessionStore.saveCurrent({
+        url,
+        title,
+        tag,
+        source: this.source,
+        singlePuzzle: this.state.get('singlePuzzle'),
+      });
+      this.saveProgress();
     } catch (e) {
       this.ui.setLoading(false);
       console.error('[PuzzlePage] 加载题目失败', e);
