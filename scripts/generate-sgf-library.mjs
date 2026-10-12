@@ -22,6 +22,12 @@
  *
  * 输出（默认 clients/web/shared/assets/data/games/）：
  *   <category>/<YYYY-MM-DD>.tar.bz2   该日期的棋谱（多源合并，内含 <id>.sgf，按 id 排序）
+ *   <category>/<YYYY-MM-DD>.meta.json.gz  轻量元数据（仅题库分类生成）：
+ *        { version, category, date, count, pw: [标签...] }
+ *        pw[i] 对应 tar 内按文件名排序后的第 i 个 SGF，即 lib://<cat>/<date>/<i>。
+ *        只存标签不存 id：id 是 md5 随机串不可压缩（实测存 id 会从 71KB 涨到 813KB），
+ *        而标签重复度极高（4.2 万题仅 276 种取值），gzip 后仅约 71KB。
+ *        用途：列表/筛选只下载这份索引，避免为拿一个标签而解压 49MB 全包。
  *   index.json.gz                     { version, generatedAt, categories: { cat: [dates...] } }
  *
  * 增量：以「已存在归档的最大日期」为水位，重扫 > 水位的源日期（可捕获同日追加），
@@ -523,9 +529,42 @@ function writeArchive(outputDir, category, date, entries) {
     execFileSync('tar', ['-cjf', archivePath, '-C', tmp, ...files], { stdio: 'pipe' });
     const size = statSync(archivePath).size;
     console.log(`  📦 ${category}/${date}.tar.bz2  (${entries.length} 盘, ${Math.floor(size / 1024)}KB)`);
+    // 仅题库分类生成元数据索引（实战棋谱无标签可抽，列表直接读 id 即可）
+    if (category === 'life-and-death') writeMeta(catDir, category, date, entries);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
+}
+
+/**
+ * 抽取 SGF 的题库标签（PW 字段）。
+ * 与运行时 BuiltinLibraryProvider.parsePuzzleTags 保持同一规则：取 PW，按「·」拆类型/难度。
+ * 这里只需 raw（列表展示与筛选均基于 raw），故直接返回原始串。
+ */
+function extractPw(sgf) {
+  const m = sgf.match(/PW\[([^\]]+)\]/);
+  return m ? m[1].trim() : '';
+}
+
+/**
+ * 写出轻量元数据索引 <category>/<date>.meta.json.gz
+ * pw 数组顺序必须与 tar 内 SGF 顺序一致（均按文件名/id localeCompare 排序），
+ * 否则下标对不上号 → 列表显示错标签、筛选错题目。
+ */
+function writeMeta(catDir, category, date, entries) {
+  // entries 已在 writeArchive 中按 id 排序，此处保持同序
+  const pw = entries.map(e => extractPw(e.sgf));
+  const meta = {
+    version: '1.0',
+    category,
+    date,
+    count: entries.length,
+    pw,
+  };
+  const buf = gzipSync(Buffer.from(JSON.stringify(meta), 'utf-8'));
+  const metaPath = join(catDir, `${date}.meta.json.gz`);
+  writeFileSync(metaPath, buf);
+  console.log(`  🏷  ${category}/${date}.meta.json.gz  (${entries.length} 条, ${Math.floor(buf.length / 1024)}KB)`);
 }
 
 function writeIndex(outputDir) {

@@ -101,15 +101,20 @@ export interface BuiltinLibraryGameItem {
  * 无难度时仅含类型（如 死活题）。
  */
 interface PuzzleTags { type: string; difficulty: string; raw: string; }
-function parsePuzzleTags(sgfContent: string): PuzzleTags {
-  const m = sgfContent.match(/PW\[([^\]]+)\]/);
-  const raw = m ? m[1]!.trim() : '';
+/** 从标签原文拆分「类型·难度」（不依赖 SGF 全文，供 meta 索引路径复用） */
+function splitPuzzleTags(raw: string): PuzzleTags {
   if (!raw.includes('·')) {
     // 仅类型（无难度分隔符）
     return { type: raw, difficulty: '', raw };
   }
   const [type, difficulty] = raw.split('·').map(s => s.trim());
   return { type: type || '', difficulty: difficulty || '', raw };
+}
+
+function parsePuzzleTags(sgfContent: string): PuzzleTags {
+  const m = sgfContent.match(/PW\[([^\]]+)\]/);
+  const raw = m ? m[1]!.trim() : '';
+  return splitPuzzleTags(raw);
 }
 
 /**
@@ -208,13 +213,24 @@ function evaluateFilter(expr: string, tags: PuzzleTags): boolean {
   return result;
 }
 
+/** 轻量元数据索引（题库分类，由生成脚本产出 <date>.meta.json.gz） */
+interface BuiltinLibraryMeta {
+  version?: string;
+  category?: string;
+  date?: string;
+  count?: number;
+  /** pw[i] 对应 tar 内按文件名排序后的第 i 个 SGF，即 lib://<cat>/<date>/<i> */
+  pw: string[];
+}
+
 /**
- * 归档读取器：负责 index.json.gz 与 .tar.bz2 的下载、解压、内存缓存。
+ * 归档读取器：负责 index.json.gz、.tar.bz2 与 .meta.json.gz 的下载、解压、内存缓存。
  */
 export class BuiltinLibraryArchiveProvider {
   private readonly dataUrl: string;
   private indexCache: Record<string, string[]> | null = null;
   private gamesCache: Map<string, KatagoSgfEntry[]> = new Map();
+  private metaCache: Map<string, BuiltinLibraryMeta | null> = new Map();
 
   constructor(
     private readonly network: NetworkManager,
@@ -269,6 +285,36 @@ export class BuiltinLibraryArchiveProvider {
     return entries;
   }
 
+  /**
+   * 读取某分类+日期的轻量元数据索引（仅题库分类生成）。
+   * 列表与筛选只走这份索引：体积约 71KB（对比整包 3.4MB），
+   * 且无需 bz2 解压（实测全包解压 1.4s 是列表加载的主要耗时）。
+   */
+  async fetchMeta(category: string, date: string): Promise<BuiltinLibraryMeta | null> {
+    const key = `${category}/${date}`;
+    const cached = this.metaCache.get(key);
+    if (cached !== undefined) return cached;
+    const url = `${this.dataUrl}/${category}/${date}.meta.json.gz`;
+    let meta: BuiltinLibraryMeta | null = null;
+    try {
+      const response = await this.network.request<ArrayBuffer>({
+        url,
+        method: 'GET',
+        responseType: 'arraybuffer',
+      });
+      const compressed = new Uint8Array(response.data);
+      const isGz = compressed[0] === 0x1f && compressed[1] === 0x8b;
+      const text = isGz ? pako.ungzip(compressed, { to: 'string' }) : new TextDecoder().decode(compressed);
+      const parsed = JSON.parse(text) as BuiltinLibraryMeta;
+      if (parsed && Array.isArray(parsed.pw)) meta = parsed;
+    } catch (e) {
+      console.warn('[BuiltinLibrary] 元数据索引读取失败', { category, date, error: e instanceof Error ? e.message : String(e) });
+      meta = null;
+    }
+    this.metaCache.set(key, meta);
+    return meta;
+  }
+
   /** 适配 listPublicGames：返回伪 URL 列表，展开每个日期下的所有棋谱 */
   async listPublicGames(category: string, date?: string, count?: number): Promise<string[]> {
     const dates = await this.listDates(category);
@@ -317,22 +363,35 @@ export class BuiltinLibraryProvider extends BaseProvider {
     for (const date of dates) {
       if (count && results.length >= count) break;
       try {
+        // 题库：走轻量元数据索引。列表只需「类型·难度」标签，
+        // 为此解压整包（实测 1.4s / 49MB）纯属浪费 —— 现在只读 71KB 的 meta。
+        if (isLifeAndDeath) {
+          const meta = await this.archive.fetchMeta(category, date);
+          if (!meta) continue; // 索引缺失已由 fetchMeta 告警，跳过该日期
+          for (let i = 0; i < meta.pw.length; i++) {
+            if (count && results.length >= count) break;
+            const raw = (meta.pw[i] ?? '').trim();
+            const tags = splitPuzzleTags(raw);
+            if (kw && !evaluateFilter(kw, tags)) continue;
+            results.push({
+              source: 'lib-life-death',
+              title: '#' + (i + 1),
+              subtitle: raw,
+              date,
+              url: `lib://${category}/${date}/${i}`,
+            });
+          }
+          continue;
+        }
         const games = await this.archive.fetchGamesByDate(category, date);
         for (let i = 0; i < games.length; i++) {
           if (count && results.length >= count) break;
           const entry = games[i]!;
           const id = entry.filename.replace(/\.sgf$/i, '');
-          // 题库：解析「类型·难度」，按筛选表达式过滤
-          let subtitle = id;
-          if (isLifeAndDeath) {
-            const tags = parsePuzzleTags(entry.sgfContent);
-            if (kw && !evaluateFilter(kw, tags)) continue;
-            subtitle = tags.raw || id;
-          }
           results.push({
-            source: isLifeAndDeath ? 'lib-life-death' : 'lib-ai-review',
+            source: 'lib-ai-review',
             title: '#' + (i + 1),
-            subtitle,
+            subtitle: id,
             date,
             url: `lib://${category}/${date}/${i}`,
           });
