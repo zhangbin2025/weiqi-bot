@@ -6,3 +6,4 @@ export { LocalStorageCacheAdapter } from './LocalStorageCacheAdapter';
 export { SessionStorageAdapter } from './SessionStorageAdapter';
 export { IndexedDBAdapter } from './IndexedDBAdapter';
 export { IndexedDBFileAdapter } from './IndexedDBFileAdapter';
+export { LibraryChunkStore } from './LibraryChunkStore';

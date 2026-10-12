@@ -84,6 +84,11 @@ const DEFAULT_GAMES_BASE = '../shared/assets/data/games';
 export interface BuiltinLibraryConfig {
   /** 数据根 URL，默认 ../shared/assets/data/games */
   dataUrl?: string;
+  /**
+   * 块压缩数据的持久化缓存。注入后已下载的块会留存，刷新页面不必重新下载。
+   * 未注入则只保留内存缓存（会话内有效，刷新即失效）。
+   */
+  chunkStore?: ChunkStore;
 }
 
 /** 列表条目（对齐 FetcherApp.fetchLatestGames 的返回结构） */
@@ -213,14 +218,37 @@ function evaluateFilter(expr: string, tags: PuzzleTags): boolean {
   return result;
 }
 
+/** 分块描述（meta.chunks[i]） */
+interface BuiltinLibraryChunk {
+  /** 该块首条在全局（pw 数组）中的下标 */
+  start: number;
+  /** 该块条目数 */
+  count: number;
+  /** 压缩包字节数（仅用于构建期日志/容量预估） */
+  size: number;
+}
+
 /** 轻量元数据索引（题库分类，由生成脚本产出 <date>.meta.json.gz） */
 interface BuiltinLibraryMeta {
   version?: string;
   category?: string;
   date?: string;
   count?: number;
-  /** pw[i] 对应 tar 内按文件名排序后的第 i 个 SGF，即 lib://<cat>/<date>/<i> */
+  /** 每块条目数；缺省表示未分块（旧格式，整包） */
+  chunkSize?: number;
+  /** 块描述数组；缺省表示未分块 */
+  chunks?: BuiltinLibraryChunk[];
+  /** pw[i] 对应排序后的第 i 个 SGF，即 lib://<cat>/<date>/<i> */
   pw: string[];
+}
+
+/**
+ * 块级缓存：内存 Map + 可选持久化后端。
+ * 内存缓存解决同一次会话内反复取题；持久化解决「刷新页面又得重新下载」。
+ */
+interface ChunkStore {
+  get(key: string): Promise<Uint8Array | null>;
+  set(key: string, data: Uint8Array): Promise<void>;
 }
 
 /**
@@ -231,12 +259,21 @@ export class BuiltinLibraryArchiveProvider {
   private indexCache: Record<string, string[]> | null = null;
   private gamesCache: Map<string, KatagoSgfEntry[]> = new Map();
   private metaCache: Map<string, BuiltinLibraryMeta | null> = new Map();
+  /** 已解压块的内存缓存：key = `${category}/${date}/${partIndex}` */
+  private chunkCache: Map<string, KatagoSgfEntry[]> = new Map();
+  /**
+   * 块/meta 原始字节的持久化缓存（可选注入；不注入则只走内存，刷新即失效）。
+   * meta 也一并缓存：它体积虽小（72KB）但每次取题都要读，
+   * 缓存后刷新页面可完全免网络。
+   */
+  private readonly chunkStore: ChunkStore | null;
 
   constructor(
     private readonly network: NetworkManager,
     config?: BuiltinLibraryConfig,
   ) {
     this.dataUrl = (config?.dataUrl ?? DEFAULT_GAMES_BASE).replace(/\/+$/, '');
+    this.chunkStore = config?.chunkStore ?? null;
   }
 
   /** 读取索引，返回 { category: [dates...] } */
@@ -296,13 +333,31 @@ export class BuiltinLibraryArchiveProvider {
     if (cached !== undefined) return cached;
     const url = `${this.dataUrl}/${category}/${date}.meta.json.gz`;
     let meta: BuiltinLibraryMeta | null = null;
+    let compressed: Uint8Array | null = null;
+    // ① 持久化缓存命中（免网络）
+    if (this.chunkStore) {
+      try {
+        compressed = await this.chunkStore.get(`meta/${key}`);
+      } catch {
+        compressed = null;
+      }
+    }
     try {
-      const response = await this.network.request<ArrayBuffer>({
-        url,
-        method: 'GET',
-        responseType: 'arraybuffer',
-      });
-      const compressed = new Uint8Array(response.data);
+      if (!compressed) {
+        const response = await this.network.request<ArrayBuffer>({
+          url,
+          method: 'GET',
+          responseType: 'arraybuffer',
+        });
+        compressed = new Uint8Array(response.data);
+        if (this.chunkStore) {
+          try {
+            await this.chunkStore.set(`meta/${key}`, compressed);
+          } catch {
+            /* 缓存失败不影响本次读取 */
+          }
+        }
+      }
       const isGz = compressed[0] === 0x1f && compressed[1] === 0x8b;
       const text = isGz ? pako.ungzip(compressed, { to: 'string' }) : new TextDecoder().decode(compressed);
       const parsed = JSON.parse(text) as BuiltinLibraryMeta;
@@ -313,6 +368,68 @@ export class BuiltinLibraryArchiveProvider {
     }
     this.metaCache.set(key, meta);
     return meta;
+  }
+
+  /**
+   * 读取某个分块的 SGF 列表（按块下载+解压，带双层缓存）。
+   * 分块的意义：取 1 道题不必下载整包（3.3MB / 解压 1.8s），
+   * 实测 1000 题/块时单块仅 ~90KB、解压 ~31ms。
+   */
+  async fetchChunk(category: string, date: string, partIndex: number): Promise<KatagoSgfEntry[]> {
+    const key = `${category}/${date}/${partIndex}`;
+    const mem = this.chunkCache.get(key);
+    if (mem) return mem;
+
+    const partName = `${date}.p${String(partIndex).padStart(4, '0')}.tar.bz2`;
+    const url = `${this.dataUrl}/${category}/${partName}`;
+
+    let compressed: Uint8Array | null = null;
+    // ① 持久化缓存命中：免网络
+    if (this.chunkStore) {
+      try {
+        compressed = await this.chunkStore.get(key);
+      } catch {
+        compressed = null; // 读缓存失败不应阻断，回退到网络
+      }
+    }
+    // ② 网络下载
+    if (!compressed) {
+      const response = await this.network.request<ArrayBuffer>({ url, method: 'GET', responseType: 'arraybuffer' });
+      compressed = new Uint8Array(response.data);
+      // ③ 回写持久化缓存（失败不影响本次取题）
+      if (this.chunkStore) {
+        try {
+          await this.chunkStore.set(key, compressed);
+        } catch (e) {
+          console.warn('[BuiltinLibrary] 块缓存写入失败（不影响本次取题）', {
+            key, error: e instanceof Error ? e.message : String(e),
+          });
+        }
+      }
+    }
+
+    const tarData = decompressBz2(compressed);
+    const entries = parseTar(tarData)
+      .filter(f => f.name.toLowerCase().endsWith('.sgf'))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(f => ({ filename: f.name, sgfContent: new TextDecoder('utf-8').decode(f.data) }));
+    this.chunkCache.set(key, entries);
+    return entries;
+  }
+
+  /**
+   * 按下标取单条 SGF（优先走分块路径）。
+   * @returns null 表示该分类/日期无分块信息（旧格式或未分块），调用方应回退整包
+   */
+  async fetchEntryByIndex(category: string, date: string, index: number): Promise<KatagoSgfEntry | null> {
+    const meta = await this.fetchMeta(category, date);
+    if (!meta || !meta.chunks || !meta.chunkSize) return null;
+    const partIndex = Math.floor(index / meta.chunkSize);
+    const chunk = meta.chunks[partIndex];
+    if (!chunk) return null;
+    const entries = await this.fetchChunk(category, date, partIndex);
+    const localIndex = index - chunk.start;
+    return entries[localIndex] ?? null;
   }
 
   /** 适配 listPublicGames：返回伪 URL 列表，展开每个日期下的所有棋谱 */
@@ -414,14 +531,27 @@ export class BuiltinLibraryProvider extends BaseProvider {
     const date = match[2]!;
     const index = match[3] ? parseInt(match[3], 10) : 0;
     try {
-      const entries = await this.archive.fetchGamesByDate(category, date);
-      if (entries.length === 0) {
-        return this.createErrorResult(url, '该日期无可用棋谱', timing);
+      // 优先走分块路径：只下载/解压该下标所属的块，避免整包 3.3MB。
+      // 取不到分块信息（旧格式、ai-review 未分块）时回退整包。
+      let entry: KatagoSgfEntry | null = null;
+      try {
+        entry = await this.archive.fetchEntryByIndex(category, date, index);
+      } catch (e) {
+        console.warn('[BuiltinLibraryProvider] 分块取题失败，回退整包', {
+          category, date, index, error: e instanceof Error ? e.message : String(e),
+        });
+        entry = null;
       }
-      if (index >= entries.length) {
-        return this.createErrorResult(url, `索引 ${index} 超出范围（共 ${entries.length} 盘）`, timing);
+      if (!entry) {
+        const entries = await this.archive.fetchGamesByDate(category, date);
+        if (entries.length === 0) {
+          return this.createErrorResult(url, '该日期无可用棋谱', timing);
+        }
+        if (index >= entries.length) {
+          return this.createErrorResult(url, `索引 ${index} 超出范围（共 ${entries.length} 盘）`, timing);
+        }
+        entry = entries[index]!;
       }
-      const entry = entries[index]!;
       const sgf = entry.sgfContent;
       const parsed = parseSGF(sgf);
       const info = parsed.gameInfo;

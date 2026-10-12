@@ -21,7 +21,9 @@
  *   被跳过的重复项记入 ~/.weiqi-sgf-library/duplicate-map.json（本机溯源，不进仓库）。
  *
  * 输出（默认 clients/web/shared/assets/data/games/）：
- *   <category>/<YYYY-MM-DD>.tar.bz2   该日期的棋谱（多源合并，内含 <id>.sgf，按 id 排序）
+ *   <category>/<YYYY-MM-DD>.pNNNN.tar.bz2  分块归档（每块 CHUNK_SIZE=1000 题）。
+ *        取整包会让「加载 1 道题」也下载 3.3MB，故切块按需下载；
+ *        块内顺序是全局顺序的一段，meta 下标可直接换算到块内偏移。
  *   <category>/<YYYY-MM-DD>.meta.json.gz  轻量元数据（仅题库分类生成）：
  *        { version, category, date, count, pw: [标签...] }
  *        pw[i] 对应 tar 内按文件名排序后的第 i 个 SGF，即 lib://<cat>/<date>/<i>。
@@ -83,6 +85,14 @@ const SOURCES = {
   qili101:      { code: 'QL101', category: 'life-and-death', perspective: null },
 };
 const CATEGORIES = ['life-and-death', 'ai-review'];
+
+/**
+ * 分块归档：每块的题目数。
+ * 取单题时只需下载+解压所在块，避免整包（3.3MB / 解压 1.8s）。
+ * 实测（42246 题）：1000 题/块 → 43 块，总包体仅 +1.8%，单题下载 90KB、解压 31ms。
+ * 块再小收益递减而包体与块数上升，故取 1000。
+ */
+const CHUNK_SIZE = 1000;
 
 // ─── 参数解析 ────────────────────────────────────────────
 
@@ -524,13 +534,32 @@ function writeArchive(outputDir, category, date, entries) {
     for (const e of entries) writeFileSync(join(tmp, `${e.id}.sgf`), e.sgf, 'utf-8');
     const catDir = join(outputDir, category);
     mkdirSync(catDir, { recursive: true });
-    const archivePath = join(catDir, `${date}.tar.bz2`);
     const files = readdirSync(tmp).sort();
-    execFileSync('tar', ['-cjf', archivePath, '-C', tmp, ...files], { stdio: 'pipe' });
-    const size = statSync(archivePath).size;
-    console.log(`  📦 ${category}/${date}.tar.bz2  (${entries.length} 盘, ${Math.floor(size / 1024)}KB)`);
-    // 仅题库分类生成元数据索引（实战棋谱无标签可抽，列表直接读 id 即可）
-    if (category === 'life-and-death') writeMeta(catDir, category, date, entries);
+
+    // 分块只对题库生效：题库 4 万+ 题，取整包意味着「加载 1 道题」也要下 3.3MB。
+    // 实战棋谱（ai-review）仅数百盘且无 meta（列表要读 id，仍需解包），
+    // 保持整包更简单，避免为它单独维护块索引。
+    if (category === 'life-and-death') {
+      // 块内文件顺序 = 全局顺序的一段，故 meta 下标可直接换算到块内偏移
+      const chunks = [];
+      for (let start = 0; start < files.length; start += CHUNK_SIZE) {
+        const partFiles = files.slice(start, start + CHUNK_SIZE);
+        const partIndex = Math.floor(start / CHUNK_SIZE);
+        const partName = `${date}.p${String(partIndex).padStart(4, '0')}.tar.bz2`;
+        const archivePath = join(catDir, partName);
+        execFileSync('tar', ['-cjf', archivePath, '-C', tmp, ...partFiles], { stdio: 'pipe' });
+        chunks.push({ partIndex, start, count: partFiles.length, size: statSync(archivePath).size });
+      }
+      const totalSize = chunks.reduce((a, c) => a + c.size, 0);
+      const maxSize = chunks.length ? Math.max(...chunks.map(c => c.size)) : 0;
+      console.log(`  📦 ${category}/${date} → ${chunks.length} 块 (${entries.length} 盘, ${Math.floor(totalSize / 1024)}KB, 单块最大 ${Math.floor(maxSize / 1024)}KB)`);
+      writeMeta(catDir, category, date, entries, chunks, CHUNK_SIZE);
+    } else {
+      const archivePath = join(catDir, `${date}.tar.bz2`);
+      execFileSync('tar', ['-cjf', archivePath, '-C', tmp, ...files], { stdio: 'pipe' });
+      const size = statSync(archivePath).size;
+      console.log(`  📦 ${category}/${date}.tar.bz2  (${entries.length} 盘, ${Math.floor(size / 1024)}KB)`);
+    }
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -551,14 +580,17 @@ function extractPw(sgf) {
  * pw 数组顺序必须与 tar 内 SGF 顺序一致（均按文件名/id localeCompare 排序），
  * 否则下标对不上号 → 列表显示错标签、筛选错题目。
  */
-function writeMeta(catDir, category, date, entries) {
+function writeMeta(catDir, category, date, entries, chunks, chunkSize) {
   // entries 已在 writeArchive 中按 id 排序，此处保持同序
   const pw = entries.map(e => extractPw(e.sgf));
   const meta = {
-    version: '1.0',
+    version: '2.0',
     category,
     date,
     count: entries.length,
+    // 分块信息：取单题时按 chunkSize 定位所属块，只下载该块
+    chunkSize,
+    chunks: chunks.map(c => ({ start: c.start, count: c.count, size: c.size })),
     pw,
   };
   const buf = gzipSync(Buffer.from(JSON.stringify(meta), 'utf-8'));

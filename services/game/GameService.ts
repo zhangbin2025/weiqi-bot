@@ -18,6 +18,7 @@ import { DefaultGameStrategy, type IGameStrategy } from './GameStrategy';
 import { GameFetchHelper } from './GameFetchHelper';
 import { GameFoxwqHelper } from './GameFoxwqHelper';
 import { GameOgsHelper } from './GameOgsHelper';
+import type { ILibraryChunkStore } from './GameProviderRegistry';
 import type { KatagoSgfEntry } from './providers/katago/types';
 
 export interface IGameServiceOptions {
@@ -29,6 +30,8 @@ export interface IGameServiceOptions {
   configProvider?: IConfigProvider;
   proxyUrl?: string;
   ogsPlayerCache?: IDocumentStorage<OgsPlayerCacheEntry> | undefined;
+  /** 内置题库分块的持久化缓存（Web 端注入，刷新页面不必重新下载块） */
+  libraryChunkStore?: ILibraryChunkStore | undefined;
 }
 
 export class GameService implements IGameService {
@@ -51,6 +54,7 @@ export class GameService implements IGameService {
       snifferProvider: options?.snifferProvider,
       historyStorage: options?.historyStorage,
       proxyUrl: options?.proxyUrl,
+      libraryChunkStore: options?.libraryChunkStore,
     });
 
     const strategy = options?.strategy ?? new DefaultGameStrategy({

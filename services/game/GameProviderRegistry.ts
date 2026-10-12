@@ -32,6 +32,18 @@ export interface IProviderRegistryOptions {
   snifferProvider?: ISnifferProvider | undefined;
   historyStorage?: IGameHistoryStorage | undefined;
   proxyUrl?: string | undefined;
+  /**
+   * 内置题库分块的持久化缓存。
+   * 传入后已下载的块会留存，刷新页面不必重新下载（否则每刷新一次都重新拉块）。
+   * 仅 Web 客户端注入（基于 IndexedDB）；Android/桌面可后续按需接入。
+   */
+  libraryChunkStore?: ILibraryChunkStore | undefined;
+}
+
+/** 内置题库分块的持久化缓存接口 */
+export interface ILibraryChunkStore {
+  get(key: string): Promise<Uint8Array | null>;
+  set(key: string, data: Uint8Array): Promise<void>;
 }
 
 export class GameProviderRegistry {
@@ -45,10 +57,10 @@ export class GameProviderRegistry {
     network: NetworkManager,
     options?: IProviderRegistryOptions
   ) {
-    this.registerDefaultProviders(network, options?.snifferProvider, options?.historyStorage, options?.proxyUrl);
+    this.registerDefaultProviders(network, options?.snifferProvider, options?.historyStorage, options?.proxyUrl, options?.libraryChunkStore);
   }
 
-  private registerDefaultProviders(network: NetworkManager, snifferProvider?: ISnifferProvider, historyStorage?: IGameHistoryStorage, proxyUrl?: string): void {
+  private registerDefaultProviders(network: NetworkManager, snifferProvider?: ISnifferProvider, historyStorage?: IGameHistoryStorage, proxyUrl?: string, libraryChunkStore?: ILibraryChunkStore): void {
     // Foxwq（组合 Provider，用于用户查询等）
     this.foxwqProvider = new FoxwqProvider(network);
 
@@ -59,7 +71,10 @@ export class GameProviderRegistry {
     this.katagoProvider = new KatagoArchiveProvider(network);
 
     // 内置棋谱库 Provider（life-and-death / ai-review，本地 .tar.bz2）
-    this.libraryArchiveProvider = new BuiltinLibraryArchiveProvider(network);
+    // exactOptionalPropertyTypes 下不能显式传 undefined，故按需构造 config
+    this.libraryArchiveProvider = libraryChunkStore
+      ? new BuiltinLibraryArchiveProvider(network, { chunkStore: libraryChunkStore })
+      : new BuiltinLibraryArchiveProvider(network);
     this.libraryProvider = new BuiltinLibraryProvider(network, this.libraryArchiveProvider);
 
     // Archive Provider

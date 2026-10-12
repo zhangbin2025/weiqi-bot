@@ -9,6 +9,7 @@ import { AppSnifferProvider } from '../../../../infrastructure/network/adapters/
 import { UnsupportedSnifferProvider } from '../../../../infrastructure/network/adapters/common/UnsupportedSnifferProvider';
 import type { WebShellContext } from '../Context';
 import type { ISnifferProvider } from '../../../../infrastructure/network/interfaces/ISnifferProvider';
+import { LibraryChunkStore } from '../../../../infrastructure/storage/adapters/web/LibraryChunkStore';
 
 /** 棋谱下载依赖集合 */
 export interface GameDeps {
@@ -31,6 +32,9 @@ export async function createGameDeps(ctx: WebShellContext): Promise<GameDeps> {
   // 创建 SnifferProvider
   const snifferProvider = createSnifferProvider();
 
+  // 内置题库分块缓存（IndexedDB）：已下载的块留存，刷新页面不必重新下载
+  const libraryChunkStore = new LibraryChunkStore();
+
   const gameService = new GameService(ctx.network, {
     archiveCache,
     historyStorage,
@@ -38,6 +42,7 @@ export async function createGameDeps(ctx: WebShellContext): Promise<GameDeps> {
     snifferProvider,
     proxyUrl: ctx.proxyUrl,
     ogsPlayerCache,
+    libraryChunkStore,
   });
 
   return { gameService };
