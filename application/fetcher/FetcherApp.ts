@@ -198,11 +198,13 @@ export class FetcherApp {
         if (!registry) return [];
         const libProvider = registry.getLibraryProvider?.();
         if (!libProvider) return [];
-        // count 必须透传：内置题库有 4 万+ 条目，不截断会全量返回，
-        // 导致 FetcherPage 往 sessionStorage 写缓存时超出 ~5MB 配额而失败
-        // （异常被静默吞掉 → 返回 fetcher 时恢复不了列表与选中条目）。
-        // UI 一次只展示 10 条、滑到底 +10，全量拉取本就无用。
-        const items = await libProvider.listGameItems(category, count, kw || undefined);
+        // 内置题库返回全量，不做截断：
+        // 列表走 meta 索引（71KB / ~100ms），返回 4 万条本身很便宜；
+        // UI 侧按 displayed 分页渲染，一次只画 10 条。
+        // 早期曾为规避 sessionStorage 配额而截断到 100 条，导致题库显示不全；
+        // 真正的配额问题是「缓存 4 万条 items」，已改为不缓存 items（见 FetcherPage），
+        // 故此处恢复全量。
+        const items = await libProvider.listGameItems(category, undefined, kw || undefined);
         return items.map((item: any) => ({
           source,
           title: item.title,

@@ -82,25 +82,32 @@ export class FetcherPage implements IPage {
       // 兼容旧版持久化结构 { types, difficulty: '3D' }：统一迁移为 difficulties 数组
       try { this.filterState = normalizePuzzleFilterState(await this.localStore.read<FilterSelection>('fetcher_filter_state')); }
       catch { this.filterState = null; }
-      const cached = await this.sessionStore.read<any[]>('fetcher_latest_items');
-      if (cached && Array.isArray(cached) && cached.length > 0) {
-        // 恢复查询条件
-        const cachedSource = await this.sessionStore.read<string>('fetcher_latest_source');
-        const cachedKeyword = cachedSource ? await this.sessionStore.read<string>(`fetcher_latest_keyword_${cachedSource}`) : null;
+      // 兼容旧版：曾缓存过 items，现已不再写，读到时清掉避免占用配额
+      const staleItems = await this.sessionStore.read<any[]>('fetcher_latest_items');
+      if (staleItems && Array.isArray(staleItems)) {
+        await this.sessionStore.delete('fetcher_latest_items').catch(() => { /* ignore */ });
+      }
+      const cachedSource = await this.sessionStore.read<string>('fetcher_latest_source');
+      if (cachedSource) {
+        const cachedKeyword = await this.sessionStore.read<string>(`fetcher_latest_keyword_${cachedSource}`);
         const cachedDisplayed = await this.sessionStore.read<number>('fetcher_latest_displayed');
-        if (cachedSource) this.renderer.setLatestSource(cachedSource);
+        const cachedSelected = await this.sessionStore.read<string>('fetcher_latest_selected');
+        this.renderer.setLatestSource(cachedSource);
         if (cachedKeyword) this.renderer.setLatestKeyword(cachedKeyword);
-        // 恢复选中状态
-        const selectedUrl = await this.sessionStore.read<string>('fetcher_latest_selected');
-        this.renderer.setSelectedLatestUrl(selectedUrl);
-        this.renderer.renderLatestGames(cached);
-        // 恢复浏览位置（在首次渲染之后，避免被重置为 10）
+        this.renderer.switchToLatestTab();
+        // 按缓存条件重查，拿回完整列表（内置题库走 meta 索引，约 100ms）
+        // 注意：fetchLatestGames 会清除选中态（那是「新查询」的语义），
+        // 而此处是「恢复上次查询」，故重查后要把选中条目写回去。
+        await this.fetchLatestGames(cachedSource, cachedKeyword || undefined);
+        if (cachedSelected) {
+          this.renderer.setSelectedLatestUrl(cachedSelected);
+          await this.sessionStore.write('fetcher_latest_selected', cachedSelected).catch(() => { /* ignore */ });
+        }
+        // 恢复浏览位置（重查渲染之后设置，避免被重置为初始 10 条）
         if (cachedDisplayed) {
           this.renderer.setLatestDisplayed(cachedDisplayed);
           this.renderer.rerenderLatest();
         }
-        // 切换到最新标签页
-        this.renderer.switchToLatestTab();
       }
     } catch { /* ignore */ }
     // 根据恢复后的分类/来源刷新筛选图标显隐（仅做题+内置题库显示）
@@ -317,20 +324,19 @@ export class FetcherPage implements IPage {
       try { await this.sessionStore.delete('fetcher_latest_selected'); } catch { /* ignore */ }
       this.renderer.setSelectedLatestUrl(null);
       this.renderer.renderLatestGames(items);
-      // 缓存到 sessionStorage，页面返回时恢复
-      // 注意：items 过大时会撞上 sessionStorage ~5MB 配额而抛 QuotaExceededError。
-      // 此处不能静默吞掉——写失败意味着「返回时恢复不了列表」，且可能留下
-      // 写了一半的残缺缓存（items 写成功、source 失败），恢复出半截列表更难排查。
-      // 故失败时清掉本次可能写入的脏数据并显式告警。
+      // 缓存查询条件（不缓存 items）：页面返回时据此重查，即可回到同一列表与条目。
+      //
+      // 为什么不缓存 items：内置题库 4 万条，JSON 约 5MB，必然超出 sessionStorage
+      // ~5MB 配额（历史上正是这点导致内置题库返回恢复不了）。
+      // 改为重查的代价很低——内置题库走 meta 索引约 100ms，在线来源受网络影响但
+      // 本来也不该缓存大列表。收益是列表不再被截断，题库能完整展示。
       try {
-        await this.sessionStore.write('fetcher_latest_items', items);
         await this.sessionStore.write('fetcher_latest_source', source);
         await this.sessionStore.write(`fetcher_latest_keyword_${source}`, keyword || '');
         await this.sessionStore.write('fetcher_latest_displayed', this.renderer.getLatestDisplayed());
       } catch (e) {
-        console.warn('[FetcherPage] 列表缓存写入失败，返回时将无法恢复列表', {
+        console.warn('[FetcherPage] 查询条件缓存失败，返回时将无法恢复列表', {
           source,
-          itemCount: items.length,
           error: e instanceof Error ? e.message : String(e),
         });
         await this.clearLatestCache().catch(() => { /* ignore */ });
@@ -353,7 +359,7 @@ export class FetcherPage implements IPage {
     try { void this.localStore.write('fetcher_filter_state', state); } catch { /* ignore */ }
   }
 
-  /** 清空最新列表的会话缓存（写入失败时清理脏数据，避免恢复出半截列表） */
+  /** 清空最新列表的会话缓存（含已废弃的 items 键，用于清理旧版本残留） */
   private async clearLatestCache(): Promise<void> {
     await this.sessionStore.delete('fetcher_latest_items');
     await this.sessionStore.delete('fetcher_latest_source');
