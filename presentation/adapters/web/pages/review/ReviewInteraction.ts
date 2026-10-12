@@ -518,9 +518,11 @@ export class ReviewInteraction {
     }
     const pvY = this.boardSize - parseInt(numberStr, 10);
     if (pvX >= 0 && pvX < this.boardSize && pvY >= 0 && pvY < this.boardSize) {
-    // 判断下一着颜色：基于当前已有着法数
-    const currentMoveCount = (this.variationManager?.getCurrentMoves().length ?? 0);
-    const nextColor: PlayerColor = currentMoveCount % 2 === 0 ? 'black' : 'white';
+    // 判断下一着颜色：直接取 Game 的 currentPlayer
+    // 不能按「已有着法数 % 2」推断 —— 那等价于硬编码假设黑先，
+    // 白先（PL[W]）/让子棋会整体错一色，局面分析模式（死活题、白先分支）必现。
+    // Game 已正确处理 PL[] 先手方、让子棋默认白先、pass，与实际落子 doAddTrialMove 同源。
+    const nextColor: PlayerColor = this.game.getState().currentPlayer;
 
     this.board.setRecommendationCircles([{
       x: pvX, y: pvY, rank: 1,
