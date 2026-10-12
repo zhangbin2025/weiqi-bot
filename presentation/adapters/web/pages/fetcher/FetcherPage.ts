@@ -318,12 +318,23 @@ export class FetcherPage implements IPage {
       this.renderer.setSelectedLatestUrl(null);
       this.renderer.renderLatestGames(items);
       // 缓存到 sessionStorage，页面返回时恢复
+      // 注意：items 过大时会撞上 sessionStorage ~5MB 配额而抛 QuotaExceededError。
+      // 此处不能静默吞掉——写失败意味着「返回时恢复不了列表」，且可能留下
+      // 写了一半的残缺缓存（items 写成功、source 失败），恢复出半截列表更难排查。
+      // 故失败时清掉本次可能写入的脏数据并显式告警。
       try {
         await this.sessionStore.write('fetcher_latest_items', items);
         await this.sessionStore.write('fetcher_latest_source', source);
         await this.sessionStore.write(`fetcher_latest_keyword_${source}`, keyword || '');
         await this.sessionStore.write('fetcher_latest_displayed', this.renderer.getLatestDisplayed());
-      } catch { /* ignore */ }
+      } catch (e) {
+        console.warn('[FetcherPage] 列表缓存写入失败，返回时将无法恢复列表', {
+          source,
+          itemCount: items.length,
+          error: e instanceof Error ? e.message : String(e),
+        });
+        await this.clearLatestCache().catch(() => { /* ignore */ });
+      }
     } catch (error) {
       this.renderer.showLatestLoading(false);
       console.error('[FetcherPage] fetchLatestGames failed:', error);
@@ -340,6 +351,14 @@ export class FetcherPage implements IPage {
   private saveFilterState(state: FilterSelection): void {
     this.filterState = state;
     try { void this.localStore.write('fetcher_filter_state', state); } catch { /* ignore */ }
+  }
+
+  /** 清空最新列表的会话缓存（写入失败时清理脏数据，避免恢复出半截列表） */
+  private async clearLatestCache(): Promise<void> {
+    await this.sessionStore.delete('fetcher_latest_items');
+    await this.sessionStore.delete('fetcher_latest_source');
+    await this.sessionStore.delete('fetcher_latest_displayed');
+    await this.sessionStore.delete('fetcher_latest_selected');
   }
 
   private restoreKeyword(source: string): string | null {

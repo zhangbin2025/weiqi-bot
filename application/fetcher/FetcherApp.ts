@@ -198,7 +198,11 @@ export class FetcherApp {
         if (!registry) return [];
         const libProvider = registry.getLibraryProvider?.();
         if (!libProvider) return [];
-        const items = await libProvider.listGameItems(category, undefined, kw || undefined);
+        // count 必须透传：内置题库有 4 万+ 条目，不截断会全量返回，
+        // 导致 FetcherPage 往 sessionStorage 写缓存时超出 ~5MB 配额而失败
+        // （异常被静默吞掉 → 返回 fetcher 时恢复不了列表与选中条目）。
+        // UI 一次只展示 10 条、滑到底 +10，全量拉取本就无用。
+        const items = await libProvider.listGameItems(category, count, kw || undefined);
         return items.map((item: any) => ({
           source,
           title: item.title,
