@@ -290,7 +290,77 @@ footer {
   accent-color: #667eea;
   cursor: pointer;
 }
-.fetcher-filter-difficulty {
-  width: 100%;
+/* ===== 难度复选（做题页/下载页筛选弹框共用） ===== */
+/* 22 个难度（15K~1K、1D~7D）用胶囊平铺，比下拉更好点、便于多选 */
+.fetcher-filter-label-row,
+.puzzle-filter-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
-
+.fetcher-filter-clear,
+.puzzle-filter-clear {
+  /* 覆盖 shell.css 全局 button 规则（width:100%/渐变背景/margin-top） */
+  width: auto;
+  margin: 0;
+  padding: 2px 10px;
+  background: #f0f0f5;
+  background-image: none;
+  color: #666;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.6;
+  flex: 0 0 auto;
+}
+.fetcher-filter-clear:active,
+.puzzle-filter-clear:active {
+  background: #e2e2ee;
+  background-image: none;
+}
+/* 22 个难度（15K~1K、1D~7D）：胶囊用常规 46px 宽 + 8px 间距，
+   每行约 5 个、约 5 行放完，不设 max-height —— 宁可弹框高一点也不出滚动条 */
+.fetcher-filter-difficulties,
+.puzzle-filter-difficulties {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.fetcher-filter-diff,
+.puzzle-filter-diff {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 46px;
+  padding: 6px 8px;
+  border: 1px solid #dcdce6;
+  border-radius: 8px;
+  background: #fff;
+  color: #555;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.fetcher-filter-diff.active,
+.puzzle-filter-diff.active {
+  background: #eef1ff;
+  border-color: #667eea;
+  color: #667eea;
+  font-weight: 600;
+}
+.fetcher-filter-diff input,
+.puzzle-filter-diff input {
+  /* 隐藏原生勾选框但保留可点击/可访问性：整颗胶囊即点击区 */
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+}

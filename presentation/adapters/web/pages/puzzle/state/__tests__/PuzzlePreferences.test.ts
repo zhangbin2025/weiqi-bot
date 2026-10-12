@@ -8,7 +8,7 @@ import type { PuzzleSource } from '../../../../../../../application/puzzle/Puzzl
 
 const LIB: PuzzleSource = 'lib-life-death';
 const ONLINE: PuzzleSource = 'weiqi101';
-const STORED_FILTER = { types: ['死活', '官子'], difficulty: '3D' };
+const STORED_FILTER = { types: ['死活', '官子'], difficulties: ['3D'] };
 const EXPECT_KEYWORD = '(死活 or 官子) and 3D';
 
 describe('PuzzlePreferences', () => {
@@ -79,12 +79,12 @@ describe('PuzzlePreferences', () => {
   it('筛选条件为空（用户未设条件）时不出筛选题', async () => {
     const prefs = new PuzzlePreferences();
     await prefs.load();
-    prefs.setFilter({ types: [], difficulty: '' });
+    prefs.setFilter({ types: [], difficulties: [] });
     expect(prefs.resolveKeyword()).toBe('');
 
     const reloaded = new PuzzlePreferences();
     await reloaded.load();
-    expect(reloaded.getFilter()).toEqual({ types: [], difficulty: '' });
+    expect(reloaded.getFilter()).toEqual({ types: [], difficulties: [] });
     expect(reloaded.resolveKeyword()).toBe('');
   });
 
@@ -104,20 +104,72 @@ describe('PuzzlePreferences', () => {
   });
 
   it('脏数据：types 不是数组时回落空数组，不出题型筛选', async () => {
-    localStorage.setItem('weiqi-bot:puzzle_filter_state', JSON.stringify({ types: '死活', difficulty: '3D' }));
+    localStorage.setItem('weiqi-bot:puzzle_filter_state', JSON.stringify({ types: '死活', difficulties: ['3D'] }));
     const prefs = new PuzzlePreferences();
     await prefs.load();
-    expect(prefs.getFilter()).toEqual({ types: [], difficulty: '3D' });
+    expect(prefs.getFilter()).toEqual({ types: [], difficulties: ['3D'] });
     expect(prefs.resolveKeyword(LIB)).toBe('3D');
   });
 
   it('只设难度 / 只设题型都能生成关键字', async () => {
     const prefs = new PuzzlePreferences();
     await prefs.load();
-    prefs.setFilter({ types: [], difficulty: '5D' });
+    prefs.setFilter({ types: [], difficulties: ['5D'] });
     expect(prefs.resolveKeyword()).toBe('5D');
-    prefs.setFilter({ types: ['布局'], difficulty: '' });
+    prefs.setFilter({ types: ['布局'], difficulties: [] });
     expect(prefs.resolveKeyword()).toBe('布局');
+  });
+
+  // ===== 难度复选 =====
+  it('多难度生成 or 关键字并能持久化恢复', async () => {
+    const prefs = new PuzzlePreferences();
+    await prefs.load();
+    prefs.setFilter({ types: ['死活'], difficulties: ['3D', '4D'] });
+    expect(prefs.resolveKeyword(LIB)).toBe('死活 and (3D or 4D)');
+
+    const reloaded = new PuzzlePreferences();
+    await reloaded.load();
+    expect(reloaded.getFilter()).toEqual({ types: ['死活'], difficulties: ['3D', '4D'] });
+    expect(reloaded.resolveKeyword(LIB)).toBe('死活 and (3D or 4D)');
+  });
+
+  it('题型与难度同时多选', async () => {
+    const prefs = new PuzzlePreferences();
+    await prefs.load();
+    prefs.setFilter({ types: ['死活', '官子'], difficulties: ['2D', '3D'] });
+    expect(prefs.resolveKeyword(LIB)).toBe('(死活 or 官子) and (2D or 3D)');
+  });
+
+  it('旧版单值 difficulty 偏好自动迁移为 difficulties 数组', async () => {
+    localStorage.setItem('weiqi-bot:puzzle_filter_state', JSON.stringify({ types: ['死活'], difficulty: '3D' }));
+    const prefs = new PuzzlePreferences();
+    await prefs.load();
+    expect(prefs.getFilter()).toEqual({ types: ['死活'], difficulties: ['3D'] });
+    expect(prefs.resolveKeyword(LIB)).toBe('死活 and 3D');
+  });
+
+  it('旧版空难度偏好迁移为空数组（不按难度筛选）', async () => {
+    localStorage.setItem('weiqi-bot:puzzle_filter_state', JSON.stringify({ types: ['死活'], difficulty: '' }));
+    const prefs = new PuzzlePreferences();
+    await prefs.load();
+    expect(prefs.getFilter()).toEqual({ types: ['死活'], difficulties: [] });
+    expect(prefs.resolveKeyword(LIB)).toBe('死活');
+  });
+
+  it('difficulties 为脏数据时按单值处理（不炸、不产出非法关键字）', async () => {
+    localStorage.setItem('weiqi-bot:puzzle_filter_state', JSON.stringify({ types: ['死活'], difficulties: '3D' }));
+    const prefs = new PuzzlePreferences();
+    await prefs.load();
+    expect(prefs.getFilter()).toEqual({ types: ['死活'], difficulties: ['3D'] });
+    expect(prefs.resolveKeyword(LIB)).toBe('死活 and 3D');
+  });
+
+  it('difficulties 含空串时剔除（不产出 and 空原子）', async () => {
+    const prefs = new PuzzlePreferences();
+    await prefs.load();
+    prefs.setFilter({ types: ['死活'], difficulties: ['', '3D'] });
+    expect(prefs.getFilter()).toEqual({ types: ['死活'], difficulties: ['3D'] });
+    expect(prefs.resolveKeyword(LIB)).toBe('死活 and 3D');
   });
 
   it('非法来源不落盘、不改变当前来源', async () => {
@@ -145,11 +197,11 @@ describe('resolvePuzzleKeyword', () => {
 
   it('内置题库按条件生成关键字', () => {
     expect(resolvePuzzleKeyword(LIB, STORED_FILTER)).toBe(EXPECT_KEYWORD);
-    expect(resolvePuzzleKeyword(LIB, { types: ['死活'], difficulty: '' })).toBe('死活');
+    expect(resolvePuzzleKeyword(LIB, { types: ['死活'], difficulties: [] })).toBe('死活');
   });
 
   it('条件为空或 null 时不筛选', () => {
-    expect(resolvePuzzleKeyword(LIB, { types: [], difficulty: '' })).toBe('');
+    expect(resolvePuzzleKeyword(LIB, { types: [], difficulties: [] })).toBe('');
     expect(resolvePuzzleKeyword(LIB, null)).toBe('');
   });
 });

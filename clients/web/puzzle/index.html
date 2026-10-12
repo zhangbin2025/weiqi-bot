@@ -423,7 +423,8 @@
     #history-empty .empty-icon { font-size: 2.4em; opacity: 0.5; margin-bottom: 8px; }
 
     /* 筛选弹框（复用 ui.css 的 .dialog 体系） */
-    .puzzle-filter-dialog .dialog { max-width: 360px; width: 90%; }
+    /* 难度只剩 22 项，弹框不必加宽，收回 360px；高度上限放宽避免内容被截 */
+    .puzzle-filter-dialog .dialog { max-width: 360px; width: 90%; max-height: 88vh; overflow-y: auto; }
     .puzzle-filter-section { margin-bottom: 18px; }
     .puzzle-filter-label { font-size: 14px; font-weight: 600; color: #333; margin-bottom: 10px; text-align: left; }
     .puzzle-filter-types { display: flex; flex-wrap: wrap; gap: 10px 16px; }
@@ -441,7 +442,34 @@
       width: 16px; height: 16px; padding: 0; border: 0; margin: 0;
       flex: 0 0 auto; vertical-align: middle; accent-color: #667eea; cursor: pointer;
     }
-    .puzzle-filter-difficulty { width: 100%; }
+    /* ===== 难度复选胶囊（15K~7D 共 22 项）=====
+       注意：这里的规则与 shell.css 中的同份规则刻意重复。
+       原因：本页 <link shell.css> 排在内联 <style> 之前，构建产物里 Vite 会把打包 CSS
+       追加到 </head> 前（即内联之后），同优先级下后加载者胜出 —— 只写 shell.css 会被反向覆盖。
+       两份内容必须保持同步，改一处就要改另一处。 */
+    .puzzle-filter-label-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    /* 22 项不必挤：胶囊恢复常规 46px 宽 + 8px 间距，每行约 5 个、约 5 行，
+       刻意不设 max-height —— 宁可弹框高一点也不出滚动条 */
+    .puzzle-filter-difficulties { display: flex; flex-wrap: wrap; gap: 8px; }
+    .puzzle-filter-diff {
+      position: relative; display: inline-flex; align-items: center; justify-content: center;
+      min-width: 46px; padding: 6px 8px; border: 1px solid #dcdce6; border-radius: 8px;
+      background: #fff; color: #555; font-size: 13px; line-height: 1;
+      cursor: pointer; user-select: none;
+      transition: background .15s, border-color .15s, color .15s;
+    }
+    .puzzle-filter-diff.active { background: #eef1ff; border-color: #667eea; color: #667eea; font-weight: 600; }
+    .puzzle-filter-diff input {
+      /* 隐藏原生勾选框但保留可点击/可访问性：整颗胶囊即点击区 */
+      position: absolute; opacity: 0; width: 100%; height: 100%;
+      margin: 0; padding: 0; border: 0; cursor: pointer;
+    }
+    .puzzle-filter-clear {
+      /* 覆盖 shell.css 全局 button（width:100%/渐变背景/margin-top） */
+      width: auto; margin: 0; padding: 2px 10px; background: #f0f0f5; background-image: none;
+      color: #666; border-radius: 999px; font-size: 12px; font-weight: 500; line-height: 1.6; flex: 0 0 auto;
+    }
+    .puzzle-filter-clear:active { background: #e2e2ee; background-image: none; }
 
     /* ===== 矮屏（iPhone SE / 小屏安卓）：再压一轮，保证棋盘+按钮排一屏放下 ===== */
     @media (max-height: 720px) {

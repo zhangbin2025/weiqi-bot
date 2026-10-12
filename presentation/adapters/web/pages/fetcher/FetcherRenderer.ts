@@ -7,18 +7,18 @@ import type { FetcherResult, FetcherBookmark, ShareResult, LatestGameItem } from
 import type { FetcherFormatter } from './FetcherFormatter';
 import { WebOverlay } from '../../components/Overlay';
 import { WebQRCodeDialog } from '../../components/QRCodeDialog';
-import { Select } from '../../../../../clients/web/shared/ui';
 import {
   PUZZLE_FILTER_TYPES,
   PUZZLE_FILTER_DIFFICULTIES,
-  PUZZLE_FILTER_ALL_DIFFICULTY_OPTION,
+  normalizeDifficulties,
   buildPuzzleKeyword,
+  type PuzzleFilterState,
 } from '../../../../../services/game/providers/library/puzzleFilter';
-/** 筛选关键字生成的题型/难度选择状态（持久化用） */
-export interface FilterSelection {
-  types: string[];
-  difficulty: string;
-}
+/**
+ * 筛选关键字生成的题型/难度选择状态（持久化用）
+ * @description 直接复用题库筛选状态：题型复选 + 难度复选，与做题页同一套结构。
+ */
+export type FilterSelection = PuzzleFilterState;
 
 /** 渲染器事件回调（非用户交互事件） */
 export interface FetcherRendererEvents {
@@ -327,7 +327,11 @@ export class FetcherRenderer {
     const savedTypes = savedState && savedState.types.length > 0
       ? savedState.types
       : [PUZZLE_FILTER_TYPES[0]!.value];
-    const savedDifficulty = savedState ? savedState.difficulty : '';
+    // 难度支持复选（兼容性：旧版持久化的是单值 difficulty）
+    const savedDifficulties = savedState
+      ? normalizeDifficulties(savedState.difficulties ?? (savedState as { difficulty?: string }).difficulty)
+      : [];
+    const savedDiffSet = new Set(savedDifficulties);
 
     const typeCheckboxes = PUZZLE_FILTER_TYPES.map((t) => (
       '<label class="fetcher-filter-type">' +
@@ -337,12 +341,14 @@ export class FetcherRenderer {
       '</label>'
     )).join('');
 
-    // 首位显式放置「全部难度」：自绘 Select 再次点击已选项不会取消，
-    // 只有它是回到「不按难度筛选」的唯一入口（与做题页一致）
-    const difficultyOptions = [
-      PUZZLE_FILTER_ALL_DIFFICULTY_OPTION,
-      ...PUZZLE_FILTER_DIFFICULTIES.map((d) => ({ value: d, label: d })),
-    ];
+    // 难度与题型一致改用复选胶囊：多选按 or 组合，不选即「全部难度」（与做题页一致）
+    const difficultyChips = PUZZLE_FILTER_DIFFICULTIES.map((d) => (
+      '<label class="fetcher-filter-diff' + (savedDiffSet.has(d) ? ' active' : '') + '">' +
+        '<input type="checkbox" data-difficulty="' + d + '"' +
+          (savedDiffSet.has(d) ? ' checked' : '') + ' />' +
+        '<span>' + d + '</span>' +
+      '</label>'
+    )).join('');
 
     dialog.innerHTML = (
       '<div class="dialog-overlay show">' +
@@ -353,8 +359,11 @@ export class FetcherRenderer {
             '<div class="fetcher-filter-types">' + typeCheckboxes + '</div>' +
           '</div>' +
           '<div class="fetcher-filter-section">' +
-            '<div class="fetcher-filter-label">难度（单选，默认全部）</div>' +
-            '<div class="fetcher-filter-difficulty" id="fetcherFilterDifficulty"></div>' +
+            '<div class="fetcher-filter-label fetcher-filter-label-row">' +
+              '<span>难度（可多选，不选=全部）</span>' +
+              '<button type="button" class="fetcher-filter-clear" data-act="clear-diff">清空</button>' +
+            '</div>' +
+            '<div class="fetcher-filter-difficulties">' + difficultyChips + '</div>' +
           '</div>' +
           '<div class="dialog-btn-group">' +
             '<button class="dialog-btn secondary" data-act="cancel">取消</button>' +
@@ -365,12 +374,28 @@ export class FetcherRenderer {
     );
     document.body.appendChild(dialog);
 
-    // 难度下拉（自绘 @ui/Select，与 event/detail 一致，避免原生控件在 Android WebView 崩溃）
-    const diffHost = dialog.querySelector('#fetcherFilterDifficulty') as HTMLElement;
-    const diffSelect = Select.mount(diffHost, {
-      options: difficultyOptions,
-      value: savedDifficulty,
-      placeholder: '全部难度',
+    /** 选中态同步到胶囊样式（active 高亮） */
+    const syncChip = (input: HTMLInputElement) => {
+      const label = input.closest('.fetcher-filter-diff');
+      if (label) label.classList.toggle('active', input.checked);
+    };
+    dialog.querySelectorAll<HTMLInputElement>('input[data-difficulty]').forEach((input) => {
+      input.addEventListener('change', () => syncChip(input));
+    });
+
+    /** 读取当前勾选的难度（按选项表顺序输出，保证关键字稳定） */
+    const readDifficulties = (): string[] => {
+      const picked: string[] = [];
+      dialog.querySelectorAll<HTMLInputElement>('input[type="checkbox"][data-difficulty]')
+        .forEach((cb) => { if (cb.checked && cb.dataset['difficulty']) picked.push(cb.dataset['difficulty']!); });
+      return PUZZLE_FILTER_DIFFICULTIES.filter((d) => picked.includes(d));
+    };
+
+    dialog.querySelector('[data-act="clear-diff"]')?.addEventListener('click', () => {
+      dialog.querySelectorAll<HTMLInputElement>('input[data-difficulty]').forEach((input) => {
+        input.checked = false;
+        syncChip(input);
+      });
     });
 
     const close = () => dialog.remove();
@@ -379,9 +404,9 @@ export class FetcherRenderer {
       const types: string[] = [];
       dialog.querySelectorAll<HTMLInputElement>('input[type="checkbox"][data-type]:checked')
         .forEach((cb) => { const v = cb.dataset['type']; if (v) types.push(v); });
-      const difficulty = diffSelect ? diffSelect.getValue() : '';
-      const keyword = buildPuzzleKeyword(types, difficulty);
-      this.cb.onSaveFilterState?.({ types, difficulty });
+      const difficulties = readDifficulties();
+      const keyword = buildPuzzleKeyword(types, difficulties);
+      this.cb.onSaveFilterState?.({ types, difficulties });
       close();
       const source = this.sourceSelect.getValue() || 'lib-life-death';
       this.keywordInput.setValue(keyword);

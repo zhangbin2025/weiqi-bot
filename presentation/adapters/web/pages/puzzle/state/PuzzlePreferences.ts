@@ -9,7 +9,7 @@ import { LocalStorageAdapter } from '../../../../../../infrastructure/storage/ad
 import type { PuzzleSource } from '../../../../../../application/puzzle/PuzzleApp';
 import { PUZZLE_SOURCE_LABELS, DEFAULT_PUZZLE_SOURCE } from '../../../../../../application/puzzle/PuzzleApp';
 import type { PuzzleFilterState } from '../../../../../../services/game/providers/library/puzzleFilter';
-import { PUZZLE_FILTER_TYPES, buildPuzzleKeyword } from '../../../../../../services/game/providers/library/puzzleFilter';
+import { buildPuzzleKeyword, normalizePuzzleFilterState } from '../../../../../../services/game/providers/library/puzzleFilter';
 
 /** localStorage 命名空间（与 fetcher 页面一致） */
 const NAMESPACE = 'weiqi-bot';
@@ -41,24 +41,18 @@ const LIB_SOURCE: PuzzleSource = 'lib-life-death';
 export function resolvePuzzleKeyword(source: PuzzleSource, filter: PuzzleFilterState | null): string {
   if (source !== LIB_SOURCE) return '';
   if (!filter) return '';
-  return buildPuzzleKeyword(filter.types, filter.difficulty);
+  return buildPuzzleKeyword(filter.types, filter.difficulties ?? filter.difficulty);
 }
 
 /**
  * 校验并清洗筛选条件
- * @description 剔除未知题型、补齐缺失字段；未设置过（键不存在或结构非法）返回 null。
+ * @description 剔除未知题型、难度统一收敛为数组（兼容旧版单值 difficulty）；
+ *              未设置过（键不存在或结构非法）返回 null。
  *              全空状态（题型空 + 难度空）视为「显式不筛选」，原样保留。
  */
 function sanitizeFilter(raw: unknown): PuzzleFilterState | null {
   if (!raw || typeof raw !== 'object') return null;
-  const obj = raw as Record<string, unknown>;
-  const known = new Set(PUZZLE_FILTER_TYPES.map((t) => t.value));
-  const rawTypes = obj['types'];
-  const types = Array.isArray(rawTypes)
-    ? rawTypes.filter((t): t is string => typeof t === 'string' && known.has(t))
-    : [];
-  const difficulty = typeof obj['difficulty'] === 'string' ? obj['difficulty'] : '';
-  return { types, difficulty };
+  return normalizePuzzleFilterState(raw);
 }
 
 /** 做题页面偏好（来源 + 筛选条件）读写 */
@@ -98,10 +92,7 @@ export class PuzzlePreferences {
 
   /** 更新筛选条件偏好并持久化 */
   setFilter(filter: PuzzleFilterState): void {
-    this.filter = {
-      types: Array.isArray(filter.types) ? [...filter.types] : [],
-      difficulty: typeof filter.difficulty === 'string' ? filter.difficulty : '',
-    };
+    this.filter = normalizePuzzleFilterState(filter);
     void this.store.write(FILTER_KEY, this.filter).catch(() => { /* ignore */ });
   }
 

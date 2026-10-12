@@ -12,6 +12,7 @@ import { TaskHelper } from '../../../../../clients/web/shared/task-helper';
 import { buildArchiveUrl } from '../../../../../domain/sgf/SGFUtils';
 import { SessionStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/SessionStorageAdapter';
 import { LocalStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/LocalStorageAdapter';
+import { normalizePuzzleFilterState } from '../../../../../services/game/providers/library/puzzleFilter';
 import type { FilterSelection } from './FetcherRenderer';
 export interface FetcherPageConfig {
   fetcherApp: FetcherApp;
@@ -78,7 +79,8 @@ export class FetcherPage implements IPage {
     try {
       await this.sessionStore.initialize();
       // 读取持久化的筛选题型/难度（localStorage）
-      try { this.filterState = await this.localStore.read<FilterSelection>('fetcher_filter_state'); }
+      // 兼容旧版持久化结构 { types, difficulty: '3D' }：统一迁移为 difficulties 数组
+      try { this.filterState = normalizePuzzleFilterState(await this.localStore.read<FilterSelection>('fetcher_filter_state')); }
       catch { this.filterState = null; }
       const cached = await this.sessionStore.read<any[]>('fetcher_latest_items');
       if (cached && Array.isArray(cached) && cached.length > 0) {
