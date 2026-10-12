@@ -160,16 +160,8 @@ export class FetcherRenderer {
       this.latestPanel.setVisible(id === 'latest');
       this.bookmarkPanel.setVisible(id === 'bookmarks');
       this.resultCard.setVisible(id === 'query' && this.hasResult);
-      // 切到最新标签页时，滚动到选中条目
-      if (id === 'latest' && this._selectedLatestUrl) {
-        requestAnimationFrame(() => {
-          const el = this.latestCard.getContainer?.() as HTMLElement | undefined;
-          if (!el) return;
-          const sel = '[data-url="' + (this._selectedLatestUrl || '').replace(/"/g, '\\"') + '"]';
-          const target = el.querySelector(sel) as HTMLElement | null;
-          target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        });
-      }
+      // 切到最新标签页时，滚动到选中条目（列表已在内存中，可直接定位）
+      if (id === 'latest') this.scrollToSelectedLatest();
     });
     this.queryPanel.setTitle('📋 分享链接');
     this.input.setConfig({ type: 'textarea', placeholder: '支持：野狐、弈城、OGS、101围棋、弈客、元萝卜、腾讯围棋等平台...', clearable: true });
@@ -427,16 +419,8 @@ export class FetcherRenderer {
     this.latestPanel.setVisible(true);
     this.bookmarkPanel.setVisible(false);
     this.resultCard.setVisible(false);
-    // 滚动到选中条目
-    if (this._selectedLatestUrl) {
-      requestAnimationFrame(() => {
-        const el = this.latestCard.getContainer?.() as HTMLElement | undefined;
-        if (!el) return;
-        const sel = '[data-url="' + (this._selectedLatestUrl || '').replace(/"/g, '\\"') + '"]';
-        const target = el.querySelector(sel) as HTMLElement | null;
-        target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      });
-    }
+    // 列表仍在内存中（同一次会话内切标签页）：直接定位到选中条目
+    this.scrollToSelectedLatest();
   }
   showClipboardHint(): void {
     const container = this.queryPanel.asContainer() as HTMLElement;
@@ -514,6 +498,57 @@ export class FetcherRenderer {
     if (this._latestItems.length > 0) {
       this.renderLatestGames(this._latestItems);
     }
+  }
+
+  /**
+   * 滚动到选中条目（无选中项时静默返回）
+   *
+   * 必须在列表渲染完成之后调用：早于渲染时 DOM 里还没有该条目，
+   * querySelector 返回 null、滚动被静默跳过 —— 页面表现就是
+   * 「条目有高亮，但没有定位到它」。
+   *
+   * 返回恢复路径（FetcherPage.initialize）最容易踩这点：它是
+   * 「异步重查 → 渲染 → 写回选中态」，选中态是在渲染之后才设上的，
+   * 任何在重查前/重查中触发的滚动都必然落空。
+   *
+   * 浏览器有 bfcache，返回时整页从内存恢复、滚动位置天然保留，故看不出问题；
+   * Android WebView / Electron 不支持 bfcache，返回即整页重载走恢复路径，
+   * 于是只在桌面端与 Android 上暴露。
+   *
+   * 渲染完成到布局稳定之间可能还差几帧（整页重载尤其明显），
+   * 故在连续几帧内重试，直到命中目标节点。
+   */
+  scrollToSelectedLatest(): void {
+    const url = this._selectedLatestUrl;
+    if (!url) return;
+    // 选中项可能落在当前展示范围之外（恢复位置缓存缺失时），先扩容再定位
+    this.ensureSelectedRendered();
+    const selector = '[data-url="' + url.replace(/"/g, '\\"') + '"]';
+    let attempts = 0;
+    const tryScroll = (): void => {
+      const el = this.latestCard.getContainer?.() as HTMLElement | undefined;
+      const target = el?.querySelector(selector) as HTMLElement | null;
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+      // 目标还没进 DOM：再等几帧。始终找不到（如选中项已不在新结果里）则放弃
+      if (++attempts < 5) requestAnimationFrame(tryScroll);
+    };
+    requestAnimationFrame(tryScroll);
+  }
+
+  /**
+   * 保证选中条目处于已展示范围内，必要时扩容并重渲染。
+   * 仅用于恢复定位：正常浏览时展示范围由用户滚动决定，不应被动扩容。
+   */
+  private ensureSelectedRendered(): void {
+    const url = this._selectedLatestUrl;
+    if (!url || this._latestItems.length === 0) return;
+    const idx = this._latestItems.findIndex((item) => item.url === url);
+    if (idx < 0 || idx < this._displayedLatest) return;
+    this._displayedLatest = Math.min(idx + 1, this._latestItems.length);
+    this.renderLatestGames(this._latestItems);
   }
 
   /**

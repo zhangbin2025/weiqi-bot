@@ -108,6 +108,12 @@ export class FetcherPage implements IPage {
           this.renderer.setLatestDisplayed(cachedDisplayed);
           this.renderer.rerenderLatest();
         }
+        // 定位到选中条目：必须放在重查渲染 + 写回选中态之后。
+        // 早于渲染时 DOM 里还没有该条目，滚动会静默落空 —— 表现为
+        // 「条目有高亮、位置没定位」。Android WebView / Electron 不支持
+        // bfcache，返回即整页重载走这条恢复路径，故只有桌面端与
+        // Android 上出问题；纯 web 端靠 bfcache 保留了滚动位置，因此正常。
+        this.renderer.scrollToSelectedLatest();
       }
     } catch { /* ignore */ }
     // 根据恢复后的分类/来源刷新筛选图标显隐（仅做题+内置题库显示）
