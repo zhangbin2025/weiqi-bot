@@ -603,14 +603,16 @@ function writeIndex(outputDir) {
   const categories = {};
   for (const cat of CATEGORIES) {
     const dir = join(outputDir, cat);
-    const dates = [];
+    // 归档可能是整包 <date>.tar.bz2，也可能是分块 <date>.pNNNN.tar.bz2（题库分类）。
+    // 同一日期的 43 个分块会匹配出 43 个同名日期，故用 Set 去重。
+    const dateSet = new Set();
     if (existsSync(dir)) {
       for (const f of readdirSync(dir)) {
-        const m = /^(\d{4}-\d{2}-\d{2})\.tar\.bz2$/.exec(f);
-        if (m) dates.push(m[1]);
+        const m = /^(\d{4}-\d{2}-\d{2})(?:\.p\d{4})?\.tar\.bz2$/.exec(f);
+        if (m) dateSet.add(m[1]);
       }
     }
-    dates.sort((a, b) => b.localeCompare(a));
+    const dates = [...dateSet].sort((a, b) => b.localeCompare(a));
     categories[cat] = dates;
   }
   const index = { version: '1.0', generatedAt: new Date().toISOString(), categories };
