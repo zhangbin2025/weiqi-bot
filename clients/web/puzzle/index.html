@@ -353,6 +353,7 @@
       gap: 8px;
     }
     .toolbar-count { font-size: 13px; color: #666; }
+    .history-head-actions { display: flex; align-items: center; gap: 6px; }
     /* 清除按钮：右上角小图标，不占宽度 */
     .history-clear-btn {
       width: 28px;
@@ -471,6 +472,135 @@
     }
     .puzzle-filter-clear:active { background: #e2e2ee; background-image: none; }
 
+    /* ===== 统计弹框 ===== */
+    .puzzle-stats-dialog .dialog { max-width: 420px; width: 92%; max-height: 76vh; overflow-y: auto; }
+    /* 标签切换：棋力评估 / 做题统计
+       轨道与选中胶囊高度必须对齐：胶囊用固定高度填满轨道内高，
+       避免用 padding 撑高时受 line-height 影响而露出多余背景色 */
+    .pst-tabs {
+      display: flex;
+      align-items: stretch;
+      gap: 4px;
+      /* 轨道高度固定：内容区 32px + 上下 padding 3px */
+      height: 38px;
+      margin-bottom: 14px;
+      background: #f2f4f9;
+      border-radius: 10px;
+      padding: 3px;
+      box-sizing: border-box;
+    }
+    .pst-tab {
+      flex: 1 1 0;
+      /* 关键：shell.css 的全局 button 规则带 margin-top:12px / padding:12px 24px /
+         width:100%，会撑高轨道使灰色背景露出，必须显式重置 */
+      margin: 0;
+      width: auto;
+      height: auto;
+      min-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 8px;
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1;
+      color: #888;
+      background: transparent;
+      background-image: none;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      -webkit-appearance: none;
+      appearance: none;
+      opacity: 1;
+      transition: background 0.15s, color 0.15s;
+    }
+    .pst-tab:hover { color: #555; }
+    .pst-tab.active { background: #fff; color: #4338ca; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08); }
+    .puzzle-stats-body { text-align: left; }
+    .puzzle-stats-section { margin-bottom: 18px; }
+    .puzzle-stats-section:last-child { margin-bottom: 4px; }
+    .puzzle-stats-label {
+      font-size: 14px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 10px;
+    }
+    .puzzle-stats-empty { font-size: 13px; color: #999; padding: 6px 0; }
+    /* 综合棋力：主值大体字 + 区间 + 置信度 */
+    .puzzle-stats-rank {
+      display: flex;
+      align-items: baseline;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 10px 12px;
+      background: linear-gradient(135deg, #f5f7ff 0%, #eef2ff 100%);
+      border: 1px solid #dbe4ff;
+      border-radius: 10px;
+    }
+    .psr-value { font-size: 30px; font-weight: 700; color: #4338ca; line-height: 1.1; }
+    .psr-range { font-size: 13px; color: #555; }
+    .psr-conf { font-size: 11px; color: #888; margin-left: auto; }
+    .psr-conf-high { color: #2f855a; }
+    .psr-conf-medium { color: #b7791f; }
+    .psr-conf-low { color: #a0aec0; }
+    .puzzle-stats-comment {
+      font-size: 13px;
+      color: #555;
+      margin-top: 10px;
+      line-height: 1.6;
+    }
+    /* 分题型表格 */
+    .puzzle-stats-table { border: 1px solid #eee; border-radius: 10px; overflow: hidden; }
+    .pst-row {
+      display: grid;
+      grid-template-columns: minmax(52px, 1fr) auto auto 62px;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 10px;
+      font-size: 13px;
+      border-bottom: 1px solid #f2f2f2;
+    }
+    .pst-row:last-child { border-bottom: none; }
+    .pst-head {
+      background: #fafafa;
+      font-size: 12px;
+      color: #888;
+      font-weight: 600;
+    }
+    .pst-type { color: #333; }
+    .pst-count, .pst-rate { color: #888; font-size: 12px; text-align: right; }
+    .pst-rank { text-align: right; font-weight: 600; color: #4338ca; }
+    .pst-rank.psr-na { color: #bbb; font-weight: 400; }
+    /* 常规统计 */
+    .pss-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px 12px;
+    }
+    .pss-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+      font-size: 13px;
+      padding: 5px 8px;
+      background: #fafafa;
+      border-radius: 8px;
+    }
+    .pss-k { color: #888; }
+    .pss-v { color: #333; font-weight: 600; }
+    .psd-block { margin-top: 12px; }
+    .psd-title { font-size: 12px; color: #888; margin-bottom: 6px; }
+    .psd-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .psd-chip {
+      font-size: 12px;
+      color: #555;
+      background: #f0f2f8;
+      border-radius: 999px;
+      padding: 3px 10px;
+    }
+
     /* ===== 矮屏（iPhone SE / 小屏安卓）：再压一轮，保证棋盘+按钮排一屏放下 ===== */
     @media (max-height: 720px) {
       .glass-subtitle { display: none; }
@@ -549,7 +679,10 @@
           <h2>📋 做题历史</h2>
           <div class="history-head">
             <span id="history-count" class="toolbar-count">已做 0 题</span>
-            <button type="button" class="history-clear-btn" id="clear-btn" title="清空历史" aria-label="清空历史">🗑</button>
+            <div class="history-head-actions">
+              <button type="button" class="history-clear-btn" id="stats-btn" title="做题统计" aria-label="做题统计">📊</button>
+              <button type="button" class="history-clear-btn" id="clear-btn" title="清空历史" aria-label="清空历史">🗑</button>
+            </div>
           </div>
           <div id="history-grid"></div>
           <div id="history-empty">

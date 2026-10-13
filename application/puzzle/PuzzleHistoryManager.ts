@@ -5,6 +5,9 @@
  *              只要解出过一次即为「已解出」。
  */
 import type { IActivityLogService, ActivityEntry, ActivityStats } from '../../services/activity';
+import { analyzeStrength, type StrengthReport } from './PuzzleStrengthAnalyzer';
+
+export type { StrengthReport, RankEstimate, TypeStrength } from './PuzzleStrengthAnalyzer';
 
 /** 初始局面摆子 */
 export interface PuzzleInitialStone {
@@ -202,6 +205,15 @@ export class PuzzleHistoryManager {
       today: stats.today,
       avgDuration: entries.length > 0 ? Math.round(durationSum / entries.length) : 0,
     };
+  }
+
+  /**
+   * 获取完整统计报告（常规统计 + 棋力评估）
+   * @description 基于全部历史（同一题目已合并为一条记录）分析，不做时间范围过滤。
+   */
+  async getStrengthReport(): Promise<StrengthReport> {
+    const entries = await this.query({ limit: 10000 });
+    return analyzeStrength(entries);
   }
 
   /** 导入历史 */

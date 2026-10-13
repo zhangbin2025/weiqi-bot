@@ -24,6 +24,7 @@ import { PuzzleSolveHandler } from './handlers/PuzzleSolveHandler';
 import { PuzzleStudyHandler } from './handlers/PuzzleStudyHandler';
 import { PuzzleFilterDialog } from './ui/PuzzleFilterDialog';
 import { PuzzleHistoryPanel } from './ui/PuzzleHistoryPanel';
+import { PuzzleStatsDialog } from './ui/PuzzleStatsDialog';
 import type { PuzzleInitialStone } from '../../../../../application/puzzle/PuzzleHistoryManager';
 import { Select } from '@ui';
 
@@ -303,6 +304,7 @@ export class PuzzlePage implements IPage {
     document.getElementById('next-btn')?.addEventListener('click', () => void this.requestNext());
 
     // 历史面板（滚动加载，无翻页按钮）
+    document.getElementById('stats-btn')?.addEventListener('click', () => void this.openStatsDialog());
     document.getElementById('clear-btn')?.addEventListener('click', () => void this.historyPanel.clearHistory());
 
     // 正解弹框：研究 / 换题
@@ -967,6 +969,16 @@ export class PuzzlePage implements IPage {
 
   private renderHistoryPanel(): void {
     this.historyPanel.render();
+  }
+
+  /** 打开做题统计弹框（常规统计 + 棋力评估） */
+  private async openStatsDialog(): Promise<void> {
+    try {
+      const report = await this.config.puzzleApp.getStrengthReport();
+      PuzzleStatsDialog.open(report);
+    } catch (e) {
+      console.error('[PuzzlePage] 生成统计报告失败', e);
+    }
   }
 
   // ==================== 工具 ====================

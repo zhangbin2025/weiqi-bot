@@ -9,6 +9,7 @@ import type { IActivityLogService } from '../../services/activity';
 import type { LatestGameItem } from '../fetcher/types';
 import type { FetcherApp } from '../fetcher/FetcherApp';
 import { PuzzleHistoryManager, PuzzleHistoryEntry, PuzzleHistoryOptions, PuzzleStats, PuzzleResult } from './PuzzleHistoryManager';
+import type { StrengthReport } from './PuzzleStrengthAnalyzer';
 
 export type {
   PuzzleHistoryEntry,
@@ -16,6 +17,7 @@ export type {
   PuzzleStats,
   PuzzleResult,
 };
+export type { StrengthReport } from './PuzzleStrengthAnalyzer';
 
 /** 支持的题目来源 */
 export type PuzzleSource = 'lib-life-death' | 'weiqi101' | 'goproblems' | 'ogs-puzzle';
@@ -124,6 +126,11 @@ export class PuzzleApp {
   /** 获取统计信息 */
   async getStats(): Promise<PuzzleStats> {
     return this.historyManager.getStats();
+  }
+
+  /** 获取完整统计报告（常规统计 + 棋力评估） */
+  async getStrengthReport(): Promise<StrengthReport> {
+    return this.historyManager.getStrengthReport();
   }
 
   /** 导入历史 */
