@@ -70,6 +70,19 @@ describe('IntentRecognizer', () => {
       expect(result.matchedRule).toBe('url_download');
     });
 
+    it('应该识别内置棋谱库 lib:// 链接并匹配为下载棋谱', () => {
+      const result = recognizer.recognize('lib://life-and-death/2026-10-12/0');
+      expect(result.intent).toBe('download_game');
+      expect(result.params.url).toBe('lib://life-and-death/2026-10-12/0');
+      expect(result.matchedRule).toBe('url_download');
+    });
+
+    it('应该从混合文本中提取 lib:// 链接', () => {
+      const result = recognizer.recognize('帮我抓一下这盘 lib://ai-review/2026-10-12/7 的棋谱');
+      expect(result.intent).toBe('download_game');
+      expect(result.params.url).toBe('lib://ai-review/2026-10-12/7');
+    });
+
     it('应该识别棋手姓名并匹配为查询棋手', () => {
       const result = recognizer.recognize('柯洁');
       expect(result.intent).toBe('query_player');

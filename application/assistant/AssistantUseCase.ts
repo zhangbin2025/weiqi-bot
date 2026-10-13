@@ -501,8 +501,8 @@ ${linksHtml}`;
       // 过滤掉URL类型的值,并缩短过长的值
       const displayValues = Object.entries(entities)
         .filter(([key, value]) => {
-          // 过滤掉URL
-          if (typeof value === 'string' && (value.startsWith('http://') || value.startsWith('https://'))) {
+          // 过滤掉URL（在线链接 + 内置棋谱库 lib:// 链接）
+          if (typeof value === 'string' && (value.startsWith('http://') || value.startsWith('https://') || value.startsWith('lib://'))) {
             return false;
           }
           // 过滤掉 text 参数（用于周期性任务，不需要显示）

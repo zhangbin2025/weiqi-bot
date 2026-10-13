@@ -3,6 +3,7 @@
  * @module presentation/pages/fetcher/utils/clipboardDetector
  */
 import { WebClipboard } from '../../../../../../infrastructure/utils/clipboard/WebClipboard';
+import { isLibUrl } from '../../../../../../domain/intent/libUrl';
 /** 支持的棋谱平台 URL 模式 */
 const SHARE_LINK_PATTERNS = [
   /foxwq\.com/i,
@@ -30,12 +31,13 @@ export async function detectClipboardUrl(): Promise<string | null> {
 }
 /**
  * 从文本中提取 URL
+ * 支持在线分享链接（http/https）与内置棋谱库链接（lib://）
  */
 export function extractUrl(text: string | null | undefined): string | null {
   if (!text) return null;
   const trimmed = text.trim();
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  const match = text.match(/(https?:\/\/[^\s"'<>]+)/i);
+  if (/^(?:https?|lib):\/\//i.test(trimmed)) return trimmed;
+  const match = text.match(/((?:https?|lib):\/\/[^\s"'<>]+)/i);
   return match?.[1] ?? null;
 }
 /**
@@ -47,8 +49,10 @@ export function extractShareUrl(text: string | null | undefined): string | null 
   return isShareLink(url) ? url : null;
 }
 /**
- * 检查是否是支持的棋谱分享链接
+ * 检查是否是支持的棋谱链接
+ * 内置棋谱库（lib://）无需外链，直接可抓取
  */
 export function isShareLink(url: string): boolean {
+  if (isLibUrl(url)) return true;
   return SHARE_LINK_PATTERNS.some(p => p.test(url));
 }

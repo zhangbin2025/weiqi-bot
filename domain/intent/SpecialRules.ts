@@ -5,11 +5,12 @@
 import { SpecialRule } from './types';
 import { PLAYER_NAMES, EVENT_NAMES, FOXWQ_NICKNAMES } from './IntentConfig';
 import { EntityValidator, SURNAMES, PLAYER_BLACKLIST } from './EntityValidator';
+import { GAME_URL_REGEX } from './libUrl';
 
 /**
- * URL 正则
+ * 可抓取的棋谱链接（在线 http(s) + 内置棋谱库 lib://）
  */
-const URL_REGEX = /(https?:\/\/[^\s]+)/gi;
+const GAME_URL_PATTERN = GAME_URL_REGEX;
 
 /**
  * SGF 内容正则
@@ -33,13 +34,13 @@ export const SPECIAL_RULES: SpecialRule[] = [
   {
     name: 'url_download',
     priority: 100,
-    match: (text: string): boolean => URL_REGEX.test(text),
+    match: (text: string): boolean => GAME_URL_PATTERN.test(text),
     intent: 'download_game',
     extractParams: (text: string): Record<string, any> => {
-      const matches = text.match(URL_REGEX);
+      const matches = text.match(GAME_URL_PATTERN);
       return { url: matches ? matches[0] : '' };
     },
-    description: 'URL 自动识别为下载棋谱',
+    description: 'URL 自动识别为下载棋谱（http/https 在线链接 + lib:// 内置棋谱库）',
   },
   {
     name: 'sgf_download',

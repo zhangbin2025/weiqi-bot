@@ -5,10 +5,14 @@
  * 提供统一的实体验证逻辑，包括：
  * - 姓名验证（百家姓）
  * - SGF 内容验证
- * - URL 验证
+ * - URL 验证（http/https 在线链接 + lib:// 内置棋谱库）
  * - taskId 验证
  * - 野狐昵称验证
  */
+
+import { isLibUrl as isLibUrlImpl, extractLibUrl as extractLibUrlImpl, GAME_URL_REGEX } from './libUrl';
+
+export { LIB_URL_REGEX, GAME_URL_REGEX } from './libUrl';
 
 /**
  * 百家姓列表（常见姓氏）
@@ -148,11 +152,21 @@ export class EntityValidator {
 
   /**
    * 验证是否是 URL
+   * 包含在线链接（http/https）与内置棋谱库链接（lib://）
    * @param text 待验证的文本
    * @returns 是否是 URL
    */
   static isUrl(text: string): boolean {
-    return URL_REGEX.test(text);
+    return GAME_URL_REGEX.test(text);
+  }
+
+  /**
+   * 验证是否是内置棋谱库 URL（lib://）
+   * @param text 待验证的文本
+   * @returns 是否是 lib:// URL
+   */
+  static isLibUrl(text: string): boolean {
+    return isLibUrlImpl(text);
   }
 
   /**
@@ -166,12 +180,22 @@ export class EntityValidator {
 
   /**
    * 从文本中提取 URL
+   * 涵盖在线链接（http/https）与内置棋谱库链接（lib://）
    * @param text 文本内容
    * @returns 提取到的 URL，如果没有则返回 null
    */
   static extractUrl(text: string): string | null {
-    const match = text.match(URL_REGEX);
+    const match = text.match(GAME_URL_REGEX);
     return match ? match[0] : null;
+  }
+
+  /**
+   * 从文本中提取内置棋谱库 URL（lib://）
+   * @param text 文本内容
+   * @returns 提取到的 lib:// URL，如果没有则返回 null
+   */
+  static extractLibUrl(text: string): string | null {
+    return extractLibUrlImpl(text);
   }
 
   /**
