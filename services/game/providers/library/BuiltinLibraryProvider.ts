@@ -1,9 +1,12 @@
 /**
  * @fileoverview 内置棋谱库归档提供者
- * @description 从本机打包的内置棋谱库（clients/web/shared/assets/data/games）读取 .tar.bz2，
- *              按分类加载 SGF（每分类一个归档包，日期标签为最新日期）。
+ * @description 从本机打包的内置棋谱库（clients/web/shared/assets/data/games）读取分块 .tar.bz2，
+ *              按分类加载 SGF（每分类若干块，日期标签为最新日期）。
  *
- * 数据格式：与 KataGo 归档一致，每分类一个 YYYY-MM-DD.tar.bz2（日期为最新日期），内含若干 <id>.sgf。
+ * 数据格式：与 KataGo 归档一致，每分类按 <date>.pNNNN.tar.bz2 切块（日期为最新日期），
+ *          内含若干 <id>.sgf，块内顺序是全局顺序的一段。
+ *          块大小按分类不同（题库 1000/块、棋谱 50/块，见生成脚本 CHUNK_SIZE）。
+ * 元数据：<date>.meta.json.gz —— 题库存 pw[]、棋谱存 ids[]，另含 chunkSize / chunks
  * 索引：index.json.gz —— { version, generatedAt, categories: { cat: [dates...] } }
  *
  * URL 协议：
@@ -220,7 +223,7 @@ function evaluateFilter(expr: string, tags: PuzzleTags): boolean {
 
 /** 分块描述（meta.chunks[i]） */
 interface BuiltinLibraryChunk {
-  /** 该块首条在全局（pw 数组）中的下标 */
+  /** 该块首条在全局（pw / ids 数组）中的下标 */
   start: number;
   /** 该块条目数 */
   count: number;
@@ -228,18 +231,25 @@ interface BuiltinLibraryChunk {
   size: number;
 }
 
-/** 轻量元数据索引（题库分类，由生成脚本产出 <date>.meta.json.gz） */
+/**
+ * 轻量元数据索引（由生成脚本产出 <date>.meta.json.gz，两个分类都生成）。
+ * 题库写 pw（标签），棋谱写 ids（md5 文件名）—— 二者二选一，下标均对应
+ * 排序后的第 i 个 SGF，即 lib://<cat>/<date>/<i>。
+ * 字段均为必填：数据由构建脚本统一产出，不存在旧格式，缺任一字段即视为数据损坏。
+ */
 interface BuiltinLibraryMeta {
-  version?: string;
-  category?: string;
-  date?: string;
-  count?: number;
-  /** 每块条目数；缺省表示未分块（旧格式，整包） */
-  chunkSize?: number;
-  /** 块描述数组；缺省表示未分块 */
-  chunks?: BuiltinLibraryChunk[];
-  /** pw[i] 对应排序后的第 i 个 SGF，即 lib://<cat>/<date>/<i> */
-  pw: string[];
+  version: string;
+  category: string;
+  date: string;
+  count: number;
+  /** 每块条目数 */
+  chunkSize: number;
+  /** 块描述数组，覆盖 [0, count) 且无空洞重叠 */
+  chunks: BuiltinLibraryChunk[];
+  /** 题库：pw[i] 为第 i 条的「类型·难度」标签 */
+  pw?: string[];
+  /** 棋谱：ids[i] 为第 i 条的 md5 文件名（列表展示用） */
+  ids?: string[];
 }
 
 /**
@@ -257,8 +267,7 @@ interface ChunkStore {
 export class BuiltinLibraryArchiveProvider {
   private readonly dataUrl: string;
   private indexCache: Record<string, string[]> | null = null;
-  private gamesCache: Map<string, KatagoSgfEntry[]> = new Map();
-  private metaCache: Map<string, BuiltinLibraryMeta | null> = new Map();
+  private metaCache: Map<string, BuiltinLibraryMeta> = new Map();
   /** 已解压块的内存缓存：key = `${category}/${date}/${partIndex}` */
   private chunkCache: Map<string, KatagoSgfEntry[]> = new Map();
   /**
@@ -298,41 +307,18 @@ export class BuiltinLibraryArchiveProvider {
     return (cats[category] ?? []).slice();
   }
 
-  /** 下载某分类+日期的压缩包并解压得到 SGF 列表（按文件名排序 = 包内 id 排序） */
-  async fetchGamesByDate(category: string, date: string): Promise<KatagoSgfEntry[]> {
-    const key = `${category}/${date}`;
-    const cached = this.gamesCache.get(key);
-    if (cached) return cached;
-    const url = `${this.dataUrl}/${category}/${date}.tar.bz2`;
-    const response = await this.network.request<ArrayBuffer>({
-      url,
-      method: 'GET',
-      responseType: 'arraybuffer',
-    });
-    const compressed = new Uint8Array(response.data);
-    const tarData = decompressBz2(compressed);
-    const files = parseTar(tarData)
-      .filter(f => f.name.toLowerCase().endsWith('.sgf'))
-      .sort((a, b) => a.name.localeCompare(b.name));
-    const entries = files.map(f => ({
-      filename: f.name,
-      sgfContent: new TextDecoder('utf-8').decode(f.data),
-    }));
-    this.gamesCache.set(key, entries);
-    return entries;
-  }
+
 
   /**
    * 读取某分类+日期的轻量元数据索引（仅题库分类生成）。
    * 列表与筛选只走这份索引：体积约 71KB（对比整包 3.4MB），
    * 且无需 bz2 解压（实测全包解压 1.4s 是列表加载的主要耗时）。
    */
-  async fetchMeta(category: string, date: string): Promise<BuiltinLibraryMeta | null> {
+  async fetchMeta(category: string, date: string): Promise<BuiltinLibraryMeta> {
     const key = `${category}/${date}`;
     const cached = this.metaCache.get(key);
     if (cached !== undefined) return cached;
     const url = `${this.dataUrl}/${category}/${date}.meta.json.gz`;
-    let meta: BuiltinLibraryMeta | null = null;
     let compressed: Uint8Array | null = null;
     // ① 持久化缓存命中（免网络）
     if (this.chunkStore) {
@@ -342,29 +328,32 @@ export class BuiltinLibraryArchiveProvider {
         compressed = null;
       }
     }
-    try {
-      if (!compressed) {
-        const response = await this.network.request<ArrayBuffer>({
-          url,
-          method: 'GET',
-          responseType: 'arraybuffer',
-        });
-        compressed = new Uint8Array(response.data);
-        if (this.chunkStore) {
-          try {
-            await this.chunkStore.set(`meta/${key}`, compressed);
-          } catch {
-            /* 缓存失败不影响本次读取 */
-          }
+    // ② 网络下载
+    if (!compressed) {
+      const response = await this.network.request<ArrayBuffer>({
+        url,
+        method: 'GET',
+        responseType: 'arraybuffer',
+      });
+      compressed = new Uint8Array(response.data);
+      if (this.chunkStore) {
+        try {
+          await this.chunkStore.set(`meta/${key}`, compressed);
+        } catch {
+          /* 缓存失败不影响本次读取 */
         }
       }
-      const isGz = compressed[0] === 0x1f && compressed[1] === 0x8b;
-      const text = isGz ? pako.ungzip(compressed, { to: 'string' }) : new TextDecoder().decode(compressed);
-      const parsed = JSON.parse(text) as BuiltinLibraryMeta;
-      if (parsed && Array.isArray(parsed.pw)) meta = parsed;
-    } catch (e) {
-      console.warn('[BuiltinLibrary] 元数据索引读取失败', { category, date, error: e instanceof Error ? e.message : String(e) });
-      meta = null;
+    }
+    const isGz = compressed[0] === 0x1f && compressed[1] === 0x8b;
+    const text = isGz ? pako.ungzip(compressed, { to: 'string' }) : new TextDecoder().decode(compressed);
+    const meta = JSON.parse(text) as BuiltinLibraryMeta;
+    // 必填字段校验：数据由构建脚本统一产出，缺字段即视为损坏，直接抛错而非静默降级
+    if (
+      typeof meta?.count !== 'number' ||
+      typeof meta?.chunkSize !== 'number' ||
+      !Array.isArray(meta?.chunks)
+    ) {
+      throw new Error(`元数据索引格式损坏：${category}/${date}`);
     }
     this.metaCache.set(key, meta);
     return meta;
@@ -372,8 +361,8 @@ export class BuiltinLibraryArchiveProvider {
 
   /**
    * 读取某个分块的 SGF 列表（按块下载+解压，带双层缓存）。
-   * 分块的意义：取 1 道题不必下载整包（3.3MB / 解压 1.8s），
-   * 实测 1000 题/块时单块仅 ~90KB、解压 ~31ms。
+   * 分块的意义：取 1 条不必下载解压全包（题库 3.3MB / 1.8s，棋谱 2.8MB / 824ms）；
+   * 实测题库 1000 条/块时单块 ~83KB / 解压 ~31ms，棋谱 50 条/块时单块 274KB / 解压 119ms。
    */
   async fetchChunk(category: string, date: string, partIndex: number): Promise<KatagoSgfEntry[]> {
     const key = `${category}/${date}/${partIndex}`;
@@ -418,30 +407,73 @@ export class BuiltinLibraryArchiveProvider {
   }
 
   /**
-   * 按下标取单条 SGF（优先走分块路径）。
-   * @returns null 表示该分类/日期无分块信息（旧格式或未分块），调用方应回退整包
+   * 按下标取单条 SGF：只下载解压该下标所属的块。
+   * @throws 元数据缺失或下标越界
    */
-  async fetchEntryByIndex(category: string, date: string, index: number): Promise<KatagoSgfEntry | null> {
+  async fetchEntryByIndex(category: string, date: string, index: number): Promise<KatagoSgfEntry> {
     const meta = await this.fetchMeta(category, date);
-    if (!meta || !meta.chunks || !meta.chunkSize) return null;
+    if (!meta) throw new Error(`缺少元数据索引：${category}/${date}`);
+    if (index < 0 || index >= meta.count) {
+      throw new Error(`索引 ${index} 超出范围（共 ${meta.count} 条）`);
+    }
     const partIndex = Math.floor(index / meta.chunkSize);
     const chunk = meta.chunks[partIndex];
-    if (!chunk) return null;
+    if (!chunk) throw new Error(`元数据块信息缺失：${category}/${date}#${partIndex}`);
     const entries = await this.fetchChunk(category, date, partIndex);
     const localIndex = index - chunk.start;
-    return entries[localIndex] ?? null;
+    const entry = entries[localIndex];
+    if (!entry) throw new Error(`块内下标缺失：${category}/${date}#${index}`);
+    return entry;
   }
 
-  /** 适配 listPublicGames：返回伪 URL 列表，展开每个日期下的所有棋谱 */
+  /**
+   * 取某个分类+日期下 [0, limit) 范围的条目（按需只下载覆盖该范围的块）。
+   *
+   * 用途：定式发现批量取谱等场景只需前 N 盘，若解压整包
+   * （棋谱 2.8MB / 824ms，且其解压结果 18.9MB 会常驻内存）代价远超所需。
+   */
+  async fetchEntriesRange(category: string, date: string, limit: number): Promise<KatagoSgfEntry[]> {
+    if (limit <= 0) return [];
+    const meta = await this.fetchMeta(category, date);
+    if (!meta) throw new Error(`缺少元数据索引：${category}/${date}`);
+    const want = Math.min(limit, meta.count);
+    if (want === 0) return [];
+    const out: KatagoSgfEntry[] = [];
+    const lastPart = Math.floor((want - 1) / meta.chunkSize);
+    for (let p = 0; p <= lastPart && out.length < want; p++) {
+      const entries = await this.fetchChunk(category, date, p);
+      for (const e of entries) {
+        if (out.length >= want) break;
+        out.push(e);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * 适配 listPublicGames：返回伪 URL 列表，展开每个日期下的棋谱。
+   *
+   * 按需取块：先读 meta 得到总数，再只下载覆盖 count 所需的块，避免为取 10 盘
+   * 而解压整包（棋谱 2.8MB / 824ms、且其解压结果 18.9MB 会常驻内存）。
+   */
   async listPublicGames(category: string, date?: string, count?: number): Promise<string[]> {
     const dates = await this.listDates(category);
     const usable = date ? dates.filter(d => d === date) : dates;
     const urls: string[] = [];
     for (const d of usable) {
-      const games = await this.fetchGamesByDate(category, d);
-      for (let i = 0; i < games.length; i++) {
+      const meta = await this.fetchMeta(category, d);
+      if (!meta) throw new Error(`缺少元数据索引：${category}/${d}`);
+      // 目标条数：不传 count 则取全部
+      const want = count ? Math.min(count - urls.length, meta.count) : meta.count;
+      for (let i = 0; i < want; i++) {
         urls.push(`lib://${category}/${d}/${i}`);
-        if (count && urls.length >= count) break;
+      }
+      if (want > 0) {
+        // 只下载覆盖 [0, want) 的块（预热缓存，后续 fetch 直接命中内存）
+        const lastPart = Math.floor((want - 1) / meta.chunkSize);
+        for (let p = 0; p <= lastPart; p++) {
+          await this.fetchChunk(category, d, p);
+        }
       }
       if (count && urls.length >= count) break;
     }
@@ -480,14 +512,16 @@ export class BuiltinLibraryProvider extends BaseProvider {
     for (const date of dates) {
       if (count && results.length >= count) break;
       try {
-        // 题库：走轻量元数据索引。列表只需「类型·难度」标签，
-        // 为此解压整包（实测 1.4s / 49MB）纯属浪费 —— 现在只读 71KB 的 meta。
+        // 两个分类都走轻量元数据索引：列表只需一条标签/id 字符串，
+        // 为此解压整包（题库 1.4s / 49MB，棋谱 824ms / 18.9MB）纯属浪费。
+        // meta 体积：题库 ~71KB（pw），棋谱 ~12KB（ids）。
+        const meta = await this.archive.fetchMeta(category, date);
+        if (!meta) throw new Error(`缺少元数据索引：${category}/${date}`);
         if (isLifeAndDeath) {
-          const meta = await this.archive.fetchMeta(category, date);
-          if (!meta) continue; // 索引缺失已由 fetchMeta 告警，跳过该日期
-          for (let i = 0; i < meta.pw.length; i++) {
+          const pw = meta.pw ?? [];
+          for (let i = 0; i < pw.length; i++) {
             if (count && results.length >= count) break;
-            const raw = (meta.pw[i] ?? '').trim();
+            const raw = pw[i]!.trim();
             const tags = splitPuzzleTags(raw);
             if (kw && !evaluateFilter(kw, tags)) continue;
             results.push({
@@ -500,15 +534,14 @@ export class BuiltinLibraryProvider extends BaseProvider {
           }
           continue;
         }
-        const games = await this.archive.fetchGamesByDate(category, date);
-        for (let i = 0; i < games.length; i++) {
+        // 棋谱：subtitle 为 md5 id，直接读 meta.ids（不再解包）
+        const ids = meta.ids ?? [];
+        for (let i = 0; i < ids.length; i++) {
           if (count && results.length >= count) break;
-          const entry = games[i]!;
-          const id = entry.filename.replace(/\.sgf$/i, '');
           results.push({
             source: 'lib-ai-review',
             title: '#' + (i + 1),
-            subtitle: id,
+            subtitle: ids[i] ?? '',
             date,
             url: `lib://${category}/${date}/${i}`,
           });
@@ -531,27 +564,8 @@ export class BuiltinLibraryProvider extends BaseProvider {
     const date = match[2]!;
     const index = match[3] ? parseInt(match[3], 10) : 0;
     try {
-      // 优先走分块路径：只下载/解压该下标所属的块，避免整包 3.3MB。
-      // 取不到分块信息（旧格式、ai-review 未分块）时回退整包。
-      let entry: KatagoSgfEntry | null = null;
-      try {
-        entry = await this.archive.fetchEntryByIndex(category, date, index);
-      } catch (e) {
-        console.warn('[BuiltinLibraryProvider] 分块取题失败，回退整包', {
-          category, date, index, error: e instanceof Error ? e.message : String(e),
-        });
-        entry = null;
-      }
-      if (!entry) {
-        const entries = await this.archive.fetchGamesByDate(category, date);
-        if (entries.length === 0) {
-          return this.createErrorResult(url, '该日期无可用棋谱', timing);
-        }
-        if (index >= entries.length) {
-          return this.createErrorResult(url, `索引 ${index} 超出范围（共 ${entries.length} 盘）`, timing);
-        }
-        entry = entries[index]!;
-      }
+      // 只下载/解压该下标所属的块，避免整包（题库 3.3MB / 棋谱 2.8MB）
+      const entry = await this.archive.fetchEntryByIndex(category, date, index);
       const sgf = entry.sgfContent;
       const parsed = parseSGF(sgf);
       const info = parsed.gameInfo;

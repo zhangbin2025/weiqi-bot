@@ -21,15 +21,17 @@
  *   被跳过的重复项记入 ~/.weiqi-sgf-library/duplicate-map.json（本机溯源，不进仓库）。
  *
  * 输出（默认 clients/web/shared/assets/data/games/）：
- *   <category>/<YYYY-MM-DD>.pNNNN.tar.bz2  分块归档（每块 CHUNK_SIZE=1000 题）。
- *        取整包会让「加载 1 道题」也下载 3.3MB，故切块按需下载；
+ *   <category>/<YYYY-MM-DD>.pNNNN.tar.bz2  分块归档（块大小见 CHUNK_SIZE，按分类不同）。
+ *        取整包会让「加载 1 道题」也下载整包（题库 3.3MB / 棋谱 2.8MB），故切块按需下载；
  *        块内顺序是全局顺序的一段，meta 下标可直接换算到块内偏移。
- *   <category>/<YYYY-MM-DD>.meta.json.gz  轻量元数据（仅题库分类生成）：
- *        { version, category, date, count, pw: [标签...] }
- *        pw[i] 对应 tar 内按文件名排序后的第 i 个 SGF，即 lib://<cat>/<date>/<i>。
- *        只存标签不存 id：id 是 md5 随机串不可压缩（实测存 id 会从 71KB 涨到 813KB），
- *        而标签重复度极高（4.2 万题仅 276 种取值），gzip 后仅约 71KB。
- *        用途：列表/筛选只下载这份索引，避免为拿一个标签而解压 49MB 全包。
+ *   <category>/<YYYY-MM-DD>.meta.json.gz  轻量元数据（两个分类都生成）：
+ *        { version, category, date, count, chunkSize, chunks, pw?, ids? }
+ *        pw[i] / ids[i] 对应 tar 内按文件名排序后的第 i 个 SGF，即 lib://<cat>/<date>/<i>。
+ *        题库写 pw（标签）：只存标签不存 id —— id 是 md5 随机串不可压缩
+ *          （实测存 id 会从 71KB 涨到 813KB），而标签重复度极高（4.2 万题仅 276 种取值）。
+ *        棋谱写 ids（md5 文件名）：列表要展示 id，而棋谱盘数远少于题库，
+ *          678 个 id 实测约 12KB（gzip 后），代价可忽略。
+ *        用途：列表/筛选只下载这份索引，避免为拿一个标签或 id 而解压全包。
  *   index.json.gz                     { version, generatedAt, categories: { cat: [dates...] } }
  *
  * 增量：以「已存在归档的最大日期」为水位，重扫 > 水位的源日期（可捕获同日追加），
@@ -87,12 +89,22 @@ const SOURCES = {
 const CATEGORIES = ['life-and-death', 'ai-review'];
 
 /**
- * 分块归档：每块的题目数。
- * 取单题时只需下载+解压所在块，避免整包（3.3MB / 解压 1.8s）。
- * 实测（42246 题）：1000 题/块 → 43 块，总包体仅 +1.8%，单题下载 90KB、解压 31ms。
- * 块再小收益递减而包体与块数上升，故取 1000。
+ * 分块归档：每个分类每块的条目数。
+ * 取单条时只需下载+解压所在块，避免整包下载解压。
+ *
+ * 两个分类单条体积差 ~70 倍（题库单题 ~430B，实战棋谱单盘含变化图 ~30KB），
+ * 故块大小不能一刀切，按分类实测取值：
+ *   life-and-death  1000/块 → 4.5 万题 46 块，总包体 +1.8%，单块 ~90KB、解压 ~31ms
+ *   ai-review         50/块 → 678 盘 14 块，总包体 +0.6%，单块 ~266KB、解压 ~119ms
+ *     （ai-review 备选实测：100/块 +0.3% 489KB/163ms；150/块 +0.1% 732KB/222ms；
+ *       200/块 +0.1% 928KB/260ms）
+ *     取 50 是因为「点开一盘棋」体感最敏感，且包体代价仅 +0.6%。
+ * 数据规模持续增长，块数会随之上升，这里的题数/块数仅作当时量级参考。
  */
-const CHUNK_SIZE = 1000;
+const CHUNK_SIZE = {
+  'life-and-death': 1000,
+  'ai-review': 50,
+};
 
 // ─── 参数解析 ────────────────────────────────────────────
 
@@ -513,12 +525,18 @@ function scanSource(inputDir, sourceName, fromDateInclusive, today) {
   return out.sort((a, b) => (a.date + '/' + a.filename).localeCompare(b.date + '/' + b.filename));
 }
 
+/**
+ * 已有归档的最大日期（增量模式的水位）。
+ *
+ * 归档恒为分块命名 <date>.pNNNN.tar.bz2（整包已废弃），故正则必须匹配分块名；
+ * 否则函数恒返回 null，增量模式会静默退化成全量重扫。
+ */
 function maxExistingDate(outputDir, category) {
   const dir = join(outputDir, category);
   if (!existsSync(dir)) return null;
   let max = null;
   for (const f of readdirSync(dir)) {
-    const m = /^(\d{4}-\d{2}-\d{2})\.tar\.bz2$/.exec(f);
+    const m = /^(\d{4}-\d{2}-\d{2})\.p\d{4}\.tar\.bz2$/.exec(f);
     if (m && (!max || m[1] > max)) max = m[1];
   }
   return max;
@@ -536,30 +554,24 @@ function writeArchive(outputDir, category, date, entries) {
     mkdirSync(catDir, { recursive: true });
     const files = readdirSync(tmp).sort();
 
-    // 分块只对题库生效：题库 4 万+ 题，取整包意味着「加载 1 道题」也要下 3.3MB。
-    // 实战棋谱（ai-review）仅数百盘且无 meta（列表要读 id，仍需解包），
-    // 保持整包更简单，避免为它单独维护块索引。
-    if (category === 'life-and-death') {
-      // 块内文件顺序 = 全局顺序的一段，故 meta 下标可直接换算到块内偏移
-      const chunks = [];
-      for (let start = 0; start < files.length; start += CHUNK_SIZE) {
-        const partFiles = files.slice(start, start + CHUNK_SIZE);
-        const partIndex = Math.floor(start / CHUNK_SIZE);
-        const partName = `${date}.p${String(partIndex).padStart(4, '0')}.tar.bz2`;
-        const archivePath = join(catDir, partName);
-        execFileSync('tar', ['-cjf', archivePath, '-C', tmp, ...partFiles], { stdio: 'pipe' });
-        chunks.push({ partIndex, start, count: partFiles.length, size: statSync(archivePath).size });
-      }
-      const totalSize = chunks.reduce((a, c) => a + c.size, 0);
-      const maxSize = chunks.length ? Math.max(...chunks.map(c => c.size)) : 0;
-      console.log(`  📦 ${category}/${date} → ${chunks.length} 块 (${entries.length} 盘, ${Math.floor(totalSize / 1024)}KB, 单块最大 ${Math.floor(maxSize / 1024)}KB)`);
-      writeMeta(catDir, category, date, entries, chunks, CHUNK_SIZE);
-    } else {
-      const archivePath = join(catDir, `${date}.tar.bz2`);
-      execFileSync('tar', ['-cjf', archivePath, '-C', tmp, ...files], { stdio: 'pipe' });
-      const size = statSync(archivePath).size;
-      console.log(`  📦 ${category}/${date}.tar.bz2  (${entries.length} 盘, ${Math.floor(size / 1024)}KB)`);
+    // 两个分类都分块：取整包意味着「加载 1 条」也要下载解压全包
+    // （题库 3.3MB / 解压 1.8s，棋谱 2.8MB / 解压 824ms）。
+    // 块大小按分类取：单条体积差 ~70 倍，一刀切会让棋谱块=整包、题库块过小。
+    const size = CHUNK_SIZE[category] ?? 1000;
+    // 块内文件顺序 = 全局顺序的一段，故 meta 下标可直接换算到块内偏移
+    const chunks = [];
+    for (let start = 0; start < files.length; start += size) {
+      const partFiles = files.slice(start, start + size);
+      const partIndex = Math.floor(start / size);
+      const partName = `${date}.p${String(partIndex).padStart(4, '0')}.tar.bz2`;
+      const archivePath = join(catDir, partName);
+      execFileSync('tar', ['-cjf', archivePath, '-C', tmp, ...partFiles], { stdio: 'pipe' });
+      chunks.push({ partIndex, start, count: partFiles.length, size: statSync(archivePath).size });
     }
+    const totalSize = chunks.reduce((a, c) => a + c.size, 0);
+    const maxSize = chunks.length ? Math.max(...chunks.map(c => c.size)) : 0;
+    console.log(`  📦 ${category}/${date} → ${chunks.length} 块 (${entries.length} 盘, ${Math.floor(totalSize / 1024)}KB, 单块最大 ${Math.floor(maxSize / 1024)}KB)`);
+    writeMeta(catDir, category, date, entries, chunks, size);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -577,21 +589,26 @@ function extractPw(sgf) {
 
 /**
  * 写出轻量元数据索引 <category>/<date>.meta.json.gz
- * pw 数组顺序必须与 tar 内 SGF 顺序一致（均按文件名/id localeCompare 排序），
- * 否则下标对不上号 → 列表显示错标签、筛选错题目。
+ * pw / ids 数组顺序必须与 tar 内 SGF 顺序一致（均按文件名/id localeCompare 排序），
+ * 否则下标对不上号 → 列表显示错标签/id、筛选错题目。
+ *
+ * 题库写 pw（标签），棋谱写 ids（md5 文件名）—— 见文件头对两者取舍的说明。
  */
 function writeMeta(catDir, category, date, entries, chunks, chunkSize) {
   // entries 已在 writeArchive 中按 id 排序，此处保持同序
-  const pw = entries.map(e => extractPw(e.sgf));
+  const isPuzzle = category === 'life-and-death';
   const meta = {
-    version: '2.0',
+    version: '2.1',
     category,
     date,
     count: entries.length,
-    // 分块信息：取单题时按 chunkSize 定位所属块，只下载该块
+    // 分块信息：取单条时按 chunkSize 定位所属块，只下载该块
     chunkSize,
     chunks: chunks.map(c => ({ start: c.start, count: c.count, size: c.size })),
-    pw,
+    // 二选一：题库的标签 / 棋谱的 md5 id（exactOptionalPropertyTypes 下不写空字段）
+    ...(isPuzzle
+      ? { pw: entries.map(e => extractPw(e.sgf)) }
+      : { ids: entries.map(e => e.id) }),
   };
   const buf = gzipSync(Buffer.from(JSON.stringify(meta), 'utf-8'));
   const metaPath = join(catDir, `${date}.meta.json.gz`);
@@ -603,8 +620,8 @@ function writeIndex(outputDir) {
   const categories = {};
   for (const cat of CATEGORIES) {
     const dir = join(outputDir, cat);
-    // 归档可能是整包 <date>.tar.bz2，也可能是分块 <date>.pNNNN.tar.bz2（题库分类）。
-    // 同一日期的 43 个分块会匹配出 43 个同名日期，故用 Set 去重。
+    // 归档恒为分块 <date>.pNNNN.tar.bz2（题库 43 块 / 棋谱 13 块）。
+    // 同一日期的多个分块会匹配出多个同名日期，故用 Set 去重。
     const dateSet = new Set();
     if (existsSync(dir)) {
       for (const f of readdirSync(dir)) {

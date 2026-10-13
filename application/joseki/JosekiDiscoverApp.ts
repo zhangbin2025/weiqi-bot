@@ -156,7 +156,9 @@ export class JosekiDiscoverApp {
     for (const date of dates) {
       if (sgfList.length >= limit) break;
       try {
-        const entries = await libArchive.fetchGamesByDate('ai-review', date);
+        // 按需取块：只下载覆盖前 limit 盘的块，不解压整包
+        // （整包 2.8MB / 824ms，解压结果 18.9MB 会常驻内存缓存）
+        const entries = await libArchive.fetchEntriesRange('ai-review', date, limit - sgfList.length);
         for (const entry of entries) {
           if (sgfList.length >= limit) break;
           sgfList.push(entry.sgfContent);
@@ -169,7 +171,7 @@ export class JosekiDiscoverApp {
           });
         }
       } catch (e) {
-        console.error('[JosekiDiscoverApp] library fetchGamesByDate failed for', date, e);
+        console.error('[JosekiDiscoverApp] library fetchEntriesRange failed for', date, e);
       }
     }
 
