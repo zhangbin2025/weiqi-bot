@@ -40,10 +40,20 @@ export interface IProviderRegistryOptions {
   libraryChunkStore?: ILibraryChunkStore | undefined;
 }
 
-/** 内置题库分块的持久化缓存接口 */
+/**
+ * 内置题库分块的持久化缓存接口。
+ *
+ * 缓存键含构建版本（见 BuiltinLibraryArchiveProvider）：同一日期重复构建时键会变，
+ * 旧键自然失效；配合 keys()/delete() 可回收历史日期留下的块，避免 IndexedDB 无限增长
+ * （每换一次日期就多留一整套，题库 3.4MB + 棋谱 2.9MB）。
+ */
 export interface ILibraryChunkStore {
   get(key: string): Promise<Uint8Array | null>;
   set(key: string, data: Uint8Array): Promise<void>;
+  /** 列出全部缓存键（用于回收）；不可用时返回空数组 */
+  keys(): Promise<string[]>;
+  /** 删除指定键 */
+  delete(key: string): Promise<void>;
 }
 
 export class GameProviderRegistry {

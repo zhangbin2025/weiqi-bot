@@ -256,9 +256,24 @@ interface BuiltinLibraryMeta {
  * 块级缓存：内存 Map + 可选持久化后端。
  * 内存缓存解决同一次会话内反复取题；持久化解决「刷新页面又得重新下载」。
  */
+/**
+ * 块压缩数据的持久化缓存。
+ *
+ * 键含构建版本（取自 index.json.gz 的 generatedAt）：同一日期重复构建时键会变，
+ * 旧内容的块不会被误命中。仅按日期做键不够 —— 同日两次构建（手工 rebuild +
+ * cron 又跑一次）产出的块名完全相同，旧块会被当成有效缓存，新数据永远读不到，
+ * 只能靠用户手动清浏览器缓存。
+ *
+ * keys()/delete() 用于回收历史版本留下的块：每次重建都会留下一套新键，
+ * 不回收则 IndexedDB 随发布次数线性增长（单套约 6.3MB），写满后 set 静默失败。
+ */
 interface ChunkStore {
   get(key: string): Promise<Uint8Array | null>;
   set(key: string, data: Uint8Array): Promise<void>;
+  /** 列出全部缓存键（用于回收）；不可用时返回空数组 */
+  keys(): Promise<string[]>;
+  /** 删除指定键 */
+  delete(key: string): Promise<void>;
 }
 
 /**
@@ -267,8 +282,16 @@ interface ChunkStore {
 export class BuiltinLibraryArchiveProvider {
   private readonly dataUrl: string;
   private indexCache: Record<string, string[]> | null = null;
+  /**
+   * 构建版本，取自 index.json.gz 的 generatedAt。
+   * 作为块/meta 持久化缓存键的一部分，使「同日重复构建」也能正确失效。
+   * 未取到索引时为空串（此时键退化为仅含分类/日期，行为同旧版）。
+   */
+  private buildId: string = '';
+  /** 已回收过旧版本缓存的标记：一次会话内只清一次，避免每次取块都扫全表 */
+  private prunedForBuildId: string | null = null;
   private metaCache: Map<string, BuiltinLibraryMeta> = new Map();
-  /** 已解压块的内存缓存：key = `${category}/${date}/${partIndex}` */
+  /** 已解压块的内存缓存：key = `${category}/${date}/${partIndex}@${buildId}` */
   private chunkCache: Map<string, KatagoSgfEntry[]> = new Map();
   /**
    * 块/meta 原始字节的持久化缓存（可选注入；不注入则只走内存，刷新即失效）。
@@ -285,7 +308,13 @@ export class BuiltinLibraryArchiveProvider {
     this.chunkStore = config?.chunkStore ?? null;
   }
 
-  /** 读取索引，返回 { category: [dates...] } */
+  /**
+   * 读取索引，返回 { category: [dates...] }。
+   *
+   * 索引是唯一的「构建版本」来源（generatedAt 每次重建都会变），且它本身不做持久化
+   * 缓存（走 cache:'no-store'，也不写 IndexedDB），所以总能拿到当前发布版本。
+   * 取到后顺带回收历史版本遗留的块缓存 —— 见 pruneStaleChunks。
+   */
   async loadIndex(force = false): Promise<Record<string, string[]>> {
     if (this.indexCache && !force) return this.indexCache;
     const response = await this.network.request<ArrayBuffer>({
@@ -296,9 +325,60 @@ export class BuiltinLibraryArchiveProvider {
     const compressed = new Uint8Array(response.data);
     const isGz = compressed[0] === 0x1f && compressed[1] === 0x8b;
     const text = isGz ? pako.ungzip(compressed, { to: 'string' }) : new TextDecoder().decode(compressed);
-    const idx = JSON.parse(text) as { categories?: Record<string, string[]> };
+    const idx = JSON.parse(text) as { categories?: Record<string, string[]>; generatedAt?: string };
     this.indexCache = idx.categories ?? {};
+    // generatedAt 是构建时间戳，唯一标识一次发布；缺失时退化为 ''（键仅含分类/日期）
+    this.buildId = typeof idx.generatedAt === 'string' ? idx.generatedAt : '';
+    void this.pruneStaleChunks();
     return this.indexCache;
+  }
+
+  /**
+   * 回收非当前构建版本遗留的块/meta 缓存。
+   *
+   * 每次重建都会产出一整套新键，旧键不会自动消失。不回收则 IndexedDB 随发布次数
+   * 线性增长（单套约 6.3MB：题库 3.4MB + 棋谱 2.9MB），写满后 set() 会静默失败，
+   * 表现为「缓存莫名其妙不生效」且难以排查。
+   *
+   * 回收是尽力而为：失败仅记录告警，不影响取题。
+   */
+  private async pruneStaleChunks(): Promise<void> {
+    if (!this.chunkStore) return;
+    if (this.prunedForBuildId === this.buildId) return; // 同版本只清一次
+    this.prunedForBuildId = this.buildId;
+    try {
+      const keys = await this.chunkStore.keys();
+      const stale = keys.filter(k => !k.startsWith(`${this.buildId}@`));
+      if (stale.length === 0) return;
+      await Promise.all(stale.map(k => this.chunkStore!.delete(k)));
+      console.info('[BuiltinLibrary] 已回收历史版本的块缓存', {
+        buildId: this.buildId, removed: stale.length,
+      });
+    } catch (e) {
+      console.warn('[BuiltinLibrary] 块缓存回收失败（不影响取题）', {
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
+  /**
+   * 确保 buildId 已就绪（索引已加载）。
+   * fetchMeta / fetchChunk 可能被直接调用而不经过 listDates，此时 buildId 仍为空串，
+   * 会让缓存键退化成旧格式 —— 旧块缓存会被误命中。
+   * 失败时不抛出：索引不可用时退化为空前缀，行为同改动前。
+   */
+  private async ensureBuildId(): Promise<void> {
+    if (this.indexCache) return;
+    try {
+      await this.loadIndex();
+    } catch {
+      /* 索引不可用：退化为空 buildId */
+    }
+  }
+
+  /** 持久化缓存键前缀：构建版本（同日重复构建时键变，旧内容自然失效） */
+  private cacheKey(key: string): string {
+    return `${this.buildId}@${key}`;
   }
 
   /** 列出某分类下的日期（新→旧） */
@@ -318,12 +398,15 @@ export class BuiltinLibraryArchiveProvider {
     const key = `${category}/${date}`;
     const cached = this.metaCache.get(key);
     if (cached !== undefined) return cached;
+    // 缓存键依赖 buildId，而 buildId 取自索引：若调用方没先走 listDates
+    // （如直接按 lib:// URL 打开），这里要先确保索引已加载，否则键会退化成 '' 前缀
+    await this.ensureBuildId();
     const url = `${this.dataUrl}/${category}/${date}.meta.json.gz`;
     let compressed: Uint8Array | null = null;
     // ① 持久化缓存命中（免网络）
     if (this.chunkStore) {
       try {
-        compressed = await this.chunkStore.get(`meta/${key}`);
+        compressed = await this.chunkStore.get(this.cacheKey(`meta/${key}`));
       } catch {
         compressed = null;
       }
@@ -338,7 +421,7 @@ export class BuiltinLibraryArchiveProvider {
       compressed = new Uint8Array(response.data);
       if (this.chunkStore) {
         try {
-          await this.chunkStore.set(`meta/${key}`, compressed);
+          await this.chunkStore.set(this.cacheKey(`meta/${key}`), compressed);
         } catch {
           /* 缓存失败不影响本次读取 */
         }
@@ -368,6 +451,8 @@ export class BuiltinLibraryArchiveProvider {
     const key = `${category}/${date}/${partIndex}`;
     const mem = this.chunkCache.get(key);
     if (mem) return mem;
+    // 同 fetchMeta：确保 buildId 已就绪，避免缓存键退化
+    await this.ensureBuildId();
 
     const partName = `${date}.p${String(partIndex).padStart(4, '0')}.tar.bz2`;
     const url = `${this.dataUrl}/${category}/${partName}`;
@@ -376,7 +461,7 @@ export class BuiltinLibraryArchiveProvider {
     // ① 持久化缓存命中：免网络
     if (this.chunkStore) {
       try {
-        compressed = await this.chunkStore.get(key);
+        compressed = await this.chunkStore.get(this.cacheKey(key));
       } catch {
         compressed = null; // 读缓存失败不应阻断，回退到网络
       }
@@ -388,7 +473,7 @@ export class BuiltinLibraryArchiveProvider {
       // ③ 回写持久化缓存（失败不影响本次取题）
       if (this.chunkStore) {
         try {
-          await this.chunkStore.set(key, compressed);
+          await this.chunkStore.set(this.cacheKey(key), compressed);
         } catch (e) {
           console.warn('[BuiltinLibrary] 块缓存写入失败（不影响本次取题）', {
             key, error: e instanceof Error ? e.message : String(e),

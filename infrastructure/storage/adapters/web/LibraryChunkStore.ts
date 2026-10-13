@@ -5,12 +5,15 @@
  * @description
  * 缓存已下载的内置题库分块（.pNNNN.tar.bz2），使刷新页面不必重新下载。
  *
- * 背景：题库按 1000 题/块切分后，取一道题只需下载所在块（~90KB）。
+ * 背景：题库按 1000 条/块切分后，取一条只需下载所在块（~90KB）。
  * 但若不做持久化，页面刷新后内存缓存清空、又要重新下载 —— 用户每次打开
  * 做题页都要付一次 90KB。缓存后只有首次需要网络。
  *
- * 容量：43 块 × ~80KB ≈ 3.4MB，远低于 IndexedDB 配额（通常数百 MB），
- * 故不做淘汰；仅在读取到损坏记录时惰性清理。
+ * 容量与回收：单套数据约 6.3MB（题库 3.4MB + 棋谱 2.9MB）。
+ * 缓存键含构建版本，故每次重建都会留下一套新键 —— 若不回收，IndexedDB 会
+ * 随发布次数线性增长（每周重建 ≈ 一年 300MB+），写满后 set 静默失败、
+ * 表现为「缓存莫名其妙不生效」。故由 BuiltinLibraryArchiveProvider 在取到
+ * meta 后调用 keys()/delete() 清理非当前版本的键。
  */
 
 const DB_NAME = 'weiqi-bot-chunk-store';
@@ -70,6 +73,19 @@ export class LibraryChunkStore {
       await this.tx<void>(db, STORE_NAME, 'readwrite', (store) => store.delete(key) as IDBRequest<undefined>);
     } catch {
       /* ignore */
+    }
+  }
+
+  /** 列出全部缓存键（用于回收历史版本留下的块） */
+  async keys(): Promise<string[]> {
+    if (!this.isAvailable()) return [];
+    const db = await this.open();
+    if (!db) return [];
+    try {
+      const all = await this.tx<ChunkRecord[]>(db, STORE_NAME, 'readonly', (store) => store.getAll() as IDBRequest<ChunkRecord[]>);
+      return (all ?? []).map(r => r.key);
+    } catch {
+      return [];
     }
   }
 
