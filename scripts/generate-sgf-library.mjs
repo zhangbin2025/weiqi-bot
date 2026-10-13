@@ -17,7 +17,7 @@
  *   rawMd5     = md5(原始文件文本)           —— 同一文件多次落盘
  *   contentMd5 = md5(白名单重建后的 SGF)      —— 同一题换个来源/文件名也算重复
  *   判定以 contentMd5 为准（入库内容相同即重复），rawMd5 仅用于快筛与溯源。
- *   去重集合跨运行持久化：从 private-map.json 回填，故增量模式也能去掉与历史重复的棋谱。
+ *   去重在每次全量重建内生效（按分类判定，已入库即跳过）。
  *   被跳过的重复项记入 ~/.weiqi-sgf-library/duplicate-map.json（本机溯源，不进仓库）。
  *
  * 输出（默认 clients/web/shared/assets/data/games/）：
@@ -34,9 +34,13 @@
  *        用途：列表/筛选只下载这份索引，避免为拿一个标签或 id 而解压全包。
  *   index.json.gz                     { version, generatedAt, categories: { cat: [dates...] } }
  *
- * 增量：以「已存在归档的最大日期」为水位，重扫 > 水位的源日期（可捕获同日追加），
- *       更早日期不再变动，跨批次去重靠 private-map.json 里持久化的 contentMd5。
- *       --rebuild 全量重建（清空输出与去重集合，重扫所有日期，并重置 private-map）。
+ * 构建模式：恒为全量重建 —— 每次运行都清空输出与去重集合，重扫所有日期，
+ *       并重置 private-map.json。不提供增量模式（水位递增 + 跨批次去重）。
+ *
+ *       原因：归档已按日期分块，增量追加会让「同一个日期目录下既有旧块又有新块」
+ *       的边界情况难以维护；且全量重建能重新纳入历史上被去重跳过的记录，
+ *       并保证 private-map 始终是「本次发布产物 ↔ 本地路径」的完整映射
+ *       （增量模式下 private-map 只覆盖增量部分，老条目溯源不到）。
  *
  * 匿名化 / 精简（发布数据不含来源、人名、平台名、口令）：
  *   死活题：棋手→黑棋/白棋；分支标签去人名；难度/先后手/正解图/失败图保留。
@@ -53,7 +57,6 @@
  *   --input  <path>   源目录（默认 ~/.weiqi-sgf）
  *   --output <path>   输出目录（默认 clients/web/shared/assets/data/games）
  *   --key-path <path> 口令文件（默认 ~/.weiqi-sgf-library/.library-key）
- *   --rebuild         忽略水位，全量重建
  *   --dedup-only      只统计重复、不改动输出（去重体检用）
  *   -h, --help
  */
@@ -110,26 +113,27 @@ const CHUNK_SIZE = {
 
 function parseArgs() {
   const args = process.argv.slice(2);
-  const opts = { input: DEFAULT_INPUT, output: DEFAULT_OUTPUT, keyPath: DEFAULT_KEY_PATH, rebuild: false };
+  const opts = { input: DEFAULT_INPUT, output: DEFAULT_OUTPUT, keyPath: DEFAULT_KEY_PATH };
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
       case '--input': opts.input = args[++i]; break;
       case '--output': opts.output = args[++i]; break;
       case '--key-path': opts.keyPath = args[++i]; break;
-      case '--rebuild': opts.rebuild = true; break;
       case '--dedup-only': opts.dedupOnly = true; break;
       case '--help':
       case '-h':
         console.log(`
-内置棋谱库生成脚本 v1.2
+内置棋谱库生成脚本 v1.3（全量重建）
 
 用法: npx tsx scripts/generate-sgf-library.mjs [选项]
+
+说明: 每次运行都是全量重建 —— 清空输出与去重集合，重扫所有日期，
+      并重置 private-map.json。无增量模式。
 
 选项:
   --input  <path>   源目录（默认 ~/.weiqi-sgf）
   --output <path>   输出目录（默认 clients/web/shared/assets/data/games）
   --key-path <path> 口令文件（默认 ~/.weiqi-sgf-library/.library-key）
-  --rebuild         忽略水位，全量重建
   --dedup-only      只统计重复、不改动输出（去重体检用）
   -h, --help        显示帮助
 `);
@@ -158,7 +162,7 @@ function loadOrCreateKey(keyPath) {
   writeFileSync(keyPath, key + '\n', { mode: 0o600 });
   console.log(`🔑 生成新的随机口令并写入: ${keyPath}`);
   console.log(`   ${key}`);
-  console.log('   （如需自定义，请编辑该文件后使用 --rebuild 重新生成）');
+  console.log('   （如需自定义，请编辑该文件后重新生成）');
   return key;
 }
 
@@ -180,16 +184,11 @@ function localDateString(d = new Date()) {
 }
 
 /**
- * 从 private-map.json 回填「已入库棋谱」的 contentMd5 去重集合。
- * 老版本 private-map 没有 contentMd5 字段时返回空集合（本次运行内仍会去重）。
- * 返回 { all, history }：history 是本次运行前已入库的子集，用于区分「历史重复」与「本次重复」。
+ * 本次运行内的 contentMd5 去重集合（key = "<category>:<contentMd5>"）。
+ * 全量重建下每次都从空集合开始，故不存在「历史重复」与「本次重复」之分。
  */
-function loadDedupSet(privateMap) {
-  const all = new Set();
-  for (const rec of Object.values(privateMap || {})) {
-    if (rec && typeof rec.contentMd5 === 'string' && rec.contentMd5) all.add(rec.category + ':' + rec.contentMd5);
-  }
-  return { all, history: new Set(all) };
+function loadDedupSet() {
+  return { all: new Set() };
 }
 
 // ─── Domain SGF 接口 ────────────────────────────────────
@@ -505,7 +504,7 @@ function processSgf(text, category, perspective) {
 
 // ─── 扫描 / 水位 ─────────────────────────────────────────
 
-function scanSource(inputDir, sourceName, fromDateInclusive, today) {
+function scanSource(inputDir, sourceName, today) {
   const dir = join(inputDir, sourceName);
   if (!existsSync(dir)) return [];
   const out = [];
@@ -514,32 +513,14 @@ function scanSource(inputDir, sourceName, fromDateInclusive, today) {
     if (!statSync(dp).isDirectory()) continue;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dateDir)) continue;
     // 跳过当天：实时追加类来源（如 shizhan101 每 5 分钟更新）当天数据不完整，
-    // 次日再纳入，避免同日新增被水位逻辑遗漏或打包冲突。其它来源无当天数据，无影响。
+    // 次日再纳入，避免打包不完整。其它来源无当天数据，无影响。
     if (today && dateDir === today) continue;
-    if (fromDateInclusive && dateDir <= fromDateInclusive) continue;
     for (const f of readdirSync(dp)) {
       if (!f.toLowerCase().endsWith('.sgf')) continue;
       out.push({ date: dateDir, seq: basename(f, '.sgf'), path: join(dp, f), filename: f });
     }
   }
   return out.sort((a, b) => (a.date + '/' + a.filename).localeCompare(b.date + '/' + b.filename));
-}
-
-/**
- * 已有归档的最大日期（增量模式的水位）。
- *
- * 归档恒为分块命名 <date>.pNNNN.tar.bz2（整包已废弃），故正则必须匹配分块名；
- * 否则函数恒返回 null，增量模式会静默退化成全量重扫。
- */
-function maxExistingDate(outputDir, category) {
-  const dir = join(outputDir, category);
-  if (!existsSync(dir)) return null;
-  let max = null;
-  for (const f of readdirSync(dir)) {
-    const m = /^(\d{4}-\d{2}-\d{2})\.p\d{4}\.tar\.bz2$/.exec(f);
-    if (m && (!max || m[1] > max)) max = m[1];
-  }
-  return max;
 }
 
 // ─── 打包 ────────────────────────────────────────────────
@@ -637,12 +618,6 @@ function writeIndex(outputDir) {
   console.log(`  🗂  index.json.gz (${Object.entries(categories).map(([c, d]) => `${c}:${d.length}`).join(', ')})`);
 }
 
-function loadPrivateMap() {
-  if (existsSync(PRIVATE_MAP_PATH)) {
-    try { return JSON.parse(readFileSync(PRIVATE_MAP_PATH, 'utf-8')); } catch { /* ignore */ }
-  }
-  return {};
-}
 function savePrivateMap(map) {
   mkdirSync(LIB_DIR, { recursive: true });
   writeFileSync(PRIVATE_MAP_PATH, JSON.stringify(map, null, 2) + '\n');
@@ -657,11 +632,11 @@ function saveDuplicateMap(map) {
 function main() {
   const opts = parseArgs();
   console.log('='.repeat(56));
-  console.log('内置棋谱库生成 v1.2');
+  console.log('内置棋谱库生成 v1.3（全量重建）');
   console.log(`源目录 : ${opts.input}`);
   console.log(`输出   : ${opts.output}`);
   console.log(`口令   : ${opts.keyPath}`);
-  console.log(`重建   : ${opts.rebuild}`);
+  console.log(`模式   : 全量重建`);
   console.log(`去重   : MD5（原始 + 白名单重建后内容，按分类）`);
   console.log('='.repeat(56));
 
@@ -671,39 +646,29 @@ function main() {
   // --dedup-only 是只读体检：清目录前先短路，避免误删已有产物
   if (opts.dedupOnly) {
     console.log('（--dedup-only 只读体检模式，不改动输出目录）');
-  } else if (opts.rebuild) {
+  } else {
     for (const cat of CATEGORIES) rmSync(join(opts.output, cat), { recursive: true, force: true });
     rmSync(join(opts.output, 'index.json.gz'), { force: true });
   }
 
-  // --rebuild 时重置私密映射与去重集合（全量重建 = 从零开始，包含历史上被去重跳过的记录）
-  let privateMap = loadPrivateMap();
-  if (opts.rebuild) {
-    privateMap = {};
-    rmSync(DUPLICATE_MAP_PATH, { force: true });
-  }
+  // 全量重建 = 从零开始：清空私密映射与去重清单，
+  // 使 private-map 精确覆盖本次发布产物（历史被去重跳过的记录也会重新参与判定）
+  let privateMap = {};
+  if (!opts.dedupOnly) rmSync(DUPLICATE_MAP_PATH, { force: true });
   let duplicateMap = {};
-  const watermark = {};
-  for (const cat of CATEGORIES) {
-    watermark[cat] = opts.rebuild ? null : maxExistingDate(opts.output, cat);
-  }
   // 当天日期（本地时区），用于跳过实时追加类来源的当日数据
   // 注意：不能用 toISOString()（UTC），CST 早上跑会算成前一天，漏跳当日
   const today = localDateString();
-  for (const cat of CATEGORIES) {
-    console.log(`水位 [${cat}]: ${watermark[cat] ? watermark[cat] + '（不含）' : '(无，全量)'}`);
-  }
 
   const buckets = { 'life-and-death': {}, 'ai-review': {} };
-  // 去重集合：key = "<category>:<contentMd5>"，已入库即跳过
-  const dedup = loadDedupSet(privateMap);
-  console.log(`\n历史去重集合: ${dedup.history.size} 条${opts.rebuild ? '（--rebuild 已重置）' : ''}`);
+  // 去重集合：key = "<category>:<contentMd5>"，已入库即跳过（本次运行内生效）
+  const dedup = loadDedupSet();
   // 统计
   const stats = {
     scanned: 0, kept: 0,
     dupRaw: 0,            // 原始文件 MD5 重复（同一来源内同一文件重复落盘，仅统计不跳过）
     dupContent: 0,        // 本次运行内重复（白名单重建后内容相同，含跨来源）
-    dupHistory: 0,        // 与本次运行前已入库的棋谱重复（跨批次）
+
     parseFailed: 0,
     perSource: {},
   };
@@ -711,10 +676,10 @@ function main() {
   const keepDedupOnly = !!opts.dedupOnly;
 
   for (const [srcName, cfg] of Object.entries(SOURCES)) {
-    const files = scanSource(opts.input, srcName, watermark[cfg.category], today);
+    const files = scanSource(opts.input, srcName, today);
     if (files.length === 0) continue;
     console.log(`\n来源 ${srcName} → ${cfg.category}: ${files.length} 盘`);
-    const ss = (stats.perSource[srcName] ||= { scanned: 0, kept: 0, dupRaw: 0, dupContent: 0, dupHistory: 0, parseFailed: 0 });
+    const ss = (stats.perSource[srcName] ||= { scanned: 0, kept: 0, dupRaw: 0, dupContent: 0, parseFailed: 0 });
 
     for (const f of files) {
       stats.scanned++; ss.scanned++;
@@ -737,8 +702,7 @@ function main() {
       const contentMd5 = md5(sgf);
       const dedupKey = cfg.category + ':' + contentMd5;
       if (dedup.all.has(dedupKey)) {
-        if (dedup.history.has(dedupKey)) stats.dupHistory++, ss.dupHistory++;
-        else stats.dupContent++, ss.dupContent++;
+        stats.dupContent++, ss.dupContent++;
         duplicateMap[`${srcName}/${f.date}/${f.filename}`] = {
           path: f.path, source: srcName, date: f.date, filename: f.filename,
           rawMd5, contentMd5, category: cfg.category,
@@ -768,11 +732,10 @@ function main() {
   console.log(`  扫描       : ${stats.scanned}`);
   console.log(`  入库       : ${stats.kept}`);
   console.log(`  原始重复   : ${stats.dupRaw}（同来源内同一文件重复落盘）`);
-  console.log(`  本次重复   : ${stats.dupContent}（白名单重建后内容相同，含跨来源）`);
-  console.log(`  历史重复   : ${stats.dupHistory}（与本次运行前已入库的棋谱重复）`);
+  console.log(`  内容重复   : ${stats.dupContent}（白名单重建后内容相同，含跨来源）`);
   console.log(`  解析失败   : ${stats.parseFailed}`);
   for (const [src, s] of Object.entries(stats.perSource)) {
-    console.log(`    · ${src.padEnd(12)} 扫描 ${String(s.scanned).padStart(6)}  入库 ${String(s.kept).padStart(6)}  内容重复 ${String(s.dupContent + s.dupHistory).padStart(5)}  原始重复 ${String(s.dupRaw).padStart(5)}`);
+    console.log(`    · ${src.padEnd(12)} 扫描 ${String(s.scanned).padStart(6)}  入库 ${String(s.kept).padStart(6)}  内容重复 ${String(s.dupContent).padStart(5)}  原始重复 ${String(s.dupRaw).padStart(5)}`);
   }
   console.log('-'.repeat(56));
 
@@ -786,8 +749,8 @@ function main() {
   let total = 0, nLife = 0, nAi = 0;
   for (const cat of CATEGORIES) {
     const dates = Object.keys(buckets[cat]).sort();
-    if (dates.length === 0) { console.log(`  ${cat}: 无新增`); continue; }
-    // 增量包：合并本次新增的所有日期棋谱到一个包，日期标签用最新日期
+    if (dates.length === 0) { console.log(`  ${cat}: 无棋谱`); continue; }
+    // 合并该分类所有日期的棋谱到一个归档（按 CHUNK_SIZE 分块），日期标签用最新日期
     const latestDate = dates[dates.length - 1];
     const allEntries = [];
     for (const date of dates) {
@@ -804,7 +767,7 @@ function main() {
   saveDuplicateMap(duplicateMap);
 
   console.log('\n完成：');
-  console.log(`  新增棋谱: ${total} 盘`);
+  console.log(`  棋谱总数: ${total} 盘`);
   console.log(`  死活题  : ${nLife}`);
   console.log(`  实战AI  : ${nAi}`);
   console.log(`  私密映射: ${PRIVATE_MAP_PATH}`);
