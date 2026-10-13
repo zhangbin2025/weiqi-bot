@@ -8,6 +8,7 @@ import { ReplayPage } from '../../../presentation/adapters/web/pages/replay';
 import { createReplayDeps } from '../shared/deps/replay';
 import { SessionStorageAdapter } from '../../../infrastructure/storage/adapters/web/SessionStorageAdapter';
 import Dialog from '../shared/ui/Dialog';
+import { WebQRCodeDialog } from '../../../presentation/adapters/web/components/QRCodeDialog';
 
 /**
  * 简单 hash 函数（djb2），用于收藏 key 去重
@@ -164,18 +165,20 @@ async function main() {
   async function getQrContent(): Promise<{ content: string; type: 'url' | 'sgf' }> {
     const params = new URLSearchParams(window.location.search);
     let qrContent: string | null = params.get('src');
+    if (qrContent && qrContent.startsWith('archive:')) {
+      qrContent = null;
+    }
     if (!qrContent) {
       const archiveId = params.get('archiveId');
       if (archiveId) {
         try {
-          qrContent = await replayApp.getArchiveUrl(archiveId);
+          // 优先原始来源 URL（http/https 在线来源 + lib:// 内置棋谱库），
+          // 无 URL 来源时用 SGF 内容编码生成分享链接
+          qrContent = await replayApp.getShareUrl(archiveId);
         } catch (e) {
-          console.warn('获取原始链接失败', e);
+          console.warn('获取分享链接失败', e);
         }
       }
-    }
-    if (qrContent && qrContent.startsWith('archive:')) {
-      qrContent = null;
     }
     if (!qrContent) {
       qrContent = page.getCompactSgf() ?? '';
@@ -248,6 +251,29 @@ async function main() {
     } catch (e) {
       console.error('收藏失败', e);
       showToast('收藏失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
+    }
+  });
+
+  // 监听分享棋谱事件：弹出二维码
+  window.addEventListener('shareGame', async () => {
+    document.getElementById('dropdownMenu')?.classList.remove('visible');
+    try {
+      const { content, type } = await getQrContent();
+      if (!content) {
+        showToast('暂无可分享的棋谱内容', 'error');
+        return;
+      }
+      // 每次点击新建弹窗，以便按内容类型显示不同提示文案
+      const shareDialog = new WebQRCodeDialog({
+        title: '扫码查看棋谱',
+        hint: type === 'url'
+          ? '扫码打开棋谱来源链接'
+          : '扫码在线查看当前局面',
+      });
+      await shareDialog.show(content);
+    } catch (e) {
+      console.error('生成分享二维码失败', e);
+      showToast('生成分享二维码失败', 'error');
     }
   });
 

@@ -376,6 +376,7 @@
             <button class="dropdown-item" id="downloadMenuItem">📥 下载SGF</button>
             <button class="dropdown-item" id="printMenuItem">🖨️ 打印</button>
             <button class="dropdown-item" id="favoriteMenuItem">⭐ 收藏局面</button>
+            <button class="dropdown-item" id="shareMenuItem">📤 分享棋谱</button>
             <div class="dropdown-divider"></div>
             <button class="dropdown-item" id="sourceLinkMenuItem" disabled style="opacity:0.5;cursor:not-allowed;">🔗 棋谱链接</button>
           </div>
@@ -512,6 +513,14 @@
       e.stopPropagation();
       dropdownMenu?.classList.remove('visible');
       window.dispatchEvent(new CustomEvent('favoritePosition'));
+    });
+
+    // 分享棋谱 - 弹出二维码（内容由 TypeScript 生成）
+    const shareMenuItem = document.getElementById('shareMenuItem');
+    shareMenuItem?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dropdownMenu?.classList.remove('visible');
+      window.dispatchEvent(new CustomEvent('shareGame'));
     });
     
     // AI分析

@@ -8,6 +8,8 @@ import type { IExportService, ExportResult } from '../../services/export';
 import type { IAudioPlayer, SoundType } from '../../infrastructure/audio';
 import type { IGameService } from '../../services/game/IGameService';
 import type { ISessionService } from '../../services/session';
+import type { IShareService } from '../../services/share';
+import { parseSGF, coordToPos } from '../../domain/sgf';
 export interface ReplayLoadOptions {
   defaultMove?: number;
   gameName?: string;
@@ -18,7 +20,47 @@ export class ReplayApp {
     private readonly audioPlayer: IAudioPlayer,
     private readonly gameService?: IGameService,
     private readonly sessionService?: ISessionService,
+    private readonly shareService?: IShareService,
   ) {}
+
+  /**
+   * 生成当前归档棋谱的分享链接
+   *
+   * 优先级：
+   * 1. 归档记录的原始 URL 是 http(s)（野狐/OGS/101 等在线来源）→ 直接复用
+   * 2. 原始 URL 是内置棋谱库 lib://... → 同样用该 URL 生成（内置库无需外链）
+   * 3. 其余情况（archive: 本地归档、无 URL）→ 用 SGF 内容经 ShareService 编码成分享链接
+   *
+   * @returns 分享链接，无法生成时返回 null
+   */
+  async getShareUrl(archiveId: string): Promise<string | null> {
+    const sourceUrl = await this.getArchiveUrl(archiveId);
+    // 1&2. 在线来源 http(s) 与内置棋谱库 lib:// 都直接用原始 URL
+    if (sourceUrl && /^(https?:\/\/|lib:\/\/)/i.test(sourceUrl)) {
+      return sourceUrl;
+    }
+    // 3. 回退：用 SGF 内容编码
+    return this.buildShareUrlFromSgf(archiveId);
+  }
+
+  /**
+   * 用归档的 SGF 内容生成分享链接（无可用来源 URL 时的兜底）
+   */
+  private async buildShareUrlFromSgf(archiveId: string): Promise<string | null> {
+    if (!this.gameService || !this.shareService) return null;
+    const sgf = await this.gameService.getByArchiveId(archiveId);
+    if (!sgf) return null;
+    const parsed = parseSGF(sgf);
+    if (parsed.moves.length === 0) return null;
+    const moves = parsed.moves
+      .map((m) => {
+        const pos = coordToPos(m.coord);
+        return pos ? { color: m.color === 'W' ? ('W' as const) : ('B' as const), x: pos.x, y: pos.y } : null;
+      })
+      .filter((m): m is { color: 'B' | 'W'; x: number; y: number } => m !== null);
+    if (moves.length === 0) return null;
+    return this.shareService.generateShareUrl(moves, parsed.gameInfo.boardSize, parsed.gameInfo.handicap);
+  }
   /**
    * 从归档ID加载棋谱
    */
