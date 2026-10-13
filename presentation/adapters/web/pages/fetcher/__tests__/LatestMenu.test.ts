@@ -52,19 +52,21 @@ describe('FetcherRenderer 三点菜单（真实 DOM）', () => {
     expect(c.querySelectorAll('[data-menu-template]').length).toBe(2);
   });
 
-  it('直播条目菜单含 查看棋谱+直播棋谱+查看链接；普通条目仅 查看链接', () => {
+  it('直播条目菜单含 直播+查看+发现定式+查看链接；普通条目无直播', () => {
     renderer.renderLatestGames([
       { source: 'foxwq', title: '对局A', date: '09-20', url: 'https://example.com/a' },
-      { source: 'ogs-live', title: '直播B', date: '09-20', url: 'https://example.com/b' },
+      { source: 'ogs-live', title: '直播B', date: '09-20', url: 'https://example.com/b', isEnded: false },
     ]);
     const c = latestContainer();
     const tpls = c.querySelectorAll('[data-menu-template]');
     const normalMenu = tpls[0].innerHTML;
     const liveMenu = tpls[1].innerHTML;
     expect(normalMenu).toContain('查看链接');
-    expect(normalMenu).not.toContain('直播棋谱');
-    expect(liveMenu).toContain('查看棋谱');
-    expect(liveMenu).toContain('直播棋谱');
+    expect(normalMenu).toContain('查看');
+    expect(normalMenu).not.toContain('直播');
+    expect(liveMenu).toContain('直播');
+    expect(liveMenu).toContain('查看');
+    expect(liveMenu).toContain('发现定式');
     expect(liveMenu).toContain('查看链接');
   });
 
@@ -110,37 +112,41 @@ describe('FetcherRenderer 三点菜单（真实 DOM）', () => {
       .toBe('https://katagoarchive.org/kata1/ratinggames/2026-09-14rating.tar.bz2');
   });
 
-  it('katago 伪协议且无 externalUrl 时不显示三点按钮和菜单', () => {
+  it('katago 伪协议且无 externalUrl 时菜单无「查看链接」，但有动作项', () => {
     renderer.renderLatestGames([
       { source: 'katago', title: '#1', date: '2026-09-14', url: 'katago://date/2026-09-14/0' },
     ]);
     const c = latestContainer();
-    expect(c.querySelector('.latest-dots')).toBeNull();
-    expect(c.querySelector('[data-menu-template]')).toBeNull();
+    const tpl = c.querySelector('[data-menu-template]') as HTMLElement;
+    expect(tpl).toBeTruthy();
+    expect(tpl.querySelector('[data-action="viewUrl"]')).toBeNull();
+    expect(tpl.querySelector('[data-action="view"]')).toBeTruthy();
   });
 
-  it('内置棋谱（lib-ai-review）不显示三点按钮', () => {
+  it('内置棋谱（lib-ai-review）显示三点菜单且含「实战选点」', () => {
     renderer.renderLatestGames([
       { source: 'lib-ai-review', title: '内置棋谱A', date: '2026-09-14', url: 'lib-ai-review://game/1' },
     ]);
     const c = latestContainer();
-    expect(c.querySelector('.latest-dots')).toBeNull();
-    expect(c.querySelector('[data-menu-template]')).toBeNull();
+    expect(c.querySelector('.latest-dots')).toBeTruthy();
+    const tpl = c.querySelector('[data-menu-template]') as HTMLElement;
+    expect(tpl.querySelector('[data-action="decision"]')).toBeTruthy();
+    expect(tpl.innerHTML).toContain('实战选点');
   });
 
-  it('内置题库（lib-life-death）显示三点菜单含「做题」与「查看棋谱」', () => {
+  it('内置题库（lib-life-death）显示三点菜单含「做题」与「查看」', () => {
     renderer.renderLatestGames([
       { source: 'lib-life-death', title: '死活题A', date: '2026-09-14', url: 'lib://life-and-death/2026-09-14/0' },
     ]);
     const c = latestContainer();
     expect(c.querySelector('.latest-dots')).toBeTruthy();
     const tpl = c.querySelector('[data-menu-template]') as HTMLElement;
-    const puzzle = tpl.querySelector('[data-action="puzzleLatest"]') as HTMLElement;
+    const puzzle = tpl.querySelector('[data-action="puzzle"]') as HTMLElement;
     expect(puzzle).toBeTruthy();
     expect(puzzle.textContent).toContain('做题');
-    const view = tpl.querySelector('[data-action="viewLatest"]') as HTMLElement;
+    const view = tpl.querySelector('[data-action="view"]') as HTMLElement;
     expect(view).toBeTruthy();
-    expect(view.textContent).toContain('查看棋谱');
+    expect(view.textContent).toContain('查看');
   });
 
   it('goproblems 列表项 URL 为 /problems/<id> 形式（回归）', () => {

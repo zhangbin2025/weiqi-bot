@@ -82,14 +82,14 @@ describe('FetcherRenderer 收藏三点菜单（真实 DOM）', () => {
     expect(c.innerHTML).toContain('12手');
   });
 
-  it('直播来源收藏菜单额外含 查看棋谱/直播棋谱', () => {
+  it('直播来源收藏菜单额外含 直播/发现定式（与结果卡片同一套分类器）', () => {
     renderer.renderBookmarks([
-      Object.assign({}, archived, { id: 'b2', source: 'ogs-live', url: 'https://online-go.com/game/1' }) as any,
+      Object.assign({}, archived, { id: 'b2', source: 'ogs-live', url: 'https://online-go.com/game/1', isEnded: false }) as any,
     ]);
     const c = bookmarkContainer();
     const tpl = c.querySelector('[data-menu-template]') as HTMLElement;
-    expect(tpl.innerHTML).toContain('查看棋谱');
-    expect(tpl.innerHTML).toContain('直播棋谱');
+    expect(tpl.innerHTML).toContain('直播');
+    expect(tpl.innerHTML).toContain('发现定式');
     expect(tpl.innerHTML).toContain('打开收藏');
   });
 

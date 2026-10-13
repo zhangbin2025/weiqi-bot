@@ -83,4 +83,8 @@ export interface LatestGameItem {
   url: string;
   /** 可选的外部链接（点击"查看链接"时打开；缺省则使用 url 字段） */
   externalUrl?: string;
+  /** 是否为直播棋谱（未结束实战） */
+  isLive?: boolean;
+  /** 对局是否已结束 */
+  isEnded?: boolean;
 }

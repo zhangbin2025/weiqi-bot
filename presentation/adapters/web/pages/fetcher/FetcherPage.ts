@@ -13,6 +13,8 @@ import { buildArchiveUrl } from '../../../../../domain/sgf/SGFUtils';
 import { SessionStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/SessionStorageAdapter';
 import { LocalStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/LocalStorageAdapter';
 import { normalizePuzzleFilterState } from '../../../../../services/game/providers/library/puzzleFilter';
+import { classifyGame, type ClassifyInput, type GameAction, type GameClassification } from './utils/gameKind';
+import type { ResultActionsInput } from './FetcherFormatter';
 import type { FilterSelection } from './FetcherRenderer';
 export interface FetcherPageConfig {
   fetcherApp: FetcherApp;
@@ -37,6 +39,10 @@ export class FetcherPage implements IPage {
   private currentResult: FetcherResult | undefined;
   private isLiveMode = false;
   private liveUrl?: string;
+  /** 当前棋谱分类（结果卡片 / 后台任务通知共用） */
+  private currentKind: GameClassification | undefined;
+  /** 分类判定输入（含 SGF，用于识别 AI 标注） */
+  private currentKindInput: ClassifyInput | undefined;
   constructor(config: FetcherPageConfig) {
     this.fetcherApp = config.fetcherApp;
     if (config.onNavigate !== undefined) this._onNavigate = config.onNavigate;
@@ -56,7 +62,17 @@ export class FetcherPage implements IPage {
       onSelectLatest: (url) => this.selectLatestGame(url),
       onSelectLatestView: (url) => this.viewLatestGame(url),
       onPuzzleLatest: (url) => this.puzzleLatestGame(url),
+      onReviewLatest: (url) => this.latestByAction(url, 'review'),
+      onDecisionLatest: (url) => this.latestByAction(url, 'decision'),
+      onJosekiLatest: (url) => this.latestByAction(url, 'joseki'),
+      onLiveLatest: (url) => this.latestByAction(url, 'live'),
+      onDownloadLatest: (url) => this.latestByAction(url, 'download'),
+      onShareLatest: (url) => this.latestByAction(url, 'share'),
       onViewUrl: (url) => this.viewUrl(url),
+      onPuzzle: () => this.puzzleCurrent(),
+      onReview: () => this.reviewCurrent(),
+      onDecision: () => this.decisionCurrent(),
+      onJoseki: () => this.josekiCurrent(),
       onLoadFilterState: () => this.loadFilterState(),
       onSaveFilterState: (state) => this.saveFilterState(state),
     };
@@ -225,8 +241,12 @@ export class FetcherPage implements IPage {
     };
     if (entry.result !== undefined) result.metadata.result = entry.result;
     this.currentResult = result;
-    this.renderer.showResult(result, this.isLiveMode);
+    this.isLiveMode = !!entry.isLive;
+    if (this.isLiveMode) this.liveUrl = entry.url;
+    const cls = this.classifyCurrent();
+    this.renderer.showResult(result, this.buildResultActions(cls, this.filterSrcUrl(entry.url) || undefined));
     this.renderer.setCurrentResult(result);
+    if (entry.archiveId) void this.refineClassification(entry.archiveId);
   }
   private async fetchByUrl(url: string, taskId?: string): Promise<void> {
     this.renderer.showLoading(true, '正在抓取棋谱...');
@@ -244,54 +264,28 @@ export class FetcherPage implements IPage {
           console.info('进入直播模式', { url, archiveId: result.archiveId });
         }
   
-        this.renderer.showResult(result, this.isLiveMode);  // ← 现在 isLiveMode 已设置
+        const cls = this.classifyCurrent();
+        this.renderer.showResult(result, this.buildResultActions(cls, this.filterSrcUrl(result.url) || undefined));
         this.renderer.setCurrentResult(result);
+        if (result.archiveId) void this.refineClassification(result.archiveId);
         await this.loadBookmarks();
         console.info('棋谱下载成功', { url, archiveId: result.archiveId }); 
         
-        // 后台任务完成
+        // 后台任务完成：主链接 = 该类棋谱用户最想做的事，其余收进「更多」
         if (taskId) {
-          const detailUrl = `/assistant?taskId=${taskId}`;
-          
-          // 检测是否在 App 环境
-          const isApp = typeof navigator !== 'undefined' && navigator.userAgent.includes('WeiqiApp');
-          
-          // 构造复盘/直播链接
-          let reviewLabel = '复盘';
-          let reviewLink: string;
-          
-          if (this.isLiveMode && isApp) {
-            // 直播模式 + App 环境：显示"直播"，链接带 live 参数
-            reviewLabel = '直播';
-            reviewLink = `/review/index.html?live=true&url=${encodeURIComponent(url)}`;
-          } else if (isApp) {
-            // App 环境：跳转到 assistant 并发送消息
-            reviewLink = `/assistant?text=${encodeURIComponent('复盘棋谱 ' + result.archiveId)}`;
-          } else {
-            // 非 App 环境：直接跳转 review 页面
-            reviewLink = `/review/index.html?archiveId=${result.archiveId}`;
-          }
-          
-          // 题目棋谱链接加 move=0（从初始局面开始）
-          const questionPatterns = [
-            /101weiqi\.com\/qday\//,
-            /101weiqi\.com\/q\//,
-            /101weiqi\.cn\/qday\//,
-            /101weiqi\.cn\/q\//,
-          ];
-          const isQuestion = (result.source === 'weiqi101' &&
-                             questionPatterns.some(p => p.test(result.url || ''))) ||
-                             result.source === 'goproblems' ||
-                             result.source === 'ogs-puzzle';
-          const replayLink = isQuestion
-            ? `/replay/index.html?archiveId=${result.archiveId}&move=0`
-            : (() => {
-                const wqmove = this.extractWqMove(result.url);
-                const moveParam = wqmove ? `&move=${wqmove}` : '';
-                return `/replay/index.html?archiveId=${result.archiveId}${moveParam}`;
-              })();
-          const message = `已抓取棋谱: ${result.metadata.black || '黑方'} vs ${result.metadata.white || '白方'}\n\n[打谱](${replayLink}) [${reviewLabel}](${reviewLink})`;
-          TaskHelper.notifyComplete(taskId, '抓取完成', message, detailUrl);
+          const kind = this.currentKind;
+          // 「更多」统一跳 fetcher 页面（带 url，自动抓取后展示完整三点菜单）
+          const moreUrl = '/fetcher/index.html?url=' + encodeURIComponent(url);
+          const primary = kind?.primary ?? 'view';
+          const primaryLink = this.buildNotifyLink(primary, result);
+          const labelMap: Record<string, string> = {
+            view: '打谱', share: '分享', live: '直播', puzzle: '做题',
+            review: '复盘', decision: '实战选点', joseki: '发现定式', download: '下载',
+          };
+          const primaryLabel = labelMap[primary] ?? '打谱';
+          const who = `${result.metadata.black || '黑方'} vs ${result.metadata.white || '白方'}`;
+          const message = `已抓取棋谱: ${who}\n\n[${primaryLabel}](${primaryLink}) [更多](${moreUrl})`;
+          TaskHelper.notifyComplete(taskId, '抓取完成', message, moreUrl);
         }
       } else {
         this.renderer.showError(this.getErrorTitle(result.error), result.error || '未知错误');
@@ -313,6 +307,43 @@ export class FetcherPage implements IPage {
       }
     }
   }
+  /**
+   * 后台任务通知链接：按动作生成目标页 URL
+   * @description 与三点菜单同源：动作 → 页面入口。通知只给首要动作 + 「更多」。
+   */
+  private buildNotifyLink(action: GameAction, result: FetcherResult): string {
+    const archiveId = result.archiveId ?? '';
+    const src = encodeURIComponent(this.filterSrcUrl(result.url));
+    switch (action) {
+      case 'live':
+        return '/review/index.html?live=true&url=' + encodeURIComponent(result.url);
+      case 'puzzle':
+        return '/puzzle/index.html?archiveId=' + encodeURIComponent(archiveId) +
+          '&url=' + encodeURIComponent(result.url) +
+          '&source=' + encodeURIComponent(result.source || '') +
+          '&src=' + src;
+      case 'review':
+        return '/review/index.html?archiveId=' + encodeURIComponent(archiveId) + '&src=' + src;
+      case 'decision':
+        return '/decision/index.html?archiveId=' + encodeURIComponent(archiveId) +
+          '&source=' + encodeURIComponent(result.source || '') + '&auto=true';
+      case 'joseki':
+        return '/joseki/discover.html?archiveId=' + encodeURIComponent(archiveId) +
+          '&tab=upload&auto=true';
+      case 'download':
+        return '/fetcher/index.html?url=' + encodeURIComponent(result.url);
+      case 'view':
+      default: {
+        // 题目棋谱从初始局面开始
+        const isQuestion = this.currentKind?.kind === 'puzzle';
+        const move = this.extractWqMove(result.url);
+        const q = 'archiveId=' + encodeURIComponent(archiveId) + '&src=' + src;
+        return '/replay/index.html?' + q +
+          (isQuestion ? '&move=0' : (move ? '&move=' + move : ''));
+      }
+    }
+  }
+
   /**
    * 获取最新棋谱列表
    */
@@ -531,6 +562,65 @@ export class FetcherPage implements IPage {
     }
   }
   /**
+   * 最新列表项按动作处理：先抓取（拿到 archiveId），再执行对应动作
+   * @description 与结果卡片共用一套动作语义，区别只是入口没有现成的 archiveId。
+   */
+  private async latestByAction(url: string, action: GameAction): Promise<void> {
+    this.renderer.setSelectedLatestUrl(url);
+    this.renderer.rerenderLatest();
+    try {
+      await this.sessionStore.write('fetcher_latest_selected', url);
+      await this.sessionStore.write('fetcher_latest_displayed', this.renderer.getLatestDisplayed());
+    } catch { /* ignore */ }
+    this.renderer.showLatestItemLoading(url);
+    try {
+      const result = await this.fetcherApp.fetch(url);
+      this.renderer.showLatestItemLoading(url, false);
+      if (!result.success) {
+        this.toast.show(result.error || '抓取失败');
+        return;
+      }
+      this.currentResult = result;
+      this.isLiveMode = !!result.metadata?.isLive;
+      if (this.isLiveMode) this.liveUrl = url;
+      await this.loadBookmarks();
+      if (!result.archiveId) return;
+
+      switch (action) {
+        case 'review':
+          this.reviewCurrent();
+          break;
+        case 'decision':
+          this.decisionCurrent();
+          break;
+        case 'joseki':
+          this.josekiCurrent();
+          break;
+        case 'live':
+          if (this.liveUrl) {
+            window.location.href = '../review/index.html?live=true&url=' + encodeURIComponent(this.liveUrl);
+          }
+          break;
+        case 'download': {
+          const name = this.formatter.generateGameName(result);
+          await this.fetcherApp.downloadSGF(result.archiveId, name);
+          break;
+        }
+        case 'share': {
+          const shareResult = await this.fetcherApp.generateShareUrl(result.archiveId);
+          if (shareResult.success) await this.renderer.showQRCodeDialog(shareResult);
+          break;
+        }
+        default:
+          break;
+      }
+    } catch (error) {
+      this.renderer.showLatestItemLoading(url, false);
+      console.error('[FetcherPage] latestByAction failed:', error);
+    }
+  }
+
+  /**
    * 做题：抓取题目后跳到做题页面（puzzle）进行交替落子答题
    */
   private async puzzleLatestGame(url: string): Promise<void> {
@@ -565,6 +655,109 @@ export class FetcherPage implements IPage {
       this.renderer.showLatestItemLoading(url, false);
       console.error('[FetcherPage] puzzleLatestGame failed:', error);
     }
+  }
+
+  /**
+   * 按棋谱类别构造结果卡片操作区
+   * @description 首要动作 = 该类棋谱用户最想做的事（直播→直播、死活题→做题、
+   *              带 AI 标注→实战选点、其余→打谱）；其余动作收进三点菜单。
+   */
+  private buildResultActions(cls: GameClassification, externalUrl?: string): ResultActionsInput {
+    // 首要动作已排在 actions[0]，次要动作取下一个非分享动作
+    const primary: GameAction = cls.primary;
+    const secondary = cls.actions.find((a) => a !== primary && a !== 'share') ?? null;
+    return {
+      primary,
+      secondary,
+      actions: cls.actions,
+      externalUrl,
+    };
+  }
+
+  /**
+   * 对当前结果做分类（同步判定 source/isLive；SGF 缺失时降级）
+   * @param sgf 可选的 SGF 内容，用于识别 AI 标注
+   */
+  private classifyCurrent(sgf?: string): GameClassification {
+    const r = this.currentResult;
+    const input: ClassifyInput = {
+      source: r?.source ?? '',
+      url: r?.url,
+      isLive: r?.metadata?.isLive,
+      isEnded: r?.metadata?.isEnded,
+      externalUrl: this.filterSrcUrl(r?.url) || undefined,
+      sgf,
+    };
+    this.currentKindInput = input;
+    this.currentKind = classifyGame(input);
+    return this.currentKind;
+  }
+
+  /**
+   * 抓取完成后异步升级分类：取 SGF 头部识别 AI 标注
+   * @description 初判（按 source/isLive）已渲染菜单，此处仅在升级为 ai-review 时刷新。
+   */
+  private async refineClassification(archiveId: string): Promise<void> {
+    if (!archiveId) return;
+    try {
+      const sgf = await this.fetcherApp.getArchiveContent(archiveId);
+      if (!sgf) return;
+      const before = this.currentKind?.kind;
+      const cls = this.classifyCurrent(sgf);
+      if (cls.kind === before) return; // 类别未变，不重绘
+      const actions = this.buildResultActions(cls, this.filterSrcUrl(this.currentResult?.url) || undefined);
+      this.renderer.updateResultActions(actions);
+    } catch {
+      /* 分类升级失败不影响主流程 */
+    }
+  }
+
+  /** 做题：当前结果跳做题页面 */
+  private async puzzleCurrent(): Promise<void> {
+    const r = this.currentResult;
+    if (!r?.archiveId) return;
+    const srcUrl = this.filterSrcUrl(r.url);
+    const navParams: Record<string, string> = {
+      archiveId: r.archiveId,
+      url: r.url,
+      src: srcUrl,
+    };
+    if (r.source) navParams['source'] = r.source;
+    this._onNavigate?.('puzzle', navParams);
+  }
+
+  /** 复盘：当前结果跳复盘页面（本地模型分析） */
+  private reviewCurrent(): void {
+    const r = this.currentResult;
+    if (!r?.archiveId) return;
+    // 直播棋谱走直播模式（带 live 参数），其余走归档复盘
+    if (this.isLiveMode && this.liveUrl) {
+      window.location.href = '../review/index.html?live=true&url=' + encodeURIComponent(this.liveUrl);
+      return;
+    }
+    this._onNavigate?.('review', { archiveId: r.archiveId, src: this.filterSrcUrl(r.url) });
+  }
+
+  /** 实战选点：当前结果跳实战选点页面 */
+  private decisionCurrent(): void {
+    const r = this.currentResult;
+    if (!r?.archiveId) return;
+    this._onNavigate?.('decision', {
+      archiveId: r.archiveId,
+      source: r.source || '',
+      src: this.filterSrcUrl(r.url),
+    });
+  }
+
+  /** 发现定式：当前结果跳定式发现页面 */
+  private josekiCurrent(): void {
+    const r = this.currentResult;
+    if (!r?.archiveId) return;
+    this._onNavigate?.('joseki', {
+      archiveId: r.archiveId,
+      source: r.source || '',
+      src: this.filterSrcUrl(r.url),
+    });
   }
 
   /** 直接在新标签页打开条目的原始 URL */

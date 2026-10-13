@@ -64,12 +64,19 @@ async function main() {
     adapterFactory: ctx.adapterFactory,
     sessionService,
     onNavigate: (pageId, params) => {
+      const searchParams = new URLSearchParams(params);
       if (pageId === 'replay') {
-        const searchParams = new URLSearchParams(params);
         window.location.href = `../replay/index.html?${searchParams.toString()}`;
       } else if (pageId === 'puzzle') {
-        const searchParams = new URLSearchParams(params);
         window.location.href = `../puzzle/index.html?${searchParams.toString()}`;
+      } else if (pageId === 'review') {
+        window.location.href = `../review/index.html?${searchParams.toString()}`;
+      } else if (pageId === 'decision') {
+        // 实战选点：带 archiveId 进入后自动从归档生成题目
+        window.location.href = `../decision/index.html?${searchParams.toString()}`;
+      } else if (pageId === 'joseki') {
+        // 发现定式：带 archiveId 进入后自动从归档分析
+        window.location.href = `../joseki/discover.html?${searchParams.toString()}`;
       }
     },
   });

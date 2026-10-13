@@ -5,6 +5,8 @@
 import type { ITabs, ICard, IInput, IButton, IPanel, IToast, IOverlay, ISelect, IAdapterFactory } from '../../../../core/interfaces';
 import type { FetcherResult, FetcherBookmark, ShareResult, LatestGameItem } from '../../../../../application/fetcher';
 import type { FetcherFormatter } from './FetcherFormatter';
+import type { ResultActionsInput } from './FetcherFormatter';
+import { classifyGame, actionLabel, isDangerAction, type ClassifyInput, type GameAction } from './utils/gameKind';
 import { WebOverlay } from '../../components/Overlay';
 import { WebQRCodeDialog } from '../../components/QRCodeDialog';
 import {
@@ -34,6 +36,14 @@ export interface FetcherRendererCallbacks {
   onViewSGF: () => Promise<void>;
   onLive: () => void;
   onGenerateShareUrl: () => Promise<void>;
+  /** 做题：跳做题页面（死活题） */
+  onPuzzle?: () => Promise<void>;
+  /** 复盘：跳复盘页面（本地模型分析） */
+  onReview?: () => void;
+  /** 实战选点：跳实战选点页面（带 AI 标注棋谱） */
+  onDecision?: () => void;
+  /** 发现定式：跳定式发现页面 */
+  onJoseki?: () => void;
   onSelectLatestView: (url: string) => void;
   /** 拉取最新列表（数量由渲染器统一控制为 LATEST_FETCH_MAX 池子大小） */
   onFetchLatest: (source: string, keyword?: string) => Promise<void>;
@@ -43,6 +53,18 @@ export interface FetcherRendererCallbacks {
   onViewUrl: (url: string) => void;
   /** 研究题目：跳 replay 页面「研究题目模式」（非做题模式） */
   onPuzzleLatest?: (url: string) => void;
+  /** 列表项：复盘（本地模型） */
+  onReviewLatest?: (url: string) => void;
+  /** 列表项：实战选点 */
+  onDecisionLatest?: (url: string) => void;
+  /** 列表项：发现定式 */
+  onJosekiLatest?: (url: string) => void;
+  /** 列表项：直播 */
+  onLiveLatest?: (url: string) => void;
+  /** 列表项：下载 SGF */
+  onDownloadLatest?: (url: string) => void;
+  /** 列表项：分享 */
+  onShareLatest?: (url: string) => void;
   /** 打开筛选框时，恢复上次保存的题型/难度（无则返回 null） */
   onLoadFilterState?: () => FilterSelection | null;
   /** 生成筛选后，保存题型/难度（用于下次打开时恢复） */
@@ -87,6 +109,8 @@ export class FetcherRenderer {
   private _loadingMore = false;
   private _loadMoreTimer: ReturnType<typeof setTimeout> | null = null;
   private _currentResult: FetcherResult | undefined;
+  /** 当前结果卡片的操作区配置（三点菜单渲染/刷新用） */
+  private _resultActions: ResultActionsInput | undefined;
   private _events: FetcherRendererEvents;
 
   constructor(
@@ -215,8 +239,10 @@ export class FetcherRenderer {
         this.cb.onViewUrl(data['url'] as string);
       }
     });
-    this.resultCard.onAction((action) => {
-      if (action === "live") {
+    this.resultCard.onAction((action, data) => {
+      if (action === "openResultMenu") {
+        this.toggleResultMenu();
+      } else if (action === "live") {
         this.cb.onLive();
       } else if (action === "download") {
         this.cb.onDownload();
@@ -224,6 +250,16 @@ export class FetcherRenderer {
         this.cb.onViewSGF();
       } else if (action === "share") {
         this.cb.onGenerateShareUrl();
+      } else if (action === "puzzle") {
+        this.cb.onPuzzle?.();
+      } else if (action === "review") {
+        this.cb.onReview?.();
+      } else if (action === "decision") {
+        this.cb.onDecision?.();
+      } else if (action === "joseki") {
+        this.cb.onJoseki?.();
+      } else if (action === "viewUrl" && data?.['url']) {
+        this.cb.onViewUrl(data['url'] as string);
       }
     });
   }
@@ -455,16 +491,54 @@ export class FetcherRenderer {
     this.resultCard.render();
     return this.formatter.formatError(title, message);
   }
-  showResult(result: FetcherResult, isLive: boolean = false): void {
+  showResult(result: FetcherResult, actions: ResultActionsInput): void {
     this.hasResult = true;
     this._currentResult = result;
+    this._resultActions = actions;
     this.resultCard.setTitle('📄 棋谱信息');
-    this.resultCard.setContent(this.formatter.formatResultInfo(result, isLive));
+    this.resultCard.setContent(this.formatter.formatResultInfo(result, actions));
     this.resultCard.setVisible(true);
     this.resultCard.render();
   }
   getCurrentResult(): FetcherResult | undefined { return this._currentResult; }
   setCurrentResult(result: FetcherResult): void { this._currentResult = result; }
+
+  /**
+   * 刷新结果卡片操作区（分类升级后重渲染，如识别出 AI 标注）
+   * @description 只换操作区，避免整卡重绘导致棋盘/滚动位置丢失。
+   */
+  updateResultActions(actions: ResultActionsInput): void {
+    this._resultActions = actions;
+    const container = this.resultCard.getContainer?.() as HTMLElement | undefined;
+    if (!container) return;
+    const old = container.querySelector('[data-menu-template], .result-dots');
+    // 操作区包裹层：含三点菜单与按钮行，整体替换
+    const wrapper = old?.parentElement;
+    if (!wrapper) return;
+    const tmp = document.createElement('div');
+    tmp.innerHTML = this.formatter.formatResultActions(actions);
+    const next = tmp.firstElementChild as HTMLElement | null;
+    if (next) wrapper.replaceWith(next);
+  }
+
+  /**
+   * 结果卡片右上角三点扩展菜单：打开/关闭
+   */
+  toggleResultMenu(): void {
+    const container = this.resultCard.getContainer?.() as HTMLElement | undefined;
+    if (!container) return;
+    const existing = container.querySelector('div[data-menu]') as HTMLElement | null;
+    container.querySelectorAll('div[data-menu]').forEach((m) => m.remove());
+    if (existing) return; // 已打开则关闭
+    const tpl = container.querySelector('[data-menu-template]') as HTMLElement | null;
+    if (!tpl) return;
+    const cloned = tpl.cloneNode(true) as HTMLElement;
+    cloned.removeAttribute('data-menu-template');
+    cloned.setAttribute('data-menu', '');
+    cloned.style.display = '';
+    (container.querySelector('.result-dots') as HTMLElement | null)
+      ?.insertAdjacentElement('afterend', cloned);
+  }
   renderBookmarks(entries: FetcherBookmark[]): void {
     if (entries.length === 0) {
       this.bookmarkCard.setContent(this.formatter.formatEmptyState());
@@ -603,6 +677,20 @@ export class FetcherRenderer {
         this.cb.onViewUrl(data['url'] as string);
       } else if (action === 'puzzleLatest' && data?.['url']) {
         this.cb.onPuzzleLatest?.(data['url'] as string);
+      } else if (data?.['url']) {
+        // 统一动作名（与结果卡片同源分类器）：按 url 走列表项处理
+        const url = data['url'] as string;
+        switch (action) {
+          case "puzzle": this.cb.onPuzzleLatest?.(url); break;
+          case "review": this.cb.onReviewLatest?.(url); break;
+          case "decision": this.cb.onDecisionLatest?.(url); break;
+          case "joseki": this.cb.onJosekiLatest?.(url); break;
+          case "live": this.cb.onLiveLatest?.(url); break;
+          case "download": this.cb.onDownloadLatest?.(url); break;
+          case "share": this.cb.onShareLatest?.(url); break;
+          case "view": this.cb.onSelectLatestView(url); break;
+          default: break;
+        }
       }
     });
   }
@@ -651,6 +739,45 @@ export class FetcherRenderer {
   }
 
   /**
+   * 列表项三点菜单 HTML（最新列表 / 收藏列表共用）
+   * @description 与结果卡片共用同一套分类器：同样的棋谱类别 → 同样的动作集。
+   * @param cls 分类输入（source / url / isLive / isEnded）
+   * @param urlAttr 菜单项携带的 url 值
+   * @param extraItems 追加项（如收藏的「打开收藏」）
+   * @param externalUrl 外链（有则追加「查看链接」）
+   */
+  private buildMenuHtml(
+    cls: ClassifyInput,
+    urlAttr: string,
+    extraItems: string,
+    externalUrl?: string,
+  ): string {
+    const { actions } = classifyGame(cls);
+    const HOVER = 'onmouseover="this.style.background=\'#f8f9fa\'" onmouseout="this.style.background=\'\'"';
+    const items = actions
+      .map((a: GameAction) =>
+        '<div data-action="' + a + '" data-url="' + urlAttr + '" style="padding:6px 10px;cursor:pointer;' +
+        'font-size:0.85em;' + (isDangerAction(a) ? 'color:#c53030;font-weight:600;' : 'color:#2d3748;') +
+        'white-space:nowrap;" ' + HOVER + '>' + actionLabel(a) + '</div>')
+      .join('');
+    const link = externalUrl
+      ? '<div data-action="viewUrl" data-url="' + externalUrl + '" style="padding:6px 10px;cursor:pointer;' +
+        'font-size:0.85em;color:#2d3748;white-space:nowrap;" ' + HOVER + '>' + actionLabel('viewUrl') + '</div>'
+      : '';
+    const body = extraItems + items + link;
+    if (!body) return '';
+    return (
+      '<div class="latest-dots" data-action="openMenu" data-url="' + urlAttr + '" ' +
+        'style="position:absolute;top:8px;right:8px;width:24px;height:24px;line-height:22px;text-align:center;' +
+        'border-radius:50%;color:#999;font-size:16px;cursor:pointer;user-select:none;" ' +
+        'onmouseover="this.style.background=\'#f0f0f0\'" onmouseout="this.style.background=\'\'">⋮</div>' +
+      '<div data-menu-template style="display:none;position:absolute;top:34px;right:8px;min-width:96px;' +
+        'background:white;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,0.15);' +
+        'z-index:50;overflow:hidden;">' + body + '</div>'
+    );
+  }
+
+  /**
    * 渲染最新棋谱列表
    */
   renderLatestGames(items: LatestGameItem[]): void {
@@ -679,37 +806,17 @@ export class FetcherRenderer {
       const isSelected = this._selectedLatestUrl === item.url;
       const bg = isSelected ? '#eef2ff' : '';
       const border = isSelected ? 'border-left:3px solid #667eea;padding-left:8px;' : '';
-      const isLiveSource = item.source === 'ogs-live' || item.source === 'yike-live';
-      const isQuestion = item.source === 'lib-life-death' || item.source === 'goproblems' || item.source === 'ogs-puzzle' ||
-        (item.source === 'weiqi101' && /^https?:\/\/[^/]*101weiqi\.(com|cn)\/(qday|q)\//i.test(item.url));
-      // "查看链接"优先使用外部链接（如 KataGo 归档压缩包下载地址）
-      const linkUrl = item.externalUrl || item.url;
-      // 仅当是可打开的 http(s) 链接时才显示"查看链接"（katago:// 等伪协议不显示）
-      const linkMenuItem = /^https?:\/\//i.test(linkUrl)
-        ? `<div data-action="viewUrl" data-url="${linkUrl}" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#2d3748;white-space:nowrap;">🔗 查看链接</div>`
-        : '';
       const hoverScript = isSelected ? '' : 'onmouseover="this.style.background=\'#f8f9fa\'" onmouseout="this.style.background=\'\'"';
-      // 右上角三点扩展菜单（统一所有条目的操作入口）
-      const liveMenu = isLiveSource
-        ? `<div data-action="viewLatest" data-url="${item.url}" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#2d3748;white-space:nowrap;">👁\ufe0f 查看棋谱</div>
-           <div data-action="selectLatest" data-url="${item.url}" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#c53030;font-weight:600;white-space:nowrap;">🔴 直播棋谱</div>`
-        : '';
-      // 题目类条目：增加「做题」（跳做题页面）与「查看棋谱」（跳打谱页面）
-      const studyMenuItem = isQuestion
-        ? `<div data-action="puzzleLatest" data-url="${item.url}" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#2d3748;white-space:nowrap;">🧩 做题</div>`
-          + `<div data-action="viewLatest" data-url="${item.url}" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#2d3748;white-space:nowrap;">📖 查看棋谱</div>`
-        : '';
-      // 菜单内容为空时不显示三点按钮
-      const hasMenuContent = !!(liveMenu || linkMenuItem || studyMenuItem);
-      const menu = hasMenuContent ? `
-        <div class="latest-dots" data-action="openMenu" data-url="${item.url}"
-             style="position:absolute;top:8px;right:8px;width:24px;height:24px;line-height:22px;text-align:center;border-radius:50%;color:#999;font-size:16px;cursor:pointer;user-select:none;"
-             onmouseover="this.style.background='#f0f0f0'" onmouseout="this.style.background=''">⋮</div>
-        <div data-menu-template style="display:none;position:absolute;top:34px;right:8px;min-width:96px;background:white;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,0.15);z-index:50;overflow:hidden;">
-          ${liveMenu}
-          ${studyMenuItem}
-          ${linkMenuItem}
-        </div>` : '';
+      // 右上角三点扩展菜单：统一走棋谱分类器（与结果卡片同一套动作集）
+      // "查看链接"优先使用外部链接（如 KataGo 归档压缩包下载地址）
+      // 仅当是可打开的 http(s) 链接时才显示（katago:// 等伪协议不显示）
+      const linkUrl = item.externalUrl || item.url;
+      const menu = this.buildMenuHtml(
+        { source: item.source, url: item.url, isLive: item.isLive, isEnded: item.isEnded },
+        item.url,
+        '',
+        /^https?:\/\//i.test(linkUrl) ? linkUrl : '',
+      );
       return `<div data-action="selectLatest" data-url="${item.url}" style="position:relative;padding:10px 30px 10px 0;border-top:1px solid #eee;cursor:pointer;background:${bg};${border}" ${hoverScript}>
         ${menu}
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">

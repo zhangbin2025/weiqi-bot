@@ -66,6 +66,7 @@ async function main() {
   // 7. 创建页面
   const page = new JosekiDiscoverPage({
     discoverApp,
+    gameService,
     onNavigate: (pageId, params) => {
       if (pageId === 'joseki/list') {
         window.location.href = `list.html?${new URLSearchParams(params).toString()}`;
@@ -100,21 +101,13 @@ async function main() {
   urlParams.forEach((value, key) => {
     params[key] = value;
   });
+  // 先处理 tab 等常规参数（切换标签页）
   page.handleParams(params);
 
-  // 处理 replay 页面跳转：从 archiveId 加载 SGF 并自动分析
-  if (urlParams.get('from') === 'replay' && urlParams.get('archiveId')) {
-    const archiveId = urlParams.get('archiveId')!;
-    try {
-      const sgfContent = await gameService.getByArchiveId(archiveId);
-      if (sgfContent) {
-        const index = await gameService.getArchiveIndex(archiveId);
-        const label = index?.metadata?.title || archiveId;
-        await page.discoverFromArchive(sgfContent, label);
-      }
-    } catch (e) {
-      console.error('加载归档棋谱失败', e);
-    }
+  // 从 fetcher 跳转（archiveId）：页面内部按归档读取并自动分析
+  if (urlParams.get('archiveId')) {
+    page.render();
+    return;
   }
 
   // 处理 auto=true 参数（自动执行）

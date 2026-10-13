@@ -152,7 +152,20 @@ async function main() {
   
   // 处理 URL 参数（自动执行）
   const urlParams = new URLSearchParams(window.location.search);
+  const archiveId = urlParams.get('archiveId');
   const auto = urlParams.get('auto');
+
+  // 从 fetcher 跳转：按 archiveId 从归档读 SGF 直接生成实战选点题
+  if (archiveId) {
+    const sgf = await gameService.getByArchiveId(archiveId);
+    if (!sgf) {
+      await Dialog.alert('棋谱内容未找到，请返回棋谱抓取页重新获取');
+      return;
+    }
+    const fileName = urlParams.get('src') || archiveId;
+    await executeImport(decisionApp, favoriteService, sgf, fileName, taskParams.taskId ?? undefined);
+    return;
+  }
   
   if (auto === 'true') {
     // 移除 auto 参数，避免返回时重复触发
@@ -189,6 +202,7 @@ async function executeImport(
   favoriteService: any,
   sgfContent: string,
   fileName: string,
+  taskId?: string,
 ): Promise<void> {
   const progressCard = document.getElementById('progress-card') as HTMLElement;
   const progressBar = document.getElementById('progress-bar') as HTMLElement;
@@ -215,6 +229,20 @@ async function executeImport(
     await loadHistoryList(favoriteService);
     showGenerateResult(result);
 
+    // 后台任务完成通知（从 fetcher 跳转进来时带 taskId）
+    if (taskId) {
+      const backUrl = urlParams.get('src') || '';
+      const detailUrl = backUrl
+        ? '/fetcher/index.html?url=' + encodeURIComponent(backUrl)
+        : '/decision/index.html';
+      await TaskHelper.notifyComplete(
+        taskId,
+        '实战选点',
+        `生成完成！共 ${result.problems.length} 题\n\n[查看题目](/decision/index.html?view=favorite&key=${encodeURIComponent(result.key || '')})`,
+        detailUrl,
+      );
+    }
+
     // 切换到历史标签，展示新生成的记录
     (document.querySelector('[data-tab="history"]') as HTMLElement)?.click();
 
@@ -228,6 +256,7 @@ async function executeImport(
   } catch (e) {
     console.error('导入棋谱生成失败', e instanceof Error ? e : new Error(String(e)));
     if (progressText) progressText.textContent = '生成失败，请重试';
+    if (taskId) TaskHelper.notifyFail(taskId, (e as Error).message || '未知错误');
     await Dialog.alert('生成失败：' + ((e as Error).message || '未知错误'));
   }
 }

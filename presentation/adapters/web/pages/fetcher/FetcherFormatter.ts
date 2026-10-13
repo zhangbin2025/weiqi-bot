@@ -4,9 +4,31 @@
  */
 import type { FetcherResult, FetcherBookmark } from '../../../../../application/fetcher';
 import { formatGameResult } from '../../../../../domain/game/GameResult';
+import {
+  actionLabel,
+  isDangerAction,
+  classifyGame,
+  type GameAction,
+  type ClassifyInput,
+} from './utils/gameKind';
 /**
  * 格式化器配置
  */
+/**
+ * 结果卡片操作区输入
+ * @description 由棋谱分类器给出：首要动作、次要动作、菜单全集、外链
+ */
+export interface ResultActionsInput {
+  /** 首要动作（大按钮，强调色） */
+  primary: GameAction;
+  /** 次要动作（普通按钮，可为 null） */
+  secondary: GameAction | null;
+  /** 三点菜单全集（顺序即展示顺序，首要动作排第一） */
+  actions: GameAction[];
+  /** 外部可打开链接（有则菜单追加「查看链接」） */
+  externalUrl?: string | undefined;
+}
+
 export interface FetcherFormatterConfig {
   locale?: string;
 }
@@ -54,26 +76,15 @@ export class FetcherFormatter {
   // ==================== 结果展示 ====================
   /**
    * 格式化结果信息（紧凑风格）
+   * @param result 抓取结果
+   * @param actions 操作区配置（由棋谱分类器给出首要动作与菜单全集）
    */
-  formatResultInfo(result: FetcherResult, isLive: boolean = false): string {
+  formatResultInfo(result: FetcherResult, actions: ResultActionsInput): string {
     const black = result.metadata.black || '未知';
     const white = result.metadata.white || '未知';
-    const date = result.metadata.date || '未知';
     const movesCount = result.metadata.movesCount || 0;
     const gameResult = formatGameResult(result.metadata.result);
     const source = this.formatSource(result.source);
-    const btnStyle = 'flex:1;background:#f0f0f0;color:#333;padding:12px;border-radius:8px;text-align:center;cursor:pointer;font-size:15px;';
-    const buttons = isLive
-      ? `<div style="display:flex; gap:8px; margin-top:16px;">
-        <div data-action="view" style="${btnStyle}">👁️ 查看</div>
-        <div data-action="live" style="${btnStyle}color:#e53e3e;font-weight:600;">🔴 直播</div>
-        <div data-action="share" style="${btnStyle}">📱 分享</div>
-      </div>`
-      : `<div style="display:flex; gap:8px; margin-top:16px;">
-        <div data-action="download" style="${btnStyle}">📥 下载</div>
-        <div data-action="view" style="${btnStyle}">👁️ 查看</div>
-        <div data-action="share" style="${btnStyle}">📱 分享</div>
-      </div>`;
     return `
       <span style="display:inline-block; background:linear-gradient(135deg,#667eea 0%,#764ba2 100%); color:white; padding:2px 10px; border-radius:12px; font-size:12px; font-weight:500; margin-bottom:12px;">${source}</span>
       <div style="background:#f8f9fa; border-radius:8px; padding:12px;">
@@ -87,9 +98,53 @@ export class FetcherFormatter {
           <span>${movesCount}手</span>
         </div>
       </div>
-      ${buttons}
+      ${this.formatResultActions(actions)}
     `;
-  } 
+  }
+
+  /**
+   * 结果卡片操作区
+   * @description 首因效应：用户最想做的事放成大按钮（首要动作，强调色），
+   *              次要动作并排，其余全部收进右上角三点菜单。
+   */
+  formatResultActions(input: ResultActionsInput): string {
+    const HOVER = "onmouseover=\"this.style.background='#f8f9fa'\" onmouseout=\"this.style.background=''\"";
+    const btnBase = 'flex:1;background:#f0f0f0;color:#333;padding:12px;border-radius:8px;text-align:center;cursor:pointer;font-size:15px;';
+    const renderBtn = (a: GameAction): string =>
+      '<div data-action="' + a + '" style="' + btnBase +
+      (isDangerAction(a) ? 'color:#e53e3e;font-weight:600;' : '') + '">' + actionLabel(a) + '</div>';
+
+    // 三按钮行：首要动作 / 次要动作 / 分享
+    const row =
+      '<div style="display:flex; gap:8px; margin-top:16px;">' +
+      renderBtn(input.primary) +
+      (input.secondary ? renderBtn(input.secondary) : '') +
+      renderBtn('share') +
+      '</div>';
+
+    // 三点菜单：全集（含已出现在大按钮上的动作，与最新/收藏列表语义一致）
+    const items = input.actions
+      .map((a) =>
+        '<div data-action="' + a + '" style="padding:6px 10px;cursor:pointer;font-size:0.85em;' +
+        (isDangerAction(a) ? 'color:#c53030;font-weight:600;' : 'color:#2d3748;') +
+        'white-space:nowrap;" ' + HOVER + '>' + actionLabel(a) + '</div>')
+      .join('');
+    const link = input.externalUrl
+      ? '<div data-action="viewUrl" data-url="' + input.externalUrl + '" style="padding:6px 10px;cursor:pointer;' +
+        'font-size:0.85em;color:#2d3748;white-space:nowrap;" ' + HOVER + '>' + actionLabel('viewUrl') + '</div>'
+      : '';
+
+    const menu =
+      '<div class="result-dots" data-action="openResultMenu" style="position:absolute;top:8px;right:8px;width:28px;' +
+      'height:28px;line-height:26px;text-align:center;border-radius:50%;color:#999;font-size:18px;cursor:pointer;' +
+      'user-select:none;" ' + HOVER + '>⋮</div>' +
+      '<div data-menu-template style="display:none;position:absolute;top:36px;right:8px;min-width:112px;background:white;' +
+      'border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,0.15);z-index:50;overflow:hidden;">' +
+      items + link + '</div>';
+
+    return '<div style="position:relative;">' + menu + row + '</div>';
+  }
+
   // ==================== 收藏列表 ====================
   /**
    * 格式化空状态
@@ -119,15 +174,28 @@ export class FetcherFormatter {
     const date = this.formatDateOnly(entry.date);
     const title = this.formatBookmarkTitle(entry);
     const subtitle = this.formatBookmarkSubtitle(entry);
-    const isLiveSource = entry.source === 'ogs-live' || entry.source === 'yike-live';
-
-    const liveMenu = isLiveSource
-      ? `<div data-action="viewLatest" data-url="${entry.url}" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#2d3748;white-space:nowrap;">👁\ufe0f 查看棋谱</div>
-         <div data-action="selectLatest" data-url="${entry.url}" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#c53030;font-weight:600;white-space:nowrap;">🔴 直播棋谱</div>`
-      : '';
+    // 三点菜单：统一走棋谱分类器（与结果卡片 / 最新列表同一套动作集）
+    const HOVER = 'onmouseover="this.style.background=\'#f8f9fa\'" onmouseout="this.style.background=\'\'"';
+    const openItem = '<div data-action="viewBookmark" data-id="' + entry.id +
+      '" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#2d3748;white-space:nowrap;" ' +
+      HOVER + '>📂 打开收藏</div>';
+    const { actions } = classifyGame({
+      source: entry.source,
+      url: entry.url,
+      isLive: entry.isLive,
+      isEnded: entry.isEnded,
+    } as ClassifyInput);
+    const actionItems = actions
+      .map((a: GameAction) =>
+        '<div data-action="' + a + '" data-url="' + entry.url + '" style="padding:6px 10px;cursor:pointer;' +
+        'font-size:0.85em;' + (isDangerAction(a) ? 'color:#c53030;font-weight:600;' : 'color:#2d3748;') +
+        'white-space:nowrap;" ' + HOVER + '>' + actionLabel(a) + '</div>')
+      .join('');
     const linkUrl = this.bookmarkViewUrl(entry);
     const linkMenuItem = linkUrl
-      ? `<div data-action="viewUrl" data-url="${linkUrl}" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#2d3748;white-space:nowrap;">🔗 查看链接</div>`
+      ? '<div data-action="viewUrl" data-url="' + linkUrl +
+        '" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#2d3748;white-space:nowrap;" ' +
+        HOVER + '>' + actionLabel('viewUrl') + '</div>'
       : '';
 
     const menu = `
@@ -135,8 +203,8 @@ export class FetcherFormatter {
            style="position:absolute;top:8px;right:8px;width:24px;height:24px;line-height:22px;text-align:center;border-radius:50%;color:#999;font-size:16px;cursor:pointer;user-select:none;"
            onmouseover="this.style.background='#f0f0f0'" onmouseout="this.style.background=''">⋮</div>
       <div data-menu-template style="display:none;position:absolute;top:34px;right:8px;min-width:96px;background:white;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,0.15);z-index:50;overflow:hidden;">
-        <div data-action="viewBookmark" data-id="${entry.id}" style="padding:6px 10px;cursor:pointer;font-size:0.85em;color:#2d3748;white-space:nowrap;">📂 打开收藏</div>
-        ${liveMenu}
+        ${openItem}
+        ${actionItems}
         ${linkMenuItem}
       </div>`;
 

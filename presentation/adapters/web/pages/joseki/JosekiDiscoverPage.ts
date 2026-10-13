@@ -17,6 +17,8 @@ type DiscoverSource = 'foxwq' | 'katago' | 'lib';
 export interface JosekiDiscoverPageConfig {
   discoverApp: JosekiDiscoverApp;
   onNavigate?: (page: string, params?: Record<string, string>) => void;
+  /** 棋谱服务：用于按 archiveId 读取归档 SGF（从 fetcher 跳转） */
+  gameService?: { getByArchiveId(id: string): Promise<string | null> } | undefined;
 }
 
 export class JosekiDiscoverPage implements IPage {
@@ -29,6 +31,8 @@ export class JosekiDiscoverPage implements IPage {
   private analyzing = false;
   private currentResult: DiscoverResult | undefined;
   private currentGames: Array<{ title: string; date: string; archiveId?: string }> = [];
+  /** 棋谱服务（按 archiveId 读 SGF） */
+  private gameService: { getByArchiveId(id: string): Promise<string | null> } | undefined;
 
   // 子模块
   private historyManager: DiscoverHistoryManager;
@@ -37,6 +41,7 @@ export class JosekiDiscoverPage implements IPage {
   constructor(config: JosekiDiscoverPageConfig) {
     this.discoverApp = config.discoverApp;
     this.onNavigate = config.onNavigate;
+    this.gameService = config.gameService;
 
     // 创建子模块
     this.uiHelper = new DiscoverUIHelper();
@@ -83,6 +88,32 @@ export class JosekiDiscoverPage implements IPage {
 
   handleParams(params: PageParams): void {
     if (params['tab']) this.switchTab(params['tab'] as DiscoverTab);
+    // 从 fetcher 跳转：按 archiveId 从归档读 SGF 直接做定式发现
+    const archiveId = params['archiveId'];
+    if (archiveId) {
+      this.switchTab('upload');
+      void this.analyzeFromArchiveId(archiveId);
+    }
+  }
+
+  /**
+   * 从归档棋谱做定式发现
+   * @description fetcher 三点菜单「发现定式」入口：未结束实战棋谱同样支持，
+   *              只取已下手数做分析（手数不足则发现不了定式，属正常情况）。
+   */
+  private async analyzeFromArchiveId(archiveId: string): Promise<void> {
+    if (!this.gameService) {
+      await Dialog.alert('棋谱服务未初始化，无法读取归档棋谱');
+      return;
+    }
+    if (this.analyzing) return;
+    const sgf = await this.gameService.getByArchiveId(archiveId);
+    if (!sgf) {
+      await Dialog.alert('棋谱内容未找到，请返回棋谱抓取页重新获取');
+      return;
+    }
+    // 复用已有的归档分析路径（进度条 + 统计展示 + 历史写入）
+    await this.discoverFromArchive(sgf, archiveId);
   }
 
   private switchTab(tab: DiscoverTab): void {
