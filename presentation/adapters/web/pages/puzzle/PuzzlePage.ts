@@ -349,6 +349,12 @@ export class PuzzlePage implements IPage {
       if (open) this.ui.hideModal(open.id);
     });
 
+    // 重做本题（重置当前题，重新计时并累加尝试次数）
+    document.getElementById('restart-btn')?.addEventListener('click', () => {
+      if (this.state.get('singlePuzzle')) return;
+      this.restart();
+    });
+
     // 在打谱页查看本题棋谱
     document.getElementById('replay-btn')?.addEventListener('click', () => this.viewInReplay());
 

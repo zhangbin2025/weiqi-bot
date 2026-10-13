@@ -88,6 +88,22 @@
       margin-bottom: 6px;
     }
     .source-row .select-host { flex: 1; min-width: 0; }
+    /* 筛选按钮放在来源下拉右侧：覆盖 .puzzle-btn 的 44px 方形尺寸，
+       高度对齐下拉框的 38px，并显式重置 shell.css 全局 button 的 margin-top */
+    .source-row .source-filter-btn {
+      flex: 0 0 auto;
+      width: 38px;
+      height: 38px;
+      min-height: 38px;
+      margin: 0;
+      padding: 0;
+      font-size: 15px;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+    }
     /* 下拉框默认 44px（padding 10+10 + 行高），收到 38px */
     .source-row .ui-select__trigger {
       min-height: 38px;
@@ -629,13 +645,14 @@
       <!-- ============ 做题标签 ============ -->
       <div id="quiz-tab" class="tab-content active">
         <div class="card">
-          <!-- 来源（一行显示） -->
+          <!-- 来源（一行显示）+ 右侧筛选题型/难度（仅内置题库可用） -->
           <div class="source-row">
             <div class="select-host">
               <div data-ui="select" id="source-select"
                    data-value="lib-life-death"
                    data-options='[{"value":"lib-life-death","label":"内置题库"},{"value":"weiqi101","label":"101围棋"},{"value":"goproblems","label":"GoProblems"},{"value":"ogs-puzzle","label":"OGS死活题"}]'></div>
             </div>
+            <button class="puzzle-btn secondary source-filter-btn" id="filter-btn" title="筛选题型/难度" aria-label="筛选题型/难度" disabled>🔍</button>
           </div>
           <!-- 题目信息：先手（黑白棋子图标）+ 题型/题号，棋盘上方 -->
           <div class="puzzle-info" id="puzzle-info"></div>
@@ -662,12 +679,12 @@
             <button class="choices-btn" id="choices-btn" title="显示选点（A/B/C/D）" aria-label="显示选点" disabled>🔤</button>
           </div>
 
-          <!-- 图标按钮排：回撤(研究) / 研究(看答案) / 换题 / 筛选 -->
+          <!-- 图标按钮排：回撤(研究) / 研究(看答案) / 换题 / 重做 / 打谱 -->
           <div class="puzzle-controls">
             <button class="puzzle-btn secondary" id="undo-btn" title="回撤一手" style="display:none;" disabled>↩</button>
             <button class="puzzle-btn" id="answer-btn" title="看答案（研究模式）" disabled>👁</button>
             <button class="puzzle-btn success" id="next-btn" title="换题" disabled>⏭</button>
-            <button class="puzzle-btn secondary" id="filter-btn" title="筛选题型/难度" disabled>🔍</button>
+            <button class="puzzle-btn secondary" id="restart-btn" title="重做本题" aria-label="重做本题" disabled>⟲</button>
             <button class="puzzle-btn secondary" id="replay-btn" title="在打谱页查看本题棋谱" disabled>📖</button>
           </div>
         </div>

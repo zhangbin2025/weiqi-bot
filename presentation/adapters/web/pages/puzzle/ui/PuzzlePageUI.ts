@@ -63,6 +63,9 @@ export class PuzzlePageUI {
     setDisabled('choices-btn', !hasData || studying);
     // 打谱页查看本题：需已归档拿到 archiveId（单题模式也可用）
     setDisabled('replay-btn', !hasData || !state.get('archiveId'));
+    // 重做本题：需有题目；单题模式（从历史打开）禁用——它没有「回到题库」之外的重做语境，
+    // 且 restart 会累加 attempts 写历史，容易把历史记录刷乱
+    setDisabled('restart-btn', !hasData || single);
     // 换题：始终可用——单题模式下它是「回到题库出题」的出口，禁用会把用户锁死。
     // 空态（筛选无结果 / 加载失败）时也必须可用：此时它是「重试拉题」的唯一出口，
     // 若跟着 hasData 一起禁用，用户就卡在空态里出不来（只剩筛选按钮那条路）。
