@@ -429,6 +429,9 @@ export class PuzzlePage implements IPage {
       // 回填筛选出的题目总数；达到单次加载上限时加 "+"（真实总数可能更多）
       this.ui.setKeyword(this.keyword, this.items.length, this.itemsCapped);
       if (this.items.length === 0) {
+        // 筛不出题：必须把上一道题彻底清掉（状态 + 棋盘）。
+        // 只显示空态而留着旧局面，用户会以为筛选没生效。
+        this.clearPuzzleState();
         if (refill) this.ui.showEmpty('没有更多题目了', '试试切换来源或调整筛选');
         else this.ui.showEmpty('没有符合条件的题目', isLib ? '试试调整题型或难度筛选' : '试试切换题目来源');
         return;
@@ -437,6 +440,7 @@ export class PuzzlePage implements IPage {
     } catch (e) {
       this.ui.setLoading(false);
       console.error('[PuzzlePage] 加载题库失败', e);
+      this.clearPuzzleState();
       this.ui.showEmpty('加载失败', e instanceof Error ? e.message : String(e));
     }
   }
@@ -565,6 +569,24 @@ export class PuzzlePage implements IPage {
   }
 
   /**
+   * 清空当前题目相关的全部运行时状态（不碰偏好与来源）
+   * @description 供 showEmpty 前调用，保证「没有题」时页面上是干净的空态，
+   *              而不是旧题的局面 + 一行提示。棋盘本身由 showEmpty 负责隐藏。
+   */
+  private clearPuzzleState(): void {
+    this.state.clearPuzzle();
+    this.solveHandler.enterSolve();
+    this.studyHandler.reset();
+    this.checker.init(null);
+    this.game.newGame({ size: 19 });
+    this.board.clear();
+    this.initialStones = [];
+    // 阻止无题状态下的落子写历史（recordAttempt 靠 url 判空，这里是双保险）
+    this.hasRecordedAttempt = true;
+    this.refresh();
+  }
+
+  /**
    * 换一题（统一入口）
    *
    * 单题模式下先退出单题模式再换题——「换题」的语义就是不想做这道了，
@@ -587,6 +609,7 @@ export class PuzzlePage implements IPage {
       const fetched = await this.config.puzzleApp.fetchPuzzle(url);
       if (!fetched || !fetched.sgfContent) {
         this.ui.setLoading(false);
+        this.clearPuzzleState();
         this.ui.showEmpty('题目加载失败', '请检查网络或更换题目来源');
         return;
       }
@@ -601,6 +624,7 @@ export class PuzzlePage implements IPage {
       const data = sgfToReplayData(sgf, { defaultMove: 0 });
       if (!data) {
         this.ui.setLoading(false);
+        this.clearPuzzleState();
         this.ui.showEmpty('棋谱解析失败', '该题 SGF 无法解析');
         return;
       }
@@ -620,17 +644,22 @@ export class PuzzlePage implements IPage {
       this.checker.init(data);
       if (!this.checker.getIsTsumego()) {
         this.ui.setLoading(false);
+        this.clearPuzzleState();
         this.ui.showEmpty('这不是一道题', '该题没有可判定的正解分支');
         return;
       }
       this.state.set('firstPlayer', this.detectFirstPlayer());
 
+      // 先收空态：hideEmpty 会恢复棋盘容器显示，必须早于 board.initialize。
+      // 否则 initialize → render 时容器还是 display:none（clientWidth=0），
+      // 画布会按尺寸下限 300 定死，恢复显示后棋盘偏小且要等下次重排才修正。
+      this.ui.setLoading(false);
+      this.ui.hideEmpty();
+
       // 棋盘尺寸适配
       const size = (data.board_size as 9 | 13 | 19) || 19;
       this.board.initialize({ size, showCoordinates: true, showMoveNumbers: false });
 
-      this.ui.setLoading(false);
-      this.ui.hideEmpty();
       this.startSolve();
       // 记录初始局面（AB/AW 摆子），供历史缩略图使用
       this.currentBoardSize = size;
@@ -649,6 +678,7 @@ export class PuzzlePage implements IPage {
     } catch (e) {
       this.ui.setLoading(false);
       console.error('[PuzzlePage] 加载题目失败', e);
+      this.clearPuzzleState();
       this.ui.showEmpty('加载失败', e instanceof Error ? e.message : String(e));
     }
   }
@@ -866,7 +896,14 @@ export class PuzzlePage implements IPage {
   /** 刷新棋盘与 UI */
   private refresh(): void {
     const replayData = this.state.get('replayData') as ReplayData | null;
-    if (!replayData) return;
+    if (!replayData) {
+      // 无题状态（空态）：棋盘已由 showEmpty 隐藏，这里只需把按钮同步为「无题」态，
+      // 不能提前 return —— 否则换题/看答案等按钮仍停留在上一题的可点状态。
+      this.syncChoicesButton();
+      this.ui.updatePuzzleInfo(this.state);
+      this.ui.updateControls(this.state, this.studyHandler.canUndo());
+      return;
+    }
     // 做题页不显示手数（无手数开关 UI，且答题模式下暴露手数等于泄露答案进度）。
     // 固定传 false，让 BoardSyncer 走「高亮最后一手」分支：黑子中心白点、白子中心黑点。
     // 新开局未落子时 game.getState().lastMove 为 null，不会误标初始摆子。

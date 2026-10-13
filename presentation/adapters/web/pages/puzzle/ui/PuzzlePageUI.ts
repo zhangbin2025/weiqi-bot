@@ -63,8 +63,10 @@ export class PuzzlePageUI {
     setDisabled('choices-btn', !hasData || studying);
     // 打谱页查看本题：需已归档拿到 archiveId（单题模式也可用）
     setDisabled('replay-btn', !hasData || !state.get('archiveId'));
-    // 换题：始终可用——单题模式下它是「回到题库出题」的出口，禁用会把用户锁死
-    setDisabled('next-btn', !hasData);
+    // 换题：始终可用——单题模式下它是「回到题库出题」的出口，禁用会把用户锁死。
+    // 空态（筛选无结果 / 加载失败）时也必须可用：此时它是「重试拉题」的唯一出口，
+    // 若跟着 hasData 一起禁用，用户就卡在空态里出不来（只剩筛选按钮那条路）。
+    setDisabled('next-btn', false);
     // 筛选：仅内置题库可用；单题模式禁用
     // 注意：必须与 applySourceUiState() 保持一致，否则后者设的 disabled 会被这里覆盖，
     // 出现「按钮看着能点、点了却被 click 处理里的 singlePuzzle 判断挡掉」的不一致。
@@ -112,7 +114,12 @@ export class PuzzlePageUI {
     }
   }
 
-  /** 显示空态 */
+  /**
+   * 显示空态（无题可出 / 加载失败 / 棋谱不可用）
+   * @description 空态与棋盘互斥：有空态就必须把棋盘藏起来。
+   *              否则「筛选无结果」时棋盘上还摆着筛选前那道题，
+   *              用户看到的是旧局面 + 空态提示，误以为筛选没生效。
+   */
   showEmpty(title: string, subtitle: string): void {
     const el = document.getElementById('puzzle-empty');
     if (!el) return;
@@ -121,12 +128,28 @@ export class PuzzlePageUI {
     const s = el.querySelector('.empty-subtitle');
     if (t) t.textContent = title;
     if (s) s.textContent = subtitle;
+    this.setBoardVisible(false);
   }
 
-  /** 隐藏空态 */
+  /** 隐藏空态（并恢复棋盘显示） */
   hideEmpty(): void {
     const el = document.getElementById('puzzle-empty');
     if (el) el.style.display = 'none';
+    this.setBoardVisible(true);
+  }
+
+  /**
+   * 棋盘显示/隐藏
+   * @description 隐藏棋盘容器而非 canvas 本身：WebBoard 按容器宽度算尺寸，
+   *              display:none 期间 clientWidth 为 0，若此时触发 render 会把
+   *              canvas 尺寸算成下限 300，恢复显示后需要一次重排修正。
+   */
+  private setBoardVisible(visible: boolean): void {
+    const wrapper = document.querySelector<HTMLElement>('.puzzle-board-wrapper');
+    if (wrapper) wrapper.style.display = visible ? '' : 'none';
+    // 题目信息行（先手徽章 + 题型/题号）同属「本题」的展示，一并隐藏
+    const info = document.getElementById('puzzle-info');
+    if (info) info.style.display = visible ? '' : 'none';
   }
 
   /**

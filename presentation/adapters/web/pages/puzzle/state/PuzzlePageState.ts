@@ -86,4 +86,26 @@ export class PuzzlePageState {
     this.data.startedAt = Date.now();
     this.data.mode = 'solve';
   }
+
+  /**
+   * 清空当前题目（无题可出 / 加载失败时调用）
+   * @description 与 resetForNewPuzzle 分工不同：后者是「载入新题前重置答题进度」，
+   *              题目本身还在；这里是「没有题目了」，必须连题目自身
+   *              （SGF / 局面 / 标题 / 标签 / URL / 归档ID）一并抹掉。
+   *              否则筛选无结果时会残留筛选前那道题的局面与题号，
+   *              看起来就像「筛选没生效」。
+   */
+  clearPuzzle(): void {
+    this.data.sgfContent = null;
+    this.data.archiveId = '';
+    this.data.replayData = null;
+    this.data.title = '';
+    this.data.tag = '';
+    this.data.url = '';
+    this.data.mode = 'solve';
+    this.data.solved = false;
+    this.data.attempts = 0;
+    this.data.startedAt = 0;
+    this.data.firstPlayer = 'B';
+  }
 }
