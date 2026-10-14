@@ -111,20 +111,30 @@ export class FetcherFormatter {
    *              菜单，展示其余全部操作（含分享）。
    *              不再在卡片右上角单独放三点按钮：那样既和「更多」重复，
    *              又容易误触。
+   *
+   *              按钮文案一律不换行（white-space:nowrap）：窄屏上「实战选点」
+   *              这类四字标签曾被挤成两行，按钮高度参差、行也变高。
+   *              改为字号随屏宽收敛（clamp），比换行更好。
    */
   formatResultActions(input: ResultActionsInput): string {
     const HOVER = "onmouseover=\"this.style.background='#f8f9fa'\" onmouseout=\"this.style.background=''\"";
-    const btnBase = 'flex:1;background:#f0f0f0;color:#333;padding:12px;border-radius:8px;text-align:center;cursor:pointer;font-size:15px;';
+    // 不换行 + 字号自适应：窄屏缩字号而不是折行，保证三个按钮一行放得下、高度一致
+    const btnBase = 'flex:1;min-width:0;background:#f0f0f0;color:#333;padding:10px 6px;' +
+      'border-radius:8px;text-align:center;cursor:pointer;' +
+      'font-size:clamp(12px,3.4vw,15px);line-height:1.25;' +
+      'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
     const renderBtn = (a: GameAction): string =>
       '<div data-action="' + (a === 'more' ? 'openResultMenu' : a) + '"' +
       (a === 'more' ? ' class="result-more"' : '') +
       ' style="' + btnBase +
-      (isEmphasizedAction(a) ? 'color:#e53e3e;font-weight:600;' : '') + '">' +
+      (isEmphasizedAction(a) ? 'color:#e53e3e;font-weight:600;' : '') +
+      // 「更多 ⋯」是开关按钮，不参与等分伸缩，否则会把前两个按钮挤窄
+      (a === 'more' ? 'flex:0 0 auto;padding-left:12px;padding-right:12px;' : '') + '">' +
       (a === 'more' ? actionText(a) + ' <span style="font-size:1.1em;">⋯</span>' : actionLabel(a)) + '</div>';
 
     // 三按钮行：首要动作 / 次要动作 / 更多（⋯ 就地弹菜单，不再另设右上角三点）
     const row =
-      '<div class="result-actions-row" style="display:flex; gap:8px; margin-top:16px;">' +
+      '<div class="result-actions-row" style="display:flex; gap:6px; margin-top:16px;">' +
       renderBtn(input.primary) +
       (input.secondary ? renderBtn(input.secondary) : '') +
       renderBtn('more') +

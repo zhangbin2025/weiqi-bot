@@ -39,11 +39,17 @@ export async function loadHistoryList(favoriteService: IFavoriteService | undefi
       const stats = fav.data?.['stats'] as any;
       const date = new Date(fav.createdAt).toLocaleString('zh-CN');
       
+      // 来源标签 → 爬取 URL（导入的展示名）占满一行，
+      // URL 不能断行（break-all 会把一个豆号拆开）；
+      // 不同行则 URL 会把标签挤到下一行，两者互相影响。
+      // 所以 URL 独占一行（history-url），标签行只放来源标签。
       return `
         <div class="history-item" data-id="${fav.id}">
           <div class="history-header">
-            <div class="history-title"><span class="history-source">${sourceLabel}</span> ${label}</div>
+            <div class="history-title"><span class="history-source">${sourceLabel}</span></div>
+            <span class="history-date">${date}</span>
           </div>
+          ${label ? `<div class="history-url" title="${label}">${label}</div>` : ''}
           <div class="history-meta">
             <span class="meta-phase">🌅${stats?.phases?.layout ?? 0}</span>
             <span class="meta-phase">⚔️${stats?.phases?.middle ?? 0}</span>
