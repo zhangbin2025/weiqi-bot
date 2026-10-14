@@ -349,8 +349,14 @@ export class FetcherPage implements IPage {
       case 'review':
         return '/review/index.html?archiveId=' + encodeURIComponent(archiveId) + '&src=' + src;
       case 'decision':
+        // 与前台跳转（decisionCurrent → onNavigate("decision")）完全同源：
+        // 归档导入路径靠 archiveId + src（src 同时作为历史条目展示名，
+        // 缺失时会退化成显示一长串 archiveId）；不带 auto=true，否则一旦
+        // handleTaskParams 提前 return（scheduleId / view=favorite），
+        // 页面会走 auto 分支的「在线默认生成」，抓的这盘棋谱就丢了。
         return '/decision/index.html?archiveId=' + encodeURIComponent(archiveId) +
-          '&source=' + encodeURIComponent(result.source || '') + '&auto=true';
+          '&source=' + encodeURIComponent(result.source || '') +
+          '&src=' + src;
       case 'joseki':
         return '/joseki/discover.html?archiveId=' + encodeURIComponent(archiveId) +
           '&tab=upload&auto=true';
