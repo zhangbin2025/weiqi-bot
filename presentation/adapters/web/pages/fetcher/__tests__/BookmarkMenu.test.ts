@@ -10,6 +10,7 @@ describe('FetcherRenderer 收藏三点菜单（真实 DOM）', () => {
   let renderer: FetcherRenderer;
   let root: HTMLElement;
   let bookmarkCb: ((action: string, data?: Record<string, string>) => void) | undefined;
+  let bookmarkCbs: Record<string, ReturnType<typeof vi.fn>>;
 
   beforeEach(() => {
     document.body.innerHTML = '';
@@ -36,11 +37,17 @@ describe('FetcherRenderer 收藏三点菜单（真实 DOM）', () => {
       return card;
     }) as any;
 
+    bookmarkCbs = {
+      onFetch: vi.fn(), onViewBookmark: vi.fn(), onClearBookmarks: vi.fn(),
+      onDownload: vi.fn(), onViewSGF: vi.fn(), onLive: vi.fn(),
+      onGenerateShareUrl: vi.fn(), onSelectLatestView: vi.fn(),
+      onFetchLatest: vi.fn(), onSelectLatest: vi.fn(), onViewUrl: vi.fn(),
+      onPuzzleBookmark: vi.fn(), onReviewBookmark: vi.fn(), onDecisionBookmark: vi.fn(),
+      onJosekiBookmark: vi.fn(), onLiveBookmark: vi.fn(), onDownloadBookmark: vi.fn(),
+      onShareBookmark: vi.fn(), onViewBookmarkSGF: vi.fn(),
+    };
     renderer = new FetcherRenderer(
-      { onFetch: vi.fn(), onViewBookmark: vi.fn(), onClearBookmarks: vi.fn(),
-        onDownload: vi.fn(), onViewSGF: vi.fn(), onLive: vi.fn(),
-        onGenerateShareUrl: vi.fn(), onSelectLatestView: vi.fn(),
-        onFetchLatest: vi.fn(), onSelectLatest: vi.fn(), onViewUrl: vi.fn() } as any,
+      bookmarkCbs as any,
       factory as any, new FetcherFormatter(),
     );
     renderer.initialize();
@@ -125,5 +132,61 @@ describe('FetcherRenderer 收藏三点菜单（真实 DOM）', () => {
     const card = c.querySelector('[data-action="viewBookmark"][data-id="b1"]') as HTMLElement;
     card.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(bookmarkCb).toBeDefined();
+  });
+
+  /** 菜单动作 → 回调名（收藏菜单每个动作都必须有对应回调，否则点了没反应） */
+  const ACTION_CB: Record<string, string> = {
+    view: 'onViewBookmarkSGF',
+    puzzle: 'onPuzzleBookmark',
+    review: 'onReviewBookmark',
+    decision: 'onDecisionBookmark',
+    joseki: 'onJosekiBookmark',
+    live: 'onLiveBookmark',
+    download: 'onDownloadBookmark',
+    share: 'onShareBookmark',
+  };
+
+  function openMenu(): HTMLElement {
+    const c = bookmarkContainer();
+    (c.querySelector('.bookmark-dots') as HTMLElement)
+      .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    return c.querySelector('div[data-menu]') as HTMLElement;
+  }
+
+  it('菜单动作项带上收藏 ID（供点击后定位条目）', () => {
+    renderer.renderBookmarks([archived as any]);
+    const menu = openMenu();
+    const items = Array.from(menu.querySelectorAll('[data-action]')) as HTMLElement[];
+    const actionItems = items.filter((i) => ACTION_CB[i.getAttribute('data-action')!]);
+    expect(actionItems.length).toBeGreaterThan(0);
+    for (const item of actionItems) {
+      expect(item.getAttribute('data-id')).toBe('b1');
+    }
+  });
+
+  it('每个菜单动作点击后都派发到对应回调（无"点了没反应"的项）', () => {
+    let exercised = 0;
+    for (const [action, cbName] of Object.entries(ACTION_CB)) {
+      // 重置回调记录
+      for (const fn of Object.values(bookmarkCbs)) fn.mockClear();
+      renderer.renderBookmarks([archived as any]);
+      const menu = openMenu();
+      const item = menu.querySelector('[data-action="' + action + '"]') as HTMLElement | null;
+      if (!item) continue; // 该类棋谱没有这个动作
+      item.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      expect(bookmarkCbs[cbName], `动作 ${action} 未派发到 ${cbName}`).toHaveBeenCalledWith('b1');
+      exercised++;
+    }
+    // 防止菜单为空导致测试空转
+    expect(exercised).toBeGreaterThanOrEqual(4);
+  });
+
+  it('点击菜单动作后菜单自动收起', () => {
+    renderer.renderBookmarks([archived as any]);
+    const menu = openMenu();
+    const item = menu.querySelector('[data-action="download"]') as HTMLElement | null;
+    expect(item).toBeTruthy();
+    item!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(bookmarkContainer().querySelectorAll('div[data-menu]').length).toBe(0);
   });
 });

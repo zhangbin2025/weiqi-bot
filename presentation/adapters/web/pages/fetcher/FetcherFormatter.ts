@@ -6,8 +6,10 @@ import type { FetcherResult, FetcherBookmark } from '../../../../../application/
 import { formatGameResult } from '../../../../../domain/game/GameResult';
 import {
   actionLabel,
-  isDangerAction,
+  actionText,
+  isEmphasizedAction,
   classifyGame,
+  normalizeExternalUrl,
   type GameAction,
   type ClassifyInput,
 } from './utils/gameKind';
@@ -23,9 +25,9 @@ export interface ResultActionsInput {
   primary: GameAction;
   /** 次要动作（普通按钮，可为 null） */
   secondary: GameAction | null;
-  /** 三点菜单全集（顺序即展示顺序，首要动作排第一） */
+  /** 动作全集（顺序即展示顺序，首要动作排第一） */
   actions: GameAction[];
-  /** 外部可打开链接（有则菜单追加「查看链接」） */
+  /** 外部可打开链接（有则菜单追加「查看链接」；仅 http(s) 有效） */
   externalUrl?: string | undefined;
 }
 
@@ -105,44 +107,52 @@ export class FetcherFormatter {
   /**
    * 结果卡片操作区
    * @description 首因效应：用户最想做的事放成大按钮（首要动作，强调色），
-   *              次要动作并排，其余全部收进右上角三点菜单。
+   *              次要动作并排，第三个固定为「更多 ⋯」按钮 —— 点击就地弹出
+   *              菜单，展示其余全部操作（含分享）。
+   *              不再在卡片右上角单独放三点按钮：那样既和「更多」重复，
+   *              又容易误触。
    */
   formatResultActions(input: ResultActionsInput): string {
     const HOVER = "onmouseover=\"this.style.background='#f8f9fa'\" onmouseout=\"this.style.background=''\"";
     const btnBase = 'flex:1;background:#f0f0f0;color:#333;padding:12px;border-radius:8px;text-align:center;cursor:pointer;font-size:15px;';
     const renderBtn = (a: GameAction): string =>
-      '<div data-action="' + a + '" style="' + btnBase +
-      (isDangerAction(a) ? 'color:#e53e3e;font-weight:600;' : '') + '">' + actionLabel(a) + '</div>';
+      '<div data-action="' + (a === 'more' ? 'openResultMenu' : a) + '"' +
+      (a === 'more' ? ' class="result-more"' : '') +
+      ' style="' + btnBase +
+      (isEmphasizedAction(a) ? 'color:#e53e3e;font-weight:600;' : '') + '">' +
+      (a === 'more' ? actionText(a) + ' <span style="font-size:1.1em;">⋯</span>' : actionLabel(a)) + '</div>';
 
-    // 三按钮行：首要动作 / 次要动作 / 分享
+    // 三按钮行：首要动作 / 次要动作 / 更多（⋯ 就地弹菜单，不再另设右上角三点）
     const row =
-      '<div style="display:flex; gap:8px; margin-top:16px;">' +
+      '<div class="result-actions-row" style="display:flex; gap:8px; margin-top:16px;">' +
       renderBtn(input.primary) +
       (input.secondary ? renderBtn(input.secondary) : '') +
-      renderBtn('share') +
+      renderBtn('more') +
       '</div>';
 
-    // 三点菜单：全集（含已出现在大按钮上的动作，与最新/收藏列表语义一致）
+    // 菜单只放没上按钮行的动作：避免与首要/次要按钮重复
+    const onRow = new Set<GameAction>([input.primary, ...(input.secondary ? [input.secondary] : [])]);
     const items = input.actions
+      .filter((a) => !onRow.has(a))
       .map((a) =>
         '<div data-action="' + a + '" style="padding:6px 10px;cursor:pointer;font-size:0.85em;' +
-        (isDangerAction(a) ? 'color:#c53030;font-weight:600;' : 'color:#2d3748;') +
+        (isEmphasizedAction(a) ? 'color:#c53030;font-weight:600;' : 'color:#2d3748;') +
         'white-space:nowrap;" ' + HOVER + '>' + actionLabel(a) + '</div>')
       .join('');
-    const link = input.externalUrl
-      ? '<div data-action="viewUrl" data-url="' + input.externalUrl + '" style="padding:6px 10px;cursor:pointer;' +
+    // 外链必须是 http(s)：lib:// / katago:// 等内置库伪协议浏览器打不开，不展示
+    const externalUrl = normalizeExternalUrl(input.externalUrl);
+    const link = externalUrl
+      ? '<div data-action="viewUrl" data-url="' + externalUrl + '" style="padding:6px 10px;cursor:pointer;' +
         'font-size:0.85em;color:#2d3748;white-space:nowrap;" ' + HOVER + '>' + actionLabel('viewUrl') + '</div>'
       : '';
 
     const menu =
-      '<div class="result-dots" data-action="openResultMenu" style="position:absolute;top:8px;right:8px;width:28px;' +
-      'height:28px;line-height:26px;text-align:center;border-radius:50%;color:#999;font-size:18px;cursor:pointer;' +
-      'user-select:none;" ' + HOVER + '>⋮</div>' +
-      '<div data-menu-template style="display:none;position:absolute;top:36px;right:8px;min-width:112px;background:white;' +
-      'border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,0.15);z-index:50;overflow:hidden;">' +
+      '<div data-menu-template style="display:none;position:absolute;top:100%;right:0;margin-top:4px;' +
+      'min-width:112px;background:white;border:1px solid #e2e8f0;border-radius:8px;' +
+      'box-shadow:0 4px 14px rgba(0,0,0,0.15);z-index:50;overflow:hidden;">' +
       items + link + '</div>';
 
-    return '<div style="position:relative;">' + menu + row + '</div>';
+    return '<div class="result-actions" style="position:relative;">' + row + menu + '</div>';
   }
 
   // ==================== 收藏列表 ====================
@@ -185,10 +195,13 @@ export class FetcherFormatter {
       isLive: entry.isLive,
       isEnded: entry.isEnded,
     } as ClassifyInput);
+    // data-id 带上收藏 ID：菜单动作要据此定位是哪条收藏
+    // （只靠 url 不可靠 —— 同一对局可能在不同来源下重复收藏）
     const actionItems = actions
       .map((a: GameAction) =>
-        '<div data-action="' + a + '" data-url="' + entry.url + '" style="padding:6px 10px;cursor:pointer;' +
-        'font-size:0.85em;' + (isDangerAction(a) ? 'color:#c53030;font-weight:600;' : 'color:#2d3748;') +
+        '<div data-action="' + a + '" data-id="' + entry.id + '" data-url="' + entry.url +
+        '" style="padding:6px 10px;cursor:pointer;' +
+        'font-size:0.85em;' + (isEmphasizedAction(a) ? 'color:#c53030;font-weight:600;' : 'color:#2d3748;') +
         'white-space:nowrap;" ' + HOVER + '>' + actionLabel(a) + '</div>')
       .join('');
     const linkUrl = this.bookmarkViewUrl(entry);
@@ -231,16 +244,15 @@ export class FetcherFormatter {
 
   /**
    * 收藏"查看链接"目标：与"最新"标签页一致
-   * KataGo 指向归档压缩包；其余来源若有 http(s) 可打开链接则直接用，否则返回空（不显示"查看链接"）
+   * KataGo 指向归档压缩包；其余来源若有 http(s) 可打开链接则直接用。
+   * 内置库链接（lib:// 等伪协议）一律返回空 —— 浏览器打不开，不显示"查看链接"。
    */
   private bookmarkViewUrl(entry: FetcherBookmark): string {
     const m = entry.url.match(/^katago:\/\/date\/(\d{4}-\d{2}-\d{2})/);
     if (entry.source === 'katago' && m) {
       return 'https://katagoarchive.org/kata1/ratinggames/' + m[1] + 'rating.tar.bz2';
     }
-    if (entry.viewUrl && /^https?:\/\//i.test(entry.viewUrl)) return entry.viewUrl;
-    if (/^https?:\/\//i.test(entry.url)) return entry.url;
-    return '';
+    return normalizeExternalUrl(entry.viewUrl) || normalizeExternalUrl(entry.url);
   }
 
   /**

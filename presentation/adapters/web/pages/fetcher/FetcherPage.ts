@@ -13,7 +13,13 @@ import { buildArchiveUrl } from '../../../../../domain/sgf/SGFUtils';
 import { SessionStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/SessionStorageAdapter';
 import { LocalStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/LocalStorageAdapter';
 import { normalizePuzzleFilterState } from '../../../../../services/game/providers/library/puzzleFilter';
-import { classifyGame, type ClassifyInput, type GameAction, type GameClassification } from './utils/gameKind';
+import {
+  classifyGame,
+  normalizeExternalUrl,
+  type ClassifyInput,
+  type GameAction,
+  type GameClassification,
+} from './utils/gameKind';
 import type { ResultActionsInput } from './FetcherFormatter';
 import type { FilterSelection } from './FetcherRenderer';
 export interface FetcherPageConfig {
@@ -69,6 +75,14 @@ export class FetcherPage implements IPage {
       onDownloadLatest: (url) => this.latestByAction(url, 'download'),
       onShareLatest: (url) => this.latestByAction(url, 'share'),
       onViewUrl: (url) => this.viewUrl(url),
+      onPuzzleBookmark: (id) => this.puzzleBookmark(id),
+      onReviewBookmark: (id) => this.reviewBookmark(id),
+      onDecisionBookmark: (id) => this.decisionBookmark(id),
+      onJosekiBookmark: (id) => this.josekiBookmark(id),
+      onLiveBookmark: (id) => this.liveBookmark(id),
+      onDownloadBookmark: (id) => this.downloadBookmark(id),
+      onShareBookmark: (id) => this.shareBookmark(id),
+      onViewBookmarkSGF: (id) => this.viewBookmarkSGF(id),
       onPuzzle: () => this.puzzleCurrent(),
       onReview: () => this.reviewCurrent(),
       onDecision: () => this.decisionCurrent(),
@@ -229,6 +243,16 @@ export class FetcherPage implements IPage {
     return url;
   }
 
+  /**
+   * "查看链接"目标：只接受 http(s) 开头的协议
+   * @description 内置库链接（lib://life-and-death/...、lib-ai-review://...、
+   *              katago://...）在浏览器里打不开，必须过滤掉 —— 否则菜单里
+   *              挂着一个点了没反应的「查看链接」。
+   */
+  private externalLink(url: string | undefined): string | undefined {
+    return normalizeExternalUrl(url) || undefined;
+  }
+
   private async viewBookmark(id: string): Promise<void> {
     const entry = this.bookmarks.find(h => h.id === id);
     if (!entry) return;
@@ -244,7 +268,7 @@ export class FetcherPage implements IPage {
     this.isLiveMode = !!entry.isLive;
     if (this.isLiveMode) this.liveUrl = entry.url;
     const cls = this.classifyCurrent();
-    this.renderer.showResult(result, this.buildResultActions(cls, this.filterSrcUrl(entry.url) || undefined));
+    this.renderer.showResult(result, this.buildResultActions(cls, this.externalLink(this.filterSrcUrl(entry.url))));
     this.renderer.setCurrentResult(result);
     if (entry.archiveId) void this.refineClassification(entry.archiveId);
   }
@@ -265,7 +289,7 @@ export class FetcherPage implements IPage {
         }
   
         const cls = this.classifyCurrent();
-        this.renderer.showResult(result, this.buildResultActions(cls, this.filterSrcUrl(result.url) || undefined));
+        this.renderer.showResult(result, this.buildResultActions(cls, this.externalLink(this.filterSrcUrl(result.url))));
         this.renderer.setCurrentResult(result);
         if (result.archiveId) void this.refineClassification(result.archiveId);
         await this.loadBookmarks();
@@ -685,7 +709,7 @@ export class FetcherPage implements IPage {
       url: r?.url,
       isLive: r?.metadata?.isLive,
       isEnded: r?.metadata?.isEnded,
-      externalUrl: this.filterSrcUrl(r?.url) || undefined,
+      externalUrl: this.externalLink(this.filterSrcUrl(r?.url)),
       sgf,
     };
     this.currentKindInput = input;
@@ -705,7 +729,7 @@ export class FetcherPage implements IPage {
       const before = this.currentKind?.kind;
       const cls = this.classifyCurrent(sgf);
       if (cls.kind === before) return; // 类别未变，不重绘
-      const actions = this.buildResultActions(cls, this.filterSrcUrl(this.currentResult?.url) || undefined);
+      const actions = this.buildResultActions(cls, this.externalLink(this.filterSrcUrl(this.currentResult?.url)));
       this.renderer.updateResultActions(actions);
     } catch {
       /* 分类升级失败不影响主流程 */
@@ -760,10 +784,108 @@ export class FetcherPage implements IPage {
     });
   }
 
-  /** 直接在新标签页打开条目的原始 URL */
+  /**
+   * 收藏条目的后续动作（做题/复盘/实战选点/发现定式/…）
+   * @description 收藏里已有 archiveId，无需重新抓取 —— 直接跳目标页面即可。
+   *              直播这类需要实时 URL 的动作才回退为「先取 URL 再跳转」。
+   */
+  private bookmarkEntry(id: string): FetcherBookmark | undefined {
+    return this.bookmarks.find((b) => b.id === id);
+  }
+
+  /** 收藏：做题 */
+  private puzzleBookmark(id: string): void {
+    const e = this.bookmarkEntry(id);
+    if (!e?.archiveId) return;
+    const navParams: Record<string, string> = {
+      archiveId: e.archiveId,
+      url: e.url,
+      src: this.filterSrcUrl(e.url),
+    };
+    if (e.source) navParams['source'] = e.source;
+    this._onNavigate?.('puzzle', navParams);
+  }
+
+  /** 收藏：复盘（本地模型分析） */
+  private reviewBookmark(id: string): void {
+    const e = this.bookmarkEntry(id);
+    if (!e?.archiveId) return;
+    if (e.isLive) {
+      window.location.href = '../review/index.html?live=true&url=' + encodeURIComponent(e.url);
+      return;
+    }
+    this._onNavigate?.('review', { archiveId: e.archiveId, src: this.filterSrcUrl(e.url) });
+  }
+
+  /** 收藏：实战选点 */
+  private decisionBookmark(id: string): void {
+    const e = this.bookmarkEntry(id);
+    if (!e?.archiveId) return;
+    this._onNavigate?.('decision', {
+      archiveId: e.archiveId,
+      source: e.source || '',
+      src: this.filterSrcUrl(e.url),
+    });
+  }
+
+  /** 收藏：发现定式 */
+  private josekiBookmark(id: string): void {
+    const e = this.bookmarkEntry(id);
+    if (!e?.archiveId) return;
+    this._onNavigate?.('joseki', {
+      archiveId: e.archiveId,
+      source: e.source || '',
+      src: this.filterSrcUrl(e.url),
+    });
+  }
+
+  /** 收藏：直播观看 */
+  private liveBookmark(id: string): void {
+    const e = this.bookmarkEntry(id);
+    if (!e) return;
+    window.location.href = '../review/index.html?live=true&url=' + encodeURIComponent(e.url);
+  }
+
+  /** 收藏：下载 SGF */
+  private async downloadBookmark(id: string): Promise<void> {
+    const e = this.bookmarkEntry(id);
+    if (!e?.archiveId) return;
+    try {
+      const name = `${e.black || '未知'}_vs_${e.white || '未知'}`;
+      await this.fetcherApp.downloadSGF(e.archiveId, name);
+    } catch (error) {
+      console.error('下载SGF失败', error as Error);
+    }
+  }
+
+  /** 收藏：生成分享链接 */
+  private async shareBookmark(id: string): Promise<void> {
+    const e = this.bookmarkEntry(id);
+    if (!e?.archiveId) return;
+    try {
+      const shareResult = await this.fetcherApp.generateShareUrl(e.archiveId);
+      if (shareResult.success) await this.renderer.showQRCodeDialog(shareResult);
+      else console.warn(shareResult.error || '分享链接生成失败');
+    } catch (error) {
+      console.error('生成分享链接失败', error as Error);
+    }
+  }
+
+  /** 收藏：打谱（跳 replay） */
+  private viewBookmarkSGF(id: string): void {
+    const e = this.bookmarkEntry(id);
+    if (!e?.archiveId) return;
+    this._onNavigate?.('replay', {
+      archiveId: e.archiveId,
+      src: this.filterSrcUrl(e.url),
+    });
+  }
+
+  /** 直接在新标签页打开条目的原始 URL（仅 http(s)，内置库伪协议不开窗） */
   private viewUrl(url: string): void {
-    if (!url) return;
-    window.open(url, '_blank', 'noopener');
+    const safe = this.externalLink(url);
+    if (!safe) return;
+    window.open(safe, '_blank', 'noopener');
   }
 
   private async generateShareUrl(): Promise<void> {

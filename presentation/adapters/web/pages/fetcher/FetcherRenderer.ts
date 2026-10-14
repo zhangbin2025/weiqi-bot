@@ -6,7 +6,14 @@ import type { ITabs, ICard, IInput, IButton, IPanel, IToast, IOverlay, ISelect, 
 import type { FetcherResult, FetcherBookmark, ShareResult, LatestGameItem } from '../../../../../application/fetcher';
 import type { FetcherFormatter } from './FetcherFormatter';
 import type { ResultActionsInput } from './FetcherFormatter';
-import { classifyGame, actionLabel, isDangerAction, type ClassifyInput, type GameAction } from './utils/gameKind';
+import {
+  classifyGame,
+  actionLabel,
+  isEmphasizedAction,
+  normalizeExternalUrl,
+  type ClassifyInput,
+  type GameAction,
+} from './utils/gameKind';
 import { WebOverlay } from '../../components/Overlay';
 import { WebQRCodeDialog } from '../../components/QRCodeDialog';
 import {
@@ -51,6 +58,22 @@ export interface FetcherRendererCallbacks {
   onRestoreKeyword?: (source: string) => string | null;
   onSelectLatest: (url: string) => void;
   onViewUrl: (url: string) => void;
+  /** 收藏条目：做题 */
+  onPuzzleBookmark?: (id: string) => void;
+  /** 收藏条目：复盘 */
+  onReviewBookmark?: (id: string) => void;
+  /** 收藏条目：实战选点 */
+  onDecisionBookmark?: (id: string) => void;
+  /** 收藏条目：发现定式 */
+  onJosekiBookmark?: (id: string) => void;
+  /** 收藏条目：直播 */
+  onLiveBookmark?: (id: string) => void;
+  /** 收藏条目：下载 SGF */
+  onDownloadBookmark?: (id: string) => void;
+  /** 收藏条目：分享 */
+  onShareBookmark?: (id: string) => void;
+  /** 收藏条目：打谱（查看） */
+  onViewBookmarkSGF?: (id: string) => void;
   /** 研究题目：跳 replay 页面「研究题目模式」（非做题模式） */
   onPuzzleLatest?: (url: string) => void;
   /** 列表项：复盘（本地模型） */
@@ -229,20 +252,44 @@ export class FetcherRenderer {
     this.bookmarkCard.onAction((action, data) => {
       if (action === 'openBookmarkMenu' && data?.['id']) {
         this.toggleBookmarkMenu(data['id'] as string);
-      } else if (action === 'viewBookmark' && data?.['id']) {
-        this.cb.onViewBookmark(data['id'] as string);
-      } else if (action === 'viewLatest' && data?.['url']) {
+        return;
+      }
+      // 菜单动作点了就该收起菜单，否则浮层一直挂着
+      if (action !== 'viewBookmark') this.closeBookmarkMenu();
+      if (action === 'viewUrl' && data?.['url']) {
+        this.cb.onViewUrl(data['url'] as string);
+        return;
+      }
+      // 收藏条目的动作统一按收藏 ID 走（菜单项同时带 id 与 url）
+      const id = data?.['id'] as string | undefined;
+      if (id) {
+        switch (action) {
+          case 'viewBookmark': this.cb.onViewBookmark(id); return;
+          case 'view': this.cb.onViewBookmarkSGF?.(id); return;
+          case 'puzzle': this.cb.onPuzzleBookmark?.(id); return;
+          case 'review': this.cb.onReviewBookmark?.(id); return;
+          case 'decision': this.cb.onDecisionBookmark?.(id); return;
+          case 'joseki': this.cb.onJosekiBookmark?.(id); return;
+          case 'live': this.cb.onLiveBookmark?.(id); return;
+          case 'download': this.cb.onDownloadBookmark?.(id); return;
+          case 'share': this.cb.onShareBookmark?.(id); return;
+          default: break;
+        }
+      }
+      // 兼容：只有 url 的条目（最新列表复用同一卡片时）
+      if (action === 'viewLatest' && data?.['url']) {
         this.cb.onSelectLatestView(data['url'] as string);
       } else if (action === 'selectLatest' && data?.['url']) {
         this.cb.onSelectLatest(data['url'] as string);
-      } else if (action === 'viewUrl' && data?.['url']) {
-        this.cb.onViewUrl(data['url'] as string);
       }
     });
     this.resultCard.onAction((action, data) => {
       if (action === "openResultMenu") {
         this.toggleResultMenu();
-      } else if (action === "live") {
+      } else {
+        this.closeResultMenu();
+      }
+      if (action === "live") {
         this.cb.onLive();
       } else if (action === "download") {
         this.cb.onDownload();
@@ -511,9 +558,10 @@ export class FetcherRenderer {
     this._resultActions = actions;
     const container = this.resultCard.getContainer?.() as HTMLElement | undefined;
     if (!container) return;
-    const old = container.querySelector('[data-menu-template], .result-dots');
-    // 操作区包裹层：含三点菜单与按钮行，整体替换
-    const wrapper = old?.parentElement;
+    // 菜单已展开时先收起，避免替换 DOM 后残留浮层
+    this.closeResultMenu();
+    // 操作区包裹层：含按钮行与菜单模板，整体替换
+    const wrapper = container.querySelector('.result-actions') as HTMLElement | null;
     if (!wrapper) return;
     const tmp = document.createElement('div');
     tmp.innerHTML = this.formatter.formatResultActions(actions);
@@ -522,22 +570,36 @@ export class FetcherRenderer {
   }
 
   /**
-   * 结果卡片右上角三点扩展菜单：打开/关闭
+   * 结果卡片「更多 ⋯」扩展菜单：打开/关闭
+   * @description 菜单就地展开在「更多」按钮下方（右侧对齐），
+   *              不再使用卡片右上角三点按钮 —— 那个位置容易误触，
+   *              且和第三个按钮语义重复。
    */
   toggleResultMenu(): void {
     const container = this.resultCard.getContainer?.() as HTMLElement | undefined;
     if (!container) return;
     const existing = container.querySelector('div[data-menu]') as HTMLElement | null;
-    container.querySelectorAll('div[data-menu]').forEach((m) => m.remove());
-    if (existing) return; // 已打开则关闭
-    const tpl = container.querySelector('[data-menu-template]') as HTMLElement | null;
+    this.closeResultMenu();
+    if (existing) return; // 点第二下即收起
+    const wrapper = container.querySelector('.result-actions') as HTMLElement | null;
+    if (!wrapper) return;
+    const tpl = wrapper.querySelector('[data-menu-template]') as HTMLElement | null;
     if (!tpl) return;
     const cloned = tpl.cloneNode(true) as HTMLElement;
     cloned.removeAttribute('data-menu-template');
     cloned.setAttribute('data-menu', '');
     cloned.style.display = '';
-    (container.querySelector('.result-dots') as HTMLElement | null)
+    // 菜单挂在整行按钮之后（不是行内，否则会变成第 4 个按钮），
+    // 定位 top:100% → 落在「更多」按钮正下方、右边缘对齐
+    (wrapper.querySelector('.result-actions-row') as HTMLElement | null)
       ?.insertAdjacentElement('afterend', cloned);
+  }
+
+  /** 关闭结果卡片已展开的扩展菜单 */
+  closeResultMenu(): void {
+    const container = this.resultCard.getContainer?.() as HTMLElement | undefined;
+    if (!container) return;
+    container.querySelectorAll('div[data-menu]').forEach((m) => m.remove());
   }
   renderBookmarks(entries: FetcherBookmark[]): void {
     if (entries.length === 0) {
@@ -705,8 +767,9 @@ export class FetcherRenderer {
     const cardEl = container.querySelector('[data-url="' + escapedUrl + '"]') as HTMLElement | null;
     if (!cardEl) return;
     const existing = cardEl.querySelector('div[data-menu]') as HTMLElement | null;
-    // 关闭其它已打开的菜单
+    // 关闭其它已打开的菜单（含结果卡片的「更多」菜单）
     container.querySelectorAll('div[data-menu]').forEach((m) => m.remove());
+    this.closeResultMenu();
     if (existing) return; // 已打开则关闭
     const tpl = cardEl.querySelector('[data-menu-template]') as HTMLElement | null;
     if (!tpl) return;
@@ -715,6 +778,13 @@ export class FetcherRenderer {
     cloned.setAttribute('data-menu', '');
     cloned.style.display = '';
     (cardEl.querySelector('.latest-dots') as HTMLElement | null)?.insertAdjacentElement('afterend', cloned);
+  }
+
+  /** 收起收藏列表已展开的菜单 */
+  closeBookmarkMenu(): void {
+    const container = this.bookmarkCard.getContainer?.() as HTMLElement | undefined;
+    if (!container) return;
+    container.querySelectorAll('div[data-menu]').forEach((m) => m.remove());
   }
 
   /**
@@ -744,7 +814,7 @@ export class FetcherRenderer {
    * @param cls 分类输入（source / url / isLive / isEnded）
    * @param urlAttr 菜单项携带的 url 值
    * @param extraItems 追加项（如收藏的「打开收藏」）
-   * @param externalUrl 外链（有则追加「查看链接」）
+   * @param externalUrl 外链（http(s) 才追加「查看链接」，内置库伪协议忽略）
    */
   private buildMenuHtml(
     cls: ClassifyInput,
@@ -757,11 +827,13 @@ export class FetcherRenderer {
     const items = actions
       .map((a: GameAction) =>
         '<div data-action="' + a + '" data-url="' + urlAttr + '" style="padding:6px 10px;cursor:pointer;' +
-        'font-size:0.85em;' + (isDangerAction(a) ? 'color:#c53030;font-weight:600;' : 'color:#2d3748;') +
+        'font-size:0.85em;' + (isEmphasizedAction(a) ? 'color:#c53030;font-weight:600;' : 'color:#2d3748;') +
         'white-space:nowrap;" ' + HOVER + '>' + actionLabel(a) + '</div>')
       .join('');
-    const link = externalUrl
-      ? '<div data-action="viewUrl" data-url="' + externalUrl + '" style="padding:6px 10px;cursor:pointer;' +
+    // 外链必须是 http(s)：lib:// / katago:// 等内置库伪协议在浏览器里打不开
+    const safeExternalUrl = normalizeExternalUrl(externalUrl);
+    const link = safeExternalUrl
+      ? '<div data-action="viewUrl" data-url="' + safeExternalUrl + '" style="padding:6px 10px;cursor:pointer;' +
         'font-size:0.85em;color:#2d3748;white-space:nowrap;" ' + HOVER + '>' + actionLabel('viewUrl') + '</div>'
       : '';
     const body = extraItems + items + link;

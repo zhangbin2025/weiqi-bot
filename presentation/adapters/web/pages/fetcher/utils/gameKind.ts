@@ -15,7 +15,11 @@
 /** 棋谱类别 */
 export type GameKind = 'puzzle' | 'live' | 'ai-review' | 'plain';
 
-/** 扩展动作 */
+/**
+ * 扩展动作
+ * @description 'more' 不是动作，是结果卡片第三个按钮（更多 ⋯）的占位符，
+ *              仅用于按钮行渲染，不会出现在三点菜单里。
+ */
 export type GameAction =
   | 'download'   // 下载 SGF
   | 'view'       // 打谱
@@ -25,7 +29,8 @@ export type GameAction =
   | 'review'     // 复盘（本地模型）
   | 'decision'   // 实战选点
   | 'joseki'     // 发现定式
-  | 'viewUrl';   // 查看原始链接
+  | 'viewUrl'    // 查看原始链接
+  | 'more';      // 更多（按钮占位，非动作）
 
 /** 分类判定输入 */
 export interface ClassifyInput {
@@ -163,17 +168,18 @@ export function classifyGame(input: ClassifyInput): GameClassification {
   };
 }
 
-/** 动作元数据（图标 + 文案 + 是否危险色） */
-const ACTION_META: Record<GameAction, { icon: string; label: string; danger?: boolean }> = {
+/** 动作元数据（图标 + 文案 + 是否强调色） */
+const ACTION_META: Record<GameAction, { icon: string; label: string; emphasize?: boolean }> = {
   download: { icon: '📥', label: '下载' },
   view: { icon: '👁️', label: '查看' },
   share: { icon: '📱', label: '分享' },
-  live: { icon: '🔴', label: '直播', danger: true },
-  puzzle: { icon: '🧩', label: '做题', danger: true },
+  live: { icon: '🔴', label: '直播', emphasize: true },
+  puzzle: { icon: '🧩', label: '做题', emphasize: true },
   review: { icon: '🔍', label: '复盘' },
-  decision: { icon: '🎯', label: '实战选点', danger: true },
+  decision: { icon: '🎯', label: '实战选点', emphasize: true },
   joseki: { icon: '📐', label: '发现定式' },
   viewUrl: { icon: '🔗', label: '查看链接' },
+  more: { icon: '⋯', label: '更多' },
 };
 
 /** 取动作展示文案（含图标） */
@@ -192,7 +198,21 @@ export function actionText(action: GameAction): string {
   return ACTION_META[action].label;
 }
 
-/** 是否为强调色动作（首要动作常用） */
-export function isDangerAction(action: GameAction): boolean {
-  return ACTION_META[action].danger === true;
+/**
+ * 是否为强调色动作（首要动作常用）
+ */
+export function isEmphasizedAction(action: GameAction): boolean {
+  return ACTION_META[action].emphasize === true;
+}
+
+
+/**
+ * 规范化外链：只有 http(s) 开头的协议才可作为"查看链接"
+ * @description 内置库链接（lib://、katago://、archive: 等伪协议）在浏览器里
+ *              打不开，必须过滤掉，否则"查看链接"点了没反应。
+ * @returns 合法则返回原串，否则返回 ''
+ */
+export function normalizeExternalUrl(url?: string): string {
+  if (!url) return '';
+  return /^https?:\/\//i.test(url) ? url : '';
 }
