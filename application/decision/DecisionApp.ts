@@ -7,6 +7,70 @@ import type { IDecisionService } from '../../services/decision';
 import type { IFavoriteService } from '../../services/favorite';
 import type { IDecisionProblem, DecisionDifficulty, DecisionPhase, GameLevel } from '../../domain/decision';
 import type { GameServiceResult } from '../../services/game';
+import { md5 } from 'js-md5';
+/** 「导入棋谱」展示名（导入生成的记录统一用这个，与来源平台无关） */
+const IMPORT_SOURCE_LABEL = '导入棋谱';
+
+/**
+ * 实战选点的来源显示名（唯一事实来源）
+ * @description 历史条目 / 题目列表的来源标签统一从这里取，避免各处各写一份
+ *              （曾经 history/list.ts 写成 `source === 'ogs' ? 'OGS' : '野狐'`，
+ *                导致导入的棋谱也被标成「野狐」）。
+ */
+export const DECISION_SOURCE_LABELS: Record<string, string> = {
+  foxwq: '野狐',
+  ogs: 'OGS',
+  lib: '内置棋谱',
+  import: IMPORT_SOURCE_LABEL,
+};
+
+/** 导入棋谱的来源键（generateFromSGFContent 专用） */
+export const DECISION_SOURCE_IMPORT = 'import';
+
+/** 导入生成的收藏键前缀（generateFromSGFContent 落库时使用） */
+export const DECISION_IMPORT_KEY_PREFIX = 'import_';
+
+/**
+ * SGF 内容哈希（不用于安全，仅做导入去重的内容指纹）
+ * @description 同一份棋谱内容 → 同一个收藏键。
+ *              注意：会把 SGF 全文纳入计算，棋谱内容一致才算同一份；
+ *              仅文件名不同但内容相同的情况也会去重。
+ */
+function hashSgfContent(sgfContent: string): string {
+  return md5(sgfContent).toLowerCase();
+}
+
+/**
+ * 解析历史条目的来源显示名（兼容老数据）
+ * @description 新数据落库时带 sourceLabel，直接取用；
+ *              老数据只有 source（导入的被误存成 foxwq/ogs），
+ *              用收藏键前缀 `import_` 识别为「导入棋谱」。
+ * @param data 收藏条目 data
+ * @param favoriteKey 收藏键（可选；用于老数据兜底识别导入）
+ */
+export function resolveDecisionSourceLabel(
+  data?: Record<string, unknown> | null,
+  favoriteKey?: string | undefined,
+): string {
+  const stored = data?.['sourceLabel'];
+  if (typeof stored === 'string' && stored) return stored;
+  // 老数据兜底：导入生成的收藏键为 import_<时间戳>
+  if (favoriteKey && favoriteKey.startsWith(DECISION_IMPORT_KEY_PREFIX)) {
+    return IMPORT_SOURCE_LABEL;
+  }
+  const source = data?.['source'];
+  return getDecisionSourceLabel(typeof source === 'string' ? source : undefined);
+}
+
+/**
+ * 取来源显示名
+ * @param source 来源键（foxwq / ogs / lib / import）；缺省按"导入棋谱"处理
+ */
+export function getDecisionSourceLabel(source?: string | undefined): string {
+  if (!source) return IMPORT_SOURCE_LABEL;
+  return DECISION_SOURCE_LABELS[source] ?? source;
+}
+
 /** 决策题生成选项 */
 export interface DecisionGenerateOptions {
   /** 题目难度 */
@@ -149,6 +213,7 @@ export class DecisionApp {
     const favoriteData = {
       label,
       source: source || 'foxwq',
+      sourceLabel: getDecisionSourceLabel(source || 'foxwq'),
       date,
       gamesCount: successfulResults.length,
       quizGamesCount: gameGroups.length,
@@ -176,12 +241,20 @@ export class DecisionApp {
       key: favoriteKey,
     };
   }
-  /** 从本地导入的 SGF 内容生成决策题（单个棋谱） */
+  /**
+   * 从本地导入的 SGF 内容生成决策题（单个棋谱）
+   * @description 来源展示一律记为「导入棋谱」：
+   *              options.source 只是给生成器的胜率视角提示（ogs 需翻转），
+   *              用它当展示标签会把导入的野狐/KataGo 棋谱也标成「野狐」。
+   *              收藏键按 SGF 内容取哈希：同一份棋谱重复导入只更新原记录，
+   *              不再每次新增一条历史（FavoriteService.addFavorite 按 key upsert）。
+   */
   async generateFromSGFContent(
     sgfContent: string,
-    options?: DecisionGenerateOptions & { fileName?: string },
+    options?: DecisionGenerateOptions & { fileName?: string; sourceLabel?: string },
   ): Promise<DecisionGenerateResult> {
     if (!this.decisionService) throw new Error('DecisionService not available');
+    // 分析用来源（ogs 的胜率是黑方视角，需转换）；不参与展示
     const source = options?.source || 'foxwq';
 
     // 直接对 SGF 内容生成恶手题
@@ -213,10 +286,13 @@ export class DecisionApp {
 
     const stats = this.buildStats(allProblems);
     const label = options?.fileName || '导入棋谱';
-    const favoriteKey = "import_" + Date.now();
+    // 按 SGF 内容取哈希做收藏键：同一份棋谱重复导入 → 命中同一条历史记录
+    const favoriteKey = DECISION_IMPORT_KEY_PREFIX + hashSgfContent(sgfContent);
     const favoriteData = {
       label,
       source,
+      // 展示用来源：导入的棋谱统一显示「导入棋谱」
+      sourceLabel: options?.sourceLabel ?? getDecisionSourceLabel(DECISION_SOURCE_IMPORT),
       gamesCount: 1,
       quizGamesCount: gameGroups.length,
       problemsCount: allProblems.length,

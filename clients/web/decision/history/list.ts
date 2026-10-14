@@ -4,6 +4,7 @@
  */
 
 import { IFavoriteService } from '../../../../services/favorite/IFavoriteService';
+import { resolveDecisionSourceLabel } from '../../../../application/decision';
 
 /**
  * 加载历史记录列表
@@ -30,8 +31,8 @@ export async function loadHistoryList(favoriteService: IFavoriteService | undefi
     
     historyList.innerHTML = sortedFavorites.map(fav => {
       const label = (fav.data?.['label'] as string) || '未知';
-      const source = (fav.data?.['source'] as string) || 'foxwq';
-      const sourceLabel = source === 'ogs' ? 'OGS' : '野狐';
+      // 展示标签：新数据取落库的 sourceLabel；老数据靠收藏键 import_ 前缀识别为「导入棋谱」
+      const sourceLabel = resolveDecisionSourceLabel(fav.data as Record<string, unknown> | undefined, fav.key);
       const gamesCount = (fav.data?.['gamesCount'] as number) || 0;
       const quizGamesCount = (fav.data?.['quizGamesCount'] as number) || 0;
       const problemsCount = (fav.data?.['problemsCount'] as number) || 0;

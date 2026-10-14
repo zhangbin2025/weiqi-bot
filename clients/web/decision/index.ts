@@ -157,13 +157,28 @@ async function main() {
 
   // 从 fetcher 跳转：按 archiveId 从归档读 SGF 直接生成实战选点题
   if (archiveId) {
+    // 先清掉触发参数再看结果：
+    // 浏览器从题目页返回时会回到这个 URL，不清参数就会重复导入一遍
+    // （addFavorite 已按内容去重，不会新增记录，但会白跑一次分析）。
+    // 放在读取 SGF 之后、导入之前清理，失败重试时参数仍在。
     const sgf = await gameService.getByArchiveId(archiveId);
     if (!sgf) {
       await Dialog.alert('棋谱内容未找到，请返回棋谱抓取页重新获取');
       return;
     }
+    const backUrl = urlParams.get('src') || '';
     const fileName = urlParams.get('src') || archiveId;
-    await executeImport(decisionApp, favoriteService, sgf, fileName, taskParams.taskId ?? undefined);
+    const importTaskId = taskParams.taskId ?? undefined;
+
+    // 清理 archiveId（导入不再依赖 URL 参数重复触发）
+    urlParams.delete('archiveId');
+    urlParams.delete('taskId');
+    const cleaned = urlParams.toString()
+      ? `${window.location.pathname}?${urlParams.toString()}`
+      : window.location.pathname;
+    window.history.replaceState({}, '', cleaned);
+
+    await executeImport(decisionApp, favoriteService, sgf, fileName, importTaskId, backUrl);
     return;
   }
   
@@ -203,6 +218,7 @@ async function executeImport(
   sgfContent: string,
   fileName: string,
   taskId?: string,
+  backUrl: string = '',
 ): Promise<void> {
   const progressCard = document.getElementById('progress-card') as HTMLElement;
   const progressBar = document.getElementById('progress-bar') as HTMLElement;
@@ -231,7 +247,6 @@ async function executeImport(
 
     // 后台任务完成通知（从 fetcher 跳转进来时带 taskId）
     if (taskId) {
-      const backUrl = urlParams.get('src') || '';
       const detailUrl = backUrl
         ? '/fetcher/index.html?url=' + encodeURIComponent(backUrl)
         : '/decision/index.html';

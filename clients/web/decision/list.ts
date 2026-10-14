@@ -206,13 +206,17 @@ async function main() {
 
     const problems = (fav.data['problems'] as any[]) || [];
     const phase = getPhaseFromUrl();
-    
-    await renderWithFilter(problems, favoriteId, fav.data, readMarkService, phase);
-    
+    // 带上收藏键：导入生成的记录键为 import_<时间戳>，
+    // 老数据的来源展示要靠它兜底识别为「导入棋谱」
+    const favData: Record<string, unknown> = { ...fav.data };
+    if (!favData['key'] && fav.key) favData['key'] = fav.key;
+
+    await renderWithFilter(problems, favoriteId, favData, readMarkService, phase);
+
     // 监听 pageshow 事件，当页面从 bfcache 恢复时重新渲染
     window.addEventListener('pageshow', async (event) => {
       if (event.persisted) {
-        await renderWithFilter(problems, favoriteId, fav.data, readMarkService, getPhaseFromUrl());
+        await renderWithFilter(problems, favoriteId, favData, readMarkService, getPhaseFromUrl());
       }
     });
   } catch (e) {

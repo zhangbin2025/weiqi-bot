@@ -4,7 +4,8 @@
  */
 
 import { GameGroup, PhaseStats, normalizeGroups } from './normalize';
-import { escapeHtml, escapeAttr, getSourceText, getLevelText, formatResult } from './utils';
+import { escapeHtml, escapeAttr, getLevelText, formatResult } from './utils';
+import { resolveDecisionSourceLabel } from '../../../../application/decision';
 import type { IReadMarkService } from '../../../../services/readmark';
 
 type PhaseFilter = 'all' | 'layout' | 'middle' | 'endgame';
@@ -35,8 +36,8 @@ export async function renderProblemList(
   }
 
   const groups = normalizeGroups(problems, data);
-  const source = String(data['source'] || 'foxwq');
-  const sourceName = getSourceText(source);
+  // 与历史条目同一套来源标签解析（含老数据兜底）
+  const sourceName = resolveDecisionSourceLabel(data, data['key'] as string | undefined);
   const totalProblems = groups.reduce((sum, group) => sum + group.problemsCount, 0);
 
   // 加载已读标记
