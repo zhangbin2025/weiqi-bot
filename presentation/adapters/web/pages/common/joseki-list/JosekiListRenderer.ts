@@ -3,10 +3,11 @@
  * @description 处理卡片列表的渲染、缩略图绘制、事件绑定
  */
 import type { IJosekiPattern } from '../IJosekiDataProvider';
-import type { JosekiFilterManager } from './JosekiFilterManager';
+import type { JosekiFilterManager, JosekiFilter } from './JosekiFilterManager';
 import type { JosekiReadMarkManager } from './JosekiReadMarkManager';
 import type { JosekiWinrateHelper } from './JosekiWinrateHelper';
 import { drawJosekiThumbnail } from '../../../components/JosekiThumbnail';
+import { Select, type SelectInstance, type SelectOption } from '@ui';
 /** 渲染器配置 */
 export interface JosekiListRendererConfig {
   filterManager: JosekiFilterManager;
@@ -22,35 +23,41 @@ export interface JosekiListRendererConfig {
  * 列表渲染器
  */
 export class JosekiListRenderer {
+  /** 自绘下拉框实例（复用，避免每次渲染重建导致面板闪烁） */
+  private filterSelect: SelectInstance | null = null;
+  /** 最近一次渲染的定式数据，供下拉框回调使用 */
+  private lastPatterns: IJosekiPattern[] = [];
   constructor(private config: JosekiListRendererConfig) {}
-  /** 渲染过滤下拉框 */
+  /** 渲染过滤下拉框（自绘 Select，单选） */
   renderFilterTabs(patterns: IJosekiPattern[], currentFilter: string): void {
     const container = document.getElementById('filter-tabs');
     if (!container) return;
+    this.lastPatterns = patterns;
     const counts = this.config.filterManager.getCounts(patterns);
-    const options = [
-      { id: 'all', label: `全部`, count: counts.all },
-      { id: 'hot', label: `🔥热门`, count: counts.hot },
-      { id: 'hit', label: `🎯命中`, count: counts.hit },
-      { id: 'complex', label: `🧩复杂`, count: counts.complex },
+    const options: SelectOption[] = [
+      { value: 'all', label: `全部 (${counts.all})` },
+      { value: 'hot', label: `🔥热门 (${counts.hot})` },
+      { value: 'hit', label: `🎯命中 (${counts.hit})` },
+      { value: 'complex', label: `🧩复杂 (${counts.complex})` },
     ];
-    container.innerHTML = `
-      <select class="filter-select" id="filter-select">
-        ${options.map(opt => `
-          <option value="${opt.id}" ${currentFilter === opt.id ? 'selected' : ''}>
-            ${opt.label} (${opt.count})
-          </option>
-        `).join('')}
-      </select>
-    `;
-    const selectEl = container.querySelector('#filter-select') as HTMLSelectElement;
-    if (selectEl) {
-      selectEl.addEventListener('change', () => {
-        const filter = selectEl.value;
-        this.config.filterManager.setFilter(filter as any);
-        this.render(patterns);
-      });
+    // 已挂载则只更新选项与当前值（保持单选状态，不触发 onChange）
+    if (this.filterSelect) {
+      this.filterSelect.setOptions(options);
+      this.filterSelect.setValue(currentFilter, true);
+      return;
     }
+    container.innerHTML = '';
+    const wrapper = document.createElement('div');
+    wrapper.className = 'filter-select';
+    container.appendChild(wrapper);
+    this.filterSelect = Select.mount(wrapper, {
+      options,
+      value: currentFilter,
+      onChange: (v) => {
+        this.config.filterManager.setFilter(v as JosekiFilter);
+        this.render(this.lastPatterns);
+      },
+    });
   }
   /** 渲染列表 */
   render(patterns: IJosekiPattern[]): void {
@@ -157,6 +164,11 @@ export class JosekiListRenderer {
       }
     });
     return moves;
+  }
+  /** 销毁：卸载自绘下拉框 */
+  destroy(): void {
+    this.filterSelect?.destroy();
+    this.filterSelect = null;
   }
   /** 绑定卡片事件 */
   private bindCardEvents(patterns: IJosekiPattern[]): void {

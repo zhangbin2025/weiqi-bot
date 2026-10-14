@@ -39,27 +39,46 @@
       flex: 0 0 auto;
     }
 
-    /* ===== 筛选下拉框 ===== */
+    /* ===== 自定义下拉框（复用 ui.css 的 .ui-select，单选） ===== */
     .filter-select {
-      padding: 4px 8px;
-      font-size: 0.85em;
-      border: 1px solid #ddd;
+      width: auto;
+      min-width: 110px;
+      max-width: 170px;
+      font-size: 13px;
+    }
+    .filter-tabs .ui-select__trigger {
+      box-sizing: border-box;
+      height: 32px;
+      min-height: 32px;
+      padding: 4px 28px 4px 10px;
+      font-size: 13px;
       border-radius: 6px;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      background: #fff;
-      color: #666;
-      outline: none;
-      -webkit-appearance: auto;
-      appearance: auto;
-      min-width: 100px;
     }
-    .filter-select:hover {
-      border-color: #bbb;
+    .filter-tabs .ui-select__arrow {
+      right: 10px;
+      width: 8px;
+      height: 8px;
     }
-    .filter-select:focus {
-      border-color: #667eea;
-      box-shadow: 0 0 0 2px rgba(102,126,234,0.15);
+    .filter-tabs .ui-select__option {
+      padding: 6px 10px;
+      font-size: 13px;
+    }
+    @media (max-width: 480px) {
+      .filter-select {
+        min-width: 96px;
+        max-width: 140px;
+        font-size: 12px;
+      }
+      .filter-tabs .ui-select__trigger {
+        height: 28px;
+        min-height: 28px;
+        padding: 4px 24px 4px 8px;
+        font-size: 12px;
+      }
+      .filter-tabs .ui-select__option {
+        padding: 4px 8px;
+        font-size: 12px;
+      }
     }
 
     /* ===== 眼睛按钮（照搬 decision 的 .icon-btn） ===== */

@@ -3,7 +3,7 @@
  * @module presentation/pages/common/JosekiListPage
  */
 import { AdapterFactory } from '../../../../adapters';
-import type { IPage, ITabs, IToast, PageParams } from '../../../../core/interfaces';
+import type { IPage, IToast, PageParams } from '../../../../core/interfaces';
 import type { IReadMarkService } from '../../../../../services/readmark';
 import type { IGameService } from '../../../../../services/game';
 import type { IJosekiDataProvider, IJosekiPattern } from './IJosekiDataProvider';
@@ -29,7 +29,6 @@ export class JosekiListPage implements IPage {
   private _title = '定式规律';
   private providers: Map<string, IJosekiDataProvider>;
   private gameService?: IGameService | undefined;
-  private tabs: ITabs;
   private toast: IToast;
   private patterns: IJosekiPattern[] = [];
   private onNavigate?: ((page: string, params?: Record<string, string>) => void) | undefined;
@@ -45,7 +44,6 @@ export class JosekiListPage implements IPage {
     this.gameService = config.gameService;
     this.onNavigate = config.onNavigate;
     this.onClearReadMarks = config.onClearReadMarks;
-    this.tabs = AdapterFactory.createTabs();
     this.toast = AdapterFactory.createToast();
     // 创建子模块
     this.filterManager = new JosekiFilterManager();
@@ -71,17 +69,6 @@ export class JosekiListPage implements IPage {
     // 预加载缩略图图片
     const { preloadThumbnailImages } = await import('../../components/JosekiThumbnail');
     await preloadThumbnailImages();
-    const counts = this.filterManager.getCounts(this.patterns);
-    this.tabs.setConfig({
-      items: [
-        { id: 'all', label: `全部 ${counts.all}` },
-        { id: 'hot', label: `🔥热门 ${counts.hot}` },
-        { id: 'hit', label: `🎯命中 ${counts.hit}` },
-        { id: 'complex', label: `🧩复杂 ${counts.complex}` },
-      ],
-      activeId: 'all',
-    });
-    this.tabs.onChange((id: string) => this.setFilter(id as JosekiFilter));
     const clearReadBtn = document.getElementById('clear-read-btn');
     if (clearReadBtn) {
       clearReadBtn.addEventListener('click', () => this.clearReadMarks());
@@ -127,9 +114,10 @@ export class JosekiListPage implements IPage {
     this.onClearReadMarks?.();
     this.render();
   }
-  private setFilter(filter: JosekiFilter): void {
+  /** 切换筛选（由自绘下拉框触发，保持单选） */
+  setFilter(filter: JosekiFilter): void {
+    if (this.filterManager.getFilter() === filter) return;
     this.filterManager.setFilter(filter);
-    this.tabs.setActiveId(filter);
     this.render();
   }
   async onItemClick(patternId: string): Promise<void> {
@@ -191,7 +179,7 @@ export class JosekiListPage implements IPage {
     this.render();
   }
   destroy(): void {
-    this.tabs.destroy();
+    this.renderer.destroy();
     this.toast.destroy();
     this.patterns = [];
     this.readMarkManager.reset();
