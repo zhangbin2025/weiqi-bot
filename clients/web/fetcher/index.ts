@@ -103,6 +103,11 @@ async function main() {
   } else if (Object.keys(params).length > 0) {
     // 只填充参数，不自动抓谱
     await page.handleParams(params);
+    // 参数已消费，清出 URL：Android（GeckoView）不支持 bfcache，返回即整页
+    // 重载，残留参数会让 handleParams 再跑一遍 —— 表现为「在最新标签页点条目
+    // 查看，返回后却被抢回抓取页」，并重复抓取同一棋谱。
+    // 返回后的恢复交给 initialize() 的 sessionStorage 恢复路径。
+    window.history.replaceState({}, '', window.location.pathname);
   }
 
   // 11. 渲染

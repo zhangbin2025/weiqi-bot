@@ -101,11 +101,25 @@ async function main() {
   urlParams.forEach((value, key) => {
     params[key] = value;
   });
+  // 从 fetcher 跳转（archiveId）：页面内部按归档读取并自动分析。
+  // 先把 archiveId 从 URL 里摘掉再触发：Android 不支持 bfcache，返回即整页
+  // 重载，残留的 archiveId 会让定式发现再跑一遍 —— 历史里于是多出一条一模
+  // 一样的记录（导入路径的 key 是 local_时间戳，两次必然不重合）。
+  // 与 decision/index.ts 处理 archiveId 的方式保持一致。
+  const archiveId = urlParams.get('archiveId');
+  if (archiveId) {
+    urlParams.delete('archiveId');
+    const cleanedUrl = urlParams.toString()
+      ? `${window.location.pathname}?${urlParams.toString()}`
+      : window.location.pathname;
+    window.history.replaceState({}, '', cleanedUrl);
+  }
+
   // 先处理 tab 等常规参数（切换标签页）
   page.handleParams(params);
 
   // 从 fetcher 跳转（archiveId）：页面内部按归档读取并自动分析
-  if (urlParams.get('archiveId')) {
+  if (archiveId) {
     page.render();
     return;
   }

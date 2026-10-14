@@ -33,6 +33,8 @@ export type FilterSelection = PuzzleFilterState;
 export interface FetcherRendererEvents {
   /** 浏览位置变化（_displayedLatest 改变），需要持久化 */
   onDisplayedChange?: (displayed: number) => void;
+  /** 当前标签变化，需要持久化（返回时恢复用） */
+  onTabChange?: (tabId: string) => void;
 }
 /** 渲染器回调 */
 export interface FetcherRendererCallbacks {
@@ -207,6 +209,8 @@ export class FetcherRenderer {
       this.latestPanel.setVisible(id === 'latest');
       this.bookmarkPanel.setVisible(id === 'bookmarks');
       this.resultCard.setVisible(id === 'query' && this.hasResult);
+      // 当前标签变化时通知页面持久化，供返回时恢复
+      this._events.onTabChange?.(id);
       // 切到最新标签页时，滚动到选中条目（列表已在内存中，可直接定位）
       if (id === 'latest') this.scrollToSelectedLatest();
     });
@@ -316,6 +320,8 @@ export class FetcherRenderer {
     this.latestPanel.setVisible(false);
     this.bookmarkPanel.setVisible(false);
     this.resultCard.setVisible(this.hasResult);
+    // setActiveId 是内部状态写入，不经过 onClick，需显式补发
+    this._events.onTabChange?.('query');
   }
   setInputValue(value: string): void { this.input.setValue(value); }
 
@@ -495,6 +501,24 @@ export class FetcherRenderer {
   }
 
 
+  /** 当前激活标签 id */
+  getActiveTabId(): string { return this.tabs.getActiveId(); }
+
+  /**
+   * 恢复到指定标签（页面重载后用）
+   * @description 与 switchToLatestTab/switchToQueryTab 不同：不触发 onTabChange，
+   *              否则会把刚读出来的目标值原样写回去（虽然结果相同，
+   *              但恢复期间任何额外切换都会污染存储）。
+   */
+  restoreTab(tabId: string): void {
+    this.tabs.setActiveId(tabId);
+    this.queryPanel.setVisible(tabId === 'query');
+    this.latestPanel.setVisible(tabId === 'latest');
+    this.bookmarkPanel.setVisible(tabId === 'bookmarks');
+    this.resultCard.setVisible(tabId === 'query' && this.hasResult);
+    if (tabId === 'latest') this.scrollToSelectedLatest();
+  }
+
   /** 切换到最新标签页 */
   switchToLatestTab(): void {
     this.tabs.setActiveId('latest');
@@ -502,6 +526,9 @@ export class FetcherRenderer {
     this.latestPanel.setVisible(true);
     this.bookmarkPanel.setVisible(false);
     this.resultCard.setVisible(false);
+    // setActiveId 是内部状态写入，不经过 onClick，需显式补发。
+    // 否则从助手带 source 跳入自动切到“最新”时不会被记录，返回时跑偏。
+    this._events.onTabChange?.('latest');
     // 列表仍在内存中（同一次会话内切标签页）：直接定位到选中条目
     this.scrollToSelectedLatest();
   }

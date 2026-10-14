@@ -95,6 +95,11 @@ export class FetcherPage implements IPage {
       onDisplayedChange: async (displayed: number) => {
         try { await this.sessionStore.write('fetcher_latest_displayed', displayed); } catch { /* ignore */ }
       },
+      // 当前标签变化时持久化：跳到其他页面返回时（Android WebView
+      // 不支持 bfcache，会整页重载）用它恢复到离开前的标签
+      onTabChange: async (tabId: string) => {
+        try { await this.sessionStore.write('fetcher_active_tab', tabId); } catch { /* ignore */ }
+      },
     };
     this.renderer = new FetcherRenderer(callbacks, config.adapterFactory, this.formatter, events);
   }
@@ -124,7 +129,8 @@ export class FetcherPage implements IPage {
         const cachedSelected = await this.sessionStore.read<string>('fetcher_latest_selected');
         this.renderer.setLatestSource(cachedSource);
         if (cachedKeyword) this.renderer.setLatestKeyword(cachedKeyword);
-        this.renderer.switchToLatestTab();
+        // 恢复列表数据但不抢焦：初始化阶段先不切标签，
+        // 等下面按记录的 fetcher_active_tab 决定去向（否则在“收藏”离开的人返回时会被强拆到“最新”）
         // 按缓存条件重查，拿回完整列表（内置题库走 meta 索引，约 100ms）
         // 注意：fetchLatestGames 会清除选中态（那是「新查询」的语义），
         // 而此处是「恢复上次查询」，故重查后要把选中条目写回去。
@@ -146,14 +152,27 @@ export class FetcherPage implements IPage {
         this.renderer.scrollToSelectedLatest();
       }
     } catch { /* ignore */ }
+    // 恢复离开前所在的标签（默认“抓取”）。
+    // 必须放在列表恢复之后：列表数据先准备好，
+    // 再切标签才能直接就绪展示。
+    // 之前无条件 switchToLatestTab()，导致在“收藏”/“抓取”
+    // 离开的人返回时被强拆到“最新”。
+    try {
+      const cachedTab = await this.sessionStore.read<string>('fetcher_active_tab');
+      if (cachedTab && cachedTab !== 'query') this.renderer.restoreTab(cachedTab);
+    } catch { /* ignore */ }
     // 根据恢复后的分类/来源刷新筛选图标显隐（仅做题+内置题库显示）
     this.renderer.updateFilterIconVisibility();
     this.initialized = true;
     console.info('FetcherPage initialized');
   }
   async handleParams(params: PageParams): Promise<void> {
-    // 从 URL 参数进入时，切回抓取标签页（initialize 可能已切到最新标签页）
-    this.renderer.switchToQueryTab();
+    // 只有确实要展示抓取结果时才切回抓取标签页（initialize 可能已切到最新标签页）。
+    // 之前无条件切换：Android 返回会整页重载并重跑这里，残留参数（taskId 等）
+    // 会把 initialize() 刚恢复的标签抢回「抓取」。
+    const needsQueryTab =
+      !!(params['sessionId'] && this.sessionService) || !!params['url'];
+    if (needsQueryTab) this.renderer.switchToQueryTab();
     // 优先处理 sessionId：从 SessionService 恢复 SGF
     if (params['sessionId'] && this.sessionService) {
       try {

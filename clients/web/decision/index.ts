@@ -10,6 +10,7 @@ import { DecisionService } from '../../../services/decision/DecisionService';
 import { WebAudioPlayer } from '../../../infrastructure/audio/WebAudioPlayer';
 import { createGameDeps } from '../shared/deps/game';
 import { loadHistoryList } from './history/list';
+import { initTabs } from './history/tabs';
 import { showGenerateResult } from './history/stats';
 import { Dialog, Select } from '../shared/ui';
 import { TaskHelper } from '../shared/task-helper';
@@ -31,27 +32,8 @@ async function main() {
   const favoriteService = ctx.favoriteService;
   const decisionApp = new DecisionApp(gameService, decisionService, favoriteService);
 
-  // 标签切换逻辑
-  const tabs = document.querySelectorAll('.tab');
-  const tabContents = document.querySelectorAll('.tab-content');
-  
-  tabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      const tabName = (tab as HTMLElement).dataset['tab'];
-      
-      // 切换标签激活状态
-      tabs.forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      
-      // 切换内容显示
-      tabContents.forEach(content => {
-        content.classList.remove('active');
-        if (content.id === `${tabName}-tab`) {
-          content.classList.add('active');
-        }
-      });
-    });
-  });
+  // 标签切换逻辑（含返回时恢复上次所在标签，见 history/tabs.ts）
+  initTabs();
 
   // 清空历史记录按钮
   // 必须在 handled return 之前注册，否则通过任务链接导航时不会执行到这里
