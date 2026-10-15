@@ -7,6 +7,7 @@ import { PluginManager } from './PluginManager';
 import { PluginOperations } from './PluginOperations';
 import { ConnectionOperations } from './ConnectionOperations';
 import { applyNetworkConfigDefaults } from './NetworkConfigDefaults';
+import { withRetry } from './RetryPolicy';
 import { NetworkLoggerPlugin } from '../plugins/NetworkLogger';
 import type { INetworkLogEntry } from '../plugins/NetworkLogger';
 import type {
@@ -89,7 +90,23 @@ export class NetworkManager {
       );
     }
 
-    return provider.request<T>(requestConfig);
+    // 重试次数：请求级 retry/retryCount 优先，回落到网络层 retryCount
+    const maxAttempts = requestConfig.retry ?? requestConfig.retryCount ?? this.config.retryCount;
+
+    // 瞬时故障（代理隧道失败、连接重置、5xx）在此兜底重试，
+    // 避免单次丢包直接冒泡成用户可见失败。判定规则见 RetryPolicy。
+    return withRetry(
+      () => provider.request<T>(requestConfig),
+      maxAttempts,
+      {
+        onRetry: (info) => {
+          console.warn(
+            `[NetworkManager] 请求失败，${info.delayMs}ms 后第 ${info.attempt}/${info.maxAttempts} 次重试 ` +
+            `(${info.reason}) ${info.method} ${info.url || requestConfig.url}`
+          );
+        },
+      }
+    );
   }
 
   /** 便捷 fetch 方法 */
