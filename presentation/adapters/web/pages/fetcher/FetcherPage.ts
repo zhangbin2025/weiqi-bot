@@ -11,6 +11,7 @@ import { detectClipboardUrl } from './utils/clipboardDetector';
 import { TaskHelper } from '../../../../../clients/web/shared/task-helper';
 import { buildArchiveUrl } from '../../../../../domain/sgf/SGFUtils';
 import { SessionStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/SessionStorageAdapter';
+import { LatestListCache } from './LatestListCache';
 import { LocalStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/LocalStorageAdapter';
 import { normalizePuzzleFilterState } from '../../../../../services/game/providers/library/puzzleFilter';
 import {
@@ -38,6 +39,8 @@ export class FetcherPage implements IPage {
   private sessionService?: ISessionService;
   private readonly sessionStore = new SessionStorageAdapter('weiqi-bot');
   private readonly localStore = new LocalStorageAdapter('weiqi-bot');
+  /** 最新列表快照缓存（返回整页重载时用它免重查、冻结条目顺序） */
+  private readonly latestCache = new LatestListCache(this.sessionStore);
   /** 筛选题型/难度缓存（来自 localStorage，供弹框同步读取） */
   private filterState: FilterSelection | null = null;
   private initialized = false;
@@ -131,10 +134,19 @@ export class FetcherPage implements IPage {
         if (cachedKeyword) this.renderer.setLatestKeyword(cachedKeyword);
         // 恢复列表数据但不抢焦：初始化阶段先不切标签，
         // 等下面按记录的 fetcher_active_tab 决定去向（否则在“收藏”离开的人返回时会被强拆到“最新”）
-        // 按缓存条件重查，拿回完整列表（内置题库走 meta 索引，约 100ms）
-        // 注意：fetchLatestGames 会清除选中态（那是「新查询」的语义），
-        // 而此处是「恢复上次查询」，故重查后要把选中条目写回去。
-        await this.fetchLatestGames(cachedSource, cachedKeyword || undefined);
+        //
+        // 优先用上次查询的 items 快照：既免去一次网络往返，也保证条目顺序
+        // 与离开时完全一致（重查的话，服务端顺序可能已变 —— 典型如 OGS 的
+        // -modified 排序会被抓详情的动作刷新，让刚看过的题跳到第 1 条）。
+        // 快照缺失/过期/关键字不符时，退回重查路径。
+        const snapshot = await this.latestCache.load(cachedSource, cachedKeyword || '');
+        if (snapshot) {
+          this.renderer.renderLatestGames(snapshot);
+        } else {
+          // 注意：fetchLatestGames 会清除选中态（那是「新查询」的语义），
+          // 而此处是「恢复上次查询」，故重查后要把选中条目写回去。
+          await this.fetchLatestGames(cachedSource, cachedKeyword || undefined);
+        }
         if (cachedSelected) {
           this.renderer.setSelectedLatestUrl(cachedSelected);
           await this.sessionStore.write('fetcher_latest_selected', cachedSelected).catch(() => { /* ignore */ });
@@ -410,12 +422,10 @@ export class FetcherPage implements IPage {
       try { await this.sessionStore.delete('fetcher_latest_selected'); } catch { /* ignore */ }
       this.renderer.setSelectedLatestUrl(null);
       this.renderer.renderLatestGames(items);
-      // 缓存查询条件（不缓存 items）：页面返回时据此重查，即可回到同一列表与条目。
-      //
-      // 为什么不缓存 items：内置题库 4 万条，JSON 约 5MB，必然超出 sessionStorage
-      // ~5MB 配额（历史上正是这点导致内置题库返回恢复不了）。
-      // 改为重查的代价很低——内置题库走 meta 索引约 100ms，在线来源受网络影响但
-      // 本来也不该缓存大列表。收益是列表不再被截断，题库能完整展示。
+      // 缓存本批 items 快照：返回整页重载时直接用它渲染，不重查 ——
+      // 顺序与离开时逐条一致，位置彻底冻结（内置库等不缓存来源例外，见 LatestListCache）。
+      await this.latestCache.save(source, keyword || '', items).catch(() => { /* ignore */ });
+      // 同时缓存查询条件：快照缺失（超限/过期/被清）时，据此重查兜底。
       try {
         await this.sessionStore.write('fetcher_latest_source', source);
         await this.sessionStore.write(`fetcher_latest_keyword_${source}`, keyword || '');
@@ -451,6 +461,7 @@ export class FetcherPage implements IPage {
     await this.sessionStore.delete('fetcher_latest_source');
     await this.sessionStore.delete('fetcher_latest_displayed');
     await this.sessionStore.delete('fetcher_latest_selected');
+    await this.latestCache.clearAll().catch(() => { /* ignore */ });
   }
 
   private restoreKeyword(source: string): string | null {

@@ -129,7 +129,14 @@ export class OgsPuzzleProvider extends BaseProvider implements IOgsPuzzleProvide
 
       while (results.length < maxCount) {
         if (page > maxPages) break;
-        const apiUrl = `${OGS_API_URL}/puzzles/?page=${page}&page_size=${pageSize}&ordering=-modified`;
+        // 排序必须用 -id（而不是 -modified）：
+        // OGS 的详情接口 GET /puzzles/{id}/ 被调用时会把该条目的 modified
+        // 刷成当前时间。于是「点条目 → 前端抓详情 → 返回后重查列表」
+        // 会让刚看过的题自己跳到列表第一条 —— 用户感知就是「看完返回，
+        // 条目位置变了」。且 -modified 本身也在持续 churn（有人做题、
+        // 有新题入库都会重排），-id / -created 实测轮询稳定。
+        // 这里取 -id，语义为「最新入库」，对做题场景更合理。
+        const apiUrl = `${OGS_API_URL}/puzzles/?page=${page}&page_size=${pageSize}&ordering=-id`;
 
         const response = await this.network.request<string>({
           url: apiUrl,
