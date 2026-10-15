@@ -17,7 +17,7 @@ import type {
 import { PlatformDetector } from '../../platform';
 
 import { createUnsupportedProvider } from '../adapters/common/UnsupportedProvider';
-import { REST_API_PLATFORMS } from './PlatformConstants';
+import { REST_API_PLATFORMS, isCorsVerifiedDirectHost } from './PlatformConstants';
 
 /**
  * 默认网络策略实现
@@ -79,6 +79,13 @@ export class DefaultNetworkStrategy implements INetworkStrategy {
     if (this.isRestApiPlatform(requestConfig?.url) && environment !== 'web') {
       const provider = this.getProvider('DirectProvider');
       if (provider && await this.checkAvailable(provider)) return provider;
+    }
+
+    // 4.1 已验证跨域直连站点：Web 环境也走直连（绕过代理，少一跳）
+    //     命中此处即不再走第 6 条代理兜底，故白名单必须实测（见 PlatformConstants）。
+    if (environment === 'web' && isCorsVerifiedDirectHost(requestConfig?.url)) {
+      const direct = this.getProvider('DirectProvider');
+      if (direct && await this.checkAvailable(direct)) return direct;
     }
 
     // 5. 标记绕过代理：强制 DirectProvider（如 IP 定位需要真实客户端 IP）
