@@ -175,7 +175,7 @@ export class ReviewService implements IReviewService {
 
 
     // 重建当前棋盘状态（所有着法都已下）
-    const board = this.rebuildBoard(data.handicapStones, data.moves.slice(0, data.moves.length), data.boardSize);
+    const board = this.rebuildBoard(data.handicapStones, data.moves.slice(0, data.moves.length), data.boardSize, data.initialPlayer);
     const moveHistory = data.moves.map((m) => {
       if (m.x < 0 || m.y < 0) return { x: -1, y: -1, player: m.color };
       return { x: m.x, y: m.y, player: m.color };
@@ -197,7 +197,7 @@ export class ReviewService implements IReviewService {
     }
     
     // 重建前一手的棋盘状态
-    const previousBoard = data.moves.length > 0 ? this.rebuildBoard(data.handicapStones, data.moves.slice(0, data.moves.length - 1), data.boardSize) : null;
+    const previousBoard = data.moves.length > 0 ? this.rebuildBoard(data.handicapStones, data.moves.slice(0, data.moves.length - 1), data.boardSize, data.initialPlayer) : null;
     
     // 转换让子棋格式：{ x, y, color } -> { player, x, y }
     const initialStones = data.handicapStones.map(s => ({
@@ -430,6 +430,8 @@ export class ReviewService implements IReviewService {
     options?: ReviewOptions,
     handicapStones?: Array<{ x: number; y: number; color: PlayerColor }>,
     rules?: string,
+    boardSize?: number,
+    initialPlayer?: PlayerColor,
   ): Promise<MoveReview | null> {
     this.ensureAI();
     if (moves.length === 0) return null;
@@ -443,7 +445,7 @@ export class ReviewService implements IReviewService {
     // 重建当前棋盘状态（所有着法都已下）
     // 使用传入的让子棋，如果没有则使用空数组
     const stones = handicapStones ?? [];
-    const board = this.rebuildBoard(stones, moves);
+    const board = this.rebuildBoard(stones, moves, boardSize, initialPlayer);
     const moveHistory = moves.map((m) => {
       if (m.x < 0 || m.y < 0) return { x: -1, y: -1, player: m.color };
       return { x: m.x, y: m.y, player: m.color };
@@ -454,7 +456,7 @@ export class ReviewService implements IReviewService {
     const currentPlayer: PlayerColor = lastMove.color === 'black' ? 'white' : 'black';
     
     // 重建前一手的棋盘状态
-    const previousBoard = moves.length > 0 ? this.rebuildBoard(stones, moves.slice(0, moves.length - 1)) : null;
+    const previousBoard = moves.length > 0 ? this.rebuildBoard(stones, moves.slice(0, moves.length - 1), boardSize, initialPlayer) : null;
     
     // 转换让子棋格式：{ x, y, color } -> { player, x, y }
     const initialStones = stones.map(s => ({
@@ -546,8 +548,8 @@ export class ReviewService implements IReviewService {
         // 收集当前位置批次
         const positions = [];
         for (let i = batchStart; i < batchEnd; i++) {
-          const board = this.rebuildBoard(data.handicapStones, data.moves.slice(0, i), data.boardSize);
-          const previousBoard = i > 0 ? this.rebuildBoard(data.handicapStones, data.moves.slice(0, i - 1), data.boardSize) : null;
+          const board = this.rebuildBoard(data.handicapStones, data.moves.slice(0, i), data.boardSize, data.initialPlayer);
+          const previousBoard = i > 0 ? this.rebuildBoard(data.handicapStones, data.moves.slice(0, i - 1), data.boardSize, data.initialPlayer) : null;
           const move = data.moves[i]!;
           positions.push({
             board,
@@ -639,10 +641,10 @@ export class ReviewService implements IReviewService {
     }) as any;
     
     // 重建当前棋盘状态（落子前的局面）
-    const board = this.rebuildBoard(data.handicapStones, data.moves.slice(0, index), data.boardSize);
+    const board = this.rebuildBoard(data.handicapStones, data.moves.slice(0, index), data.boardSize, data.initialPlayer);
     
     // 重建前一手的棋盘状态
-    const previousBoard = index > 0 ? this.rebuildBoard(data.handicapStones, data.moves.slice(0, index - 1), data.boardSize) : null;
+    const previousBoard = index > 0 ? this.rebuildBoard(data.handicapStones, data.moves.slice(0, index - 1), data.boardSize, data.initialPlayer) : null;
     
     // 转换让子棋格式：{ x, y, color } -> { player, x, y }
     const initialStones = data.handicapStones.map(s => ({
@@ -711,7 +713,8 @@ export class ReviewService implements IReviewService {
   private rebuildBoard(
     handicapStones: Array<{ x: number; y: number; color: PlayerColor }>,
     moves: Array<{ x: number; y: number; color: PlayerColor }>,
-    boardSize: number = 19
+    boardSize: number = 19,
+    initialPlayer?: PlayerColor
   ): BoardState {
     // 使用 Game 类来正确处理围棋规则（包括提子）
     const game = new Game();
@@ -726,6 +729,15 @@ export class ReviewService implements IReviewService {
         color: playerColorToSGFColor(s.color),
       }));
       game.setHandicapStones(sgfHandicapStones);
+      // 死活题/排局同样用 AB[]+AW[] 摆子，但先手方可能是黑（PL[B]）。
+      // setHandicapStones 会把 currentPlayer 强制设为白，必须覆盖回真实先手方；
+      // 由于 rebuildBoard 是靠 currentPlayer 交替推演落子颜色的，
+      // 先手方错一色会让整条着法序列整体错位，表现为「该位置已有棋子」rebuild 失败。
+      if (initialPlayer) {
+        game.setInitialPlayer(initialPlayer);
+      }
+    } else if (initialPlayer) {
+      game.setInitialPlayer(initialPlayer);
     }
     
     // 依次落子，检查关键位置（例如第200手要下在 (10, 14)）
@@ -805,8 +817,8 @@ export class ReviewService implements IReviewService {
 
     // Web 端：用 evaluateBatch（神经网络前向传播）
     const positions = moveIndices.map(i => {
-      const board = this.rebuildBoard(data.handicapStones, data.moves.slice(0, i), data.boardSize);
-      const previousBoard = i > 0 ? this.rebuildBoard(data.handicapStones, data.moves.slice(0, i - 1), data.boardSize) : null;
+      const board = this.rebuildBoard(data.handicapStones, data.moves.slice(0, i), data.boardSize, data.initialPlayer);
+      const previousBoard = i > 0 ? this.rebuildBoard(data.handicapStones, data.moves.slice(0, i - 1), data.boardSize, data.initialPlayer) : null;
       const move = data.moves[i]!;
       return {
         board,

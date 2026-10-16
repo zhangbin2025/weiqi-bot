@@ -91,7 +91,12 @@ export interface IReviewService {
     moves: Array<{ x: number; y: number; color: PlayerColor }>,
     komi: number,
     options?: ReviewOptions,
-    handicapStones?: Array<{ x: number; y: number; color: PlayerColor }>
+    handicapStones?: Array<{ x: number; y: number; color: PlayerColor }>,
+    rules?: string,
+    /** 棋盘尺寸：非19路（死活题）必须透传，否则 rebuild 会退回 19 路导致坐标错乱 */
+    boardSize?: number,
+    /** 先手方：死活题 PL[B] 时摆子后仍应黑先 */
+    initialPlayer?: PlayerColor
   ): Promise<MoveReview | null>;
 
   /**

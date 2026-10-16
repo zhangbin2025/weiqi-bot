@@ -481,7 +481,9 @@ export class ReviewPage implements IPage {
       if (!isInGameMode) {
         const allMoves = this.interaction.getCurrentMoves();
         const roi = this.interaction.getRegionOfInterest();
-                moveReview = await this.reviewApp.analyzeMoves(allMoves, 7.5, { visits, regionOfInterest: roi }, this.handicapStones);
+                // 非19路死活题必须带上 boardSize / initialPlayer，
+                // 否则 ReviewService 内部 rebuildBoard 会按 19 路 + 白先重建，坐标与颜色全错
+                moveReview = await this.reviewApp.analyzeMoves(allMoves, 7.5, { visits, regionOfInterest: roi }, this.handicapStones, undefined, this.boardSize, this.initialPlayer);
       } else {
         const roi = this.interaction.getRegionOfInterest();
                 moveReview = await this.reviewApp.analyzePosition(this.analysis.getReviewId()!, moveIndex, { visits, includePv: true, regionOfInterest: roi });
