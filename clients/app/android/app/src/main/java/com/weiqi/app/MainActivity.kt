@@ -212,6 +212,26 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoView.
             session.loadUri("javascript:$js")
         }
     }
+
+    /**
+     * 把当前键盘高度重新推给页面（跳过 [setupKeyboardInsetsListener] 的去重判断）
+     *
+     * 背景：/store clear 走 prompt('debug:refresh') → loadUri 重载页面。
+     * 重载全程键盘都没收起，lastKeyboardHeight 一直是同一个值，
+     * `cssKeyboard != lastKeyboardHeight` 不成立 → 新页面收不到任何键盘注入。
+     * 页面于是退回 CSS 100dvh，而 GeckoView 重载后 100dvh 会报过期的全屏值
+     * （实测 innerHeight=1045 / 可视区仅 780），输入框被渲染到软键盘下方，
+     * 需要下滑约一个键盘高才看得见。
+     *
+     * 前端 assistant/index.html 里也有 selfHeal 兜底，这里是从本源补推。
+     */
+    fun reapplyKeyboardHeight() {
+        val kb = lastKeyboardHeight
+        if (kb > 0) {
+            Logger.i(TAG, "reapplyKeyboardHeight: kb=$kb -> reloaded page")
+            injectKeyboardHeight(kb)
+        }
+    }
     
     fun sendToWeb(message: String) {
         geckoSession?.let { session ->

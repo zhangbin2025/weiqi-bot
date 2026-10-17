@@ -86,6 +86,12 @@ class DebugBridgeHandler(
                 val url = AppStateManager.currentUrl ?: homeUrl
                 activity.runOnUiThread {
                     activity.getGeckoSession()?.loadUri(url)
+                    // 重载后补推键盘高度：刷新场景下原生侧的去重会吞掉这次注入，
+                    // 导致新页面按过期全屏高度渲染、输入框落到软键盘下方。
+                    // 延迟是等新页面把 window.onKeyboardHeightChange 重新挂上。
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        activity.reapplyKeyboardHeight()
+                    }, 500)
                 }
                 "ok"
             }
