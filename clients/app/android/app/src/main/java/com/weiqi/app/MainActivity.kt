@@ -232,7 +232,7 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoView.
      * （实测 innerHeight=1045 / 可视区仅 780），输入框被渲染到软键盘下方，
      * 需要下滑约一个键盘高才看得见。
      *
-     * 前端 assistant/index.html 里也有 selfHeal 兜底，这里是从本源补推。
+     * 前端 assistant/index.html 里也有加载后的自检兜底，这里是从本源补推。
      */
     fun reapplyKeyboardHeight() {
         val kb = lastKeyboardHeight

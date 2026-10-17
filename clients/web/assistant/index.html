@@ -803,7 +803,7 @@
     <!-- Command Menu Overlay -->
     <div class="command-menu-overlay" id="commandMenuOverlay" onclick="toggleCommandMenu()"></div>
 
-<script src="../shared/error-catch.js"></script>
+    <script src="../shared/error-catch.js"></script>
     <script type="module" src="./main.js?v=20260529"></script>
 
     <script src="../shared/status-bar.js"></script>
@@ -860,7 +860,6 @@
     (function() {
         const pageContainer = document.querySelector('.page-container');
         const chatContainer = document.querySelector('.chat-container');
-        const inputContainer = document.querySelector('.input-container');
         if (!pageContainer) return;
 
         function scrollToBottom() {
@@ -869,15 +868,12 @@
             }, 100);
         }
 
-        // ============ 测量基线 ============
-        // 实测（GeckoView，键盘 265px）：
-        //   键盘弹起稳态：innerHeight=780  dvh=780   vv=780
-        //   /store clear 重载后：innerHeight=1045 dvh=1045 vv=780   ← dvh 是过期的全屏值
-        // status-bar.js 首行亦注明「GeckoView 不响应 adjustResize」：
-        //   键盘弹出时 resize / visualViewport.resize **不可依赖**。
-        //
-        // 因此：高度无法靠事件驱动，只能主动「读」；且不能用 innerHeight - vv.height
-        // 推算（innerHeight 自己也会被压缩，两者互相追赶）。改用单调递增的屏幕基线。
+        // ============ 测量 ============
+        // 两个来源各有权重：
+        //   · 原生注入的键盘高度（最可信，由 WindowInsets 换算而来）
+        //   · window.innerHeight（原生修复后视口会随键盘真正缩小，此值即视口高）
+        // 不能用 innerHeight - visualViewport.height 反推键盘高：
+        //   两者会互相追赶，推出来的差值不可靠。
 
         let fullH = 0;            // 无键盘时的视口全高（单调递增）
         let nativeKb = null;      // 原生注入：null=未注入，0=明确收起
@@ -928,28 +924,28 @@
         // 覆盖 status-bar.js 定义的函数（由 Android 原生侧注入键盘高度调用）
         window.onKeyboardHeightChange = function(keyboardHeight) {
             nativeKb = Math.max(0, Number(keyboardHeight) || 0);
-            syncLayout('native');
+            syncLayout();
         };
 
         // ============ 触发时机 ============
         // 刷新后自检（/store clear 场景）：重载后原生去重会吞掉注入，
         // 页面按过期的 100dvh 渲染，输入框落到软键盘下方。
         [0, 100, 300, 600, 1200].forEach(function(t) {
-            setTimeout(function() { syncLayout('boot+' + t); }, t);
+            setTimeout(function() { syncLayout(); }, t);
         });
-        window.addEventListener('load', function() { syncLayout('load'); });
+        window.addEventListener('load', function() { syncLayout(); });
 
-        // ★★ 聚焦时主动轮询 —— 本次问题（输入法不顶输入框）的修复点
-        // 键盘弹出时 GeckoView 不发 resize 事件，上面的监听形同虚设；
+        // 聚焦时主动轮询，覆盖键盘动画窗口（~1.6s）。
+        // 键盘弹出时机不可靠：resize / visualViewport.resize 未必派发，
         // 页面加载时的定时器在用户点输入框时也早已跑完。
-        // 只能聚焦后密集轮询，覆盖键盘动画窗口（~1.6s）。
+        // 轮询能保证在动画期间反复对齐高度。
         const POLL = [0, 50, 100, 150, 200, 250, 300, 400, 500, 700, 900, 1200, 1600];
         let pollTimers = [];
         function stopPoll() { pollTimers.forEach(clearTimeout); pollTimers = []; }
         function startPoll() {
             stopPoll();
             POLL.forEach(function(d) {
-                pollTimers.push(setTimeout(function() { syncLayout('poll+' + d); }, d));
+                pollTimers.push(setTimeout(function() { syncLayout(); }, d));
             });
         }
 
@@ -978,7 +974,7 @@
             if (e.target && e.target.id === 'userInput') {
                 stopPoll();
                 [0, 100, 300].forEach(function(t) {
-                    setTimeout(function() { syncLayout('blur+' + t); }, t);
+                    setTimeout(function() { syncLayout(); }, t);
                 });
             }
         });
@@ -992,9 +988,9 @@
 
         // 兜底监听（能触发是赚到，不触发也不影响，靠轮询兜住）
         if (window.visualViewport) {
-            window.visualViewport.addEventListener('resize', function() { syncLayout('vv-resize'); });
+            window.visualViewport.addEventListener('resize', function() { syncLayout(); });
         }
-        window.addEventListener('resize', function() { syncLayout('resize'); });
+        window.addEventListener('resize', function() { syncLayout(); });
     })();
     </script>
 </body>
