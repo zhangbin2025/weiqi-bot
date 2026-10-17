@@ -879,47 +879,50 @@
         // 因此：高度无法靠事件驱动，只能主动「读」；且不能用 innerHeight - vv.height
         // 推算（innerHeight 自己也会被压缩，两者互相追赶）。改用单调递增的屏幕基线。
 
-        let baselineH = 0;        // 屏幕全高基线（只增不减，不受键盘影响）
-        let nativeKb = null;      // 原生注入值：null=从未注入，0=原生明确收起
+        let fullH = 0;            // 无键盘时的视口全高（单调递增）
+        let nativeKb = null;      // 原生注入：null=未注入，0=明确收起
         let lastAppliedHeight = null;
 
         function visibleH() {
             const vv = window.visualViewport;
-            const vvH = (vv && vv.height > 0) ? vv.height : 0;
-            return vvH || window.innerHeight;
+            return (vv && vv.height > 0) ? vv.height : window.innerHeight;
         }
 
-        function syncLayout(reason) {
+        // 目标高度决策 —— 必须同时覆盖两种世界：
+        //   A) 视口已缩小（原生 padding 修复生效）：innerHeight 本身即视口高，
+        //      直接用。绝不能再减一次键盘高，否则双倍扣减、输入框上方空一大块。
+        //   B) 视口未缩小（历史行为，GeckoView 不吃 adjustResize）：自行扣减键盘高。
+        //   另以 vv 兜底原生注入尚未送达的窗口（/store clear 重载后头几百毫秒）。
+        function syncLayout() {
+            const inner = window.innerHeight;
             const vvH = visibleH();
-            baselineH = Math.max(baselineH, window.innerHeight || 0, vvH);
-            const visible = Math.min(vvH, baselineH || vvH);
-            const occlusion = baselineH - visible;      // 由可视区推得的遮挡高度
+            if (inner > fullH) fullH = inner;
 
-            // 键盘是否弹起：原生明确告知优先，否则靠可视区推断
-            const kbUp = (nativeKb !== null) ? (nativeKb > 0) : (occlusion > 40);
+            const viewShrunk = fullH > 0 && inner < fullH - 4;
+            const vvShrunk = fullH > 0 && vvH > 0 && vvH < fullH - 40;
 
-            let nextHeight;
-            if (kbUp) {
-                // 有遮挡：原生值优先，否则用可视区
-                const h = (nativeKb > 0 && baselineH)
-                    ? Math.min(visible, baselineH - nativeKb)
-                    : visible;
-                nextHeight = Math.max(0, h) + 'px';
-            } else if (nativeKb === 0) {
-                nextHeight = '';                        // 原生明确收起
-            } else if (occlusion <= 4) {
-                nextHeight = '';                        // 可视区已满高
+            let target;
+            if (nativeKb !== null && nativeKb > 0) {
+                const h = viewShrunk
+                    ? Math.min(inner, vvH || inner)
+                    : Math.max(0, fullH - nativeKb);
+                target = h + 'px';
+            } else if (nativeKb === null && vvShrunk) {
+                target = Math.max(0, vvH) + 'px';
+            } else if (nativeKb === 0 && !viewShrunk) {
+                target = '';                       // 原生明确收起
+            } else if (nativeKb === null && !viewShrunk && !vvShrunk) {
+                target = '';                       // 无键盘
             } else {
-                // 状态不明：保持现状，绝不盲目清回 100dvh
-                // （上一版的 bug：此处会清空高度，把正确结果抹掉）
-                return;
+                return;                            // 状态不明：保持现状，绝不盲目清回 100dvh
             }
 
-            if (nextHeight !== lastAppliedHeight) {
-                lastAppliedHeight = nextHeight;
-                pageContainer.style.height = nextHeight;
+            if (target !== lastAppliedHeight) {
+                lastAppliedHeight = target;
+                pageContainer.style.height = target;
                 scrollToBottom();
             }
+            void pageContainer.offsetHeight;
         }
 
         // 覆盖 status-bar.js 定义的函数（由 Android 原生侧注入键盘高度调用）
@@ -961,6 +964,7 @@
                 const se = document.scrollingElement || document.documentElement;
                 if (se && se.scrollTop) se.scrollTop = 0;
                 if (document.body && document.body.scrollTop) document.body.scrollTop = 0;
+                void pageContainer.offsetHeight;   // 同上：强制重排
             } catch (e) {}
         }
 

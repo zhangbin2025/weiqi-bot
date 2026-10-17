@@ -202,6 +202,15 @@ class MainActivity : AppCompatActivity(), GeckoViewDelegateCallbacks, GeckoView.
                 injectKeyboardHeight(cssKeyboard)
             }
 
+            // ★ 让 GeckoView 视口真正缩小 —— 本次问题的根因所在
+            // Manifest 已声明 adjustResize，但 enterImmersiveMode() 让 Activity 处于
+            // edge-to-edge（隐藏系统栏 + fitsSystemWindows=false），此模式下框架不再
+            // 自动调整窗口，adjustResize 形同无效；GeckoView 高度始终是全屏，
+            // 于是 window.innerHeight / 100dvh 永远是过期的全屏值（实测恒为 1045）。
+            // 这里手动把 IME inset 作为底部 padding 施加给内容容器，
+            // 视图缩小后 innerHeight 自然变为 (全高 - 键盘高)，100dvh 才可信。
+            contentView.setPadding(0, 0, 0, keyboardPx)
+
             insets
         }
     }
