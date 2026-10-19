@@ -142,6 +142,12 @@ export function parseOcrResult(items: OcrItem[], defaultRound: number): OcrRound
       if (/台|号|姓名|单位|成绩|上轮|分|黑|白/.test(ln + rn)) continue;
     }
 
+    // 页脚 / 表外文字不该产成对阵。
+    // 实测：表格最后一行是「裁判长(签名)：编排长：吴建军 / 云蛇比赛编排」，
+    // 只有 2 个格子、没有台号/编号/积分，却被当成白方姓名输出了。
+    // 判据：本行必须至少有一个编号或积分，否则视为表外行。
+    if (lNo === null && rNo === null && lScore === null && rScore === null) continue;
+
     const tableNo = tableCol !== null ? toInt(cellText(grid, r, tableCol)) : null;
 
     matches.push({

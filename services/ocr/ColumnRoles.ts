@@ -30,6 +30,8 @@ export interface ColumnAssignment {
   side: Side;
   /** 该列判定的置信依据，便于日志排查 */
   evidence: string;
+  /** 非空单元格占比（0~1），用于在同一角色的多个候选列里挑真正的那一列 */
+  fill?: number;
 }
 
 const RE_INT = /^\d{1,4}$/;
@@ -117,22 +119,50 @@ export function assignColumnRoles(grid: TableGrid): ColumnAssignment[] {
 
   const judged = cols.map((c) => ({ col: c, ...judgeColumn(textsByCol.get(c) ?? []) }));
 
-  // 找分隔列：result 列，或最靠中间的那个
-  let splitIdx = judged.findIndex((j) => j.role === 'result');
-  if (splitIdx < 0) splitIdx = Math.floor(judged.length / 2);
+  // 左右侧判定：优先用「两个姓名列」的相对位置，而不是靠 result 列或列序中点。
+  //
+  // 实测踩过的坑：result 列被判成 col10（真正的成绩列 col6 内容其实是
+  // '成绩上轮'），分隔列找错 → 白方姓名列 col7 被判成 left →
+  // pickColumn(roles,'right','name') 返回 null，整张表的白方全部丢失。
+  //
+  // 对阵表的结构是固定的：黑方团队/姓名/积分 ... 白方积分/姓名/团队，
+  // 所以两个 name 列必然一左一右，用它们划界最可靠。
+  const nameCols = judged.filter((j) => j.role === 'name').map((j) => j.col);
+  let splitIdx = -1;
+  if (nameCols.length >= 2) {
+    splitIdx = Math.floor((nameCols[0]! + nameCols[nameCols.length - 1]!) / 2);
+  }
+  if (splitIdx < 0) {
+    const ri = judged.findIndex((j) => j.role === 'result');
+    splitIdx = ri >= 0 ? judged[ri]!.col : Math.floor(judged.length / 2);
+  }
 
-  return judged.map((j, i) => ({
-    col: j.col,
-    role: j.role,
-    side: i < splitIdx ? 'left' : 'right',
-    evidence: j.evidence,
-  }));
+  return judged.map((j) => {
+    const texts = textsByCol.get(j.col) ?? [];
+    const filled = texts.filter((t) => t.trim()).length;
+    return {
+      col: j.col,
+      role: j.role,
+      side: j.col <= splitIdx ? 'left' : 'right',
+      // 非空单元格占比：用于在同一角色的多个候选列里挑真正的那一列
+      fill: texts.length > 0 ? filled / texts.length : 0,
+      evidence: j.evidence,
+    };
+  });
 }
 
 /**
- * 从列角色里挑出目标角色（按左右侧分别取第一个）
+ * 从列角色里挑出目标角色
+ *
+ * 同一角色可能有多个候选列（实测白方编号：col9 只有 2 个值、col11 才是真编号）。
+ * 取「非空单元格占比」最高的那个，而不是取第一个。
  */
 export function pickColumn(assignments: ColumnAssignment[], side: Side, role: ColumnRole): number | null {
-  const hit = assignments.find((a) => a.side === side && a.role === role);
-  return hit ? hit.col : null;
+  const hits = assignments.filter((a) => a.side === side && a.role === role);
+  if (hits.length === 0) return null;
+  let best = hits[0]!;
+  for (const h of hits) {
+    if ((h.fill ?? 0) > (best.fill ?? 0)) best = h;
+  }
+  return best.col;
 }

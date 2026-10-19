@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { planTiles, dedupeItems, mergeFragments, mergeTileResults } from '../Tiling';
+import { buildTable } from '../TableBuilder';
 import type { OcrItem } from '../types';
 
 /** 已是 OcrItem[] 形态的 dump，直接读 */
@@ -143,5 +144,49 @@ describe('mergeTileResults', () => {
     const team = merged.filter((i) => i.x >= 595 && i.x < 630);
     // 仍应有大量多字单位名（说明没被拆散也没被乱并）
     expect(team.filter((i) => /^[\u4e00-\u9fa5]{3,}$/.test(i.text)).length).toBeGreaterThan(50);
+  });
+});
+
+describe('单元格拼接与表外行过滤（2026-10-19 用户实测反馈）', () => {
+  const tiled = () => dedupeItems(loadRaw(resolve(__dirname, 'fixture-items-tiled.json')));
+
+  it('同一单元格里的多个块按 x 拼成整体（郭 + 晖 → 郭晖）', () => {
+    // 根因：buildTable 早期版本「每列只保留置信度最高的块」，
+    // 把同一格的 '晖' 丢掉 → 输出单字名 '郭'
+    const grid = buildTable(mergeFragments(tiled()));
+    const names = new Set(
+      grid.cells.filter((c) => c.col === 4 || c.col === 7).map((c) => c.text)
+    );
+    for (const full of ['郭晖', '郑刚', '林斌', '莫凡', '胡啸']) {
+      expect(names.has(full)).toBe(true);
+    }
+  });
+
+  it('姓名列不再出现单字名', () => {
+    const grid = buildTable(mergeFragments(tiled()));
+    const single = grid.cells.filter(
+      (c) => (c.col === 4 || c.col === 7) && /^[一-龥]$/.test(c.text)
+    );
+    expect(single.length).toBe(0);
+  });
+
+  it('空间包含的重复块去重（吕睿 与 睿 不拼成 吕睿睿）', () => {
+    const out = dedupeItems(tiled());
+    expect(out.some((i) => i.text === '吕睿睿')).toBe(false);
+    // 保留更完整的那个（'吕睿' 比 '睿' 多一个字），即使后者置信度更高
+    expect(out.some((i) => i.text === '吕睿')).toBe(true);
+    expect(out.some((i) => i.text === '睿')).toBe(false);
+  });
+
+  it('等长近似重复也去重（陈思旷 / 陈忠旷）', () => {
+    const out = dedupeItems(tiled());
+    const both = out.filter((i) => i.text === '陈思旷' || i.text === '陈忠旷');
+    expect(both.length).toBe(1);
+  });
+
+  it('不误删不同位置的同文本块（表里大量 0 和 代表队）', () => {
+    const out = dedupeItems(tiled());
+    // 编号列有很多 '0'，纵向分布很广，应大量保留
+    expect(out.filter((i) => i.text === '0').length).toBeGreaterThan(50);
   });
 });

@@ -80,33 +80,73 @@ function center(it: OcrItem): { cx: number; cy: number } {
 /**
  * 去重：相邻片重叠区会把同一处文字识别两次
  *
- * 判据：文本相同 且 位置几乎重合（IoU 超过阈值，或中心距小于半高）。
+ * 判据（满足任一即视为重复）：
+ *   ① 文本相同 且 位置几乎重合（IoU 超过阈值，或中心距小于半高）
+ *   ② 空间被包含：小框面积的 80% 以上落在大框内，且同一行
+ *
+ * ② 是必需的：同一处文字被识别成两种结果时文本不同，① 失效。
+ *   实测三种形态，都不是子串关系所以不能靠文本包含判断：
+ *     '吕睿'(511-576) vs '睿'(539-574)      IoU=0.41  长度不同
+ *     '陈思旷'(247-311) vs '陈忠旷'(249-301) IoU=0.52  等长、1 字之差
+ *     '仲伟傑' vs '仲伟杰'                  IoU=0.68  异体字
+ *   三者的小框包含率都是 1.0，靠空间包含可一并解决。
+ *   不去重的话，拼接进单元格就成 '吕睿睿'、'陈思旷陈忠旷'。
+ *
  * 同一张表里相同的文字（如大量 '0'、'代表队'）纵向相距很远，不会被误删。
  *
  * @returns 去重后的块（保留置信度更高的那个），顺序与输入一致
  */
 export function dedupeItems(items: OcrItem[], iouThreshold = 0.5): OcrItem[] {
   const kept: OcrItem[] = [];
+  // 与 kept[i] 对应：true = 走的是「空间包含」规则，应优先保留更长的文本
+  const contained = new Array<boolean>(items.length).fill(false);
   for (const it of items) {
     let dupIdx = -1;
     for (let i = 0; i < kept.length; i++) {
       const k = kept[i]!;
-      if (k.text !== it.text) continue;
-      if (iou(k, it) >= iouThreshold) {
-        dupIdx = i;
-        break;
+      if (k.text === it.text) {
+        if (iou(k, it) >= iouThreshold) {
+          dupIdx = i;
+          break;
+        }
+        const a = center(k);
+        const b = center(it);
+        const dist = Math.hypot(a.cx - b.cx, a.cy - b.cy);
+        if (dist <= 0.5 * Math.max(k.h, it.h)) {
+          dupIdx = i;
+          break;
+        }
+        continue;
       }
-      const a = center(k);
-      const b = center(it);
-      const dist = Math.hypot(a.cx - b.cx, a.cy - b.cy);
-      if (dist <= 0.5 * Math.max(k.h, it.h)) {
-        dupIdx = i;
-        break;
-      }
+      // ② 空间包含 + 同一行（不要求文本有包含关系，见上方注释）
+      const short = k.w * k.h <= it.w * it.h ? k : it;
+      const long = short === k ? it : k;
+      const ix = Math.min(short.x + short.w, long.x + long.w) - Math.max(short.x, long.x);
+      const iy = Math.min(short.y + short.h, long.y + long.h) - Math.max(short.y, long.y);
+      if (ix <= 0 || iy <= 0) continue;
+      if (short.w <= 0 || short.h <= 0) continue;
+      if (ix * iy / (short.w * short.h) < 0.8) continue;
+      const sc = center(short);
+      const lc = center(long);
+      if (Math.abs(sc.cy - lc.cy) > 0.5 * Math.max(short.h, long.h)) continue;
+      dupIdx = i;
+      contained[dupIdx] = true;
+      break;
     }
     if (dupIdx < 0) {
       kept.push(it);
-    } else if (it.score > kept[dupIdx]!.score) {
+      contained[kept.length - 1] = false;
+      continue;
+    }
+    // 空间包含时优先保留「更完整」的那个：'吕睿'(0.91) 比 '睿'(1.00)
+    // 多一个字，虽然置信度低但信息更全 —— 置信度高的短块往往是长块的一部分。
+    // 等长时才比置信度（如 '陈思旷' vs '陈忠旷'）。
+    const cur = kept[dupIdx]!;
+    const better = contained[dupIdx]
+      ? it.text.length > cur.text.length ||
+        (it.text.length === cur.text.length && it.score > cur.score)
+      : it.score > cur.score;
+    if (better) {
       kept[dupIdx] = it;
     }
   }

@@ -201,17 +201,29 @@ export function buildTable(items: OcrItem[], options: RowClusterOptions & { minG
 
   const cells: TableCell[] = [];
   rows.forEach((rowItems, row) => {
-    // 每列只保留置信度最高的块
-    const byCol = new Map<number, OcrItem>();
+    // 同一单元格内的所有块都要保留，按 x 从左到右拼成一个整体：
+    //   早期版本「每列只保留置信度最高的块」，实测把同一格里的
+    //   '郭'(x=248-272) 和 '晖'(x=285-310) 丢掉一个 → 输出单字名 '郭'。
+    //   推断「哪两个块属于同一格」不该靠置信度，单元格本身就是容器。
+    const byCol = new Map<number, OcrItem[]>();
     for (const it of rowItems) {
       const col = columnOf(it, columns);
       if (col === null) continue;
-      const exist = byCol.get(col);
-      if (!exist || it.score > exist.score) byCol.set(col, it);
+      const list = byCol.get(col);
+      if (list) list.push(it);
+      else byCol.set(col, [it]);
     }
-    for (const [col, it] of byCol) {
-      if (!it.text.trim()) continue;
-      cells.push({ row, col, text: it.text.trim(), score: it.score });
+    for (const [col, list] of byCol) {
+      // 按 x 排序拼接：顺带修正检测框左右颠倒（实测 '崇' 在 '王' 之前）
+      list.sort((a, b) => a.x - b.x);
+      const text = list
+        .map((it) => it.text.trim())
+        .filter(Boolean)
+        .join('');
+      if (!text) continue;
+      // 拼接结果的可信度取最低者：任一块认错，整体就不该被信任
+      const score = Math.min(...list.map((it) => it.score));
+      cells.push({ row, col, text, score });
     }
   });
 
