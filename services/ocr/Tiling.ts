@@ -141,7 +141,7 @@ export interface MergeOptions {
  *
  * 必须同时满足四个条件才会合并，实测能干净区分：
  *   ① 同一行（垂直中心差 / 高度 ≤ 0.4）
- *   ② 水平方向真的重叠（重叠 ≥ 1px）——正常列之间是正间隙
+ *   ② 水平方向咬合（允许 8px 内间隙）——配合短块判据共同排除正常列
  *   ③ 两侧都是短碎片（w/h ≤ 2.2）——排除多字单位名
  *   ④ 合并后宽高比合理（≤ 3.5）
  *
@@ -149,7 +149,7 @@ export interface MergeOptions {
  */
 export function mergeFragments(items: OcrItem[], options: MergeOptions = {}): OcrItem[] {
   const maxDyRatio = options.maxDyRatio ?? 0.4;
-  const minOverlap = options.minOverlap ?? 1;
+  const minOverlap = options.minOverlap ?? -8;
   const maxFragRatio = options.maxFragRatio ?? 2.2;
   const maxMergedRatio = options.maxMergedRatio ?? 3.5;
 

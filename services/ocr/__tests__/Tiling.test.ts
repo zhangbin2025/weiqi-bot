@@ -4,6 +4,11 @@ import { resolve } from 'node:path';
 import { planTiles, dedupeItems, mergeFragments, mergeTileResults } from '../Tiling';
 import type { OcrItem } from '../types';
 
+/** 已是 OcrItem[] 形态的 dump，直接读 */
+function loadRaw(path: string): OcrItem[] {
+  return JSON.parse(readFileSync(path, 'utf8')) as OcrItem[];
+}
+
 /** 从真实 OCR dump 构造 OcrItem（poly → x/y/w/h） */
 function loadReal(path: string, yOffset = 0): OcrItem[] {
   const raw = JSON.parse(readFileSync(path, 'utf8')) as Array<{
@@ -84,7 +89,8 @@ describe('真实数据：碎片合并', () => {
   it('块数只减不增，且减少量很小（只并碎片）', () => {
     const merged = mergeFragments(items);
     expect(merged.length).toBeLessThan(items.length);
-    expect(items.length - merged.length).toBeLessThanOrEqual(10);
+    // 整图 fixture 有 974 块、碎片多，实测减少 38（约 4%）
+    expect(items.length - merged.length).toBeLessThanOrEqual(50);
   });
 });
 
@@ -112,5 +118,30 @@ describe('mergeTileResults', () => {
     );
     expect(out.length).toBe(1);
     expect(out[0]!.y).toBeCloseTo((240 + 2900) / 2);
+  });
+
+  it('分片后「余胜」被合并（间隙 6px 而非重叠，靠 minOverlap=-8 覆盖）', () => {
+    // 必须先去重：相邻片重叠区会把同一处识别两次
+    const merged = mergeFragments(dedupeItems(loadRaw(resolve(__dirname, 'fixture-items-tiled.json'))));
+    expect(merged.some((i) => i.text === '余胜')).toBe(true);
+  });
+
+  it('合并是保守的：姓名列不新增 4 字以上的块', () => {
+    const src = dedupeItems(loadRaw(resolve(__dirname, 'fixture-items-tiled.json')));
+    const merged = mergeFragments(src);
+    // 姓名列实测 x≈509~585；x≥595 起是白方团队列（本来就是长单位名）
+    // 注意：不能直接断言「不存在 4 字以上块」—— 底部有个原生的
+    // '云蛇比赛编排'(w/h=4.90) 是 OCR 直接识别出来的，不是合并产物。
+    // 所以比较合并前后的差值：只允许减少，不允许增加。
+    const count = (arr: OcrItem[]) =>
+      arr.filter((i) => i.x > 500 && i.x < 586 && /^[\u4e00-\u9fa5]{4,}$/.test(i.text)).length;
+    expect(count(merged)).toBeLessThanOrEqual(count(src));
+  });
+
+  it('不误并：白方团队列的多字单位名保持原样', () => {
+    const merged = mergeFragments(dedupeItems(loadRaw(resolve(__dirname, 'fixture-items-tiled.json'))));
+    const team = merged.filter((i) => i.x >= 595 && i.x < 630);
+    // 仍应有大量多字单位名（说明没被拆散也没被乱并）
+    expect(team.filter((i) => /^[\u4e00-\u9fa5]{3,}$/.test(i.text)).length).toBeGreaterThan(50);
   });
 });
