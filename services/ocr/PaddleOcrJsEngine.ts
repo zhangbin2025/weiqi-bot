@@ -292,17 +292,44 @@ export class PaddleOcrJsEngine implements IOcrEngine {
    */
 
   /**
-   * HEAD 探测资源的真实体积
+   * 探测资源的真实体积
    *
    * 不能硬编码：一旦 CDN 换了模型文件，硬编码值就会与真实值漂移，
    * 导致「已下载 > 总量」这种百分比破百的显示（实测出现过 23.7MB / 20.5MB）。
-   * Content-Length 属 CORS 安全响应头，无需额外 expose 即可读取。
+   *
+   * ⚠️ 为什么不用 HEAD：百度 CDN 的 CORS 只放行 GET ——
+   *   Access-Control-Allow-Methods: GET
+   * HEAD 响应**完全不带** Access-Control-Allow-Origin，浏览器直接拦掉
+   * （实测：HEAD 返回无任何 CORS 头；GET 返回齐全）。
+   * 所以改成 GET，拿到响应头后立刻 cancel body，不真下载 4.8MB。
+   *
+   * ⚠️ 也不能用 Range 请求省流量：该 CDN 的
+   *   Access-Control-Expose-Headers: ETag, Content-Length, x-bce-*
+   * 里**没有 Content-Range**，206 响应读不到总长度（只能拿到 1 字节的分片长度）。
+   * Content-Length 在白名单内，全量 GET 才读得到。
+   *
    * 失败时返回 null，由调用方回退到硬编码估算值。
    */
   private async headContentLength(url: string): Promise<number | null> {
     try {
-      const r = await this.nativeFetch(url, { method: 'HEAD' });
+      const ac = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const r = await this.nativeFetch(url, {
+        method: 'GET',
+        ...(ac ? { signal: ac.signal } : {}),
+      });
       const n = +(r.headers.get('content-length') || 0);
+      // 只想要响应头：立刻中断 body，避免把整个模型拖下来
+      try {
+        ac?.abort();
+      } catch {
+        /* 已完成的响应 abort 无效，忽略 */
+      }
+      // 帮助 GC：显式取消 body 流
+      try {
+        await r.body?.cancel();
+      } catch {
+        /* 忽略 */
+      }
       return n > 0 ? n : null;
     } catch {
       return null;
