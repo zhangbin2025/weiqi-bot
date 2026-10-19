@@ -33,6 +33,8 @@ import type {
   OcrRecognizeMeta,
   OcrDownloadKind,
 } from './types';
+import { planTiles, mergeTileResults } from './Tiling';
+import type { TileBand } from './Tiling';
 
 /** 百度 CDN 模型地址（官方包内置默认值，此处显式写出便于替换/自建） */
 // 注意：主机名是 ecology 不是 ecosystem（写成后者会 404，实测 200 vs 404）
@@ -65,11 +67,32 @@ const MODEL_BYTES: Record<string, number> = {
 /** 上次实测的识别耗时（ms），用于渐近估计；无历史数据时用保守值 */
 const DEFAULT_INFER_MS = 45000;
 
+/**
+ * 分片识别参数
+ *
+ * 检测模型把长边缩到 960（resizeLong=960 / limitType="max"），
+ * 长图整图喂进去会被压得不成样子（详见 Tiling.ts 顶部说明）。
+ * TILE_HEIGHT 取 900 是为让「缩放后长边仍 ≤960」恒成立：
+ *   单片 900 高、原图宽 771 → scale=1，完全不缩放。
+ */
+const TILE_HEIGHT = 900;
+/** 相邻片重叠，防止把某一行文字切成上下两半（行高约 43px，留 60 足够） */
+const TILE_OVERLAP = 60;
+/** 超过该高度的图才分片；短图直接整图识别，省一次往返 */
+const TILE_MIN_HEIGHT = 1400;
+
 /** bundle 暴露的命名空间 */
 interface OcrNamespace {
   PaddleOCR: {
     create(options: Record<string, unknown>): Promise<OcrRecognizer>;
   };
+}
+
+interface OcrRuntimeInfo {
+  requestedBackend: string;
+  detProvider: string;
+  recProvider: string;
+  webgpuAvailable: boolean;
 }
 
 interface OcrRecognizer {
@@ -78,12 +101,7 @@ interface OcrRecognizer {
       image: { width: number; height: number };
       items: Array<{ poly: Array<{ x?: number; y?: number } | number[]>; text: string; score: number }>;
       metrics?: { detMs: number; recMs: number; totalMs: number };
-      runtime?: {
-        requestedBackend: string;
-        detProvider: string;
-        recProvider: string;
-        webgpuAvailable: boolean;
-      };
+      runtime?: OcrRuntimeInfo;
     }>
   >;
   dispose(): Promise<void>;
@@ -570,41 +588,99 @@ export class PaddleOcrJsEngine implements IOcrEngine {
       canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('图片转换失败'))), 'image/png');
     });
 
-    // 识别阶段没有进度回调，用「渐近估计」保持进度推进：
-    // 以历史耗时为目标，指数逼近 95%，绝不谎报 100%。
-    const estimate = this.lastInferMs > 0 ? this.lastInferMs : DEFAULT_INFER_MS;
     const t0 = performance.now();
-    let timer: ReturnType<typeof setInterval> | undefined;
-    const tick = () => {
-      const elapsed = performance.now() - t0;
-      const ratio = Math.min(1, elapsed / estimate);
-      // 指数逼近，前段快后段慢，到 95% 为止
-      const pct = Math.round(95 * (1 - Math.exp(-3 * ratio)));
-      const leftSec = Math.max(0, Math.round((estimate - elapsed) / 1000));
-      onProgress?.({
-        stage: 'recognizing',
-        percent: pct,
-        message:
-          leftSec > 1
-            ? `正在识别文字…预计还需 ${leftSec} 秒`
-            : '正在识别文字…即将完成',
-      });
-    };
-    tick();
-    timer = setInterval(tick, 500);
 
-    let results;
-    try {
-      results = await rec.predict(blob);
-    } finally {
-      if (timer) clearInterval(timer);
+    // 分片识别：长图整图喂给检测模型会被压垮（详见 Tiling.ts 顶部实测），
+    // 且实测整图 127s 无进度反馈。分片后每段都能拿到真实进度。
+    const bands = canvas.height > TILE_MIN_HEIGHT
+      ? planTiles(canvas.height, TILE_HEIGHT, TILE_OVERLAP)
+      : [];
+
+    let rawBatches: Array<{ y0: number; items: OcrItem[] }>;
+    let imageW = canvas.width;
+    let imageH = canvas.height;
+    let runtime: OcrRuntimeInfo | undefined;
+
+    if (bands.length === 0) {
+      // 短图：整图一次识别
+      const estimate = this.lastInferMs > 0 ? this.lastInferMs : DEFAULT_INFER_MS;
+      const timer = setInterval(() => {
+        const elapsed = performance.now() - t0;
+        const ratio = Math.min(1, elapsed / estimate);
+        const pct = Math.round(95 * (1 - Math.exp(-3 * ratio)));
+        const leftSec = Math.max(0, Math.round((estimate - elapsed) / 1000));
+        onProgress?.({
+          stage: 'recognizing',
+          percent: pct,
+          message: leftSec > 1 ? `正在识别文字…预计还需 ${leftSec} 秒` : '正在识别文字…即将完成',
+        });
+      }, 500);
+      try {
+        const results = await rec.predict(blob);
+        const r = results[0];
+        runtime = r?.runtime;
+        imageW = r?.image?.width ?? canvas.width;
+        imageH = r?.image?.height ?? canvas.height;
+        rawBatches = [{ y0: 0, items: this.toItems(r?.items ?? [], scale) }];
+      } finally {
+        clearInterval(timer);
+      }
+    } else {
+      rawBatches = [];
+      for (let i = 0; i < bands.length; i++) {
+        const band = bands[i]!;
+        const tile = await this.sliceCanvas(canvas, band);
+        const results = await rec.predict(tile);
+        const r = results[0];
+        if (r?.runtime) runtime = r.runtime;
+        rawBatches.push({ y0: band.y0, items: this.toItems(r?.items ?? [], scale) });
+        onProgress?.({
+          stage: 'recognizing',
+          percent: Math.round(((i + 1) / bands.length) * 100),
+          message: `正在识别文字… 第 ${i + 1}/${bands.length} 段`,
+        });
+      }
     }
 
     const inferMs = Math.round(performance.now() - t0);
     this.lastInferMs = inferMs;
-    const r = results[0];
 
-    const items: OcrItem[] = (r?.items ?? []).map((it) => {
+    // 还原整图坐标 + 去重（重叠区会重复识别）+ 合并被拆开的文字碎片
+    const items = mergeTileResults(rawBatches, scale);
+
+    imageW = Math.round(imageW / scale);
+    imageH = Math.round(imageH / scale);
+
+    const meta: OcrRecognizeMeta = {
+      backend: runtime?.detProvider === 'webgpu' ? 'webgpu' : 'wasm',
+      webgpuAvailable: runtime?.webgpuAvailable ?? this._webgpuAvailable,
+      softwareRenderer: this.softwareRenderer,
+      detProvider: runtime?.detProvider ?? 'wasm',
+      recProvider: runtime?.recProvider ?? 'wasm',
+      initMs: this.initMs,
+      inferMs,
+      imageWidth: imageW,
+      imageHeight: imageH,
+    };
+
+    onProgress?.({
+      stage: 'recognizing',
+      percent: 100,
+      message: `识别完成，共 ${items.length} 个文本块（耗时 ${(inferMs / 1000).toFixed(1)}s）`,
+    });
+    return { items, meta };
+  }
+
+  /**
+   * 把库的 items 转成 OcrItem（按 scale 除回原始图片尺度）
+   *
+   * 分片时坐标为「片内坐标」，y 偏移由 mergeTileResults 统一加回。
+   */
+  private toItems(
+    raw: Array<{ poly: Array<{ x?: number; y?: number } | number[]>; text: string; score: number }>,
+    scale: number
+  ): OcrItem[] {
+    return raw.map((it) => {
       const b = polyBounds(it.poly ?? []);
       return {
         text: it.text ?? '',
@@ -615,26 +691,23 @@ export class PaddleOcrJsEngine implements IOcrEngine {
         h: b ? (b.maxY - b.minY) / scale : 0,
       };
     });
+  }
 
-    const runtime = r?.runtime;
-    const meta: OcrRecognizeMeta = {
-      backend: runtime?.detProvider === 'webgpu' ? 'webgpu' : 'wasm',
-      webgpuAvailable: runtime?.webgpuAvailable ?? this._webgpuAvailable,
-      softwareRenderer: this.softwareRenderer,
-      detProvider: runtime?.detProvider ?? 'wasm',
-      recProvider: runtime?.recProvider ?? 'wasm',
-      initMs: this.initMs,
-      inferMs,
-      imageWidth: r?.image?.width ?? canvas.width,
-      imageHeight: r?.image?.height ?? canvas.height,
-    };
-
-    onProgress?.({
-      stage: 'recognizing',
-      percent: 100,
-      message: `识别完成，共 ${items.length} 个文本块（耗时 ${(inferMs / 1000).toFixed(1)}s）`,
-    });
-    return { items, meta };
+  /** 裁出一片并转成 PNG blob */
+  private async sliceCanvas(canvas: HTMLCanvasElement, band: TileBand): Promise<Blob> {
+    const h = band.y1 - band.y0;
+    const tile = document.createElement('canvas');
+    tile.width = canvas.width;
+    tile.height = Math.max(1, h);
+    const ctx = tile.getContext('2d');
+    if (!ctx) throw new Error('无法创建 canvas 2d 上下文');
+    // 必须铺白底：PNG 透明区在缩放时会被填成黑，检测模型会把它当成文字
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, tile.width, tile.height);
+    ctx.drawImage(canvas, 0, band.y0, canvas.width, h, 0, 0, canvas.width, h);
+    const blob = await new Promise<Blob | null>((resolve) => tile.toBlob(resolve, 'image/png'));
+    if (!blob) throw new Error('分片图片转换失败');
+    return blob;
   }
 
   async dispose(): Promise<void> {
