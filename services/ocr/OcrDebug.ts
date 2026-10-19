@@ -38,21 +38,27 @@ function readGlobal(): GlobalFlag {
   }
 }
 
-function urlOff(): boolean {
+function flagFromUrl(): boolean | undefined {
   try {
-    if (typeof location === 'undefined') return false;
-    return /[?&]ocrDebug=0\b/.test(location.search || '');
+    if (typeof location === 'undefined') return undefined;
+    const s = location.search || '';
+    if (/[?&]ocrDebug=1\b/.test(s)) return true;
+    if (/[?&]ocrDebug=0\b/.test(s)) return false;
+    return undefined;
   } catch {
-    return false;
+    return undefined;
   }
 }
 
-function storageOff(): boolean {
+function flagFromStorage(): boolean | undefined {
   try {
-    if (typeof localStorage === 'undefined') return false;
-    return localStorage.getItem('weiqi.ocr.debug') === '0';
+    if (typeof localStorage === 'undefined') return undefined;
+    const v = localStorage.getItem('weiqi.ocr.debug');
+    if (v === '1') return true;
+    if (v === '0') return false;
+    return undefined;
   } catch {
-    return false;
+    return undefined;
   }
 }
 
@@ -60,12 +66,15 @@ function storageOff(): boolean {
  * 是否开启调试日志
  *
  * 每次调用都重新读取，因此可以在运行中随时开关，不必刷新页面。
+ * 优先级：显式 global > URL > localStorage > 默认值
  */
 export function isOcrDebugEnabled(): boolean {
   const g = readGlobal();
-  if (g === true) return true; // 显式开：覆盖 URL / storage
-  if (g === false) return false; // 显式关
-  if (urlOff() || storageOff()) return false;
+  if (g !== undefined) return g;
+  const u = flagFromUrl();
+  if (u !== undefined) return u;
+  const s = flagFromStorage();
+  if (s !== undefined) return s;
   return DEFAULT_ENABLED;
 }
 
