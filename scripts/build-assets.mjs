@@ -60,7 +60,9 @@ const RESOURCES = [
  * 预下载排除项
  * 这些资源不纳入 web-resources.zip，客户端已有特殊处理逻辑
  */
-const PRELOAD_EXCLUDE_DIRS = ['models', 'tfjs'];
+// ocr：OCR 引擎 + ORT 运行时 + worker 共约 50MB，属可选功能，
+// 与 models / tfjs 同策略——不进预加载 zip，由 FileServer 按需下载。
+const PRELOAD_EXCLUDE_DIRS = ['models', 'tfjs', 'ocr'];
 const PRELOAD_EXCLUDE_FILES = ['web-resources.zip'];
 
 /**

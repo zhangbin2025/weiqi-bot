@@ -15,8 +15,8 @@
     "lint": "eslint infrastructure --ext .ts",
     "typecheck": "tsc --noEmit",
     "dev": "vite",
-    "dev:build": "vite build && node scripts/build-assets.mjs && find dist-web -name '*.map' -type f -delete",
-    "build:web": "vite build && node scripts/build-assets.mjs",
+    "dev:build": "vite build && node scripts/build-ocr.mjs && node scripts/build-assets.mjs && find dist-web -name \"*.map\" -type f -delete",
+    "build:web": "vite build && node scripts/build-ocr.mjs && node scripts/build-assets.mjs",
     "build:app": "cd clients/app/android && ANDROID_HOME=~/android-sdk ./gradlew assembleDebug",
     "help": "node scripts/help.mjs",
     "generate:joseki": "node scripts/generate-joseki-tree.mjs",
@@ -24,7 +24,8 @@
     "build:desktop": "npm run build:web && cd clients/desktop && npm install && npm run download-katago && npm run build",
     "dist:desktop": "npm run build:desktop && cd clients/desktop && npx electron-builder --win zip --x64 ",
     "build:cli": "bash scripts/build-cli.sh",
-    "upgrade:katago": "bash scripts/upgrade-katago-android.sh"
+    "upgrade:katago": "bash scripts/upgrade-katago-android.sh",
+    "build:ocr": "node scripts/build-ocr.mjs"
   },
   "keywords": [
     "weiqi",
@@ -51,6 +52,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@paddleocr/paddleocr-js": "^0.4.2",
     "@types/node": "^20.11.0",
     "@types/pako": "^2.0.3",
     "@vitest/coverage-v8": "^1.6.0",

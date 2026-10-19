@@ -10,6 +10,7 @@ import type { Match } from '../../../../../services/event/types';
 import type { PdfMatch } from '../../../../../services/pdf/types';
 import type { IKeyValueStorageAdapter } from '../../../../../infrastructure/storage/interfaces/IKeyValueStorage';
 import { EventRenderer } from './EventRenderer';
+import { PaddleOcrJsEngine, parseOcrResult } from '../../../../../services/ocr';
 import { PdfMatchParser } from '../../../../../services/pdf/PdfMatchParser';
 import { PdfEventService } from '../../../../../services/event/PdfEventService';
 import { SessionStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/SessionStorageAdapter';
@@ -44,6 +45,7 @@ export class EventPage implements IPage {
 
   // PDF 导入
   private pdfParser = new PdfMatchParser();
+  private ocrEngine = new PaddleOcrJsEngine();
   private pdfService = new PdfEventService();
   private readonly sessionStore = new SessionStorageAdapter('weiqi-bot');
 
@@ -238,14 +240,20 @@ export class EventPage implements IPage {
   }
 
   private async handleImportFile(file: File, silent: boolean = false): Promise<void> {
+    // 图片走浏览器本地 OCR；PDF 走 pdf.js 文本层（isImage 需在 catch 中可见）
+    const isImage = file.type.startsWith('image/');
     try {
-      if (!silent) this.renderer.toast.show('正在解析对阵表...');
+      if (!silent) this.renderer.toast.show(isImage ? '正在识别图片对阵表...' : '正在解析对阵表...');
 
-      const arrayBuffer = await file.arrayBuffer();
-      const result = await this.pdfParser.parse(arrayBuffer);
+      const result = isImage
+        ? await this.parseImageMatch(file)
+        : await this.pdfParser.parse(await file.arrayBuffer());
 
       if (result.matches.length === 0) {
-        this.renderer.toast.error('未从 PDF 中提取到对阵数据');
+        if (isImage) this.renderer.renderImportIdle();
+        this.renderer.toast.error(
+          isImage ? '未从图片中识别出对阵数据' : '未从 PDF 中提取到对阵数据'
+        );
         return;
       }
 
@@ -283,9 +291,69 @@ export class EventPage implements IPage {
         this.switchTab('recent');
       }
     } catch (e) {
-      console.error('PDF 解析失败', e as Error);
-      this.renderer.toast.error('PDF 解析失败: ' + (e as Error).message);
+      if (isImage) this.renderer.renderImportIdle();
+      console.error(isImage ? '图片识别失败' : 'PDF 解析失败', e as Error);
+      this.renderer.toast.error(
+        (isImage ? '图片识别失败: ' : 'PDF 解析失败: ') + (e as Error).message
+      );
     }
+  }
+
+
+  /**
+   * 图片对阵表解析（浏览器本地 OCR）
+   *
+   * 输出与 PdfMatchParser 保持同构，从而复用 buildPdfScores / guessNextRound /
+   * recalcWinLoss 等整套后续逻辑，PDF 与图片两条通道共用一条入库路径。
+   */
+  private async parseImageMatch(file: File): Promise<{
+    title?: string;
+    groupName?: string;
+    roundLabel?: string;
+    matches: Array<{
+      table: number;
+      blackName: string;
+      blackNo?: number;
+      blackScore: number;
+      whiteName: string;
+      whiteNo?: number;
+      whiteScore: number;
+    }>;
+  }> {
+    const { items, meta } = await this.ocrEngine.recognize(file, (p) => {
+      this.renderer.renderImportOcrProgress({ percent: p.percent, message: p.message, bytes: p.bytes });
+    });
+
+    const parsed = parseOcrResult(items, 1);
+
+    console.info(
+      `[OCR] backend=${meta.backend} det=${meta.detProvider} ` +
+        `init=${meta.initMs}ms infer=${meta.inferMs}ms items=${items.length} ` +
+        `rows=${parsed.stats.rowCount} cols=${parsed.stats.columnCount} ` +
+        `avgScore=${parsed.stats.avgScore}`
+    );
+
+    // 低置信度过多时提示用户，但照样返回数据（无人工校对，交用户自行判断）
+    if (parsed.stats.avgScore < 0.8) {
+      this.renderer.toast.show(
+        `识别置信度偏低（${parsed.stats.avgScore}），请核对结果`
+      );
+    }
+
+    return {
+      ...(parsed.title ? { title: parsed.title } : {}),
+      ...(parsed.groupName ? { groupName: parsed.groupName } : {}),
+      ...(parsed.roundLabel ? { roundLabel: parsed.roundLabel } : {}),
+      matches: parsed.matches.map((m) => ({
+        table: m.table,
+        blackName: m.p1Name,
+        blackNo: m.p1Id,
+        blackScore: m.p1Score,
+        whiteName: m.p2Name,
+        whiteNo: m.p2Id,
+        whiteScore: m.p2Score,
+      })),
+    };
   }
 
   private buildPdfScores(pdfMatches: PdfMatch[]): Record<string, number> {

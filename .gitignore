@@ -37,3 +37,6 @@ dist-web/
 .project-memory/
 clients/desktop/dist-builder/
 .parcel-cache/
+
+# OCR 引擎构建产物（由 scripts/build-ocr.mjs 生成，约 40MB，不入仓库）
+clients/web/public/ocr/

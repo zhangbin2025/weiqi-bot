@@ -59,6 +59,10 @@ export class EventRenderer {
   readonly resultCard: ICard;
   readonly toast: IToast;
   private fileInput: HTMLInputElement | undefined;
+  // OCR 进度渲染节流：字节回调每秒可达数百次，整卡重渲染会拖垮主线程
+  private lastOcrPct: number | null = null;
+  private lastOcrRenderAt = 0;
+  private ocrPulseInjected = false;
 
   constructor(
     private readonly cb: EventRendererCallbacks,
@@ -115,7 +119,7 @@ export class EventRenderer {
     this.queryBtn.onClick(() => this.doQuery());
 
     // 导入面板
-    this.importPanel.setTitle('📄 导入对阵表');
+    this.importPanel.setTitle('📄 导入对阵表（PDF / 图片）');
     this.ensureFileInput();
     this.renderImportIdle();
 
@@ -137,9 +141,10 @@ export class EventRenderer {
     if (this.fileInput) return;
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.pdf';
+    // 图片走浏览器本地 OCR（PP-OCRv5），PDF 走 pdf.js 文本层
+    input.accept = '.pdf,image/jpeg,image/png,image/webp';
     input.multiple = true;
-    input.id = 'pdf-file-input';
+    input.id = 'import-file-input';
     input.style.display = 'none';
     input.addEventListener('change', () => {
       const files = Array.from(input.files ?? []);
@@ -153,12 +158,13 @@ export class EventRenderer {
   }
 
   /** 导入面板：空闲态 */
-  private renderImportIdle(): void {
+  renderImportIdle(): void {
     this.importCard.setContent(`
-      <p class="import-hint">支持 PDF 对阵表文件，可多选</p>
+      <p class="import-hint">支持 PDF 对阵表，或对阵表照片 / 截图（JPG / PNG / WebP），可多选</p>
+      <p class="import-hint" style="opacity:.75;">图片在浏览器本地识别，不会上传到服务器；首次使用需下载约 21MB 模型</p>
       <div id="pdf-drop" class="import-drop">
-        <span class="import-icon">📄</span>
-        <span class="import-label">点击选择 PDF 文件（可多选）</span>
+        <span class="import-icon">📄🖼️</span>
+        <span class="import-label">点击选择 PDF 或图片（可多选）</span>
       </div>
     `);
     this.importCard.render();
@@ -183,6 +189,64 @@ export class EventRenderer {
       </div>
     `);
     this.importCard.render();
+  }
+
+  /**
+   * 导入面板：OCR 进度态
+   *
+   * 图片识别全程约 60s（资产下载 + 模型下载 + 推理），期间必须有明确进度，
+   * 否则用户会以为页面卡死。字节进度是真实值；识别阶段为估计值，文案已标明"预计"。
+   */
+  renderImportOcrProgress(p: {
+    percent: number | null;
+    message: string;
+    bytes?: { loaded: number; total: number } | undefined;
+  }): void {
+    const pct = p.percent === null ? null : Math.max(0, Math.min(100, Math.round(p.percent)));
+    const now = Date.now();
+    // 节流：百分比变化不足 1% 且距上次渲染不足 400ms 则跳过
+    if (pct !== null && this.lastOcrPct !== null && Math.abs(pct - this.lastOcrPct) < 1 &&
+        now - this.lastOcrRenderAt < 400) {
+      return;
+    }
+    this.lastOcrPct = pct;
+    this.lastOcrRenderAt = now;
+
+    if (pct === null) this.ensureOcrPulseStyle();
+
+    const bar = pct === null
+      ? '<div style="height:100%;background:#93c5fd;border-radius:6px;width:100%;animation:ocrPulse 1.2s ease-in-out infinite;"></div>'
+      : `<div style="height:100%;background:#3b82f6;border-radius:6px;transition:width 0.3s;width:${pct}%;"></div>`;
+
+    let byteHtml = '';
+    if (p.bytes && p.bytes.total > 0) {
+      const mb = (n: number) => (n / 1048576).toFixed(1) + 'MB';
+      byteHtml = `<div style="font-size:12px;color:#999;margin-top:6px;">${mb(p.bytes.loaded)} / ${mb(p.bytes.total)}</div>`;
+    }
+    const pctHtml = pct === null ? '' : `<div style="font-size:12px;color:#3b82f6;margin-top:4px;">${pct}%</div>`;
+
+    this.importCard.setContent(`
+      <div style="text-align:center;padding:30px 20px;">
+        <div style="font-size:2em;margin-bottom:16px;">🔍</div>
+        <div style="font-weight:600;margin-bottom:12px;">识别图片对阵表</div>
+        <div style="background:#e5e7eb;border-radius:6px;height:6px;overflow:hidden;margin-bottom:8px;">
+          ${bar}
+        </div>
+        ${pctHtml}
+        <div style="font-size:13px;color:#666;margin-top:4px;">${esc(p.message)}</div>
+        ${byteHtml}
+      </div>
+    `);
+    this.importCard.render();
+  }
+
+  /** 不确定进度时的脉冲动画（只注入一次） */
+  private ensureOcrPulseStyle(): void {
+    if (this.ocrPulseInjected) return;
+    this.ocrPulseInjected = true;
+    const st = document.createElement('style');
+    st.textContent = '@keyframes ocrPulse{0%{opacity:.35}50%{opacity:1}100%{opacity:.35}}';
+    document.head.appendChild(st);
   }
 
   /** 导入面板：完成态 */
