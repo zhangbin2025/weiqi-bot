@@ -112,13 +112,49 @@ describe('dedupeItems', () => {
 });
 
 describe('mergeTileResults', () => {
-  it('还原 y 偏移并按 scale 除回原尺度', () => {
+  /**
+   * 生产契约（务必与 PaddleOcrJsEngine 对齐）：
+   *   - items 来自 toItems(raw, scale)，**已除过 scale**，是原图坐标
+   *   - y0 来自 planTiles(canvas.height, ...)，是**放大后 canvas 坐标**
+   * 所以本函数只把 y0 除以 scale 后相加，不再对 x/y/w/h 二次缩放。
+   */
+  it('还原 y 偏移：y0 为 canvas 坐标，items 已是原图坐标', () => {
     const out = mergeTileResults(
       [{ y0: 2900, items: [{ text: '孙超', score: 1, x: 506, y: 240, w: 74, h: 33 }] }],
       2
     );
     expect(out.length).toBe(1);
-    expect(out[0]!.y).toBeCloseTo((240 + 2900) / 2);
+    // y0=2900(canvas) /2 = 1450(原图) + 240(片内) = 1690
+    expect(out[0]!.y).toBeCloseTo(1690);
+    // items 已除过 scale，不得再除：x/w/h 原样保留
+    expect(out[0]!.x).toBe(506);
+    expect(out[0]!.w).toBe(74);
+    expect(out[0]!.h).toBe(33);
+  });
+
+  it('坐标系回归：多片时各片偏移量一致（曾因二次除 scale 整体错位）', () => {
+    // 原图 771×6038，宽<1200 → scale=2，canvas 高 12076
+    const scale = 2;
+    const canvasH = 12076;
+    const bands = planTiles(canvasH, 900, 60);
+    expect(bands.length).toBeGreaterThan(1);
+
+    // 同一行文字落在第 k 片，还原后必须回到同一个原图 y
+    for (const targetCanvasY of [6000, 3000, 9000]) {
+      const bi = bands.findIndex((b) => targetCanvasY >= b.y0 && targetCanvasY < b.y1);
+      const band = bands[bi]!;
+      const tileCanvasY = targetCanvasY - band.y0;
+      const item: OcrItem = {
+        text: '测试',
+        score: 1,
+        x: 100,
+        y: tileCanvasY / scale,
+        w: 50,
+        h: 25,
+      };
+      const out = mergeTileResults([{ y0: band.y0, items: [item] }], scale);
+      expect(out[0]!.y).toBeCloseTo(targetCanvasY / scale);
+    }
   });
 
   it('分片后「余胜」被合并（间隙 6px 而非重叠，靠 minOverlap=-8 覆盖）', () => {

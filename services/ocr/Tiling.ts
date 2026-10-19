@@ -268,28 +268,35 @@ export function mergeFragments(items: OcrItem[], options: MergeOptions = {}): Oc
 /**
  * 把分片识别的结果还原成整图坐标并净化
  *
- * @param batches 每片的 { y0, items }，items 坐标为「片内坐标」
- * @param scale 放大倍数（canvas / 原图），用于除回原始尺度
+ * ⚠️ 坐标系约定（实测踩过的坑）：
+ *   - `batches[].y0` 由 `planTiles(canvas.height, ...)` 产出，是**放大后 canvas 坐标**
+ *   - `batches[].items` 由 `toItems(raw, scale)` 产出，**已经除过 scale**，是原图坐标
+ *
+ *   于是本函数只需处理 y0 的换算：**把 y0 除以 scale 后相加即可，不能再除一遍**。
+ *
+ *   两个 bug（实测 0.png，771×6038，宽<1200 → scale=2）：
+ *     ① `y: it.y + b.y0` 直接相加（canvas 坐标 + 原图坐标）
+ *     ② 末尾又对 x/y/w/h 统一 `/scale`（toItems 已除过 → 二次除）
+ *   ② 是均匀缩放，短图（y0=0）看不出问题，只是坐标整体小一倍；
+ *   但①+② 叠加在长图上，各片偏移量被错误放大且不一致 → 行聚类彻底错乱。
+ *
+ *   单测之所以全绿：fixture 是「已还原好的整图坐标」，绕开了这条路径。**引以为戒。**
+ *
+ * @param batches 每片的 { y0, items }；y0 为 canvas 坐标，items 为原图坐标
+ * @param scale 放大倍数（canvas / 原图）
  */
 export function mergeTileResults(
   batches: Array<{ y0: number; items: OcrItem[] }>,
   scale: number,
   options: MergeOptions = {}
 ): OcrItem[] {
+  const inv = scale === 1 ? 1 : 1 / scale;
   const all: OcrItem[] = [];
   for (const b of batches) {
+    const y0 = b.y0 * inv;
     for (const it of b.items) {
-      all.push({ ...it, y: it.y + b.y0 });
+      all.push({ ...it, y: it.y + y0 });
     }
   }
-  const deduped = dedupeItems(all);
-  const merged = mergeFragments(deduped, options);
-  if (scale === 1) return merged;
-  return merged.map((it) => ({
-    ...it,
-    x: it.x / scale,
-    y: it.y / scale,
-    w: it.w / scale,
-    h: it.h / scale,
-  }));
+  return mergeFragments(dedupeItems(all), options);
 }
