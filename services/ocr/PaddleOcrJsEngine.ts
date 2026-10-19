@@ -34,6 +34,7 @@ import type {
   OcrDownloadKind,
 } from './types';
 import { planTiles, mergeTileResults } from './Tiling';
+import { ocrDebugLazy, ocrExpose } from './OcrDebug';
 import type { TileBand } from './Tiling';
 
 /** 百度 CDN 模型地址（官方包内置默认值，此处显式写出便于替换/自建） */
@@ -674,6 +675,19 @@ export class PaddleOcrJsEngine implements IOcrEngine {
 
     // 还原整图坐标 + 去重（重叠区会重复识别）+ 合并被拆开的文字碎片
     const items = mergeTileResults(rawBatches, scale);
+
+    // 调试：把原始块挂到 window.__WEIQI_OCR_ITEMS__，
+    // 便于在控制台查「某个字到底有没有被检到」（见 OcrDebug.ocrExpose）
+    ocrExpose(items);
+    ocrDebugLazy('engine.recognize', () => ({
+      backend: runtime?.detProvider ?? 'wasm',
+      scale,
+      片数: bands.length,
+      原图: `${Math.round(canvas.width / scale)}x${Math.round(canvas.height / scale)}`,
+      canvas: `${canvas.width}x${canvas.height}`,
+      块数: items.length,
+      inferMs,
+    }));
 
     imageW = Math.round(imageW / scale);
     imageH = Math.round(imageH / scale);

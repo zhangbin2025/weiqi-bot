@@ -11,6 +11,7 @@ import type { Match } from '../event/types';
 import type { OcrItem, TableGrid } from './types';
 import { buildTable, cellText } from './TableBuilder';
 import { assignColumnRoles, pickColumn, type ColumnAssignment } from './ColumnRoles';
+import { ocrDebugLazy } from './OcrDebug';
 
 /** 解析出的单轮对阵（与 PdfRoundResult 对齐） */
 export interface OcrRoundResult {
@@ -127,6 +128,15 @@ export function parseOcrResult(items: OcrItem[], defaultRound: number): OcrRound
   const matches: Match[] = [];
   const pdfScores: Record<string, number> = {};
 
+  ocrDebugLazy('parse.columns', () =>
+    ({
+      列角色: roles.map((r) => `col${r.col}:${r.role}/${r.side} fill=${(r.fill ?? 0).toFixed(2)}`),
+      选中: {
+        tableCol, leftNo, leftName, leftScore, rightNo, rightName, rightScore,
+      },
+    })
+  );
+
   for (let r = 0; r < grid.rowCount; r++) {
     const ln = leftName !== null ? cellText(grid, r, leftName).trim() : '';
     const rn = rightName !== null ? cellText(grid, r, rightName).trim() : '';
@@ -139,7 +149,10 @@ export function parseOcrResult(items: OcrItem[], defaultRound: number): OcrRound
 
     // 表头行：姓名列内容不像姓名，且没有编号/分数 → 跳过
     if (lNo === null && rNo === null && lScore === null && rScore === null) {
-      if (/台|号|姓名|单位|成绩|上轮|分|黑|白/.test(ln + rn)) continue;
+      if (/台|号|姓名|单位|成绩|上轮|分|黑|白/.test(ln + rn)) {
+        ocrDebugLazy('parse.skip.header', () => ({ row: r, ln, rn }));
+        continue;
+      }
     }
 
     // 页脚 / 表外文字不该产成对阵。
@@ -150,9 +163,21 @@ export function parseOcrResult(items: OcrItem[], defaultRound: number): OcrRound
 
     const tableNo = tableCol !== null ? toInt(cellText(grid, r, tableCol)) : null;
 
+    const table = tableNo ?? matches.length + 1;
+
+    ocrDebugLazy('parse.row', () => ({
+      row: r,
+      台号原文: tableCol !== null ? cellText(grid, r, tableCol) : null,
+      台号解析: tableNo,
+      最终台号: table,
+      台号为兜底: tableNo === null,
+      左: { id: lNo, name: ln, score: lScore },
+      右: { id: rNo, name: rn, score: rScore },
+    }));
+
     matches.push({
       bout: defaultRound,
-      table: tableNo ?? matches.length + 1,
+      table,
       p1Id: lNo ?? 0,
       p1Name: ln,
       p1Score: lScore ?? 0,
@@ -164,6 +189,28 @@ export function parseOcrResult(items: OcrItem[], defaultRound: number): OcrRound
     if (ln && lScore !== null) pdfScores[ln] = lScore;
     if (rn && rScore !== null) pdfScores[rn] = rScore;
   }
+
+  // 完整网格快照：排查「某行为何没被解析 / 某格为何是空」时最有用。
+  // 默认不打（上千块会淹掉控制台），仅在调试开启时惰性生成。
+  ocrDebugLazy('parse.grid', () => {
+    const lines: string[] = [];
+    for (let r = 0; r < grid.rowCount; r++) {
+      const cs = grid.cells
+        .filter((c) => c.row === r)
+        .sort((a, b) => a.col - b.col)
+        .map((c) => `c${c.col}=${JSON.stringify(c.text)}`);
+      lines.push(`row${r}(${cs.length}): ${cs.join(' ')}`);
+    }
+    return { rowCount: grid.rowCount, columnCount: grid.columnCount, rows: lines };
+  });
+
+  ocrDebugLazy('parse.result', () => ({
+    title: meta.title,
+    groupName: meta.groupName,
+    roundLabel: meta.roundLabel,
+    matches: matches.length,
+    warnings,
+  }));
 
   if (matches.length === 0) {
     warnings.push('未能从表格中解析出任何对阵');

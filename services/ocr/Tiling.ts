@@ -28,6 +28,7 @@
  */
 
 import type { OcrItem } from './types';
+import { ocrDebug, ocrDebugLazy, isOcrDebugEnabled } from './OcrDebug';
 
 /** 一片（tile）的纵向范围，坐标为**放大后 canvas 的像素** */
 export interface TileBand {
@@ -146,6 +147,21 @@ export function dedupeItems(items: OcrItem[], iouThreshold = 0.5): OcrItem[] {
       ? it.text.length > cur.text.length ||
         (it.text.length === cur.text.length && it.score > cur.score)
       : it.score > cur.score;
+
+    // 「某个字莫名消失」时首先看这里：两个块被判定为重复，其中一个被丢掉。
+    // 实测 '田源' 只剩 '田' 就属于此类 —— 重叠区把同一处识别成两次，
+    // 保留了置信度更高的短块，长的反而被顶掉。
+    ocrDebugLazy('dedupe.drop', () => ({
+      保留: cur.text,
+      丢弃: it.text,
+      保留更长: better,
+      判据: contained[dupIdx] ? '空间包含' : '同文本+IoU',
+      s保留: +cur.score.toFixed(3),
+      s丢弃: +it.score.toFixed(3),
+      y: Math.round(it.y),
+      x: `${Math.round(it.x)}-${Math.round(it.x + it.w)}`,
+    }));
+
     if (better) {
       kept[dupIdx] = it;
     }
@@ -188,6 +204,9 @@ export interface MergeOptions {
  * 只合并相邻的一对，不链式扩散，避免把整行粘成一团。
  */
 export function mergeFragments(items: OcrItem[], options: MergeOptions = {}): OcrItem[] {
+  const dbgOn = isOcrDebugEnabled();
+  // 记录「差一点就能合并」的样本：排查漏合并时看这个，比翻全部块快得多
+  const nearMiss: Array<{ a: string; b: string; reason: string }> = [];
   const maxDyRatio = options.maxDyRatio ?? 0.4;
   const minOverlap = options.minOverlap ?? -8;
   const maxFragRatio = options.maxFragRatio ?? 2.2;
@@ -211,26 +230,41 @@ export function mergeFragments(items: OcrItem[], options: MergeOptions = {}): Oc
       const hRef = Math.max(a.h, b.h);
       if (hRef <= 0) continue;
 
-      // ① 同一行
       const ca = center(a);
       const cb = center(b);
-      if (Math.abs(ca.cy - cb.cy) / hRef > maxDyRatio) continue;
+      const dyRatio = Math.abs(ca.cy - cb.cy) / hRef;
 
       // 保证 a 在左，便于算水平关系
       const left = a.x <= b.x ? a : b;
       const right = a.x <= b.x ? b : a;
+      const overlap = left.x + left.w - right.x;
+      const mergedRatio =
+        (Math.max(a.x + a.w, b.x + b.w) - Math.min(a.x, b.x)) / hRef;
+
+      // 「差一点就合并」：同一行且水平够近（间隙 ≤ 20px），但被某个条件否掉。
+      // 这类样本是「某字莫名消失」的第一嫌疑 —— 实测 '田源' 只剩 '田' 即属此类。
+      if (dbgOn && dyRatio <= maxDyRatio && overlap >= -20) {
+        let reason = '';
+        if (overlap < minOverlap)
+          reason = `②间隙过大(gap=${(-overlap).toFixed(0)}px>${-minOverlap})`;
+        else if (a.w / a.h > maxFragRatio || b.w / b.h > maxFragRatio)
+          reason = `③非短块(w/h=${(a.w / a.h).toFixed(2)}/${(b.w / b.h).toFixed(2)}>${maxFragRatio})`;
+        else if (mergedRatio > maxMergedRatio)
+          reason = `④合并后过宽(w/h=${mergedRatio.toFixed(2)}>${maxMergedRatio})`;
+        if (reason) nearMiss.push({ a: a.text, b: b.text, reason });
+      }
+
+      // ① 同一行
+      if (dyRatio > maxDyRatio) continue;
 
       // ② 水平重叠（负数间隙 = 重叠）
-      const overlap = left.x + left.w - right.x;
       if (overlap < minOverlap) continue;
 
       // ③ 两侧都是短碎片
       if (a.w / a.h > maxFragRatio || b.w / b.h > maxFragRatio) continue;
 
       // ④ 合并后不失真
-      const x0 = Math.min(a.x, b.x);
-      const x1 = Math.max(a.x + a.w, b.x + b.w);
-      if ((x1 - x0) / hRef > maxMergedRatio) continue;
+      if (mergedRatio > maxMergedRatio) continue;
 
       partner = j;
       break;
@@ -251,6 +285,13 @@ export function mergeFragments(items: OcrItem[], options: MergeOptions = {}): Oc
     const x1 = Math.max(a.x + a.w, b.x + b.w);
     const y1 = Math.max(a.y + a.h, b.y + b.h);
 
+    ocrDebugLazy('merge.done', () => ({
+      结果: left.text + right.text,
+      来自: `${a.text}+${b.text}`,
+      y: Math.round(y0),
+      x: `${Math.round(x0)}-${Math.round(x1)}`,
+    }));
+
     out.push({
       text: left.text + right.text,
       // 合并结果的可信度取较低者：任一侧认错，整体就不该被信任
@@ -259,6 +300,13 @@ export function mergeFragments(items: OcrItem[], options: MergeOptions = {}): Oc
       y: y0,
       w: x1 - x0,
       h: y1 - y0,
+    });
+  }
+
+  if (dbgOn) {
+    ocrDebug('merge.nearMiss', {
+      数量: nearMiss.length,
+      样本: nearMiss.slice(0, 60),
     });
   }
 
@@ -298,5 +346,22 @@ export function mergeTileResults(
       all.push({ ...it, y: it.y + y0 });
     }
   }
-  return mergeFragments(dedupeItems(all), options);
+
+  ocrDebugLazy('tiling.summary', () => ({
+    片数: batches.length,
+    scale,
+    每片块数: batches.map((b) => b.items.length),
+    y0原图: batches.map((b) => Math.round(b.y0 * inv)),
+    合计: all.length,
+  }));
+
+  const deduped = dedupeItems(all);
+  const merged = mergeFragments(deduped, options);
+
+  ocrDebugLazy('tiling.after', () => ({
+    去重: `${all.length} → ${deduped.length}`,
+    合并: `${deduped.length} → ${merged.length}`,
+  }));
+
+  return merged;
 }

@@ -11,6 +11,7 @@
  */
 
 import type { ColumnRange, OcrItem, TableCell, TableGrid } from './types';
+import { ocrDebug, ocrDebugLazy } from './OcrDebug';
 
 /** 行聚类选项 */
 export interface RowClusterOptions {
@@ -214,6 +215,19 @@ export function buildTable(items: OcrItem[], options: RowClusterOptions & { minG
       else byCol.set(col, [it]);
     }
     for (const [col, list] of byCol) {
+      ocrDebugLazy('buildTable.cell', () => {
+        if (list.length > 1) {
+          return {
+            row,
+            col,
+            拼接: list
+              .slice()
+              .sort((a, b) => a.x - b.x)
+              .map((it) => `${it.text}@x${Math.round(it.x)}-${Math.round(it.x + it.w)}`),
+          };
+        }
+        return null;
+      });
       // 按 x 排序拼接：顺带修正检测框左右颠倒（实测 '崇' 在 '王' 之前）
       list.sort((a, b) => a.x - b.x);
       const text = list
