@@ -12,6 +12,7 @@ import type { OcrItem, TableGrid } from './types';
 import { buildTable, cellText } from './TableBuilder';
 import { assignColumnRoles, pickColumn, type ColumnAssignment } from './ColumnRoles';
 import { ocrDebugLazy } from './OcrDebug';
+import { normalizeName } from './NameNormalize';
 
 /** 解析出的单轮对阵（与 PdfRoundResult 对齐） */
 export interface OcrRoundResult {
@@ -138,8 +139,10 @@ export function parseOcrResult(items: OcrItem[], defaultRound: number): OcrRound
   );
 
   for (let r = 0; r < grid.rowCount; r++) {
-    const ln = leftName !== null ? cellText(grid, r, leftName).trim() : '';
-    const rn = rightName !== null ? cellText(grid, r, rightName).trim() : '';
+    // 繁简归一化：OCR 会把简体字认成形近繁体（实测 '於富泷'/'黃泽楠'/'
+    // '呂克奇'/'王俊傑'，且都无对应简体块，是形近误判而非真繁体输入）
+    const ln = leftName !== null ? normalizeName(cellText(grid, r, leftName).trim()) : '';
+    const rn = rightName !== null ? normalizeName(cellText(grid, r, rightName).trim()) : '';
     if (!ln && !rn) continue;
 
     const lNo = leftNo !== null ? toInt(cellText(grid, r, leftNo)) : null;
