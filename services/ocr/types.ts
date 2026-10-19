@@ -90,6 +90,13 @@ export interface OcrRecognizeMeta {
   backend: OcrBackend;
   /** WebGPU 是否可用 */
   webgpuAvailable: boolean;
+  /**
+   * 当前是否为软件渲染（无真实 GPU）
+   *
+   * 为真时 WebGPU 是 CPU 模拟，实测比 WASM 慢 35 倍，故会强制走 WASM。
+   * UI 可据此提示用户「未检测到 GPU，使用 CPU 推理」。
+   */
+  softwareRenderer?: boolean;
   /** 检测模型 provider */
   detProvider: string;
   /** 识别模型 provider */

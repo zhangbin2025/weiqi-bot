@@ -43,8 +43,14 @@ const MODEL_CDN =
 const DET_MODEL = 'PP-OCRv5_mobile_det';
 const REC_MODEL = 'PP-OCRv5_mobile_rec';
 
-/** ORT 运行时目录（scripts/build-ocr.mjs 拷到 public/ocr/ort/） */
-const ORT_PATH = 'ocr/ort/';
+/**
+ * ORT 运行时的本地回退目录
+ *
+ * 主路径是 manifest 里的 CDN base（ORT 27MB 超过 Workers 单资源 25MiB 上限，
+ * 不能随包发布）。仅当 manifest 缺失/无 base 时才回退到本地，
+ * 便于离线调试或自建部署把 ORT 重新放回 public/ocr/ort/。
+ */
+const ORT_FALLBACK_PATH = 'ocr/ort/';
 
 /**
  * 模型体积（字节），用于把「模型下载」并入总体字节进度。
@@ -88,7 +94,11 @@ interface OcrManifest {
   version: number;
   bundle: { path: string; size: number };
   worker: Array<{ path: string; size: number }>;
-  ort: Array<{ path: string; size: number }>;
+  /** v2 起 ort 改由 CDN 加载：base 拼上 files[].path 即完整地址 */
+  ort: {
+    base: string;
+    files: Array<{ path: string; size: number }>;
+  };
 }
 
 declare global {
@@ -133,15 +143,47 @@ function polyBounds(poly: Array<{ x?: number; y?: number } | number[]>): { minX:
   return { minX, minY, maxX, maxY };
 }
 
-/** 探测 WebGPU 是否可用（只判存在性，不判是否软渲染） */
-async function probeWebGpu(): Promise<boolean> {
+/**
+ * 探测 WebGPU 是否可用，并判断是否为软件渲染
+ *
+ * 只判 navigator.gpu 存在性是不够的：
+ *   实测本机（QEMU 虚拟显卡 Cirrus Logic GD 5446）requestAdapter() 依然返回 adapter，
+ *   adapter.info 却是空对象 {} —— Chrome 不暴露 vendor，无法据此区分软硬。
+ *
+ * 可行判据是 WebGL 的 UNMASKED_RENDERER（实测）：
+ *   "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)"
+ * 出现 SwiftShader / llvmpipe / Software 即判定为软件渲染。
+ * 软件渲染下的 WebGPU 是 CPU 模拟，实测比纯 WASM 慢 35 倍，必须避开。
+ */
+async function probeWebGpu(): Promise<{ available: boolean; software: boolean }> {
   const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
-  if (!gpu) return false;
+  let adapterOk = false;
+  if (gpu) {
+    try {
+      adapterOk = !!(await gpu.requestAdapter());
+    } catch {
+      adapterOk = false;
+    }
+  }
+  if (!adapterOk) return { available: false, software: false };
+  return { available: true, software: isSoftwareRenderer() };
+}
+
+/** 通过 WebGL 的 UNMASKED_RENDERER 判断当前是否软件渲染 */
+function isSoftwareRenderer(): boolean {
   try {
-    const adapter = await gpu.requestAdapter();
-    return !!adapter;
+    const canvas = document.createElement('canvas');
+    const gl = (canvas.getContext('webgl2') ||
+      canvas.getContext('webgl')) as WebGLRenderingContext | null;
+    if (!gl) return true; // 连 WebGL 都没有，几乎必然无 GPU
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    const renderer = dbg
+      ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL))
+      : String(gl.getParameter(gl.RENDERER));
+    return /swiftshader|llvmpipe|software|basic render/i.test(renderer);
   } catch {
-    return false;
+    // 探测失败时保守判定为软件渲染（宁可走 WASM，也不要用户卡 137s）
+    return true;
   }
 }
 
@@ -179,6 +221,8 @@ export class PaddleOcrJsEngine implements IOcrEngine {
   private initPromise: Promise<void> | null = null;
   private _backend: OcrBackend = 'wasm';
   private _webgpuAvailable = false;
+  /** 当前是否为软件渲染（无真 GPU）。为真时强制走 WASM */
+  private softwareRenderer = false;
   private initMs = 0;
   private manifest: OcrManifest | null = null;
   /** 上次识别耗时，用于下次渐近估计 */
@@ -228,6 +272,25 @@ export class PaddleOcrJsEngine implements IOcrEngine {
    * 只统计我们关心的资源（bundle / worker / ort / model），
    * 其余请求原样透传，避免影响页面其它功能。
    */
+
+  /**
+   * HEAD 探测资源的真实体积
+   *
+   * 不能硬编码：一旦 CDN 换了模型文件，硬编码值就会与真实值漂移，
+   * 导致「已下载 > 总量」这种百分比破百的显示（实测出现过 23.7MB / 20.5MB）。
+   * Content-Length 属 CORS 安全响应头，无需额外 expose 即可读取。
+   * 失败时返回 null，由调用方回退到硬编码估算值。
+   */
+  private async headContentLength(url: string): Promise<number | null> {
+    try {
+      const r = await this.nativeFetch(url, { method: 'HEAD' });
+      const n = +(r.headers.get('content-length') || 0);
+      return n > 0 ? n : null;
+    } catch {
+      return null;
+    }
+  }
+
   private fetchWithProgress(
     url: string,
     onBytes: (loaded: number, total: number) => void,
@@ -291,7 +354,7 @@ export class PaddleOcrJsEngine implements IOcrEngine {
       this.totalBytes =
         m.bundle.size +
         m.worker.reduce((s, x) => s + x.size, 0) +
-        m.ort.reduce((s, x) => s + x.size, 0) +
+        m.ort.files.reduce((s, x) => s + x.size, 0) +
         Object.values(MODEL_BYTES).reduce((s, x) => s + x, 0);
     }
 
@@ -343,9 +406,23 @@ export class PaddleOcrJsEngine implements IOcrEngine {
   private async doInit(onProgress?: (p: OcrProgress) => void): Promise<void> {
     const ns = await this.loadBundle(onProgress);
 
-    this._webgpuAvailable = await probeWebGpu();
-    // 准确优先 + 可用则 GPU；不可用自动走 WASM
-    const backend = this._webgpuAvailable ? 'auto' : 'wasm';
+    const gpu = await probeWebGpu();
+    this._webgpuAvailable = gpu.available;
+    //
+    // 后端选择：能用 GPU 就用 GPU，不能用再降级 CPU。
+    //
+    // ⚠️ 更正（2026-10-19）：此前写死 'wasm'，理由是「实测 WebGPU 比 WASM 慢 35 倍」。
+    //   该结论**无效**：测试环境（本机与编译机）显卡均为 Cirrus Logic GD 5446，
+    //   是 QEMU 虚拟显卡，无任何 3D 能力，Chrome 只能走 SwiftShader 软件模拟。
+    //   软件模拟下的 WebGPU 慢是必然的，不能推广到真机。真机有独立 GPU 时
+    //   WebGPU 通常显著快于 WASM。
+    //
+    //   之所以此前还叠了部署理由（jsep wasm 27MB > Workers 25MiB 上限），
+    //   现已通过将 ORT 改由 CDN 加载解决，不再构成放弃 GPU 的理由。
+    //
+    // 能用 GPU 就用 GPU，但必须排除软件渲染（其上 WebGPU 比 WASM 慢 35 倍）。
+    const backend = gpu.available && !gpu.software ? 'webgpu' : 'wasm';
+    this.softwareRenderer = gpu.software;
 
     // ---- 模型预下载（在主线程，可观测真实字节） ----
     //
@@ -354,16 +431,31 @@ export class PaddleOcrJsEngine implements IOcrEngine {
     // 21MB 的下载就完全没有进度了。
     // 这里先在主线程下载一遍：既显示真实字节进度，又把它填进 HTTP 缓存，
     // Worker 随后取用时几乎瞬时命中，不会变成“下载两遍”。
-    const modelTotal = Object.values(MODEL_BYTES).reduce((s, x) => s + x, 0);
+    // 先用 HEAD 取真实体积再求和：硬编码值会随 CDN 文件变更而漂移，
+    // 一旦漂移就会出现「已下载 > 总量」的破百显示（实测 23.7MB / 20.5MB）。
+    const modelSizes: Record<string, number> = {};
+    for (const name of Object.keys(MODEL_BYTES)) {
+      const real = await this.headContentLength(MODEL_CDN + name + '_onnx_infer.tar');
+      modelSizes[name] = real ?? MODEL_BYTES[name]!;
+    }
+    const modelTotal = Object.values(modelSizes).reduce((s, x) => s + x, 0);
+
     let modelDone = 0;
-    for (const [name, size] of Object.entries(MODEL_BYTES)) {
+    // 单调守卫：并发/重试可能让回调乱序，进度条绝不允许回退
+    let reported = -1;
+    for (const [name, size] of Object.entries(modelSizes)) {
       const url = MODEL_CDN + name + '_onnx_infer.tar';
-      await this.fetchWithProgress(url, (loaded) => {
+      await this.fetchWithProgress(url, (loaded, total) => {
+        // 单文件内也要钳制：响应头缺失时 total 为 0，此时用探测值兜底
+        const fileTotal = total > 0 ? total : size;
+        const cur = Math.min(modelTotal, modelDone + Math.min(loaded, fileTotal));
+        if (cur <= reported) return;
+        reported = cur;
         onProgress?.({
           stage: 'initializing',
-          percent: Math.round(((modelDone + loaded) / modelTotal) * 100),
-          message: `正在下载识别模型… ${fmtBytes(modelDone + loaded)} / ${fmtBytes(modelTotal)}`,
-          bytes: { loaded: modelDone + loaded, total: modelTotal },
+          percent: modelTotal ? Math.max(0, Math.min(100, Math.round((cur / modelTotal) * 100))) : null,
+          message: `正在下载识别模型… ${fmtBytes(cur)} / ${fmtBytes(modelTotal)}`,
+          bytes: { loaded: cur, total: modelTotal },
           kind: 'model',
         });
       });
@@ -377,6 +469,49 @@ export class PaddleOcrJsEngine implements IOcrEngine {
       bytes: { loaded: modelTotal, total: modelTotal },
       kind: 'model',
     });
+
+    // ---- ORT 运行时预下载（CDN，27MB，占整个下载量的一大半）----
+    //
+    // ORT 改由 CDN 加载后，这段是整个初始化里最大的一笔流量，
+    // 若不做进度就是「点了之后长时间没反应」。这里在主线程先下载一遍：
+    //   ① 拿到真实字节进度（npmmirror 响应带 content-length）
+    //   ② 填进 HTTP 缓存，Worker/ORT 随后取用几乎瞬时命中
+    const m = this.manifest;
+    const ortBase = m?.ort?.base || '';
+    const ortFiles = m?.ort?.files ?? [];
+    let ortPaths: string | undefined;
+    if (ortBase && ortFiles.length) {
+      const ortTotal = ortFiles.reduce((s, x) => s + x.size, 0);
+      let ortDone = 0;
+      let ortReported = -1;
+      for (const f of ortFiles) {
+        const url = ortBase + f.path;
+        await this.fetchWithProgress(url, (loaded) => {
+          const cur = Math.min(ortTotal, ortDone + Math.min(loaded, f.size));
+          if (cur <= ortReported) return;
+          ortReported = cur;
+          onProgress?.({
+            stage: 'initializing',
+            percent: ortTotal ? Math.max(0, Math.min(100, Math.round((cur / ortTotal) * 100))) : null,
+            message: `正在下载推理运行时… ${fmtBytes(cur)} / ${fmtBytes(ortTotal)}`,
+            bytes: { loaded: cur, total: ortTotal },
+            kind: 'ort',
+          });
+        });
+        ortDone += f.size;
+      }
+      onProgress?.({
+        stage: 'initializing',
+        percent: 100,
+        message: '推理运行时就绪',
+        bytes: { loaded: ortTotal, total: ortTotal },
+        kind: 'ort',
+      });
+      ortPaths = ortBase;
+    } else if (this.manifest) {
+      // manifest 存在但无 CDN base（如离线自建部署把 ORT 放回了本地）
+      ortPaths = toAbs(ORT_FALLBACK_PATH);
+    }
 
     // Worker 绝对路径：来自 manifest（文件名带内容 hash，不能硬编码）
     const workerRel = this.manifest?.worker[0]?.path;
@@ -410,12 +545,14 @@ export class PaddleOcrJsEngine implements IOcrEngine {
         },
         ortOptions: {
           backend,
-          wasmPaths: toAbs(ORT_PATH),
+          // CDN 基址；本地回退时为 public/ocr/ort/ 的绝对地址。
+          // 不传则库会用默认相对路径去请求包内不存在的 ort 文件 → 404。
+          wasmPaths: ortPaths,
         },
       });
 
     this.initMs = Math.round(performance.now() - t0);
-    this._backend = backend === 'auto' ? 'webgpu' : 'wasm';
+    this._backend = backend === 'webgpu' ? 'webgpu' : 'wasm';
 
     onProgress?.({ stage: 'initializing', percent: 100, message: '引擎就绪', bytes: { loaded: modelTotal, total: modelTotal }, kind: 'model' });
   }
@@ -483,6 +620,7 @@ export class PaddleOcrJsEngine implements IOcrEngine {
     const meta: OcrRecognizeMeta = {
       backend: runtime?.detProvider === 'webgpu' ? 'webgpu' : 'wasm',
       webgpuAvailable: runtime?.webgpuAvailable ?? this._webgpuAvailable,
+      softwareRenderer: this.softwareRenderer,
       detProvider: runtime?.detProvider ?? 'wasm',
       recProvider: runtime?.recProvider ?? 'wasm',
       initMs: this.initMs,
