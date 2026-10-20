@@ -33,7 +33,7 @@ import type {
   OcrRecognizeMeta,
   OcrDownloadKind,
 } from './types';
-import { planTiles, mergeTileResults } from './Tiling';
+import { planTiles2D, mergeTileResults } from './Tiling';
 import { ocrDebugLazy, ocrExpose } from './OcrDebug';
 import type { TileBand } from './Tiling';
 
@@ -71,10 +71,14 @@ const DEFAULT_INFER_MS = 45000;
 /**
  * 分片识别参数
  *
- * 检测模型把长边缩到 960（resizeLong=960 / limitType="max"），
- * 长图整图喂进去会被压得不成样子（详见 Tiling.ts 顶部说明）。
- * TILE_HEIGHT 取 900 是为让「缩放后长边仍 ≤960」恒成立：
- *   单片 900 高、原图宽 771 → scale=1，完全不缩放。
+ * ⚠️ 关键认知（2026-10-20 实测修正，详见 Tiling.planTiles2D 的说明）：
+ *   检测模型压的是**长边**（resizeLong=960 / limitType="max"）。
+ *   canvas 宽 1542（原图 771 × scale 2）恒为长边，因此**只调 TILE_HEIGHT
+ *   对分辨率毫无影响** —— 900/1200/1542 三档实测 det 输入字形都是 14.3px。
+ *   真正决定分辨率的是「tile 长边 ≤ 960」，所以必须横向也切，
+ *   让 tile 变成 771×900（长边 900），det 不再缩放，字形从 14.3px 提到 23px。
+ *
+ * TILE_HEIGHT 取 900：与列宽 771 配合，保证长边 = 900 < 960。
  */
 const TILE_HEIGHT = 900;
 /** 相邻片重叠，防止把某一行文字切成上下两半（行高约 43px，留 60 足够） */
@@ -620,11 +624,12 @@ export class PaddleOcrJsEngine implements IOcrEngine {
 
     // 分片识别：长图整图喂给检测模型会被压垮（详见 Tiling.ts 顶部实测），
     // 且实测整图 127s 无进度反馈。分片后每段都能拿到真实进度。
+    // 二维分片：纵横都切。只切纵向对分辨率无效（见 TILE_HEIGHT 注释）。
     const bands = canvas.height > TILE_MIN_HEIGHT
-      ? planTiles(canvas.height, TILE_HEIGHT, TILE_OVERLAP)
+      ? planTiles2D(canvas.width, canvas.height, TILE_HEIGHT, TILE_OVERLAP)
       : [];
 
-    let rawBatches: Array<{ y0: number; items: OcrItem[] }>;
+    let rawBatches: Array<{ y0: number; x0?: number; items: OcrItem[] }>;
     let imageW = canvas.width;
     let imageH = canvas.height;
     let runtime: OcrRuntimeInfo | undefined;
@@ -661,7 +666,7 @@ export class PaddleOcrJsEngine implements IOcrEngine {
         const results = await rec.predict(tile);
         const r = results[0];
         if (r?.runtime) runtime = r.runtime;
-        rawBatches.push({ y0: band.y0, items: this.toItems(r?.items ?? [], scale) });
+        rawBatches.push({ y0: band.y0, x0: band.x0 ?? 0, items: this.toItems(r?.items ?? [], scale) });
         onProgress?.({
           stage: 'recognizing',
           percent: Math.round(((i + 1) / bands.length) * 100),
@@ -737,15 +742,18 @@ export class PaddleOcrJsEngine implements IOcrEngine {
   /** 裁出一片并转成 PNG blob */
   private async sliceCanvas(canvas: HTMLCanvasElement, band: TileBand): Promise<Blob> {
     const h = band.y1 - band.y0;
+    // 二维分片时 band 带 x0/x1；一维分片缺省取整幅宽度，行为与改动前一致
+    const sx = band.x0 ?? 0;
+    const sw = (band.x1 ?? canvas.width) - sx;
     const tile = document.createElement('canvas');
-    tile.width = canvas.width;
+    tile.width = Math.max(1, Math.round(sw));
     tile.height = Math.max(1, h);
     const ctx = tile.getContext('2d');
     if (!ctx) throw new Error('无法创建 canvas 2d 上下文');
     // 必须铺白底：PNG 透明区在缩放时会被填成黑，检测模型会把它当成文字
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, tile.width, tile.height);
-    ctx.drawImage(canvas, 0, band.y0, canvas.width, h, 0, 0, canvas.width, h);
+    ctx.drawImage(canvas, sx, band.y0, sw, h, 0, 0, sw, h);
     const blob = await new Promise<Blob | null>((resolve) => tile.toBlob(resolve, 'image/png'));
     if (!blob) throw new Error('分片图片转换失败');
     return blob;
