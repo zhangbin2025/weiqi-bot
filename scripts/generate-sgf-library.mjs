@@ -526,11 +526,20 @@ function scanSource(inputDir, sourceName, today) {
 // ─── 打包 ────────────────────────────────────────────────
 
 function writeArchive(outputDir, category, date, entries) {
-  entries.sort((a, b) => a.id.localeCompare(b.id));
+  // 顺序 = 入库顺序（老 → 新）。文件名加零填充序号前缀，使「文件名字典序 == 时间序」。
+  //
+  // 为什么不能按 id 排序：id 是 md5，字典序与入库时间无关且恒定，
+  // 于是运行时 lib://<cat>/<date>/<i> 的下标永远指到同一批老棋谱，
+  // 新加入的棋谱散列到中段/尾段，取「前 N 盘」永远取不到它们。
+  // 改成序号前缀后下标即时间序，「最近 N 盘」就是末尾 N 个下标。
+  const seqWidth = Math.max(4, String(entries.length).length);
   const tmp = join(tmpdir(), `sgflib-${category}-${date}-${Date.now()}`);
   mkdirSync(tmp, { recursive: true });
   try {
-    for (const e of entries) writeFileSync(join(tmp, `${e.id}.sgf`), e.sgf, 'utf-8');
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i];
+      writeFileSync(join(tmp, `${String(i).padStart(seqWidth, '0')}_${e.id}.sgf`), e.sgf, 'utf-8');
+    }
     const catDir = join(outputDir, category);
     mkdirSync(catDir, { recursive: true });
     const files = readdirSync(tmp).sort();
@@ -570,7 +579,7 @@ function extractPw(sgf) {
 
 /**
  * 写出轻量元数据索引 <category>/<date>.meta.json.gz
- * pw / ids 数组顺序必须与 tar 内 SGF 顺序一致（均按文件名/id localeCompare 排序），
+ * pw / ids 数组顺序必须与 tar 内 SGF 顺序一致（均为入库顺序，文件名带序号前缀），
  * 否则下标对不上号 → 列表显示错标签/id、筛选错题目。
  *
  * 题库写 pw（标签），棋谱写 ids（md5 文件名）—— 见文件头对两者取舍的说明。

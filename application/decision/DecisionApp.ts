@@ -209,7 +209,12 @@ export class DecisionApp {
     // 5. 保存到favorite
     onProgress?.(90, '正在保存结果...');
     const label = (date || new Date().toISOString().split('T')[0]) as string;
-    const favoriteKey = `${source || 'foxwq'}_${date || 'all'}`;
+    // 收藏键带时间戳：内置棋谱 / 野狐「同一天」可反复生成，若键恒定则 addFavorite
+    // 会 upsert 覆盖上一条历史，用户看不出这批是新的、也无法回溯旧批次。
+    // 野狐按日期生成的语义不变（同一天重复生成仍覆盖，属预期）。
+    const favoriteKey = source === 'lib'
+      ? `lib_${Date.now()}`
+      : `${source || 'foxwq'}_${date || 'all'}`;
     const favoriteData = {
       label,
       source: source || 'foxwq',

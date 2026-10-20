@@ -538,7 +538,11 @@ export class BuiltinLibraryArchiveProvider {
   /**
    * 适配 listPublicGames：返回伪 URL 列表，展开每个日期下的棋谱。
    *
-   * 按需取块：先读 meta 得到总数，再只下载覆盖 count 所需的块，避免为取 10 盘
+   * 取「最近 count 条」而非最早的：库内下标是时间序（老 → 新，打包时文件名带
+   * 零填充序号前缀，meta.ids / pw 同序），故末尾一段才是新入库的。若从 0 开始取，
+   * 每次重建拿到的都是同一批最早的老棋谱，新棋谱永远轮不到。
+   *
+   * 按需取块：先读 meta 得到总数，再只下载覆盖目标区间所需的块，避免为取 10 盘
    * 而解压整包（棋谱 2.8MB / 824ms、且其解压结果 18.9MB 会常驻内存）。
    */
   async listPublicGames(category: string, date?: string, count?: number): Promise<string[]> {
@@ -550,13 +554,16 @@ export class BuiltinLibraryArchiveProvider {
       if (!meta) throw new Error(`缺少元数据索引：${category}/${d}`);
       // 目标条数：不传 count 则取全部
       const want = count ? Math.min(count - urls.length, meta.count) : meta.count;
-      for (let i = 0; i < want; i++) {
+      // 末尾 want 条 = 最近入库的（下标为时间序）
+      const start = meta.count - want;
+      for (let i = start; i < meta.count; i++) {
         urls.push(`lib://${category}/${d}/${i}`);
       }
       if (want > 0) {
-        // 只下载覆盖 [0, want) 的块（预热缓存，后续 fetch 直接命中内存）
-        const lastPart = Math.floor((want - 1) / meta.chunkSize);
-        for (let p = 0; p <= lastPart; p++) {
+        // 只下载覆盖 [start, count) 的块（预热缓存，后续 fetch 直接命中内存）
+        const firstPart = Math.floor(start / meta.chunkSize);
+        const lastPart = Math.floor((meta.count - 1) / meta.chunkSize);
+        for (let p = firstPart; p <= lastPart; p++) {
           await this.fetchChunk(category, d, p);
         }
       }
