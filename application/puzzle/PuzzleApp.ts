@@ -123,6 +123,15 @@ export class PuzzleApp {
     return this.historyManager.getDetail(id);
   }
 
+  /**
+   * 统计「符合当前筛选条件且已做过」的题数（内置题库专用）
+   * @param keyword - 筛选表达式；空串/省略表示不筛选
+   * @description 委托 PuzzleHistoryManager，供做题页显示「已做 N / 共 M 题」。
+   */
+  async countDone(keyword?: string): Promise<number> {
+    return this.historyManager.countMatchingKeyword(keyword);
+  }
+
   /** 获取统计信息 */
   async getStats(): Promise<PuzzleStats> {
     return this.historyManager.getStats();

@@ -157,12 +157,15 @@ export class PuzzlePageUI {
 
   /**
    * 设置筛选关键字显示
-   * 布局：左侧筛选表达式（过长截断加 ...），右侧题目总数（右对齐，不收缩）
+   * 布局：左侧筛选表达式（过长截断加 ...），右侧「已做 / 总数」（右对齐，不收缩）
    * @param keyword - 当前生效的筛选表达式，空串表示不筛选
    * @param total - 按当前条件筛出的题目数；省略则不显示数量（尚未加载完题库）
    * @param capped - 数量是否已达单次加载上限（真实总数可能更多），为 true 时加 "+" 后缀
+   * @param done - 按同一条件筛出的「已做」题数；省略则只显示总数（不显示已做）
+   * @description 已做数按做题历史统计（同一题多次做只算一题），口径与列表筛选一致。
+   *              在线来源不传该值 —— 其题目无「类型·难度」标签，无法判定是否命中筛选。
    */
-  setKeyword(keyword: string, total?: number, capped = false): void {
+  setKeyword(keyword: string, total?: number, capped = false, done?: number): void {
     const kwEl = document.getElementById('filter-keyword');
     const countEl = document.getElementById('filter-count');
     if (kwEl) {
@@ -171,7 +174,14 @@ export class PuzzlePageUI {
       kwEl.title = keyword ? text : '';
     }
     if (countEl) {
-      countEl.textContent = total !== undefined ? (capped ? `共 ${total}+ 题` : `共 ${total} 题`) : '';
+      const suffix = capped ? '+' : '';
+      if (total !== undefined && done !== undefined) {
+        countEl.textContent = `已做 ${done} / 共 ${total}${suffix} 题`;
+      } else if (total !== undefined) {
+        countEl.textContent = `共 ${total}${suffix} 题`;
+      } else {
+        countEl.textContent = '';
+      }
       countEl.style.display = total !== undefined ? '' : 'none';
     }
   }

@@ -6,6 +6,7 @@
  */
 import type { IActivityLogService, ActivityEntry, ActivityStats } from '../../services/activity';
 import { analyzeStrength, type StrengthReport } from './PuzzleStrengthAnalyzer';
+import { splitPuzzleTags, evaluateFilter } from '../../services/game/providers/library/puzzleFilter';
 
 export type { StrengthReport, RankEstimate, TypeStrength } from './PuzzleStrengthAnalyzer';
 
@@ -79,6 +80,12 @@ export interface PuzzleResult {
 
 /** 活动日志中的做题类型标识 */
 export const PUZZLE_ACTIVITY_TYPE = 'puzzle';
+
+/** 内置题库做题记录的 URL 前缀（只有内置题库的题带「类型·难度」标签，参与筛选计数） */
+const LIB_LIFE_DEATH_PREFIX = 'lib://life-and-death/';
+
+/** 历史扫描上限：题库约 4.5 万题，取 10 万留足余量 */
+const HISTORY_SCAN_LIMIT = 100000;
 
 /**
  * 做题历史管理器
@@ -205,6 +212,43 @@ export class PuzzleHistoryManager {
       today: stats.today,
       avgDuration: entries.length > 0 ? Math.round(durationSum / entries.length) : 0,
     };
+  }
+
+  /**
+   * 统计「符合当前筛选条件且已做过」的题数（内置题库专用）
+   *
+   * 口径（必须与 listPuzzles 一致，否则「已做 20 / 共 600」的分子分母不同源）：
+   * - 只统计内置题库记录（url 以 lib://life-and-death/ 开头）；
+   *   在线来源的题没有「类型·难度」标签，无法参与题型/难度筛选。
+   * - 按 url 去重：同一题反复做只算一题（与历史列表的合并规则一致）。
+   * - 用题库同款 evaluateFilter 判定标签是否命中当前筛选表达式。
+   *
+   * @param keyword - 筛选表达式（如 "(官子 or 死活) and 2D"）；空串表示不筛选，
+   *                  此时返回「已做的内置题库题总数」
+   * @returns 去重后的已做题数；无历史服务时为 0
+   */
+  async countMatchingKeyword(keyword?: string): Promise<number> {
+    const kw = keyword?.trim() || '';
+    const entries = (await this.activityLogService?.query({
+      type: PUZZLE_ACTIVITY_TYPE,
+      limit: HISTORY_SCAN_LIMIT,
+    })) ?? [];
+    const seen = new Set<string>();
+    let count = 0;
+    for (const e of entries) {
+      const url = (e.data['url'] as string) ?? '';
+      // 非内置题库题：无标签，不参与筛选计数
+      if (!url.startsWith(LIB_LIFE_DEATH_PREFIX)) continue;
+      // 同一题多次做只计一次
+      if (seen.has(url)) continue;
+      seen.add(url);
+      if (!kw) { count++; continue; }
+      const tag = (e.data['tag'] as string) ?? '';
+      // 标签缺失（历史导入 / 老数据）无法判定命中，保守不计入
+      if (!tag) continue;
+      if (evaluateFilter(kw, splitPuzzleTags(tag))) count++;
+    }
+    return count;
   }
 
   /**

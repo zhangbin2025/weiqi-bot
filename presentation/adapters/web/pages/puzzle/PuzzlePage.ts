@@ -31,9 +31,10 @@ import { Select } from '@ui';
 /** 在线来源每批拉取的题目数（只取一页，避免换题时反复翻页） */
 const ONLINE_BATCH = 20;
 /**
- * 内置题库单次加载上限
- * 题库实为 1800 题，全量解析 PW 标签较慢，故截断；筛选题型时命中数通常远低于上限，
- * 计数精确；不筛选时达到上限，UI 以 "600+" 提示真实总数更多。
+ * 内置题库请求条数（实为「不限」）
+ * @description FetcherApp 对内置题库忽略该值、返回筛选后的全量（列表走 meta 索引，
+ *              很便宜），故 items.length 即真实总数、计数精确，不加 "+"。
+ *              保留该常量仅为对齐 listPuzzles 签名语义。
  */
 const LIB_BATCH = 600;
 
@@ -84,6 +85,17 @@ export class PuzzlePage implements IPage {
   private itemsKeyword = '';
   /** items 是否达到单次加载上限（决定题数是否显示 "+"） */
   private itemsCapped = false;
+  /**
+   * 当前筛选条件下的已做题数（由做题历史统计）
+   * undefined = 尚未算完或不适用（在线来源），此时 UI 只显示总数
+   */
+  private itemsDone: number | undefined = undefined;
+  /**
+   * 已做数统计的竞态守卫（自增序号）
+   * @description 连续切换筛选时，先发的异步统计可能后返回；
+   *              只认最后一次发起的那次结果，避免旧数字盖掉新数字。
+   */
+  private doneSeq = 0;
   /**
    * items 中每条在本轮已被出过的轮次号
    * 内置题库一轮内不重复出题；用尽后 cycle+1 重洗，允许再来一轮
@@ -238,6 +250,8 @@ export class PuzzlePage implements IPage {
       this.usedCycle = progress.usedCycle;
       this.cycle = progress.cycle;
       this.ui.setKeyword(this.itemsKeyword, this.items.length, this.itemsCapped);
+      // 缓存里没有已做数（sessionStore 不存），按恢复后的条件重算
+      this.refreshDoneCount();
     }
 
     // 单题模式：从历史/fetcher 跳入的那道题，返回后必须仍是它
@@ -274,6 +288,9 @@ export class PuzzlePage implements IPage {
       this.preferences.setSource(this.source);
       // 内置题库恢复其筛选关键词；其他来源不应用筛选（条件本身保留在偏好里）
       this.keyword = this.preferences.resolveKeyword();
+      // 换来源即作废上一次的已做数：它是按旧来源的条件算的
+      this.doneSeq++;
+      this.itemsDone = undefined;
       this.ui.setKeyword(this.keyword);
       this.applySourceUiState();
       void this.loadPuzzleList();
@@ -420,7 +437,10 @@ export class PuzzlePage implements IPage {
       this.items = await this.config.puzzleApp.listPuzzles(this.source, count, this.keyword || undefined);
       this.itemsSource = this.source;
       this.itemsKeyword = this.keyword;
-      this.itemsCapped = this.items.length >= count;
+      // 内置题库：FetcherApp 对 lib 来源忽略 count（见 FetcherApp 注释「内置题库返回全量」），
+      // items.length 就是筛选后的真实总数，永远是精确的，不该加 "+"。
+      // 只有在线来源（按 ONLINE_BATCH 真正截断）才可能出现「真实总数更多」。
+      this.itemsCapped = !isLib && this.items.length >= count;
       // 重置出题轮次：新一轮内每条只出一次
       this.cycle = 1;
       this.usedCycle = new Array(this.items.length).fill(0);
@@ -432,7 +452,10 @@ export class PuzzlePage implements IPage {
       this.saveProgress();
       this.ui.setLoading(false);
       // 回填筛选出的题目总数；达到单次加载上限时加 "+"（真实总数可能更多）
+      // 已做数先置 undefined 立即出总数，异步算完再补（见 refreshDoneCount）
+      this.itemsDone = undefined;
       this.ui.setKeyword(this.keyword, this.items.length, this.itemsCapped);
+      this.refreshDoneCount();
       if (this.items.length === 0) {
         // 筛不出题：必须把上一道题彻底清掉（状态 + 棋盘）。
         // 只显示空态而留着旧局面，用户会以为筛选没生效。
@@ -448,6 +471,34 @@ export class PuzzlePage implements IPage {
       this.clearPuzzleState();
       this.ui.showEmpty('加载失败', e instanceof Error ? e.message : String(e));
     }
+  }
+
+  /**
+   * 统计并回填「已做」题数（仅内置题库）
+   *
+   * 异步执行：做题历史可能上千条，同步算会卡住列表渲染。
+   * 完成后只在「来源/筛选条件未变」时回填，否则丢弃结果（用户已切走）。
+   *
+   * 在线来源不统计：其题目没有「类型·难度」标签，无法判断是否命中当前筛选，
+   * 硬算只会得出一个与总数不同源的数字。
+   */
+  private refreshDoneCount(): void {
+    if (this.source !== 'lib-life-death') { this.itemsDone = undefined; return; }
+    const source = this.source;
+    const keyword = this.keyword;
+    const seq = ++this.doneSeq;
+    void this.config.puzzleApp.countDone(keyword || undefined)
+      .then((done) => {
+        // 条件已变更（又切了筛选/来源）：结果作废
+        if (seq !== this.doneSeq) return;
+        if (this.source !== source || this.keyword !== keyword) return;
+        this.itemsDone = done;
+        this.ui.setKeyword(this.itemsKeyword, this.items.length, this.itemsCapped, done);
+      })
+      .catch((e) => {
+        // 统计失败不影响做题：保持只显示总数
+        console.warn('[PuzzlePage] 统计已做题数失败', e);
+      });
   }
 
   /** Fisher-Yates 原地随机打乱题目顺序 */
@@ -568,7 +619,7 @@ export class PuzzlePage implements IPage {
       this.currentIndex = -1;
     } else if (this.items.length > 0) {
       // 缓存仍匹配：补回被单题模式清掉的题数
-      this.ui.setKeyword(this.keyword, this.items.length, this.itemsCapped);
+      this.ui.setKeyword(this.keyword, this.items.length, this.itemsCapped, this.itemsDone);
     }
     this.applySourceUiState();
   }
@@ -841,7 +892,11 @@ export class PuzzlePage implements IPage {
       duration,
       boardSize: this.currentBoardSize,
       initialStones: this.initialStones,
-    }).then(() => this.historyPanel.loadHistory());
+    }).then(() => {
+      void this.historyPanel.loadHistory();
+      // 新做了一题：已做数可能 +1（若本题命中当前筛选）
+      this.refreshDoneCount();
+    });
     this.ui.showSolvedModal(duration);
   }
 
@@ -865,7 +920,10 @@ export class PuzzlePage implements IPage {
       duration: startedAt > 0 ? Date.now() - startedAt : 0,
       boardSize: this.currentBoardSize,
       initialStones: this.initialStones,
-    }).then(() => this.historyPanel.loadHistory());
+    }).then(() => {
+      void this.historyPanel.loadHistory();
+      this.refreshDoneCount();
+    });
   }
 
   /** 采集棋盘上的初始摆子（用于历史缩略图） */

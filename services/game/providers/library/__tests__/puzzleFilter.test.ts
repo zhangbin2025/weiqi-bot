@@ -9,6 +9,8 @@ import {
   buildPuzzleKeyword,
   normalizeDifficulties,
   normalizePuzzleFilterState,
+  splitPuzzleTags,
+  evaluateFilter,
 } from '../puzzleFilter';
 
 describe('puzzleFilter', () => {
@@ -101,5 +103,88 @@ describe('puzzleFilter', () => {
     expect(normalizePuzzleFilterState(null)).toEqual({ types: [], difficulties: [] });
     expect(normalizePuzzleFilterState('bad')).toEqual({ types: [], difficulties: [] });
     expect(normalizePuzzleFilterState({ types: '死活' })).toEqual({ types: [], difficulties: [] });
+  });
+});
+
+describe('splitPuzzleTags', () => {
+  it('拆分「类型·难度」', () => {
+    expect(splitPuzzleTags('死活题·5D')).toEqual({ type: '死活题', difficulty: '5D', raw: '死活题·5D' });
+  });
+
+  it('无难度分隔符时整串作为类型', () => {
+    expect(splitPuzzleTags('死活题')).toEqual({ type: '死活题', difficulty: '', raw: '死活题' });
+  });
+
+  it('空串回落全空结构', () => {
+    expect(splitPuzzleTags('')).toEqual({ type: '', difficulty: '', raw: '' });
+  });
+});
+
+describe('evaluateFilter', () => {
+  const tags = (raw: string) => splitPuzzleTags(raw);
+
+  it('空表达式始终匹配', () => {
+    expect(evaluateFilter('', tags('死活题·5D'))).toBe(true);
+  });
+
+  it('单类型原子子串匹配（大小写不敏感）', () => {
+    expect(evaluateFilter('死活', tags('死活题·5D'))).toBe(true);
+    expect(evaluateFilter('官子', tags('死活题·5D'))).toBe(false);
+  });
+
+  it('or 组合', () => {
+    expect(evaluateFilter('(官子 or 死活)', tags('死活题·5D'))).toBe(true);
+    expect(evaluateFilter('(官子 or 中盘)', tags('死活题·5D'))).toBe(false);
+  });
+
+  it('and 组合（类型 + 难度）', () => {
+    expect(evaluateFilter('死活 and 5D', tags('死活题·5D'))).toBe(true);
+    expect(evaluateFilter('死活 and 2D', tags('死活题·5D'))).toBe(false);
+  });
+
+  it('完整表达式（与 buildPuzzleKeyword 输出对齐）', () => {
+    const kw = buildPuzzleKeyword(['官子', '死活'], ['2D']);
+    expect(kw).toBe('(官子 or 死活) and 2D');
+    expect(evaluateFilter(kw, tags('死活题·2D'))).toBe(true);
+    expect(evaluateFilter(kw, tags('死活题·5D'))).toBe(false);
+    expect(evaluateFilter(kw, tags('官子题·2D'))).toBe(true);
+    expect(evaluateFilter(kw, tags('中盘题·2D'))).toBe(false);
+  });
+
+  it('难度按确切数字匹配（5K 不误命中 15K）', () => {
+    expect(evaluateFilter('5K', tags('死活题·15K'))).toBe(false);
+    expect(evaluateFilter('5K', tags('死活题·5K'))).toBe(true);
+    expect(evaluateFilter('15K', tags('死活题·15K'))).toBe(true);
+  });
+
+  it('不带 + 的原子匹配同数字同级（2D 命中 2D+）', () => {
+    expect(evaluateFilter('2D', tags('官子题·2D+'))).toBe(true);
+    expect(evaluateFilter('2D', tags('官子题·2D'))).toBe(true);
+  });
+
+  it('带 + 的原子只匹配带 + 的同级', () => {
+    expect(evaluateFilter('2D+', tags('官子题·2D+'))).toBe(true);
+    expect(evaluateFilter('2D+', tags('官子题·2D'))).toBe(false);
+  });
+
+  it('难度级别区分 K / D', () => {
+    expect(evaluateFilter('2D', tags('死活题·2K'))).toBe(false);
+    expect(evaluateFilter('2K', tags('死活题·2D'))).toBe(false);
+  });
+
+  it('无难度标签时难度原子不匹配（而非误命中）', () => {
+    expect(evaluateFilter('2D', tags('死活题'))).toBe(false);
+    expect(evaluateFilter('死活', tags('死活题'))).toBe(true);
+  });
+
+  it('括号嵌套表达式', () => {
+    expect(evaluateFilter('(死活 or 官子) and (2D or 3D)', tags('官子题·3D'))).toBe(true);
+    expect(evaluateFilter('(死活 or 官子) and (2D or 3D)', tags('官子题·4D'))).toBe(false);
+    expect(evaluateFilter('(死活 or 官子) and (2D or 3D)', tags('中盘题·3D'))).toBe(false);
+  });
+
+  it('连续原子默认视为 and', () => {
+    expect(evaluateFilter('死活 5D', tags('死活题·5D'))).toBe(true);
+    expect(evaluateFilter('死活 2D', tags('死活题·5D'))).toBe(false);
   });
 });
