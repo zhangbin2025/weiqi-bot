@@ -76,7 +76,7 @@ export class FetcherPage implements IPage {
       onJosekiLatest: (url) => this.latestByAction(url, 'joseki'),
       onLiveLatest: (url) => this.latestByAction(url, 'live'),
       onDownloadLatest: (url) => this.latestByAction(url, 'download'),
-      onShareLatest: (url) => this.latestByAction(url, 'share'),
+      onShareLatest: (url) => this.shareLatest(url),
       onViewUrl: (url) => this.viewUrl(url),
       onPuzzleBookmark: (id) => this.puzzleBookmark(id),
       onReviewBookmark: (id) => this.reviewBookmark(id),
@@ -334,7 +334,7 @@ export class FetcherPage implements IPage {
           const primary = kind?.primary ?? 'view';
           const primaryLink = this.buildNotifyLink(primary, result);
           const labelMap: Record<string, string> = {
-            view: '打谱', share: '分享', live: '直播', puzzle: '做题',
+            view: '打谱', share: '分享链接', live: '直播', puzzle: '做题',
             review: '复盘', decision: '实战选点', joseki: '发现定式', download: '下载',
           };
           const primaryLabel = labelMap[primary] ?? '打谱';
@@ -622,6 +622,19 @@ export class FetcherPage implements IPage {
     }
   }
   /**
+   * 最新列表项：分享链接
+   * @description 分享的对象是链接本身，列表项自带 url，不需要先抓取棋谱。
+   */
+  private async shareLatest(url: string): Promise<void> {
+    const link = this.filterSrcUrl(url);
+    if (!link) {
+      this.toast.show('该条目没有可分享的链接');
+      return;
+    }
+    await this.renderer.showQRCodeDialog({ success: true, shareUrl: link });
+  }
+
+  /**
    * 最新列表项按动作处理：先抓取（拿到 archiveId），再执行对应动作
    * @description 与结果卡片共用一套动作语义，区别只是入口没有现成的 archiveId。
    */
@@ -664,11 +677,6 @@ export class FetcherPage implements IPage {
         case 'download': {
           const name = this.formatter.generateGameName(result);
           await this.fetcherApp.downloadSGF(result.archiveId, name);
-          break;
-        }
-        case 'share': {
-          const shareResult = await this.fetcherApp.generateShareUrl(result.archiveId);
-          if (shareResult.success) await this.renderer.showQRCodeDialog(shareResult);
           break;
         }
         default:
@@ -899,7 +907,8 @@ export class FetcherPage implements IPage {
     const e = this.bookmarkEntry(id);
     if (!e?.archiveId) return;
     try {
-      const shareResult = await this.fetcherApp.generateShareUrl(e.archiveId);
+      // 传已知来源 url：分享的是这条链接本身（含内置库 lib://），不再编码 SGF
+      const shareResult = await this.fetcherApp.generateShareUrl(e.archiveId, this.filterSrcUrl(e.url));
       if (shareResult.success) await this.renderer.showQRCodeDialog(shareResult);
       else console.warn(shareResult.error || '分享链接生成失败');
     } catch (error) {
@@ -925,9 +934,12 @@ export class FetcherPage implements IPage {
   }
 
   private async generateShareUrl(): Promise<void> {
-    if (!this.currentResult?.archiveId) return;
+    const r = this.currentResult;
+    const archiveId = r?.archiveId;
+    if (!r || !archiveId) return;
     try {
-      const shareResult = await this.fetcherApp.generateShareUrl(this.currentResult.archiveId);
+      // 传已知来源 url：分享的是这条链接本身（含内置库 lib://），不再编码 SGF
+      const shareResult = await this.fetcherApp.generateShareUrl(archiveId, this.filterSrcUrl(r.url));
       if (shareResult.success) await this.renderer.showQRCodeDialog(shareResult);
       else console.warn(shareResult.error || '分享链接生成失败');
     } catch (error) {

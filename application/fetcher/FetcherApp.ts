@@ -65,7 +65,41 @@ export class FetcherApp {
     if (!sgf) return { success: false, error: '棋谱内容未找到' };
     return this.exportService.exportSGF(sgf, gameName);
   }
-  async generateShareUrl(archiveId: string): Promise<ShareResult> {
+  /**
+   * 生成分享链接
+   * @description 分享的对象是「链接」，不是棋谱内容：
+   *   1. 来源 URL 是 http(s)（野狐 / OGS / 101 等在线来源）→ 直接分享该链接
+   *   2. 来源 URL 是内置棋谱库 lib://... → 同样直接分享（内置库链接即分享对象）
+   *   3. 其余（archive: 本地导入、归档无 URL）→ 才用 SGF 内容编码成分享链接兜底
+   * @param archiveId 归档 ID
+   * @param sourceUrl 已知的来源 URL（可选；传入可省一次归档索引查询）
+   */
+  async generateShareUrl(archiveId: string, sourceUrl?: string): Promise<ShareResult> {
+    const url = sourceUrl ?? (await this.getArchiveUrl(archiveId));
+    // 1 & 2. 在线来源链接与内置棋谱库链接都直接分享
+    if (url && /^(https?:\/\/|lib:\/\/)/i.test(url)) {
+      return { success: true, shareUrl: url };
+    }
+    // 3. 没有可分享的链接时，才退回到 SGF 内容编码
+    return this.buildShareUrlFromSgf(archiveId);
+  }
+
+  /** 取归档记录的来源 URL（不存在返回 null） */
+  private async getArchiveUrl(archiveId: string): Promise<string | null> {
+    if (typeof this.gameService.getArchiveIndex !== 'function') return null;
+    try {
+      const index = await this.gameService.getArchiveIndex(archiveId);
+      if (!index) return null;
+      const meta = index.metadata as Record<string, unknown> | undefined;
+      const url = meta?.['url'];
+      return typeof url === 'string' && url ? url : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** 用归档的 SGF 内容编码成分享链接（无可分享链接时的兜底） */
+  private async buildShareUrlFromSgf(archiveId: string): Promise<ShareResult> {
     if (!this.shareService) return { success: false, error: '分享服务未配置' };
     const sgf = await this.gameService.getByArchiveId(archiveId);
     if (!sgf) return { success: false, error: '棋谱内容未找到' };

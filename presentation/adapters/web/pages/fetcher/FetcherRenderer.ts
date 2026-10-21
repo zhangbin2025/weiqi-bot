@@ -193,7 +193,7 @@ export class FetcherRenderer {
       row.appendChild(this.filterIconBtn);
     }
     this.overlay = new WebOverlay();
-    this.qrDialog = new WebQRCodeDialog({ title: '扫码下载棋谱', hint: '截图或长按二维码识别后即可下载SGF文件' });
+    this.qrDialog = new WebQRCodeDialog({ title: '扫码打开链接', hint: '截图或长按二维码识别，扫码后打开该棋谱链接' });
   }
   initialize(): void {
     this.tabs.setConfig({

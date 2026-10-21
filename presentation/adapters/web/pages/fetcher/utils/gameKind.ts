@@ -23,7 +23,7 @@ export type GameKind = 'puzzle' | 'live' | 'ai-review' | 'plain';
 export type GameAction =
   | 'download'   // 下载 SGF
   | 'view'       // 打谱
-  | 'share'      // 分享二维码
+  | 'share'      // 分享链接（二维码内容是链接，不是 SGF）
   | 'live'       // 直播
   | 'puzzle'     // 做题
   | 'review'     // 复盘（本地模型）
@@ -172,7 +172,7 @@ export function classifyGame(input: ClassifyInput): GameClassification {
 const ACTION_META: Record<GameAction, { icon: string; label: string; emphasize?: boolean }> = {
   download: { icon: '📥', label: '下载' },
   view: { icon: '👁️', label: '查看' },
-  share: { icon: '📱', label: '分享' },
+  share: { icon: '🔗', label: '分享链接' },
   live: { icon: '🔴', label: '直播', emphasize: true },
   puzzle: { icon: '🧩', label: '做题', emphasize: true },
   review: { icon: '🔍', label: '复盘' },
