@@ -5,7 +5,9 @@
 import type { IMessageRenderer } from '../../../../../application/assistant/IMessageRenderer';
 import { typewriterEffectHTML } from '../../../../../clients/web/assistant/typewriter';
 import { INTENT_CONFIG } from '../../../../../domain/intent/intent-config';
-import { isLibUrl, describeLibUrl } from '../../../../../domain/intent/libUrl';
+import {
+  isLibUrl, describeLibUrl, isKatagoUrl, describeKatagoUrl,
+} from '../../../../../domain/intent/libUrl';
 /**
  * 消息渲染器
  * 实现 IMessageRenderer 接口，渲染消息到 UI
@@ -136,8 +138,8 @@ export class AssistantRenderer implements IMessageRenderer {
     
     links.forEach(link => {
       const href = link.getAttribute('href') || '';
-      // 支持在线链接（http/https）与内置棋谱库链接（lib://）
-      if (!href || !(href.startsWith('http') || href.startsWith('lib://'))) return;
+      // 支持在线链接（http/https）与内置棋谱库链接（lib:// / katago://）
+      if (!href || !(href.startsWith('http') || href.startsWith('lib://') || href.startsWith('katago://'))) return;
       
       // 跳过已有特殊处理的链接（taskId、schedule 等）
       if (href.startsWith('javascript:') || href.startsWith('schedule-')) return;
@@ -271,8 +273,8 @@ export class AssistantRenderer implements IMessageRenderer {
       return;
     }
     
-    // 2. 检测是否包含 URL（在线 http/https + 内置棋谱库 lib://）
-    const urlPattern = /(?:https?|lib):\/\/[^\s]+/g;
+    // 2. 检测是否包含 URL（在线 http/https + 内置棋谱库 lib:// / katago://）
+    const urlPattern = /(?:https?|lib|katago):\/\/[^\s]+/g;
     const urls = text.match(urlPattern);
     
     if (urls && urls.length > 0) {
@@ -296,11 +298,16 @@ export class AssistantRenderer implements IMessageRenderer {
         if (part.type === 'url') {
           const card = document.createElement('div');
           card.className = 'url-card';
-          // lib:// 是内置棋谱库协议，不是可跳转的外链：只展示描述 + 复制
+          // lib:// / katago:// 是内置棋谱库协议，不是可跳转的外链：只展示描述 + 复制
           if (isLibUrl(part.value)) {
             card.innerHTML = `
               <div class="url-card-header"><span class="url-label">📚 内置棋谱</span><button class="copy-btn" data-copy="${this.escapeHtml(part.value)}">复制</button></div>
               <div class="url-card-body"><span>${this.escapeHtml(describeLibUrl(part.value))}</span></div>
+            `;
+          } else if (isKatagoUrl(part.value)) {
+            card.innerHTML = `
+              <div class="url-card-header"><span class="url-label">🧠 KataGo 棋谱</span><button class="copy-btn" data-copy="${this.escapeHtml(part.value)}">复制</button></div>
+              <div class="url-card-body"><span>${this.escapeHtml(describeKatagoUrl(part.value))}</span></div>
             `;
           } else {
             card.innerHTML = `
@@ -736,8 +743,8 @@ export class AssistantRenderer implements IMessageRenderer {
     // 检查是否是URL
     if (this.isUrl(value)) {
       const displayText = this.shortenUrl(value);
-      // lib:// 是内置棋谱库协议，不是可跳转的外链，只做文字展示
-      if (isLibUrl(value)) {
+      // lib:// / katago:// 是内置棋谱库协议，不是可跳转的外链，只做文字展示
+      if (isLibUrl(value) || isKatagoUrl(value)) {
         return `<span style="color: #667eea;">${displayText}</span>`;
       }
       return `<a href="${value}" target="_blank" style="color: #667eea; text-decoration: none;">${displayText}</a>`;
@@ -751,10 +758,10 @@ export class AssistantRenderer implements IMessageRenderer {
     return value;
   }
   /**
-   * 检查是否是URL（在线链接 + 内置棋谱库 lib://）
+   * 检查是否是URL（在线链接 + 内置棋谱库 lib:// / katago://）
    */
   private isUrl(text: string): boolean {
-    return text.startsWith('http://') || text.startsWith('https://') || text.startsWith('lib://');
+    return text.startsWith('http://') || text.startsWith('https://') || text.startsWith('lib://') || text.startsWith('katago://');
   }
   /**
    * 缩短URL显示
@@ -763,6 +770,10 @@ export class AssistantRenderer implements IMessageRenderer {
     // 内置棋谱库链接：用可读描述代替裸 URL
     if (isLibUrl(url)) {
       return describeLibUrl(url);
+    }
+    // KataGo 归档链接：同样用可读描述代替裸 URL
+    if (isKatagoUrl(url)) {
+      return describeKatagoUrl(url);
     }
     try {
       const urlObj = new URL(url);
