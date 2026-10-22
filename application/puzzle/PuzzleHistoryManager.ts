@@ -252,6 +252,33 @@ export class PuzzleHistoryManager {
   }
 
   /**
+   * 获取「已做过的内置题库题目」的 URL 集合
+   *
+   * 供出题排序使用：未做过的题优先出，做过的题靠后排。
+   * 判定口径：只要历史里有记录就算已做（不论对错）—— 错题也该让位给新题。
+   *
+   * @description 只认内置题库 URL（lib://life-and-death/）：
+   *              在线题的 URL 不在此集合内，与 countMatchingKeyword 同源同口径。
+   *              去重由 Set 天然保证（历史里同一题已合并为一条，多写也无妨）。
+   *
+   * @returns 已做题 URL 集合；无历史服务时为空集合
+   */
+  async getDoneUrls(): Promise<Set<string>> {
+    const entries = (await this.activityLogService?.query({
+      type: PUZZLE_ACTIVITY_TYPE,
+      limit: HISTORY_SCAN_LIMIT,
+    })) ?? [];
+    const done = new Set<string>();
+    for (const e of entries) {
+      const url = (e.data['url'] as string) ?? '';
+      // 非内置题库题：在线来源没有稳定的题目 ID，不参与「未做优先」排序
+      if (!url.startsWith(LIB_LIFE_DEATH_PREFIX)) continue;
+      done.add(url);
+    }
+    return done;
+  }
+
+  /**
    * 获取完整统计报告（常规统计 + 棋力评估）
    * @description 基于全部历史（同一题目已合并为一条记录）分析，不做时间范围过滤。
    */

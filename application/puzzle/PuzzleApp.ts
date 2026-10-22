@@ -132,6 +132,15 @@ export class PuzzleApp {
     return this.historyManager.countMatchingKeyword(keyword);
   }
 
+  /**
+   * 获取已做过的内置题库题目 URL 集合（内置题库专用）
+   * @description 委托 PuzzleHistoryManager，供出题排序做「未做优先」分层。
+   *              不论对错，只要做过即在集合内。
+   */
+  async getDoneUrls(): Promise<Set<string>> {
+    return this.historyManager.getDoneUrls();
+  }
+
   /** 获取统计信息 */
   async getStats(): Promise<PuzzleStats> {
     return this.historyManager.getStats();

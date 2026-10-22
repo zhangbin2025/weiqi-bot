@@ -41,6 +41,17 @@ const LIB_BATCH = 600;
 /** 选点字母标签（按棋盘扫描序分配 A/B/C/D…） */
 const CHOICE_LABELS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
+/**
+ * Fisher-Yates 原地随机打乱
+ * @description 抽成模块级函数供「未做/已做」两组各自洗牌复用。
+ */
+function shuffleInPlace<T>(arr: T[]): void {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j]!, arr[i]!];
+  }
+}
+
 /** 页面配置 */
 export interface PuzzlePageConfig {
   puzzleApp: PuzzleApp;
@@ -102,6 +113,12 @@ export class PuzzlePage implements IPage {
    */
   private usedCycle: number[] = [];
   private cycle = 0;
+  /**
+   * 已做过的内置题库题目 URL（用于「未做优先」分层）
+   * @description 不论对错，只要历史里有记录就算已做（错题也让位给新题）。
+   *              仅在内置题库路径填充；在线来源恒为空集合，出题逻辑不受影响。
+   */
+  private doneUrls: Set<string> = new Set();
   /** 在线来源续拉取锁，避免批次用尽时反复续拉 */
   private refilling = false;
   /** 当前来源/筛选关键字 */
@@ -252,6 +269,10 @@ export class PuzzlePage implements IPage {
       this.ui.setKeyword(this.itemsKeyword, this.items.length, this.itemsCapped);
       // 缓存里没有已做数（sessionStore 不存），按恢复后的条件重算
       this.refreshDoneCount();
+      // 补回已做题集合：这里是新页面实例，首次拉列表时填的那份已随内存清零。
+      // 只填集合、不重排 items —— 缓存里的顺序与 currentIndex 是配套的，
+      // 一重排下标就错位，用户会回到另一道题。分层留到本轮出完重洗时生效。
+      if (this.source === 'lib-life-death') await this.loadDoneUrls();
     }
 
     // 单题模式：从历史/fetcher 跳入的那道题，返回后必须仍是它
@@ -445,8 +466,13 @@ export class PuzzlePage implements IPage {
       this.cycle = 1;
       this.usedCycle = new Array(this.items.length).fill(0);
       this.currentIndex = -1;
-      // 内置题库随机出题
-      if (isLib) this.shuffleItems();
+      // 内置题库随机出题：未做题排在前、已做题排在后（见 shuffleItems）
+      if (isLib) {
+        await this.loadDoneUrls();
+        this.shuffleItems();
+      } else {
+        this.doneUrls = new Set();
+      }
       // 打乱之后再存：缓存里的顺序必须与内存一致，
       // 否则恢复时 currentIndex 指向的是未打乱数组的下标 → 回到另一道题
       this.saveProgress();
@@ -470,6 +496,21 @@ export class PuzzlePage implements IPage {
       console.error('[PuzzlePage] 加载题库失败', e);
       this.clearPuzzleState();
       this.ui.showEmpty('加载失败', e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  /**
+   * 拉取已做题 URL 集合（内置题库「未做优先」分层用）
+   *
+   * @description 失败时降级为空集合而非抛错：拿不到历史就退化成纯随机出题，
+   *              不该因此让整个题库加载失败（做题历史只是排序依据，不是题目本身）。
+   */
+  private async loadDoneUrls(): Promise<void> {
+    try {
+      this.doneUrls = await this.config.puzzleApp.getDoneUrls();
+    } catch (e) {
+      console.warn('[PuzzlePage] 读取已做题列表失败，退化为随机出题', e);
+      this.doneUrls = new Set();
     }
   }
 
@@ -501,12 +542,34 @@ export class PuzzlePage implements IPage {
       });
   }
 
-  /** Fisher-Yates 原地随机打乱题目顺序 */
+  /**
+   * 随机打乱题目顺序（未做优先）
+   *
+   * 分层洗牌：先按 doneUrls 把题目分成「未做」「已做」两组，各自 Fisher-Yates 洗牌，
+   * 再拼成 [未做... | 已做...]。配合 nextPuzzle 的线性扫描，效果是：
+   * 本轮先把所有没做过的题出完（组内仍随机），之后才轮到做过的题。
+   *
+   * 为什么必须分层而不是纯随机：筛选条件较窄时（如「死活 and 7D」可能只有 20 题），
+   * 纯随机会反复撞到做过的题，没做过的题要碰运气才刷得到；
+   * 哪怕一轮内不重复，一轮出完重洗后做过的题仍有均等概率立刻重现。
+   *
+   * @description doneUrls 为空（首次使用 / 在线来源 / 历史查询失败）时退化为整体洗牌，
+   *              行为与改动前一致。全部做完后同样退化为整体洗牌，不会出空态。
+   */
   private shuffleItems(): void {
-    for (let i = this.items.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [this.items[i], this.items[j]] = [this.items[j]!, this.items[i]!];
+    if (this.doneUrls.size === 0) {
+      shuffleInPlace(this.items);
+      return;
     }
+    const undone: PuzzleItem[] = [];
+    const done: PuzzleItem[] = [];
+    for (const it of this.items) {
+      if (this.doneUrls.has(it.url)) done.push(it);
+      else undone.push(it);
+    }
+    shuffleInPlace(undone);
+    shuffleInPlace(done);
+    this.items = [...undone, ...done];
   }
 
   /**
@@ -897,6 +960,8 @@ export class PuzzlePage implements IPage {
       // 新做了一题：已做数可能 +1（若本题命中当前筛选）
       this.refreshDoneCount();
     });
+    // 本题已入历史：下一轮重排时它要落到「已做」段，让位给还没做过的题
+    this.doneUrls.add(this.state.get('url'));
     this.ui.showSolvedModal(duration);
   }
 
@@ -924,6 +989,8 @@ export class PuzzlePage implements IPage {
       void this.historyPanel.loadHistory();
       this.refreshDoneCount();
     });
+    // 未解出也算做过：同样让位给没做过的题
+    this.doneUrls.add(this.state.get('url'));
   }
 
   /** 采集棋盘上的初始摆子（用于历史缩略图） */
