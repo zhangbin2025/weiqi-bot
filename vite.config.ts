@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import path from 'path';
+import fs from 'node:fs';
 
 /**
  * 【构建产物 CSS 顺序修正】
@@ -47,11 +48,64 @@ function inlineStyleAfterLinkedCss() {
   };
 }
 
+/**
+ * 【禁用页面缩放】
+ *
+ * 背景：各页面 <meta viewport> 早已写了 user-scalable=no，但现代浏览器
+ *       （iOS Safari 10+ / Chrome Android）出于无障碍考虑故意忽略它，
+ *       双指捏合、双击、Ctrl+滚轮照样能缩。要真正禁掉只能拦事件。
+ *
+ * 为什么走插件注入而不是手改 29 个 HTML：
+ *       · 一处注入，dev（3000）与构建产物同时生效；
+ *       · 新增页面自动覆盖，不会再漏；
+ *       · 不污染源码，回滚只删插件。
+ *
+ * 为什么内联而不是 <script src="../shared/no-zoom.js">：
+ *       外链要同时满足「dev 下 /shared/ 可达」+「构建后 dist-web/shared 被拷贝」，
+ *       后者由 build-assets.mjs 单独负责，而 vite build 的 emptyOutDir 会先清空
+ *       dist-web —— 构建顺序一变就是 404（本次已实测踩到）。内联则零路径依赖。
+ *       脚本不到 4KB，29 个页面多出的体积可忽略，且省一次请求。
+ *
+ * 内联位置：最后一个 </head> 之前。必须取**最后一处** —— String.replace 只换第一处，
+ *           而部分页面的内联 CSS 注释里就写着「追加到 </head> 前」这类说明文字，
+ *           换到那里会把脚本塞进注释里永不执行（puzzle 页实测踩到）。
+ */
+function disablePageZoom() {
+  // 延迟到插件执行时读取：构建期只读一次，dev 下每次请求都会走 handler
+  const SRC = path.resolve(__dirname, 'clients/web/shared/no-zoom.js');
+  return {
+    name: 'disable-page-zoom',
+    // dev 与 build 都要（不设 apply 即默认两者生效）
+    transformIndexHtml: {
+      // pre：早于 Vite 自身的脚本注入，保证监听挂得够早（用户一进页面就能拦住）
+      order: 'pre',
+      handler(html: string) {
+        // 幂等：HMR 会反复走 handler，重复注入等于重复挂监听
+        if (html.includes('__noZoomInstalled__')) return html;
+        const code = fs.readFileSync(SRC, 'utf8');
+        // 防线：脚本正文里若出现闭合脚本标签，HTML 解析器会提前闭合，
+        // 脚本被截断 → 语法错误 → 整个页面的 JS 全挂。构建期直接报错，
+        // 好过上线后才发现页面白屏。
+        if (/<\/script/i.test(code)) {
+          throw new Error(
+            '[disable-page-zoom] no-zoom.js 正文含闭合脚本标签字面量，会导致内联脚本被截断',
+          );
+        }
+        const at = html.lastIndexOf('</head>');
+        if (at === -1) return html; // 没有 </head> 的畸形文档：宁可不注入也不瞎塞
+        // 闭合标签用拼接写成，避免本文件自身踩同一个坑
+        const tag = '<script id="no-zoom">' + code + '<' + '/script>';
+        return html.slice(0, at) + tag + '\n  ' + html.slice(at);
+      },
+    },
+  };
+}
+
 export default defineConfig({
   root: 'clients/web',
   base: '',
   publicDir: 'public',
-  plugins: [inlineStyleAfterLinkedCss()],
+  plugins: [disablePageZoom(), inlineStyleAfterLinkedCss()],
   server: {
     host: '0.0.0.0',
     port: 3000,
