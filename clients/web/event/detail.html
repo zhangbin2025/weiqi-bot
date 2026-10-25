@@ -68,6 +68,31 @@
     }
     .detail-tabs::-webkit-scrollbar { display: none; }
 
+    /* ===== 分组下拉收缩策略（小屏长分组名不顶飞右侧按钮） =====
+     * flex 子项默认 min-width:auto，收缩下限是内容宽度 → 分组名一长下拉框拒绝收缩，
+     * 右侧按钮被 .event-detail-group 的 overflow:hidden 裁掉。
+     * 这里给下拉框 min-width:0 让其可收缩，按钮固定 flex:0 0 auto 不被压缩。
+     */
+    .detail-tabs > .detail-group-select {
+      flex: 1 1 auto;
+      min-width: 0;
+      max-width: 150px;
+      margin-right: 4px;
+    }
+    .detail-tabs .ui-select {
+      width: 100%;
+      min-width: 0;
+    }
+    .detail-tabs .ui-select__trigger {
+      min-width: 0;
+    }
+    .detail-tabs .ui-select__label {
+      min-width: 0;  /* 保证长分组名以省略号截断，而非撑开 trigger */
+    }
+    .detail-tabs > .detail-tab {
+      flex: 0 0 auto;  /* 按钮永不压缩 */
+    }
+
     /* 大屏幕下统一样式 */
     .detail-tabs .ui-select__trigger {
       box-sizing: border-box;
@@ -79,6 +104,12 @@
     .detail-tabs .ui-select__option {
       padding: 6px 10px;
       font-size: 13px;
+    }
+    /* 面板宽度由 Select.ts 按内容测量并设置（此处不再覆盖，避免两处维护）。
+     * 当分组名长到超出视口时，允许选项换行，保证完整可读。 */
+    .detail-tabs .ui-select__option {
+      white-space: normal;
+      word-break: break-all;
     }
     .detail-tab {
       box-sizing: border-box;
@@ -97,6 +128,12 @@
       .detail-tabs {
       width: 100%;
         gap: 1px;  /* 缩小间距 */
+      }
+      .detail-tabs > .detail-group-select {
+        max-width: 130px;  /* 小屏给按钮留更多空间 */
+      }
+      .detail-tabs > .detail-tab.refresh-btn {
+        margin-left: 0;
       }
       /* 下拉框样式：字体和按钮一致 */
       .detail-tabs .ui-select {

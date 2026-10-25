@@ -100,7 +100,8 @@ export class EventDetailRenderer {
     // 先渲染分组选择
     if (this.groups.length > 0) {
       const selectWrapper = document.createElement('div');
-      selectWrapper.style.cssText = 'display: inline-block; margin-right: 4px; max-width: 150px; vertical-align: middle;';
+      // 宽度/收缩策略交给 detail.html 的 .detail-group-select 管理（需 min-width:0 才能收缩，否则长分组名会顶飞右侧按钮）
+      selectWrapper.className = 'detail-group-select';
       const options = this.groups.map(g => ({
         value: String(g.id),
         label: g.name,

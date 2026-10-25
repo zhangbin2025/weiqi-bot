@@ -186,8 +186,17 @@ function createInstance(root: HTMLElement, init: SelectOptions): SelectInstance 
       top = aboveTop >= margin ? aboveTop : Math.max(margin, viewportHeight - panelHeight - margin);
     }
 
-    // 确保不超出屏幕左右边界
-    const panelWidth = Math.max(triggerRect.width, 100);
+    // 面板宽度：先量「按内容自然展开」的宽度，再取 max(trigger 宽, 自然宽, 100)。
+    // 旧逻辑只按 trigger 宽度算，导致 trigger 被 flex 压窄时（如小屏长分组名）
+    // 选项文本在面板里被横向截断。短选项时自然宽 < trigger 宽，结果不变，无回归。
+    panel.style.width = 'max-content';
+    const naturalWidth = panel.getBoundingClientRect().width;
+    const panelWidth = Math.min(
+      Math.max(triggerRect.width, naturalWidth, 100),
+      window.innerWidth - margin * 2,
+    );
+
+    // 确保不超出屏幕左右边界（用最终 panelWidth 参与钳制，避免面板右侧溢出）
     left = Math.min(Math.max(left, margin), Math.max(margin, window.innerWidth - panelWidth - margin));
 
     panel.style.width = `${panelWidth}px`;
