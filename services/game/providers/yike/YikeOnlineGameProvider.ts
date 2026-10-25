@@ -15,17 +15,37 @@ import { BaseProvider } from '../base/BaseProvider';
 import type { FetchResult, GameMetadata, PerformanceTiming } from '../base/types';
 import type { NetworkManager } from '../../../../infrastructure/network/core/NetworkManager';
 import type { ISnifferProvider } from '../../../../infrastructure/network/interfaces/ISnifferProvider';
-import type { HttpResponseData } from '../../../../infrastructure/network/interfaces/SnifferTypes';
+import type {
+  HttpResponseData,
+  SnifferMessage,
+} from '../../../../infrastructure/network/interfaces/SnifferTypes';
 import { SGFParser, coordToPos } from '../../../../domain/sgf';
 import { SGFWriter } from '../../../../domain/sgf';
 import { createMove, createPassMove } from '../../../../domain/move';
 
 /**
- * 弈客 online-game 抓包超时（毫秒）
+ * 弈客 online-game 抓包超时上限（毫秒）
  *
- * 与 YikeProvider 保持一致：热门对局页面加载偏慢，5 秒窗口容易抓不到 game/info。
+ * 同样只是兜底上限，拿到 SGF 即返回。与 YikeProvider 保持一致。
  */
-const YIKE_ONLINE_SNIFFER_TIMEOUT_MS = 15000;
+const YIKE_ONLINE_SNIFFER_TIMEOUT_MS = 30000;
+
+/**
+ * 提前结束判断：已抓到 game/info 的 SGF 就不必再等
+ */
+function hasYikeOnlineSgf(messages: SnifferMessage[]): boolean {
+  return messages.some((msg) => {
+    if (msg.type !== 'http_response') return false;
+    const httpMsg = msg as HttpResponseData;
+    if (!httpMsg.url.includes('game-server.yikeweiqi.com/game/info')) return false;
+    if (!httpMsg.body) return false;
+    try {
+      return Boolean(JSON.parse(httpMsg.body)?.data?.sgf);
+    } catch {
+      return false;
+    }
+  });
+}
 
 /**
  * 弈客围棋 online-game 提供者
@@ -115,7 +135,8 @@ export class YikeOnlineGameProvider extends BaseProvider {
       });
 
       // 等待数据
-      const result = await session.wait(snifferTimeout);
+      // 拿到 SGF 就立即返回，不再空等至超时
+      const result = await session.wait(snifferTimeout, { until: hasYikeOnlineSgf });
       timing.apiRequest = this.now() - fetchStart;
 
       console.log('[YikeOnlineGameProvider] Sniffer结果:', result.success);

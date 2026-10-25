@@ -30,6 +30,8 @@ class AppSnifferSession implements ISnifferSession {
   private errorCallbacks: Array<(error: Error) => void> = [];
   private startTime: number;
   private resolveWait: ((result: SnifferResult) => void) | null = null;
+  /** 提前结束条件（由 wait() 设置，命中后立即 resolve） */
+  private untilPredicate: ((messages: SnifferMessage[]) => boolean) | null = null;
 
   constructor(
     id: string,
@@ -149,6 +151,7 @@ class AppSnifferSession implements ISnifferSession {
         if (message) {
           this.messages.push(message);
           this.messageCallbacks.forEach(cb => cb(message));
+          this.checkUntil();
         }
       }
     } catch (e) {
@@ -164,8 +167,20 @@ class AppSnifferSession implements ISnifferSession {
     this.errorCallbacks.push(callback);
   }
 
-  async wait(timeout?: number): Promise<SnifferResult> {
+  /** 已抓取消息满足提前结束条件时，立即结束等待 */
+  private checkUntil(): void {
+    if (!this.untilPredicate || this.status !== 'running') return;
+    if (!this.untilPredicate(this.messages)) return;
+    this.untilPredicate = null; // 条件已消费，避免重复触发
+    void this.stop();
+  }
+
+  async wait(
+    timeout?: number,
+    options?: { until?: (messages: SnifferMessage[]) => boolean }
+  ): Promise<SnifferResult> {
     const timeoutMs = timeout || 30000;
+    this.untilPredicate = options?.until ?? null;
 
     return new Promise((resolve) => {
       // 设置超时
@@ -180,6 +195,9 @@ class AppSnifferSession implements ISnifferSession {
         clearTimeout(timer);
         resolve(result);
       };
+
+      // 数据可能在 wait() 调用前就已到达，先检查一次
+      this.checkUntil();
     });
   }
 

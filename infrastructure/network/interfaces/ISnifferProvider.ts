@@ -47,10 +47,16 @@ export interface ISnifferSession {
   
   /**
    * 等待完成
+   *
    * @param timeout 超时时间（毫秒）
+   * @param options.until 提前结束条件：已抓取的消息满足该谓词时立即返回，
+   *                      不再空等至超时。用于页面加载快时避免固定等待。
    * @returns 抓取结果
    */
-  wait(timeout?: number): Promise<SnifferResult>;
+  wait(
+    timeout?: number,
+    options?: { until?: (messages: SnifferMessage[]) => boolean }
+  ): Promise<SnifferResult>;
   
   /**
    * 停止会话

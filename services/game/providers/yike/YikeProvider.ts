@@ -14,19 +14,42 @@ import type { FetchResult, GameMetadata, PerformanceTiming } from '../base/types
 import type { IYikeProvider } from './IYikeProvider';
 import type { NetworkManager } from '../../../../infrastructure/network/core/NetworkManager';
 import type { ISnifferProvider } from '../../../../infrastructure/network/interfaces/ISnifferProvider';
-import type { HttpResponseData } from '../../../../infrastructure/network/interfaces/SnifferTypes';
+import type {
+  HttpResponseData,
+  SnifferMessage,
+} from '../../../../infrastructure/network/interfaces/SnifferTypes';
 import { SGFParser } from '../../../../domain/sgf';
 import { SGFWriter } from '../../../../domain/sgf';
 import { createMove, createPassMove } from '../../../../domain/move';
 import { coordToPos } from '../../../../domain/sgf';
 
 /**
- * 弈客直播抓包超时（毫秒）
+ * 弈客直播抓包超时上限（毫秒）
  *
+ * 这只是兜底上限：wait() 拿到 SGF 会立即返回，不会空等。
  * 热门赛事直播间页面加载明显偏慢（鹰眼分析、golive/dtl 等接口响应晚），
- * 5 秒窗口经常等不到 SGF 数据。对齐 xinboduiyi / txwq 等 Provider，统一 15 秒。
+ * 因此上限放宽到 30 秒，与配置层 game.timeout 默认值一致。
  */
-const YIKE_SNIFFER_TIMEOUT_MS = 15000;
+const YIKE_SNIFFER_TIMEOUT_MS = 30000;
+
+/**
+ * 提前结束判断：已抓到含 SGF 的响应就不必再等
+ *
+ * wait() 原本无条件等满 timeout，页面加载快时白等。
+ * 这里检查 golive/dtl 与鹰眼 live/move 两个接口是否已带 SGF 回来。
+ */
+function hasYikeSgf(messages: SnifferMessage[]): boolean {
+  return messages.some((msg) => {
+    if (msg.type !== 'http_response') return false;
+    const httpMsg = msg as HttpResponseData;
+    const u = httpMsg.url;
+    const isTarget =
+      u.includes('golive/dtl') ||
+      u.includes('hawkeye.yikeweiqi.com/api/report/live/move');
+    if (!isTarget || !httpMsg.body) return false;
+    return httpMsg.body.includes('(;') && httpMsg.body.includes('SZ[');
+  });
+}
 
 /**
  * 弈客围棋提供者
@@ -149,7 +172,8 @@ export class YikeProvider extends BaseProvider implements IYikeProvider {
       });
 
       // 等待数据
-      const result = await session.wait(snifferTimeout);
+      // 拿到 SGF 就立即返回，不再空等至超时
+      const result = await session.wait(snifferTimeout, { until: hasYikeSgf });
       timing.apiRequest = this.now() - fetchStart;
 
       if (!result.success) {

@@ -189,11 +189,20 @@ class PlaywrightSnifferSession implements ISnifferSession {
     this.errorCallbacks.push(callback);
   }
 
-  async wait(timeout?: number): Promise<SnifferResult> {
+  async wait(
+    timeout?: number,
+    options?: { until?: (messages: SnifferMessage[]) => boolean }
+  ): Promise<SnifferResult> {
     const timeoutMs = timeout || 30000;
+    const until = options?.until;
     const startTime = Date.now();
 
     while (this.status === 'running') {
+      // 已拿到所需数据 -> 立即结束，不必空等到超时
+      if (until && until(this.messages)) {
+        await this.stop();
+        break;
+      }
       if (Date.now() - startTime > timeoutMs) {
         await this.stop();
         break;
