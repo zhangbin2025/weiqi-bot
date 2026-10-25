@@ -21,6 +21,14 @@ import { createMove, createPassMove } from '../../../../domain/move';
 import { coordToPos } from '../../../../domain/sgf';
 
 /**
+ * 弈客直播抓包超时（毫秒）
+ *
+ * 热门赛事直播间页面加载明显偏慢（鹰眼分析、golive/dtl 等接口响应晚），
+ * 5 秒窗口经常等不到 SGF 数据。对齐 xinboduiyi / txwq 等 Provider，统一 15 秒。
+ */
+const YIKE_SNIFFER_TIMEOUT_MS = 15000;
+
+/**
  * 弈客围棋提供者
  *
  * URL 格式：
@@ -49,7 +57,8 @@ export class YikeProvider extends BaseProvider implements IYikeProvider {
     await this.fetch(url);
   }
 
-  async fetch(url: string): Promise<FetchResult> {
+  async fetch(url: string, options?: { timeout?: number }): Promise<FetchResult> {
+    const snifferTimeout = options?.timeout ?? YIKE_SNIFFER_TIMEOUT_MS;
     const timing: PerformanceTiming = {};
     const startTime = this.now();
 
@@ -75,7 +84,7 @@ export class YikeProvider extends BaseProvider implements IYikeProvider {
       // 启动 Sniffer
       const fetchStart = this.now();
       const session = await this.sniffer.start(url, {
-        timeout: 5000, // 5秒超时
+        timeout: snifferTimeout,
         userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)',
         viewport: { width: 375, height: 812 },
       });
@@ -140,7 +149,7 @@ export class YikeProvider extends BaseProvider implements IYikeProvider {
       });
 
       // 等待数据
-      const result = await session.wait(5000) // 5秒超时;
+      const result = await session.wait(snifferTimeout);
       timing.apiRequest = this.now() - fetchStart;
 
       if (!result.success) {

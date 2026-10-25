@@ -21,6 +21,13 @@ import { SGFWriter } from '../../../../domain/sgf';
 import { createMove, createPassMove } from '../../../../domain/move';
 
 /**
+ * 弈客 online-game 抓包超时（毫秒）
+ *
+ * 与 YikeProvider 保持一致：热门对局页面加载偏慢，5 秒窗口容易抓不到 game/info。
+ */
+const YIKE_ONLINE_SNIFFER_TIMEOUT_MS = 15000;
+
+/**
  * 弈客围棋 online-game 提供者
  */
 export class YikeOnlineGameProvider extends BaseProvider {
@@ -40,7 +47,8 @@ export class YikeOnlineGameProvider extends BaseProvider {
     super(network);
   }
 
-  async fetch(url: string): Promise<FetchResult> {
+  async fetch(url: string, options?: { timeout?: number }): Promise<FetchResult> {
+    const snifferTimeout = options?.timeout ?? YIKE_ONLINE_SNIFFER_TIMEOUT_MS;
     const timing: PerformanceTiming = {};
     const startTime = this.now();
 
@@ -72,7 +80,7 @@ export class YikeOnlineGameProvider extends BaseProvider {
       console.log('[YikeOnlineGameProvider] 启动Sniffer...');
       
       const session = await this.sniffer.start(url, {
-        timeout: 5000, // 5秒超时
+        timeout: snifferTimeout,
         userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)',
         viewport: { width: 375, height: 812 },
       });
@@ -107,7 +115,7 @@ export class YikeOnlineGameProvider extends BaseProvider {
       });
 
       // 等待数据
-      const result = await session.wait(5000) // 5秒超时;
+      const result = await session.wait(snifferTimeout);
       timing.apiRequest = this.now() - fetchStart;
 
       console.log('[YikeOnlineGameProvider] Sniffer结果:', result.success);
