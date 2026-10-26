@@ -10,10 +10,48 @@ import { parsePropertiesAt, parsePropertyAt, extractMoveInfo } from './SGFProper
 /**
  * 解析 SGF 树
  */
+/**
+ * 畸形 SGF 输入规范化
+ *
+ * 站点（如 goproblems）历史数据里存在两类非标准写法，直接解析会丢掉初始局面，
+ * 导致转换出的死活题只剩文件头、没有棋子：
+ *
+ * 1) 缺前导分号：'(SZ[19]AB[dd]...' —— 首个节点的属性写在了 '(' 之后却没有 ';'。
+ *    → 在属性前补一个 ';'，使其归属根节点。
+ * 2) 空根节点：'(;\n;AW[dd]AB[ee]...' —— 根节点为空，真实局面挂在紧随的节点上。
+ *    → 去掉多余的 ';'，把局面合并进根节点。
+ *
+ * 正常 SGF 不受影响（这两条只匹配特定形态）。
+ */
+function normalizeMalformed(src: string): string {
+  let s = src;
+
+  // 1) '(' 后直接跟属性名（缺前导 ';'）
+  const m1 = /^(\s*\(\s*)([A-Z])/.exec(s);
+  if (m1 && m1[1] !== undefined) {
+    s = m1[1] + ';' + s.slice(m1[1].length);
+  }
+
+  // 2) '(;' 后紧跟另一个 ';'（空根节点 + 局面节点）
+  const m2 = /^(\s*\(\s*;\s*);/.exec(s);
+  if (m2 && m2[1] !== undefined) {
+    s = m2[1] + s.slice(m2[0].length);
+  }
+
+  // 3) 连续的空节点 ';;' —— 中间那个节点没有任何属性，
+  //    解析时它会截走后续属性导致初始局面(AB/AW)丢失。
+  //    合并掉空节点：只合并「前一个分号后直接（或仅隔空白）又是分号」的情形，
+  //    带属性的节点不受影响。
+  s = s.replace(/;\s*;/g, ';');
+
+  return s;
+}
+
 export function parseTree(
   content: string,
   errors: string[]
 ): SGFNodeInternal {
+  content = normalizeMalformed(content);
   const parentStack: SGFNodeInternal[] = [];
   let seqCurrent: SGFNodeInternal | null = null;
   let root: SGFNodeInternal | null = null;
