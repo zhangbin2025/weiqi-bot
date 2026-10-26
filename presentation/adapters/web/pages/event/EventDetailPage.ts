@@ -301,6 +301,8 @@ export class EventDetailPage implements IPage {
       const roundMatches = this.filterMatchesByRound(this.matchData, this.curRound);
       this.renderer.renderMatches(roundMatches, this.buildScoreMap(this.curRound));
     }
+    // 数据渲染后尝试恢复返回前的对手弹窗（内部只消费一次）
+    this.tryRestoreOpponentModal();
   }
 
   private async loadRound(): Promise<void> {
@@ -333,7 +335,7 @@ export class EventDetailPage implements IPage {
     this.renderer.toast.success('数据已刷新');
   }
 
-  private showOpp(name: string): void {
+  private showOpp(name: string, focusOpponent?: string): void {
     if (!this.rankData) return;
     const p = this.rankData.rankings.find((x) => x.name === name);
     if (!p?.games) return;
@@ -341,7 +343,27 @@ export class EventDetailPage implements IPage {
     this.rankData.rankings.forEach((x) => {
       rm.set(x.name.replace(/\|[\d\w:_-]+$/, '').trim(), { rank: x.rank, score: x.score });
     });
-    this.renderer.showOpponentModal(name, p.games, rm);
+    this.renderer.showOpponentModal(name, p.games, rm, focusOpponent);
+  }
+
+  /**
+   * 尝试恢复返回前的对手弹窗
+   * @description 从弹窗点对手 → 等级分页 → 浏览器返回，应回到弹窗并定位到该对手条目。
+   * 排名数据可能还没就绪（缓存未命中时是异步加载），故注册一次性的 "内容已渲染" 回调避免竞态。
+   */
+  private tryRestoreOpponentModal(): void {
+    const pending = this.renderer.consumePendingOpponent();
+    if (!pending) return;
+    const { host, opponent } = pending;
+
+    // 背景排名表的高亮/滚动由 Renderer 在 initialize() 里统一处理
+    const open = (): void => { this.showOpp(host, opponent); };
+
+    if (this.rankData) {
+      open();
+      return;
+    }
+    this.renderer.onContentRenderedOnce(open);
   }
 
   render(): void { this.renderer.render(); }

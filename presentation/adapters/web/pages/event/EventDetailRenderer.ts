@@ -1,4 +1,6 @@
-/** 详情页渲染器，完全照搬 events.html 的风格 */
+/**
+ * 详情页渲染器，完全照搬 events.html 的风格
+ */
 import type { ICard, IToast, IAdapterFactory, IOverlay } from '../../../../core/interfaces';
 import type { IEventFormatter } from './IEventFormatter';
 import type { Group, AgainstPlanResult } from '../../../../../services/event/types';
@@ -8,6 +10,16 @@ import { GroupSelector } from '../../../../../domain/ranking/GroupSelector';
 import { SessionStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/SessionStorageAdapter';
 import { LocalStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/LocalStorageAdapter';
 import { Select, type SelectInstance } from '@ui';
+/**
+ * 取棋手的展示名，需与 HtmlEventFormatter 里排名表行 id 用的规则一致，
+ * 否则 highlightRow 的 getElementById('rank-row-'+name) 命中不了。
+ */
+function cleanPlayerName(name: string): string {
+  if (!name) return '';
+  const m = name.match(/[\u4e00-\u9fa5]{2,4}/);
+  return m ? m[0] : name.replace(/\|[\d\w:_-]+$/, '').trim();
+}
+
 export interface EventDetailRendererCallbacks {
   onGroupChange: (groupId: string) => void;
   onTabChange: (tab: string) => void;
@@ -30,6 +42,10 @@ export class EventDetailRenderer {
   private activeGroupId: string = '';
   private highlightedPlayerName: string = '';
   private rankingMode: RankingMode = 'default';
+  /** 待恢复的弹窗状态：棋手名（原始名）+ 上次查看的对手名（干净名） */
+  private pendingOpponent: { host: string; opponent: string } | null = null;
+  /** 内容渲染完成的一次性回调（供弹窗恢复等待数据就绪） */
+  private contentReadyOnce: Array<() => void> = [];
   private readonly sessionStore = new SessionStorageAdapter('weiqi-bot');
   private readonly localStore = new LocalStorageAdapter('weiqi-bot');
   private selectInstance?: SelectInstance | undefined;
@@ -55,6 +71,19 @@ export class EventDetailRenderer {
         this.highlightedPlayerName = saved;
         await this.sessionStore.delete('event-detail-highlight');
       }
+      // 恢复上次打开的对手弹窗状态（从弹窗内点对手 → 等级分页 → 返回，应回到弹窗）
+      // 只在「非全新进入」时恢复：全新打开（从赛事列表点进来）不该莫名弹窗。
+      // 浏览器返回时 navigation.type 为 back_forward；取不到类型时放宽放行。
+      const navType = (performance.getEntriesByType?.('navigation') as PerformanceNavigationTiming[] | undefined)?.[0]?.type;
+      const savedModal = await this.sessionStore.read<{ host: string; opponent: string }>('event-detail-opponent-modal');
+      await this.sessionStore.delete('event-detail-opponent-modal'); // 无论是否恢复都清掉，避免残留
+      if (navType !== 'navigate' && savedModal?.host && savedModal?.opponent) {
+        this.pendingOpponent = { host: savedModal.host, opponent: savedModal.opponent };
+        // 背景排名表改为高亮「弹窗所属棋手」，而不是上面那个对手名。
+        // 否则返回后表格会滚到对手行，和弹窗标题（xx 的对手）对不上。
+        // 必须在 renderRanking 之前设置，因为它在 rAF 里才真正执行高亮+滚动。
+        this.highlightedPlayerName = cleanPlayerName(savedModal.host);
+      }
     } catch { /* ignore */ }
     // 从 localStorage 恢复上次选择的排名模式
     try {
@@ -67,13 +96,26 @@ export class EventDetailRenderer {
     // 全局拦截跳转到等级分页面的链接，保存高亮信息
     document.addEventListener('click', (e) => {
       const link = (e.target as HTMLElement).closest('a[href*="player/?name="]') as HTMLAnchorElement | null;
-      if (link) {
-        const m = link.href.match(/player\/?\?name=([^&]+)/);
-        if (m && m[1]) {
-          this.sessionStore.write('event-detail-highlight', decodeURIComponent(m[1])).catch(() => { /* ignore */ });
-        }
+      if (!link) return;
+      const m = link.href.match(/player\/?\?name=([^&]+)/);
+      if (!m || !m[1]) return;
+      const name = decodeURIComponent(m[1]);
+      this.sessionStore.write('event-detail-highlight', name).catch(() => { /* ignore */ });
+      // 若点击来自对手弹窗，额外记下 "弹窗所属棋手 + 该对手"，返回时重建弹窗并定位
+      const modal = link.closest('#opponent-modal');
+      const host = modal?.getAttribute('data-host-name');
+      const item = (link.closest('[data-opp-name]') as HTMLElement | null)?.dataset['oppName'];
+      if (host && item) {
+        this.sessionStore.write('event-detail-opponent-modal', { host, opponent: item }).catch(() => { /* ignore */ });
       }
     });
+  }
+
+  /** 取回并清空待恢复的弹窗状态（由 Page 在排名数据就绪后调用） */
+  consumePendingOpponent(): { host: string; opponent: string } | null {
+    const p = this.pendingOpponent;
+    this.pendingOpponent = null;
+    return p;
   }
   bindActions(): void {
     this.rankingCard.onAction((action, data) => {
@@ -218,6 +260,20 @@ export class EventDetailRenderer {
         });
       });
     }
+    // 内容已渲染，触发等待中的一次性回调（如弹窗恢复）
+    this.flushContentReady();
+  }
+
+  /** 注册一次性回调：内容下次渲染完成后触发（用于等待数据就绪） */
+  onContentRenderedOnce(fn: () => void): void {
+    this.contentReadyOnce.push(fn);
+  }
+
+  /** 触发并清空内容渲染回调 */
+  private flushContentReady(): void {
+    const waits = this.contentReadyOnce;
+    this.contentReadyOnce = [];
+    waits.forEach((fn) => { try { fn(); } catch { /* ignore */ } });
   }
   renderMatches(data: AgainstPlanResult, scoreMap?: Map<string, number>): void {
     this.hideOverlay();
@@ -240,6 +296,7 @@ export class EventDetailRenderer {
       });
     }
     this.showContainer();
+    this.flushContentReady();
   }
   renderRoundNav(current: number, total: number): void {
     this.roundNav.setContent(this.formatter.formatRoundNav(current, total));
@@ -253,7 +310,7 @@ export class EventDetailRenderer {
     // 显示容器（即使错误也要显示）
     this.showContainer();
   }
-  showOpponentModal(playerName: string, games: PlayerRanking['games'], rankMap?: Map<string, { rank: number; score: number }>): void {
+  showOpponentModal(playerName: string, games: PlayerRanking['games'], rankMap?: Map<string, { rank: number; score: number }>, focusOpponent?: string): void {
     const html = this.formatter.formatOpponentModal(playerName, games, rankMap);
     if (!html) return;
     // 不再使用 opponentCard，直接添加到 body
@@ -274,7 +331,28 @@ export class EventDetailRenderer {
       });
     }
     document.body.appendChild(modalEl);
+    // 恢复场景：定位并高亮上次查看的对手条目（等一帧确保布局完成）
+    if (focusOpponent) {
+      requestAnimationFrame(() => this.highlightOpponentItem(focusOpponent));
+    }
   }
+
+  /** 高亮弹窗内指定对手条目，并在弹窗内部滚动到可见位置 */
+  highlightOpponentItem(opponentName: string): void {
+    const list = document.getElementById('opponent-modal-list');
+    if (!list) return;
+    const items = Array.from(list.querySelectorAll<HTMLElement>('[data-opp-name]'));
+    items.forEach((el) => { el.style.background = ''; });
+    if (!items.length) return;
+    const target = items.find((el) => el.dataset['oppName'] === opponentName)
+      ?? items.find((el) => el.dataset['oppName']?.includes(opponentName));
+    if (!target) return;
+    target.style.background = 'rgba(59,130,246,0.12)';
+    // 在弹窗容器内部滚动，不用 scrollIntoView（否则会把背后的排名表也滚走）
+    const top = target.offsetTop - list.clientHeight / 2 + target.offsetHeight / 2;
+    list.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+  }
+
   hideOpponentModal(): void {
     const modalEl = document.getElementById('opponent-modal-container');
     if (modalEl) modalEl.remove();
