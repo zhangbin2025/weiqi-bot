@@ -187,6 +187,85 @@ function md5(text) {
   return crypto.createHash('md5').update(text, 'utf-8').digest('hex');
 }
 
+// ─── 去复：死活题「初始局面」8 方向哈希 ────────────────
+//
+// 背景：contentMd5 只能识别「完全相同的 SGF」。同一道题换个来源，根节点注释、
+// PB/PW、分支顺序、坐标书写顺序都会变，白名单重建后 contentMd5 仍不同，
+// 于是「同一道题两个马甲」识别不出来（101 系与 goproblems 之间存在大量此类）。
+//
+// 口径（2026-10-27 与用户确认）：
+//   1) 只看【初始局面的摆子坐标集合】（AB + AW），不区分黑白、不看先行方(PL)。
+//      理由：棋形一样只是黑白互换 / 先行方不同的，视为同一题。
+//   2) 不管首着。同一局面可能有多种正解，首着不同不代表是不同题。
+//   3) 生成 8 个方向（4 旋转 × 2 镜像）的哈希，任一命中即判重复。
+//   4) 按 SZ 实际路数分桶；小棋盘（4/5/7 路）同样参与，不特殊对待。
+//   5) 空局面（无摆子）无法算局面哈希 → 返回 null，调用方退回 contentMd5。
+//
+// ⚠️ 仅用于 life-and-death。ai-review 绝不能用：所有对局初始都是空枰，
+//    按局面去重会让整包塌成 1 条。
+
+/**
+ * 取 SGF 文本里的摆子坐标（AB/AW），返回 [x,y] 数组；剔除 tt（脱先/pass）。
+ *
+ * 用逐字符扫描而不是正则：SGF 属性值里的 \\ 与 ] 转义在「字符串 → RegExp」
+ * 之间极易写错（实测过一次，构造出的正则损坏且 --check 才暴露），
+ * 直接按 [xx] 形态取两个字母更稳。
+ */
+function extractSetupPoints(sgf) {
+  const pts = [];
+  for (const tag of ['AB', 'AW']) {
+    let i = 0;
+    // 找到每个 "AB[" / "AW[" 起点，然后连续读取紧邻的 [xx] 坐标
+    for (;;) {
+      const at = sgf.indexOf(tag + '[', i);
+      if (at < 0) break;
+      let j = at + tag.length;
+      while (j + 2 < sgf.length && sgf[j] === '[' && sgf[j + 3] === ']') {
+        const c = sgf.slice(j + 1, j + 3);
+        if (c !== 'tt' && /^[a-z]{2}$/.test(c)) {
+          pts.push([c.charCodeAt(0) - 97, c.charCodeAt(1) - 97]);
+        }
+        j += 4;
+      }
+      i = at + tag.length;
+    }
+  }
+  return pts;
+}
+
+/**
+ * 计算初始局面的 8 方向哈希集合。
+ * @returns {Set<string>} 8 个哈希；无摆子或非整数路数时返回 null
+ */
+function lifePositionHashes(sgf) {
+  const szm = /SZ\[(\d+)(?::(\d+))?\]/.exec(sgf);
+  const n = szm ? parseInt(szm[1], 10) : 19;
+  if (!Number.isFinite(n) || n <= 0) return null;
+  // 非方形棋盘无法做旋转/镜像（当前数据里没有），退回调用方处理
+  if (szm && szm[2] && parseInt(szm[2], 10) !== n) return null;
+
+  const all = extractSetupPoints(sgf);
+  const pts = all.filter(([x, y]) => x >= 0 && x < n && y >= 0 && y < n);
+  if (pts.length === 0) return null;
+
+  const hashes = new Set();
+  for (let rot = 0; rot < 4; rot++) {
+    for (let flip = 0; flip < 2; flip++) {
+      const q = pts.map(([x0, y0]) => {
+        let x = x0, y = y0;
+        for (let r = 0; r < rot; r++) { const nx = y, ny = n - 1 - x; x = nx; y = ny; }
+        if (flip) x = n - 1 - x;
+        return [x, y];
+      });
+      const minX = Math.min(...q.map((p) => p[0]));
+      const minY = Math.min(...q.map((p) => p[1]));
+      const key = q.map(([x, y]) => `${x - minX},${y - minY}`).sort().join(';');
+      hashes.add(md5(`${n}|${key}`));
+    }
+  }
+  return hashes;
+}
+
 /** 本地时区的 YYYY-MM-DD（不用 UTC，避免跨日错判） */
 function localDateString(d = new Date()) {
   const p = (n) => String(n).padStart(2, '0');
@@ -717,7 +796,7 @@ function main() {
   console.log(`输出   : ${opts.output}`);
   console.log(`口令   : ${opts.keyPath}`);
   console.log(`模式   : 全量重建`);
-  console.log(`去重   : MD5（原始 + 白名单重建后内容，按分类）`);
+  console.log(`去重   : 死活题=初始局面8方向哈希；ai-review=内容MD5`);
   console.log('='.repeat(56));
 
   const key = loadOrCreateKey(opts.keyPath);
@@ -743,6 +822,10 @@ function main() {
   const buckets = { 'life-and-death': {}, 'ai-review': {} };
   // 去重集合：key = "<category>:<contentMd5>"，已入库即跳过（本次运行内生效）
   const dedup = loadDedupSet();
+  // 死活题「初始局面」8 方向哈希集合（见 lifePositionHashes 注释）。
+  // 与 dedup 并存：life-and-death 走这里，ai-review 仍走 contentMd5。
+  const lifePosSeen = new Set();
+  const lifeStats = { byPosition: 0, byContent: 0 };
   // 统计
   const stats = {
     scanned: 0, kept: 0,
@@ -787,14 +870,35 @@ function main() {
       }
       const sgf = out.sgf;
 
-      // 内容级去重（判定依据）：同一分类下入库内容相同即视为重复，保留首次出现的那条
+      // 去重（判定依据）：保留首次出现的那条
+      //   · life-and-death → 初始局面 8 方向哈希（跨来源同题马甲）
+      //   · ai-review      → contentMd5（初始皆空枰，按局面去重会塌成 1 条）
       const contentMd5 = md5(sgf);
-      const dedupKey = cfg.category + ':' + contentMd5;
+      let dedupKey;
+      let dedupKind = 'content';
+      if (cfg.category === 'life-and-death') {
+        const ph = lifePositionHashes(sgf);
+        if (ph) {
+          dedupKind = 'position';
+          dedupKey = cfg.category + ':pos:' + [...ph].sort()[0];
+        } else {
+          // 空局面（无摆子）无法算局面哈希，退回内容比对
+          dedupKind = 'content';
+          dedupKey = cfg.category + ':' + contentMd5;
+        }
+      } else {
+        dedupKey = cfg.category + ':' + contentMd5;
+      }
       if (dedup.all.has(dedupKey)) {
         stats.dupContent++, ss.dupContent++;
+        // 只在【判重命中】时累加，区分「按局面」与「按内容/ai-review」
+        if (dedupKind === 'position') lifeStats.byPosition++;
+        else lifeStats.byContent++;
         duplicateMap[`${srcName}/${f.date}/${f.filename}`] = {
           path: f.path, source: srcName, date: f.date, filename: f.filename,
           rawMd5, contentMd5, category: cfg.category,
+          // 标记判重依据，便于溯源
+          dedupKind,
         };
         continue;
       }
@@ -817,11 +921,13 @@ function main() {
 
   // 去重体检输出
   console.log('\n' + '-'.repeat(56));
-  console.log('去重统计（MD5）');
+  console.log('去重统计（死活题=初始局面8方向；ai-review=内容MD5）');
   console.log(`  扫描       : ${stats.scanned}`);
   console.log(`  入库       : ${stats.kept}`);
   console.log(`  原始重复   : ${stats.dupRaw}（同来源内同一文件重复落盘）`);
-  console.log(`  内容重复   : ${stats.dupContent}（白名单重建后内容相同，含跨来源）`);
+  console.log(`  判重剔除   : ${stats.dupContent}`);
+  console.log(`    其中死活题按初始局面 : ${lifeStats.byPosition}（含跨来源同题马甲）`);
+  console.log(`    其余(ai-review/空局面): ${lifeStats.byContent}`);
   console.log(`  规则排除   : ${stats.skipped}（${Object.entries(stats.skipReasons).map(([k, v]) => `${k}:${v}`).join(' ') || '无'}）`);
   console.log(`  解析失败   : ${stats.parseFailed}`);
   for (const [src, s] of Object.entries(stats.perSource)) {
