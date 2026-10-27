@@ -193,27 +193,32 @@ function md5(text) {
 // PB/PW、分支顺序、坐标书写顺序都会变，白名单重建后 contentMd5 仍不同，
 // 于是「同一道题两个马甲」识别不出来（101 系与 goproblems 之间存在大量此类）。
 //
-// 口径（2026-10-27 与用户确认）：
-//   1) 只看【初始局面的摆子坐标集合】（AB + AW），不区分黑白、不看先行方(PL)。
-//      理由：棋形一样只是黑白互换 / 先行方不同的，视为同一题。
-//   2) 不管首着。同一局面可能有多种正解，首着不同不代表是不同题。
-//   3) 生成 8 个方向（4 旋转 × 2 镜像）的哈希，任一命中即判重复。
+// 口径（2026-10-27 与用户确认，同日修正）：
+//   1) 【看黑白】棋形 = 黑子集合 + 白子集合，两者是分开的。
+//      ⚠️ 不能只取「所有摆子的坐标集合」：那样「aa,ba 全是黑子」与
+//      「aa 黑 / ba 白」会塌成同一题（实测过，是错的）。
+//   2) 【黑白互换也算重复】在 1) 的基础上，额外生成「黑白对调」那一版的哈希。
+//      即同一棋形、只是黑白互换/先行方不同的，仍判为同一题。
+//      → 共 8 方向 × 2 种配色 = 16 个哈希，任一命中即判重。
+//   3) 不管首着。同一局面可能有多种正解，首着不同不代表是不同题。
 //   4) 按 SZ 实际路数分桶；小棋盘（4/5/7 路）同样参与，不特殊对待。
-//   5) 空局面（无摆子）无法算局面哈希 → 返回 null，调用方退回 contentMd5。
+//   5) 不看先行方(PL)：先行方已由 2) 的黑白互换覆盖。
+//   6) 空局面（无摆子）无法算局面哈希 → 返回 null，调用方退回 contentMd5。
 //
 // ⚠️ 仅用于 life-and-death。ai-review 绝不能用：所有对局初始都是空枰，
 //    按局面去重会让整包塌成 1 条。
 
 /**
- * 取 SGF 文本里的摆子坐标（AB/AW），返回 [x,y] 数组；剔除 tt（脱先/pass）。
+ * 取 SGF 文本里的摆子坐标，【黑/白分开返回】{ black, white }，元素为 [x,y]。
+ * 剔除 tt（脱先/pass）。
  *
  * 用逐字符扫描而不是正则：SGF 属性值里的 \\ 与 ] 转义在「字符串 → RegExp」
  * 之间极易写错（实测过一次，构造出的正则损坏且 --check 才暴露），
  * 直接按 [xx] 形态取两个字母更稳。
  */
 function extractSetupPoints(sgf) {
-  const pts = [];
-  for (const tag of ['AB', 'AW']) {
+  const black = [], white = [];
+  for (const [tag, out] of [['AB', black], ['AW', white]]) {
     let i = 0;
     // 找到每个 "AB[" / "AW[" 起点，然后连续读取紧邻的 [xx] 坐标
     for (;;) {
@@ -223,19 +228,20 @@ function extractSetupPoints(sgf) {
       while (j + 2 < sgf.length && sgf[j] === '[' && sgf[j + 3] === ']') {
         const c = sgf.slice(j + 1, j + 3);
         if (c !== 'tt' && /^[a-z]{2}$/.test(c)) {
-          pts.push([c.charCodeAt(0) - 97, c.charCodeAt(1) - 97]);
+          out.push([c.charCodeAt(0) - 97, c.charCodeAt(1) - 97]);
         }
         j += 4;
       }
       i = at + tag.length;
     }
   }
-  return pts;
+  return { black, white };
 }
 
 /**
- * 计算初始局面的 8 方向哈希集合。
- * @returns {Set<string>} 8 个哈希；无摆子或非整数路数时返回 null
+ * 计算初始局面的哈希集合：8 方向 × 2 种配色（原色 / 黑白互换） = 最多 16 个。
+ * 任一命中即判重。
+ * @returns {Set<string>} 哈希集合；无摆子或非方形棋盘时返回 null
  */
 function lifePositionHashes(sgf) {
   const szm = /SZ\[(\d+)(?::(\d+))?\]/.exec(sgf);
@@ -244,23 +250,33 @@ function lifePositionHashes(sgf) {
   // 非方形棋盘无法做旋转/镜像（当前数据里没有），退回调用方处理
   if (szm && szm[2] && parseInt(szm[2], 10) !== n) return null;
 
-  const all = extractSetupPoints(sgf);
-  const pts = all.filter(([x, y]) => x >= 0 && x < n && y >= 0 && y < n);
-  if (pts.length === 0) return null;
+  const { black, white } = extractSetupPoints(sgf);
+  const inBoard = ([x, y]) => x >= 0 && x < n && y >= 0 && y < n;
+  const B = black.filter(inBoard);
+  const W = white.filter(inBoard);
+  if (B.length === 0 && W.length === 0) return null;
 
   const hashes = new Set();
   for (let rot = 0; rot < 4; rot++) {
     for (let flip = 0; flip < 2; flip++) {
-      const q = pts.map(([x0, y0]) => {
+      const tf = ([x0, y0]) => {
         let x = x0, y = y0;
         for (let r = 0; r < rot; r++) { const nx = y, ny = n - 1 - x; x = nx; y = ny; }
         if (flip) x = n - 1 - x;
         return [x, y];
-      });
-      const minX = Math.min(...q.map((p) => p[0]));
-      const minY = Math.min(...q.map((p) => p[1]));
-      const key = q.map(([x, y]) => `${x - minX},${y - minY}`).sort().join(';');
-      hashes.add(md5(`${n}|${key}`));
+      };
+      const qb = B.map(tf);
+      const qw = W.map(tf);
+      // 归一化原点用【黑白合并后】的包围盒左上角，保证两色的相对位置不被破坏
+      const all = [...qb, ...qw];
+      const minX = Math.min(...all.map((p) => p[0]));
+      const minY = Math.min(...all.map((p) => p[1]));
+      const norm = (pts) => pts.map(([x, y]) => `${x - minX},${y - minY}`).sort().join(';');
+      const nb = norm(qb);
+      const nw = norm(qw);
+      // 原色 + 黑白互换：任一命中即判重
+      hashes.add(md5(`${n}|B${nb}|W${nw}`));
+      hashes.add(md5(`${n}|B${nw}|W${nb}`));
     }
   }
   return hashes;
