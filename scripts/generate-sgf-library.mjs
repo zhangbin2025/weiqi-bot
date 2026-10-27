@@ -421,6 +421,58 @@ function extractDifficulty(pw, rootComment) {
 const RANK_FLOOR_K = 15;
 const RANK_CEIL_D = 7;
 
+// ─── goproblems 等级 → 101 系等级 映射表 ────────────────
+//
+// 背景：两站不是同一把尺子。goproblems 跨度 30K~9D，101 系只到 15K~7D，
+// goproblems 的等级整体「虚高」约 2.3 倍（线性拟合 101 ≈ 0.435×gp − 0.056，R²=0.9907）。
+//
+// 本表取【实测中位数】：对每个 goproblems 等级，找出它与 101 系题目
+// 冲突（同一初始局面）时，对方等级的中位数。全量 ~8000 组冲突对统计得出。
+//
+// ⚠️ 旧做法是「30K~15K 一律 clamp 到 15K」，实测不对：
+//    gp 30K 确实对应 101 的 15K（碰巧对），
+//    但 gp 15K 实际对应 101 的 7K —— 被硬抬到 15K，虚低了 8 档。
+//
+// 触底效应已排除：101 系最弱只到 15K，但「剔除 15K 后重算中位数」
+// 与原中位数几乎一致（仅 30K 差 1 档），故本表可信。
+//
+// 键 = goproblems 原始等级（extractDifficulty 的输出形态，如 '30K' / '5D'）
+// 值 = 101 系对应等级。无 “+” 后缀（goproblems 难度不带 +）。
+const GP_RANK_MAP = {
+  '30K': '15K', '29K': '14K', '28K': '13K', '27K': '12K', '26K': '12K',
+  '25K': '11K', '24K': '11K', '23K': '10K', '22K': '10K', '21K': '9K',
+  '20K': '9K',  '19K': '9K',  '18K': '8K',  '17K': '8K',  '16K': '7K',
+  '15K': '7K',  '14K': '7K',  '13K': '6K',  '12K': '6K',  '11K': '5K',
+  '10K': '5K',  '9K': '5K',   '8K': '4K',   '7K': '4K',   '6K': '4K',
+  '5K': '3K',   '4K': '2K',   '3K': '2K',   '2K': '2K',   '1K': '1K',
+  '1D': '1K',   '2D': '1D',   '3D': '1D',   '4D': '1D',   '5D': '2D',
+  '6D': '2D',   '7D': '3D',   '8D': '4D',   '9D': '5D',
+};
+
+/**
+ * goproblems 等级映射到 101 系等级。
+ * 保留原有的 “+”（goproblems 实际不带 +，此处仅为稳妥兜底）。
+ * 表内没有的等级（理论上不会有）→ 原样返回，由后续 clampRank 收口。
+ */
+function mapGoproblemsRank(diff) {
+  const m = /^(\d+)([KD])(\+?)$/.exec(diff);
+  if (!m) return diff;
+  const hit = GP_RANK_MAP[`${m[1]}${m[2]}`];
+  if (!hit) return diff;
+  return `${hit}${m[3]}`;
+}
+
+/**
+ * 归一化难度：
+ *   · goproblems → 先按实测映射表换算到 101 系刻度，再收口到 [15K, 7D]
+ *   · 101 系     → 只收口，不换算（本来就是 101 刻度）
+ * 保留原有的 “+”（如 15K+ → 15K+，不影响现有数据）。
+ */
+function normalizeRank(diff, sourceName) {
+  const d = sourceName === 'goproblems' ? mapGoproblemsRank(diff) : diff;
+  return clampRank(d);
+}
+
 /**
  * 裁剪难度到 [15K, 7D] 区间，保留原有的 “+”（如 15K+ → 15K+，不影响现有数据）。
  */
@@ -544,7 +596,7 @@ function preprocessSgf(text) {
 /**
  * 白名单重建：解析 SGF → 过滤属性 → 重新序列化
  */
-function processSgf(text, category, perspective) {
+function processSgf(text, category, perspective, sourceName) {
   const src = preprocessSgf(text);
   const result = sgfParser.parse(src);
   if (result.errors.length > 0 && !result.tree) {
@@ -615,7 +667,7 @@ function processSgf(text, category, perspective) {
         const rawDiff = extractDifficulty(origPW, origC);
         // 无难度 → 不入库。现有库 85018 条全部带难度，混入会破坏难度筛选的一致性。
         if (!rawDiff) { skipReason = 'no-rank'; }
-        const diff = clampRank(rawDiff);
+        const diff = normalizeRank(rawDiff, sourceName);
         const type = extractType(origPW, origC);
         // PW 存「类型·难度」，供前端按类型/难度筛选；无难度时只存类型
         newProps['PW'] = diff ? `${type}·${diff}` : type;
@@ -871,7 +923,7 @@ function main() {
 
       let out;
       try {
-        out = processSgf(raw, cfg.category, cfg.perspective);
+        out = processSgf(raw, cfg.category, cfg.perspective, srcName);
       } catch (err) {
         stats.parseFailed++; ss.parseFailed++;
         console.error(`  ⚠️  跳过（解析失败）${f.path}: ${err.message}`);
