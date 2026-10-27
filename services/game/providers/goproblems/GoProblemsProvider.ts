@@ -462,6 +462,9 @@ export class GoProblemsProvider extends BaseProvider implements IGoProblemsProvi
 
   private rankToString(rank?: GoProblemsRank | null): string {
     if (!rank) return 'Unknown';
-    return rank.value + ' ' + rank.unit;
+    // rank.mark === true 对应站点列表接口里带问号的难度（如 "30 kyu?"），
+    // 即「悬而未决」的题目。把这个问号写进 SGF，下游（入库脚本）才能识别并排除，
+    // 否则该信息在抓取阶段就丢失了（本地 6.1 万个 SGF 里一个 ? 都没有）。
+    return rank.value + ' ' + rank.unit + (rank.mark ? '?' : '');
   }
 }

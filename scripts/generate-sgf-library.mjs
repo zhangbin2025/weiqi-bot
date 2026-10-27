@@ -6,8 +6,15 @@
  * 供前端「内置题库 / 内置棋谱」使用。
  *
  * 分类（按源目录）：
- *   life-and-death  题库     : weiqi101 / shizhan101 / qili101
+ *   life-and-death  题库     : weiqi101 / shizhan101 / qili101 / goproblems
  *   ai-review       实战AI   : foxwq / ogs
+ *
+ * goproblems 合入规则（2026-10-27）：
+ *   · 难度带问号（悬而未决）→ 不入库（抓取侧已过滤，此处兜底）
+ *   · 难度裁剪到 [15K, 7D]：30K~15K 统一为 15K，7D 以上统一为 7D
+ *   · 类型对齐：joseki → 布局题（并入现有布局题，不再开“定式题”分类）
+ *   · best move 已在抓取侧排除
+ *   · PL[W]（白先）纳入白名单保留，不再依赖运行时首手推断
  *
  * 唯一 id = HMAC-MD5( 明文记录, 口令 )，不可逆（需口令才能重算）。
  *   明文记录 = <来源码>|<日期>|<序号>|<原始文件名>
@@ -88,6 +95,9 @@ const SOURCES = {
   weiqi101:     { code: 'W101', category: 'life-and-death', perspective: null },
   shizhan101:   { code: 'SHZ', category: 'life-and-death', perspective: null },
   qili101:      { code: 'QL101', category: 'life-and-death', perspective: null },
+  // goproblems.com 全站死活题（2026-10-27 合入）。
+  // 抓取侧已过滤：难度带问号（悬而未决）、无难度、genre=best move 不落盘。
+  goproblems:   { code: 'GP', category: 'life-and-death', perspective: null },
 };
 const CATEGORIES = ['life-and-death', 'ai-review'];
 
@@ -204,6 +214,10 @@ const sgfWriter = new SGFWriter();
  */
 const LIFE_HEADER_WHITELIST = new Set([
   'CA', 'GM', 'FF', 'SZ', 'PB', 'PW', 'KM', 'HA', 'RU',
+  // PL（先手方）：死活题的「白先」靠它表达。此前不在白名单里，入库时被丢弃，
+  // goproblems 有 9267 道白先题、101 系也有数千道，全靠运行时「首手推断」兜底。
+  // 显式保留更稳妥，也避免推断规则变动时静默出错。
+  'PL',
 ]);
 
 /**
@@ -259,6 +273,15 @@ function setProp(props, ident, value) {
  *   PW: "Exercise 034" + C: "OGS-2806 - life_and_death 15k - 白先" → "15k"
  */
 function extractDifficulty(pw, rootComment) {
+  // goproblems 根节点 C[] 形如 "GP-56820 - 18 kyu life and death - 黑先"，
+  // 是难度的权威来源，优先取它。
+  //
+  // ⚠️ 必须优先于 PW：白先题的 PW 是作者名（如 PW[j074r0kun6]、PW[J0kel2]、
+  // PW[dam0kgs]），而下面的裸正则 (\d+\s*[kKdDpP]) 会把作者名里的 “0k” 当成难度，
+  // 实测把 4 道 9D/7D/22K 题错标成 0K。
+  const gp = (rootComment || '').match(/GP-\d+\s*-\s*(\d+)\s*(kyu|dan)/i);
+  if (gp) return gp[2].toLowerCase() === 'kyu' ? gp[1] + 'K' : gp[1] + 'D';
+
   const sources = [pw || '', rootComment || ''];
   for (const s of sources) {
     if (!s) continue;
@@ -269,7 +292,9 @@ function extractDifficulty(pw, rootComment) {
     m = s.match(/(\d+\s*[kKdD]\+?)\s*\S*题/);
     if (m) return m[1].replace(/\s/g, '').toUpperCase();
     // "life_and_death 18k" / "joseki 12k" → 18k
-    m = s.match(/(\d+\s*[kKdDpP])(?!\s*kyu)(?!\s*死)/);
+    // 左侧加 (^|[^A-Za-z0-9]) 边界：避免作者名/ID 里的 “数字+k” 被误判为难度
+    // （如 "j074r0kun6" 里的 0k、"J0kel2" 里的 0k）。
+    m = s.match(/(?:^|[^A-Za-z0-9])(\d+\s*[kKdDpP])(?!\s*kyu)(?!\s*死)/);
     if (m) return m[1].replace(/\s/g, '').toUpperCase();
   }
   return '';
@@ -289,6 +314,37 @@ function extractDifficulty(pw, rootComment) {
  *   定式题 / joseki                     → 定式题
  *   无法识别                            → 死活题（默认）
  */
+/**
+ * 难度裁剪（2026-10-27，为合入 goproblems 引入）。
+ * goproblems 的等级跨度是 30K~9D，比现有 101 系题库（15K~7D）宽得多，
+ * 两端各有大量题目：30K~15K 段共 22268 题（36%），7D 以上 1952 题。
+ * 直接入库会让难度筛选出现一堆几乎无人可选的极端档位，故统一收口：
+ *   30K ~ 15K → 15K   （K 数值越大越弱，>=15 即收口）
+ *   7D 以上   → 7D
+ * 现有 101 系题库本就落在 15K~7D，故此规则对它们基本是恒等变换。
+ */
+const RANK_FLOOR_K = 15;
+const RANK_CEIL_D = 7;
+
+/**
+ * 裁剪难度到 [15K, 7D] 区间，保留原有的 “+”（如 15K+ → 15K+，不影响现有数据）。
+ */
+function clampRank(diff) {
+  const m = /^(\d+)([KD])(\+?)$/.exec(diff);
+  if (!m) return diff;
+  const v = parseInt(m[1], 10);
+  if (m[2] === 'K') return v >= RANK_FLOOR_K ? `${RANK_FLOOR_K}K${m[3]}` : diff;
+  return v >= RANK_CEIL_D ? `${RANK_CEIL_D}D${m[3]}` : diff;
+}
+
+/**
+ * 难度带问号（悬而未决）→ true。
+ * 抓取侧已过滤，这里是兜底：历史落盘的 SGF 可能仍带 “?”（旧 Provider 未写入时抓的）。
+ */
+function hasUncertainRank(pw, rootComment) {
+  return /\d+\s*(kyu|dan)\?/i.test(`${pw || ''} ${rootComment || ''}`);
+}
+
 function extractType(pw, rootComment) {
   const s = `${pw || ''} ${rootComment || ''}`;
   if (/死活|life_and_death|elementary/i.test(s)) return '死活题';
@@ -296,10 +352,15 @@ function extractType(pw, rootComment) {
   if (/对杀/.test(s)) return '对杀题';
   if (/官子|endgame/i.test(s)) return '官子题';
   if (/中盘|middlegame/i.test(s)) return '中盘题';
-  if (/布局|fuseki|opening/i.test(s)) return '布局题';
+  // joseki → 布局题（用户指定，与 fuseki/opening 同类）。
+  // 注意必须排在“定式”之前：goproblems 的 "joseki" 与中文“定式”是同义词，
+  // 若沿用旧的 /定式|joseki/ → 定式题，会给布局类再开一个几乎空的新分类
+  // （现有库里 定式题 只有 1 条，而 布局题 有 9488 条）。
+  if (/布局|fuseki|opening|joseki/i.test(s)) return '布局题';
   if (/棋理/.test(s)) return '棋理题';
-  if (/best_move/i.test(s)) return '一选题';
-  if (/定式|joseki/i.test(s)) return '定式题';
+  // best move 已在抓取侧排除；此分支仅作兜底
+  if (/best[_ ]move/i.test(s)) return '一选题';
+  if (/定式/.test(s)) return '定式题';
   return '死活题';
 }
 
@@ -405,6 +466,8 @@ function processSgf(text, category, perspective) {
   const rootWhitelist = new Set([...headerWhitelist, ...moveProps, 'C']);
 
   let lastColor = null;
+  // 命中排除规则时置位，由调用方丢弃整条记录（难度带问号 = 悬而未决）
+  let skipReason = null;
 
   function walk(node, isRoot) {
     const props = node.properties;
@@ -450,7 +513,14 @@ function processSgf(text, category, perspective) {
       const origPW = getProp(props, 'PW') || '';
       if (category === 'life-and-death') {
         const origC = getProp(props, 'C') || '';
-        const diff = extractDifficulty(origPW, origC);
+        // 悬而未决（难度带问号）→ 整条跳过不入库。抓取侧已过滤，此处兜底。
+        if (hasUncertainRank(origPW, origC)) { skipReason = 'uncertain-rank'; }
+        // best move（一选题）→ 不入库（用户指定）。抓取侧已排除，此处兜底。
+        if (/best[_ ]move/i.test(`${origPW} ${origC}`)) { skipReason = 'best-move'; }
+        const rawDiff = extractDifficulty(origPW, origC);
+        // 无难度 → 不入库。现有库 85018 条全部带难度，混入会破坏难度筛选的一致性。
+        if (!rawDiff) { skipReason = 'no-rank'; }
+        const diff = clampRank(rawDiff);
         const type = extractType(origPW, origC);
         // PW 存「类型·难度」，供前端按类型/难度筛选；无难度时只存类型
         newProps['PW'] = diff ? `${type}·${diff}` : type;
@@ -499,7 +569,8 @@ function processSgf(text, category, perspective) {
 
   walk(tree, true);
 
-  return sgfWriter.writeTree(tree);
+  // 返回 { sgf: null, skipReason } 表示「按规则排除」（非解析错误），调用方据此分类计数并跳过
+  return skipReason ? { sgf: null, skipReason } : { sgf: sgfWriter.writeTree(tree), skipReason: null };
 }
 
 // ─── 扫描 / 水位 ─────────────────────────────────────────
@@ -677,7 +748,8 @@ function main() {
     scanned: 0, kept: 0,
     dupRaw: 0,            // 原始文件 MD5 重复（同一来源内同一文件重复落盘，仅统计不跳过）
     dupContent: 0,        // 本次运行内重复（白名单重建后内容相同，含跨来源）
-
+    skipped: 0,           // 按规则排除（见 skipReasons）
+    skipReasons: {},      // { uncertainRank / bestMove / noRank: 数量 }
     parseFailed: 0,
     perSource: {},
   };
@@ -688,7 +760,7 @@ function main() {
     const files = scanSource(opts.input, srcName, today);
     if (files.length === 0) continue;
     console.log(`\n来源 ${srcName} → ${cfg.category}: ${files.length} 盘`);
-    const ss = (stats.perSource[srcName] ||= { scanned: 0, kept: 0, dupRaw: 0, dupContent: 0, parseFailed: 0 });
+    const ss = (stats.perSource[srcName] ||= { scanned: 0, kept: 0, dupRaw: 0, dupContent: 0, skipped: 0, parseFailed: 0 });
 
     for (const f of files) {
       stats.scanned++; ss.scanned++;
@@ -698,14 +770,22 @@ function main() {
       if (rawMd5Seen.has(rawKey)) stats.dupRaw++, ss.dupRaw++;
       else rawMd5Seen.add(rawKey);
 
-      let sgf;
+      let out;
       try {
-        sgf = processSgf(raw, cfg.category, cfg.perspective);
+        out = processSgf(raw, cfg.category, cfg.perspective);
       } catch (err) {
         stats.parseFailed++; ss.parseFailed++;
         console.error(`  ⚠️  跳过（解析失败）${f.path}: ${err.message}`);
         continue;
       }
+
+      // 按规则排除（难度带问号 / best move / 无难度），与解析失败区分计数
+      if (out.sgf === null) {
+        stats.skipped++; ss.skipped++;
+        stats.skipReasons[out.skipReason] = (stats.skipReasons[out.skipReason] || 0) + 1;
+        continue;
+      }
+      const sgf = out.sgf;
 
       // 内容级去重（判定依据）：同一分类下入库内容相同即视为重复，保留首次出现的那条
       const contentMd5 = md5(sgf);
@@ -742,6 +822,7 @@ function main() {
   console.log(`  入库       : ${stats.kept}`);
   console.log(`  原始重复   : ${stats.dupRaw}（同来源内同一文件重复落盘）`);
   console.log(`  内容重复   : ${stats.dupContent}（白名单重建后内容相同，含跨来源）`);
+  console.log(`  规则排除   : ${stats.skipped}（${Object.entries(stats.skipReasons).map(([k, v]) => `${k}:${v}`).join(' ') || '无'}）`);
   console.log(`  解析失败   : ${stats.parseFailed}`);
   for (const [src, s] of Object.entries(stats.perSource)) {
     console.log(`    · ${src.padEnd(12)} 扫描 ${String(s.scanned).padStart(6)}  入库 ${String(s.kept).padStart(6)}  内容重复 ${String(s.dupContent).padStart(5)}  原始重复 ${String(s.dupRaw).padStart(5)}`);
