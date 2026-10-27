@@ -403,11 +403,9 @@ export class FetcherRenderer {
     const dialog = document.createElement('div');
     dialog.className = 'fetcher-filter-dialog';
 
-    // 恢复上次保存的筛选状态（无则用默认：首项题型）
+    // 恢复上次保存的筛选状态（无则全不预选：不选 = 全部）
     const savedState = this.cb.onLoadFilterState?.() ?? null;
-    const savedTypes = savedState && savedState.types.length > 0
-      ? savedState.types
-      : [PUZZLE_FILTER_TYPES[0]!.value];
+    const savedTypes = savedState ? savedState.types : [];
     // 难度支持复选（兼容性：旧版持久化的是单值 difficulty）
     const savedDifficulties = savedState
       ? normalizeDifficulties(savedState.difficulties ?? (savedState as { difficulty?: string }).difficulty)
@@ -436,7 +434,10 @@ export class FetcherRenderer {
         '<div class="dialog">' +
           '<div class="dialog-title">筛选关键字生成</div>' +
           '<div class="fetcher-filter-section">' +
-            '<div class="fetcher-filter-label">题型（可多选，不选=全部）</div>' +
+            '<div class="fetcher-filter-label fetcher-filter-label-row">' +
+              '<span>题型（可多选，不选=全部）</span>' +
+              '<button type="button" class="fetcher-filter-clear" data-act="clear-type">清空</button>' +
+            '</div>' +
             '<div class="fetcher-filter-types">' + typeCheckboxes + '</div>' +
           '</div>' +
           '<div class="fetcher-filter-section">' +
@@ -476,6 +477,12 @@ export class FetcherRenderer {
       dialog.querySelectorAll<HTMLInputElement>('input[data-difficulty]').forEach((input) => {
         input.checked = false;
         syncChip(input);
+      });
+    });
+    // 题型清空：不预勾选任何题型，回落到「不按题型筛选」
+    dialog.querySelector('[data-act="clear-type"]')?.addEventListener('click', () => {
+      dialog.querySelectorAll<HTMLInputElement>('input[data-type]').forEach((input) => {
+        input.checked = false;
       });
     });
 

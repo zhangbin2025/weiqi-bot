@@ -1,6 +1,8 @@
 /**
  * 做题筛选题型/难度弹框
  * @description 题型与难度均支持复选，生成 and/or 关键字。与 fetcher 共用 puzzleFilter 常量。
+ *              默认「都不选 = 全部」：没有保存过偏好时，题型与难度复选框一律不预选，
+ *              避免打开弹框就被悄悄套上「布局」筛选。
  */
 import {
   PUZZLE_FILTER_TYPES,
@@ -13,7 +15,7 @@ import {
 export class PuzzleFilterDialog {
   /**
    * 打开筛选弹框
-   * @param loadState - 读取上次保存的筛选状态
+   * @param loadState - 读取上次保存的筛选状态；null 表示从未设置过（此时不预选任何项）
    * @param onSubmit - 提交回调（传入题型/难度选择）
    */
   static open(
@@ -21,9 +23,8 @@ export class PuzzleFilterDialog {
     onSubmit: (state: PuzzleFilterState) => void,
   ): void {
     const saved = loadState();
-    const types = saved && saved.types.length > 0
-      ? saved.types
-      : [PUZZLE_FILTER_TYPES[0]!.value];
+    // 从未设置过偏好 → 全不预选（不选 = 全部）；设置过 → 原样回填（含全空）
+    const types = saved ? saved.types : [];
     // 兼容旧版单值难度偏好
     const difficulties = saved
       ? normalizeDifficulties(saved.difficulties ?? saved.difficulty)
@@ -56,7 +57,10 @@ export class PuzzleFilterDialog {
         '<div class="dialog">' +
           '<div class="dialog-title">筛选题目</div>' +
           '<div class="puzzle-filter-section">' +
-            '<div class="puzzle-filter-label">题型（可多选，不选=全部）</div>' +
+            '<div class="puzzle-filter-label puzzle-filter-label-row">' +
+              '<span>题型（可多选，不选=全部）</span>' +
+              '<button type="button" class="puzzle-filter-clear" data-act="clear-type">清空</button>' +
+            '</div>' +
             '<div class="puzzle-filter-types">' + typeCheckboxes + '</div>' +
           '</div>' +
           '<div class="puzzle-filter-section">' +
@@ -97,6 +101,12 @@ export class PuzzleFilterDialog {
       dialog.querySelectorAll<HTMLInputElement>('input[data-difficulty]').forEach((input) => {
         input.checked = false;
         syncChip(input);
+      });
+    });
+    // 题型清空：不预勾选任何题型，回落到「不按题型筛选」
+    dialog.querySelector('[data-act="clear-type"]')?.addEventListener('click', () => {
+      dialog.querySelectorAll<HTMLInputElement>('input[data-type]').forEach((input) => {
+        input.checked = false;
       });
     });
 

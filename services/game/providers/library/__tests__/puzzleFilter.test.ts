@@ -34,10 +34,11 @@ describe('puzzleFilter', () => {
     expect(PUZZLE_FILTER_DIFFICULTIES).not.toContain('30K');
   });
 
-  it('默认筛选状态为首项题型、无难度', () => {
+  it('默认筛选状态为全不选（不筛选）', () => {
     const st = defaultPuzzleFilterState();
-    expect(st.types).toEqual(['布局']);
+    expect(st.types).toEqual([]);
     expect(st.difficulties).toEqual([]);
+    expect(buildPuzzleKeyword(st.types, st.difficulties)).toBe('');
   });
 
   it('单题型 + 难度生成 and 表达式', () => {

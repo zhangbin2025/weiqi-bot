@@ -49,12 +49,13 @@ export interface PuzzleFilterState {
   difficulty?: string;
 }
 
-/** 默认筛选状态：首项题型，无难度 */
+/**
+ * 默认筛选状态：题型与难度都不选（= 不筛选）
+ * @description 筛选弹框打开时若没有保存过偏好，一律不预勾选任何项 ——
+ *              「不选 = 全部」，避免用户一打开就被套上「布局」这类隐含条件。
+ */
 export function defaultPuzzleFilterState(): PuzzleFilterState {
-  return {
-    types: [PUZZLE_FILTER_TYPES[0]!.value],
-    difficulties: [],
-  };
+  return { types: [], difficulties: [] };
 }
 
 /**
