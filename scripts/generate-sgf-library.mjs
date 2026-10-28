@@ -18,7 +18,17 @@
  *
  * 唯一 id = 【内容派生】，与日期/序号/文件名/口令无关（2026-10-28 改）：
  *   题库(life-and-death) = 初始局面棋形哈希（最小路数 × 8 方向 × 黑白互换的规范值）
- *   棋谱(ai-review)      = contentMd5（白名单重建后 SGF 的 md5）
+ *   棋谱(ai-review)      = 主分支着法指纹 md5（沿 children[0] 走到尾的 B/W 序列）
+ *                          极短棋谱（主分支 < 2 手）回落 contentMd5
+ *
+ *   棋谱为什么刻意不用 contentMd5：contentMd5 = md5(白名单重建后的 SGF)，
+ *   含头部属性与规范化结果 —— 将来往白名单加一个属性、或改一条规范化规则
+ *   （贴目格式、段位写法），全部棋谱的 id 都会变，已分享的 lib:// 链接集体失效。
+ *   主分支着法序列只取决于棋本身，与白名单/规范化彻底解耦。
+ *
+ *   极短棋谱为什么回落 contentMd5：实测有 7 条主分支仅 1 手的棋谱，其中 6 条
+ *   首手都是 B[pd] 但其实是完全不同的棋（BR/WR/KM/RE 各异），若按主分支判重
+ *   会误合并成 1 条。设阈值 2 手后误合并归零。
  *
  *   为什么必须纯内容派生：内置库是【增量更新】的，每天生成一次。
  *   旧算法 HMAC(来源码|日期|序号|文件名) 含日期与序号，二者每次生成都变，
@@ -185,6 +195,45 @@ function computeStablePuzzleId(sgf) {
   // 取字典序最小的那个哈希作规范值：保证同一棋形的 16 个变体收敛到同一个 ID
   return ph ? [...ph].sort()[0] : null;
 }
+
+/**
+ * 主分支着法序列指纹（ai-review 的稳定 ID 来源）
+ *
+ * 为什么不用 contentMd5：contentMd5 = md5(白名单重建后的 SGF)，含头部属性与
+ * 规范化结果 —— 将来往白名单加一个属性（如本次加 PL）、或改一条规范化规则
+ * （贴目格式、段位写法），所有棋谱的 ID 都会变，已分享的 lib:// 链接全部失效。
+ * 主分支着法序列只取决于棋本身，与白名单/规范化彻底解耦。
+ *
+ * 主分支 = 每层取 children[0]（SGF 的第一个分支即正着）。
+ *
+ * @param tree 已解析的 SGF 树
+ * @returns { md5, len } len 为主分支着法数（不含根节点）
+ */
+function mainLineFingerprint(tree) {
+  const seq = [];
+  let node = tree;
+  while (node) {
+    const b = node.properties.B;
+    const w = node.properties.W;
+    if (typeof b === 'string') seq.push('B' + (b || 'pass'));
+    else if (typeof w === 'string') seq.push('W' + (w || 'pass'));
+    node = node.children[0];
+  }
+  return { md5: md5(seq.join(';')), len: seq.length };
+}
+
+/**
+ * ai-review 判重/取 ID 的主分支最短手数阈值
+ *
+ * 极短棋谱不能按主分支判重：实测有 7 条主分支仅 1 手的棋谱，其中 6 条首手都是
+ * B[pd] 但其实是【完全不同的棋】—— BR/WR/KM/RE 各不相同（BR[5d]WR[7d]KM[7.5]、
+ * BR[3d]WR[3d]KM[6.5]、BR[1d]WR[0k]RE[Disconnection]...），只是首手恰好撞上。
+ * 若按主分支 md5 判重会把 6 盘棋误合并成 1 条。实测设阈值 2 即消除全部误合并。
+ *
+ * 故：主分支够长 → 用主分支指纹（与白名单解耦，链接永久稳定）；
+ *     太短 → 回落 contentMd5（这类棋谱极少，链接稳定性让位于正确性）。
+ */
+const MIN_MAINLINE_MOVES = 2;
 
 
 // ─── 去重（MD5） ────────────────────────────────────────
@@ -748,7 +797,13 @@ function processSgf(text, category, perspective, sourceName) {
   walk(tree, true);
 
   // 返回 { sgf: null, skipReason } 表示「按规则排除」（非解析错误），调用方据此分类计数并跳过
-  return skipReason ? { sgf: null, skipReason } : { sgf: sgfWriter.writeTree(tree), skipReason: null };
+  const built = sgfWriter.writeTree(tree);
+  // 主分支指纹顺带在此算好：tree 已解析，避免调用方再解析一遍（全量重建下
+  // 十万级条目，重复解析是不可接受的开销）。
+  const mainline = mainLineFingerprint(tree);
+  return skipReason
+    ? { sgf: null, skipReason, mainline }
+    : { sgf: built, skipReason: null, mainline, contentMd5: md5(built) };
 }
 
 // ─── 扫描 / 水位 ─────────────────────────────────────────
@@ -921,12 +976,10 @@ function main() {
   const today = localDateString();
 
   const buckets = { 'life-and-death': {}, 'ai-review': {} };
-  // 去重集合：key = "<category>:<contentMd5>"，已入库即跳过（本次运行内生效）
+  // 去重集合：已入库即跳过（本次运行内生效）。key 形如
+  //   "<category>:pos:<棋形哈希>" / "<category>:ml:<主分支指纹>" / "<category>:<contentMd5>"
   const dedup = loadDedupSet();
-  // 死活题「初始局面」8 方向哈希集合（见 lifePositionHashes 注释）。
-  // 与 dedup 并存：life-and-death 走这里，ai-review 仍走 contentMd5。
-  const lifePosSeen = new Set();
-  const lifeStats = { byPosition: 0, byContent: 0 };
+  const lifeStats = { byPosition: 0, byContent: 0, byMainline: 0 };
   // 统计
   const stats = {
     scanned: 0, kept: 0,
@@ -973,8 +1026,10 @@ function main() {
 
       // 去重（判定依据）：保留首次出现的那条
       //   · life-and-death → 初始局面 8 方向哈希（跨来源同题马甲）
-      //   · ai-review      → contentMd5（初始皆空枰，按局面去重会塌成 1 条）
-      const contentMd5 = md5(sgf);
+      //   · ai-review      → 主分支着法指纹（初始皆空枰，按局面去重会塌成 1 条）
+      //                      极短棋谱（< MIN_MAINLINE_MOVES 手）回落 contentMd5
+      const contentMd5 = out.contentMd5;
+      const mainline = out.mainline;
       let dedupKey;
       let dedupKind = 'content';
       if (cfg.category === 'life-and-death') {
@@ -987,13 +1042,19 @@ function main() {
           dedupKind = 'content';
           dedupKey = cfg.category + ':' + contentMd5;
         }
+      } else if (mainline.len >= MIN_MAINLINE_MOVES) {
+        dedupKind = 'mainline';
+        dedupKey = cfg.category + ':ml:' + mainline.md5;
       } else {
+        // 极短棋谱：按主分支判重会把 6 盘不同棋误合并（实测见 MIN_MAINLINE_MOVES 注释）
+        dedupKind = 'content';
         dedupKey = cfg.category + ':' + contentMd5;
       }
       if (dedup.all.has(dedupKey)) {
         stats.dupContent++, ss.dupContent++;
-        // 只在【判重命中】时累加，区分「按局面」与「按内容/ai-review」
+        // 只在【判重命中】时累加，区分「按局面」「按主分支」「按内容」
         if (dedupKind === 'position') lifeStats.byPosition++;
+        else if (dedupKind === 'mainline') lifeStats.byMainline++;
         else lifeStats.byContent++;
         duplicateMap[`${srcName}/${f.date}/${f.filename}`] = {
           path: f.path, source: srcName, date: f.date, filename: f.filename,
@@ -1005,15 +1066,19 @@ function main() {
       }
       dedup.all.add(dedupKey);
 
-      // 稳定 ID：只由内容派生（题库取棋形哈希，棋谱取 contentMd5）
+      // 稳定 ID：只由内容派生（题库取棋形哈希，棋谱取主分支着法指纹）
       // ⚠️ 绝不能掺入 date / seq / filename / 口令：内置库是增量更新的，
       //    那些分量每次生成都会变，掺进去 ID 就跟着变 ——
       //    分享出去的 lib:// URL 过一天失效，做题历史也去重不了。
+      //
+      // 棋谱刻意【不用 contentMd5】：contentMd5 含白名单属性与规范化结果，
+      // 将来加一个白名单属性或改一条规范化规则，全部棋谱 ID 就会变，
+      // 已分享的链接集体失效。主分支着法序列只取决于棋本身，不受影响。
       const id = cfg.category === 'life-and-death'
         // 题库：初始局面棋形哈希；算不出（空局面/无摆子）时回落 contentMd5
         ? (computeStablePuzzleId(sgf) ?? contentMd5)
-        // 棋谱：对局初始皆空枰，算不出棋形 → 用内容 md5（同样是纯内容派生）
-        : contentMd5;
+        // 棋谱：主分支着法指纹；极短棋谱回落 contentMd5（见 MIN_MAINLINE_MOVES 注释）
+        : (mainline.len >= MIN_MAINLINE_MOVES ? mainline.md5 : contentMd5);
       if (!keepDedupOnly) {
         (buckets[cfg.category][f.date] ||= []).push({ id, sgf, date: f.date, contentMd5 });
       }
@@ -1036,7 +1101,8 @@ function main() {
   console.log(`  原始重复   : ${stats.dupRaw}（同来源内同一文件重复落盘）`);
   console.log(`  判重剔除   : ${stats.dupContent}`);
   console.log(`    其中死活题按初始局面 : ${lifeStats.byPosition}（含跨来源同题马甲）`);
-  console.log(`    其余(ai-review/空局面): ${lifeStats.byContent}`);
+  console.log(`    其中棋谱按主分支着法 : ${lifeStats.byMainline}`);
+  console.log(`    其余(空局面/极短棋谱): ${lifeStats.byContent}`);
   console.log(`  规则排除   : ${stats.skipped}（${Object.entries(stats.skipReasons).map(([k, v]) => `${k}:${v}`).join(' ') || '无'}）`);
   console.log(`  解析失败   : ${stats.parseFailed}`);
   for (const [src, s] of Object.entries(stats.perSource)) {
