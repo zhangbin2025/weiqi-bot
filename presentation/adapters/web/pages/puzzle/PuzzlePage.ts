@@ -26,6 +26,7 @@ import { PuzzleFilterDialog } from './ui/PuzzleFilterDialog';
 import { PuzzleHistoryPanel } from './ui/PuzzleHistoryPanel';
 import { PuzzleStatsDialog } from './ui/PuzzleStatsDialog';
 import type { PuzzleInitialStone } from '../../../../../application/puzzle/PuzzleHistoryManager';
+import { puzzleShapeHash } from '../../../../../application/puzzle/PuzzleHistoryManager';
 import { Select } from '@ui';
 
 /** 在线来源每批拉取的题目数（只取一页，避免换题时反复翻页） */
@@ -114,11 +115,17 @@ export class PuzzlePage implements IPage {
   private usedCycle: number[] = [];
   private cycle = 0;
   /**
-   * 已做过的内置题库题目 URL（用于「未做优先」分层）
+   * 已做过的题目去重键集合（棋形哈希，老数据回落 url）
+   *
    * @description 不论对错，只要历史里有记录就算已做（错题也让位给新题）。
    *              仅在内置题库路径填充；在线来源恒为空集合，出题逻辑不受影响。
+   *
+   *              ⚠️ 键从 URL 改为【棋形哈希】：内置题库 url 形如
+   *              lib://life-and-death/<日期>/<序号>，日期每天随数据更新变、
+   *              序号因题库增删整体平移（实测同一题 10-26 是 /4，10-27 变成 /7）。
+   *              按 url 判「是否做过」，过一天就全盘失效 → 一上来就重复出题。
    */
-  private doneUrls: Set<string> = new Set();
+  private doneKeys: Set<string> = new Set();
   /** 在线来源续拉取锁，避免批次用尽时反复续拉 */
   private refilling = false;
   /** 当前来源/筛选关键字 */
@@ -272,7 +279,7 @@ export class PuzzlePage implements IPage {
       // 补回已做题集合：这里是新页面实例，首次拉列表时填的那份已随内存清零。
       // 只填集合、不重排 items —— 缓存里的顺序与 currentIndex 是配套的，
       // 一重排下标就错位，用户会回到另一道题。分层留到本轮出完重洗时生效。
-      if (this.source === 'lib-life-death') await this.loadDoneUrls();
+      if (this.source === 'lib-life-death') await this.loadDoneKeys();
     }
 
     // 单题模式：从历史/fetcher 跳入的那道题，返回后必须仍是它
@@ -468,10 +475,10 @@ export class PuzzlePage implements IPage {
       this.currentIndex = -1;
       // 内置题库随机出题：未做题排在前、已做题排在后（见 shuffleItems）
       if (isLib) {
-        await this.loadDoneUrls();
+        await this.loadDoneKeys();
         this.shuffleItems();
       } else {
-        this.doneUrls = new Set();
+        this.doneKeys = new Set();
       }
       // 打乱之后再存：缓存里的顺序必须与内存一致，
       // 否则恢复时 currentIndex 指向的是未打乱数组的下标 → 回到另一道题
@@ -500,17 +507,17 @@ export class PuzzlePage implements IPage {
   }
 
   /**
-   * 拉取已做题 URL 集合（内置题库「未做优先」分层用）
+   * 拉取已做题去重键集合（内置题库「未做优先」分层用）
    *
    * @description 失败时降级为空集合而非抛错：拿不到历史就退化成纯随机出题，
    *              不该因此让整个题库加载失败（做题历史只是排序依据，不是题目本身）。
    */
-  private async loadDoneUrls(): Promise<void> {
+  private async loadDoneKeys(): Promise<void> {
     try {
-      this.doneUrls = await this.config.puzzleApp.getDoneUrls();
+      this.doneKeys = await this.config.puzzleApp.getDoneKeys();
     } catch (e) {
       console.warn('[PuzzlePage] 读取已做题列表失败，退化为随机出题', e);
-      this.doneUrls = new Set();
+      this.doneKeys = new Set();
     }
   }
 
@@ -545,7 +552,7 @@ export class PuzzlePage implements IPage {
   /**
    * 随机打乱题目顺序（未做优先）
    *
-   * 分层洗牌：先按 doneUrls 把题目分成「未做」「已做」两组，各自 Fisher-Yates 洗牌，
+   * 分层洗牌：先按 doneKeys（棋形哈希）把题目分成「未做」「已做」两组，各自洗牌，
    * 再拼成 [未做... | 已做...]。配合 nextPuzzle 的线性扫描，效果是：
    * 本轮先把所有没做过的题出完（组内仍随机），之后才轮到做过的题。
    *
@@ -553,18 +560,22 @@ export class PuzzlePage implements IPage {
    * 纯随机会反复撞到做过的题，没做过的题要碰运气才刷得到；
    * 哪怕一轮内不重复，一轮出完重洗后做过的题仍有均等概率立刻重现。
    *
-   * @description doneUrls 为空（首次使用 / 在线来源 / 历史查询失败）时退化为整体洗牌，
+   * @description doneKeys 为空（首次使用 / 在线来源 / 历史查询失败）时退化为整体洗牌，
    *              行为与改动前一致。全部做完后同样退化为整体洗牌，不会出空态。
+   *
+   * ⚠️ 列表项只有 url / title / subtitle，拿不到摆子，故这里只能按 url 键比对；
+   *    老数据（'u:'+url）可命中，新数据存的是棋形哈希，要命中需数据层
+   *    把棋形哈希带进列表项 —— 见 loadPuzzleList 的 TODO。
    */
   private shuffleItems(): void {
-    if (this.doneUrls.size === 0) {
+    if (this.doneKeys.size === 0) {
       shuffleInPlace(this.items);
       return;
     }
     const undone: PuzzleItem[] = [];
     const done: PuzzleItem[] = [];
     for (const it of this.items) {
-      if (this.doneUrls.has(it.url)) done.push(it);
+      if (this.doneKeys.has('u:' + it.url)) done.push(it);
       else undone.push(it);
     }
     shuffleInPlace(undone);
@@ -961,7 +972,7 @@ export class PuzzlePage implements IPage {
       this.refreshDoneCount();
     });
     // 本题已入历史：下一轮重排时它要落到「已做」段，让位给还没做过的题
-    this.doneUrls.add(this.state.get('url'));
+    this.markCurrentDone();
     this.ui.showSolvedModal(duration);
   }
 
@@ -990,7 +1001,26 @@ export class PuzzlePage implements IPage {
       this.refreshDoneCount();
     });
     // 未解出也算做过：同样让位给没做过的题
-    this.doneUrls.add(this.state.get('url'));
+    this.markCurrentDone();
+  }
+
+  /**
+   * 把当前这道题标记为「已做」（供本轮重排时分层）
+   *
+   * @description 优先用【棋形哈希】入集：跨日期 / 跨路数都能认出是同一题。
+   *              拿不到摆子（空枰题）时回落 url 键，行为与改动前一致。
+   *
+   *              ⚠️ 集合里混放 's:'+棋形哈希 与 'u:'+url 两种键：
+   *              shuffleItems 只能按 url 比对（列表项无摆子），所以新入的
+   *              棋形键在本轮重排时暂不会命中 —— 命中要等数据层把棋形哈希
+   *              带进列表项。但入集本身是对的：历史侧已按棋形合并，
+   *              下次加载题库时 getDoneKeys 会带回这批棋形键。
+   */
+  private markCurrentDone(): void {
+    const url = this.state.get('url');
+    if (!url) return;
+    const shape = puzzleShapeHash(this.initialStones, this.currentBoardSize);
+    this.doneKeys.add(shape ? 's:' + shape : 'u:' + url);
   }
 
   /** 采集棋盘上的初始摆子（用于历史缩略图） */
