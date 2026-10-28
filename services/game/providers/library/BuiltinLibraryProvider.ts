@@ -10,8 +10,17 @@
  * 索引：index.json.gz —— { version, generatedAt, categories: { cat: [dates...] } }
  *
  * URL 协议：
- *   lib://<category>/<date>/<index>   单盘棋谱（index 为该日期下按 id 排序的序号）
- *   lib://<category>                  仅用于源列表（无实际抓取）
+ *   lib://<category>/<id>   单盘棋谱（id 为【内容派生】的稳定 ID，32 位 hex）
+ *   lib://<category>        仅用于源列表（无实际抓取）
+ *
+ * 为什么 URL 用内容派生 md5 而不是「日期 + 下标」（2026-10-28 改）：
+ *   内置库是【增量更新】的，每天生成一次。旧的 <date>/<index> 两者每次都变，
+ *   同一盘棋谱今天和昨天的 URL 不同 —— 分享出去的链接过一天就失效，
+ *   做题历史按 URL 去重也会把昨天的题判成新题（已做数突破总数）。
+ *   改成内容派生后：只要这盘棋谱还在库里，lib://<category>/<id> 永久可打开。
+ *
+ *   id 的取法（见生成脚本）：题库=初始局面棋形哈希，棋谱=SGF 内容 md5。
+ *   注意 URL 里不含日期：按 id 定位时需要遍历该分类下的日期去查 meta.ids。
  *
  * 隐私：库内棋谱已匿名化（棋手/出题者/AI 名），唯一标识为 md5(id)；
  *       追源请在本机用生成脚本产出的 private-map.json 反查。
@@ -116,8 +125,8 @@ interface BuiltinLibraryChunk {
 
 /**
  * 轻量元数据索引（由生成脚本产出 <date>.meta.json.gz，两个分类都生成）。
- * 题库写 pw（标签），棋谱写 ids（md5 文件名）—— 二者二选一，下标均对应
- * 排序后的第 i 个 SGF，即 lib://<cat>/<date>/<i>。
+ * ids[i] = 排序后第 i 条 SGF 的【稳定 ID】（内容派生的 md5），URL 即
+ * lib://<cat>/<ids[i]>；题库另有 pw[i]（「类型·难度」标签）供筛选。
  * 字段均为必填：数据由构建脚本统一产出，不存在旧格式，缺任一字段即视为数据损坏。
  */
 interface BuiltinLibraryMeta {
@@ -129,10 +138,10 @@ interface BuiltinLibraryMeta {
   chunkSize: number;
   /** 块描述数组，覆盖 [0, count) 且无空洞重叠 */
   chunks: BuiltinLibraryChunk[];
+  /** ids[i] 为第 i 条的稳定 ID（内容派生的 md5），两个分类都有 */
+  ids: string[];
   /** 题库：pw[i] 为第 i 条的「类型·难度」标签 */
   pw?: string[];
-  /** 棋谱：ids[i] 为第 i 条的 md5 文件名（列表展示用） */
-  ids?: string[];
 }
 
 /**
@@ -375,6 +384,27 @@ export class BuiltinLibraryArchiveProvider {
   }
 
   /**
+   * 按稳定 ID 取单条 SGF：先在该分类各日期的 meta.ids 里查出下标，再只下载解压其所属块。
+   *
+   * 为何要遍历日期：URL 里不含日期（含日期就会随重建而变，失去永久可打开的意义），
+   * 所以得反查。日期通常只有 1 个（生成脚本按最新日期合并打包），遍历代价很小；
+   * 且按「新 → 旧」顺序查，命中即返回。
+   *
+   * @throws 该 ID 不在库内（可能已被增量更新移除，或 ID 写错）
+   */
+  async resolveEntryById(category: string, id: string): Promise<{ entry: KatagoSgfEntry; date: string }> {
+    const dates = await this.listDates(category);
+    const wanted = id.toLowerCase();
+    for (const date of dates) {
+      const meta = await this.fetchMeta(category, date);
+      const index = (meta.ids ?? []).indexOf(wanted);
+      if (index < 0) continue;
+      return { entry: await this.fetchEntryByIndex(category, date, index), date };
+    }
+    throw new Error(`内置库中找不到该棋谱：${category}/${id}`);
+  }
+
+  /**
    * 按下标取单条 SGF：只下载解压该下标所属的块。
    * @throws 元数据缺失或下标越界
    */
@@ -419,7 +449,7 @@ export class BuiltinLibraryArchiveProvider {
   }
 
   /**
-   * 适配 listPublicGames：返回伪 URL 列表，展开每个日期下的棋谱。
+   * 适配 listPublicGames：返回 lib://<category>/<id> 列表，展开每个日期下的棋谱。
    *
    * 取「最近 count 条」而非最早的：库内下标是时间序（老 → 新，打包时文件名带
    * 零填充序号前缀，meta.ids / pw 同序），故末尾一段才是新入库的。若从 0 开始取，
@@ -439,8 +469,11 @@ export class BuiltinLibraryArchiveProvider {
       const want = count ? Math.min(count - urls.length, meta.count) : meta.count;
       // 末尾 want 条 = 最近入库的（下标为时间序）
       const start = meta.count - want;
+      const ids = meta.ids ?? [];
       for (let i = start; i < meta.count; i++) {
-        urls.push(`lib://${category}/${d}/${i}`);
+        const id = ids[i];
+        if (!id) continue;
+        urls.push(`lib://${category}/${id}`);
       }
       if (want > 0) {
         // 只下载覆盖 [start, count) 的块（预热缓存，后续 fetch 直接命中内存）
@@ -463,7 +496,7 @@ export class BuiltinLibraryProvider extends BaseProvider {
   readonly name = 'lib';
   readonly displayName = '内置棋谱';
   readonly urlPatterns = [
-    /^lib:\/\/(life-and-death|ai-review)\/(\d{4}-\d{2}-\d{2})(?:\/(\d+))?/,
+    /^lib:\/\/(life-and-death|ai-review)\/([0-9a-f]{32})/i,
   ];
 
   constructor(
@@ -504,7 +537,7 @@ export class BuiltinLibraryProvider extends BaseProvider {
               title: '#' + (i + 1),
               subtitle: raw,
               date,
-              url: `lib://${category}/${date}/${i}`,
+              url: `lib://${category}/${meta.ids[i] ?? ''}`,
             });
           }
           continue;
@@ -518,7 +551,7 @@ export class BuiltinLibraryProvider extends BaseProvider {
             title: '#' + (i + 1),
             subtitle: ids[i] ?? '',
             date,
-            url: `lib://${category}/${date}/${i}`,
+            url: `lib://${category}/${ids[i] ?? ''}`,
           });
         }
       } catch (e) {
@@ -531,23 +564,22 @@ export class BuiltinLibraryProvider extends BaseProvider {
   async fetch(url: string): Promise<FetchResult> {
     const timing: PerformanceTiming = {};
     const start = this.now();
-    const match = url.match(/^lib:\/\/(life-and-death|ai-review)\/(\d{4}-\d{2}-\d{2})(?:\/(\d+))?/);
+    const match = url.match(/^lib:\/\/(life-and-death|ai-review)\/([0-9a-f]{32})/i);
     if (!match) {
       return this.createErrorResult(url, '无效的 lib URL 格式', timing);
     }
     const category = match[1]!;
-    const date = match[2]!;
-    const index = match[3] ? parseInt(match[3], 10) : 0;
+    const id = match[2]!;
     try {
-      // 只下载/解压该下标所属的块，避免整包（题库 3.3MB / 棋谱 2.8MB）
-      const entry = await this.archive.fetchEntryByIndex(category, date, index);
+      // 按稳定 ID 反查下标，只下载/解压其所属块，避免整包（题库 3.3MB / 棋谱 2.8MB）
+      const { entry, date } = await this.archive.resolveEntryById(category, id);
       const sgf = entry.sgfContent;
       const parsed = parseSGF(sgf);
       const info = parsed.gameInfo;
       timing.total = this.now() - start;
-      const id = entry.filename.replace(/\.sgf$/i, '');
       const metadata: GameMetadata = {
         source: this.name,
+        // 用 URL 里的稳定 ID 作 gameId：与日期、序号无关，跨重建恒定
         gameId: id,
         blackName: info.black || '黑棋',
         whiteName: info.white || '白棋',

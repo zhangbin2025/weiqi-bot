@@ -215,7 +215,7 @@ export class FetcherRenderer {
       if (id === 'latest') this.scrollToSelectedLatest();
     });
     this.queryPanel.setTitle('📋 分享链接');
-    this.input.setConfig({ type: 'textarea', placeholder: '支持：野狐、弈城、OGS、101围棋、弈客、元萝卜、腾讯围棋等平台...\n内置棋谱：lib://life-and-death/2026-10-12/0', clearable: true });
+    this.input.setConfig({ type: 'textarea', placeholder: '支持：野狐、弈城、OGS、101围棋、弈客、元萝卜、腾讯围棋等平台...\n内置棋谱：lib://life-and-death/<棋谱md5>', clearable: true });
     this.input.onEnter((url) => { if (url.trim()) this.cb.onFetch(url.trim()); });
     this.fetchBtn.setText('🔍 抓取棋谱');
     this.fetchBtn.onClick(() => { const url = this.input.getValue().trim(); if (url) this.cb.onFetch(url); });

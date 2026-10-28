@@ -133,21 +133,9 @@ export class PuzzleApp {
   }
 
   /**
-   * 获取已做过题目的去重键集合（内置题库专用）
-   *
+   * 获取已做过的内置题库题目 URL 集合（内置题库专用）
    * @description 委托 PuzzleHistoryManager，供出题排序做「未做优先」分层。
    *              不论对错，只要做过即在集合内。
-   *
-   *              键为【棋形哈希】（老数据回落 url）：内置题库 url 含日期与序号，
-   *              每天都变，按 url 判「是否做过」过一天就失效。
-   */
-  async getDoneKeys(): Promise<Set<string>> {
-    return this.historyManager.getDoneShapeHashes();
-  }
-
-  /**
-   * 获取已做过的内置题库题目 URL 集合（内置题库专用）
-   * @deprecated 内置题库 url 的日期/序号每天变化，跨天后必然失效，请用 getDoneKeys。
    */
   async getDoneUrls(): Promise<Set<string>> {
     return this.historyManager.getDoneUrls();

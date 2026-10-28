@@ -16,10 +16,16 @@
  *   · best move 已在抓取侧排除
  *   · PL[W]（白先）纳入白名单保留，不再依赖运行时首手推断
  *
- * 唯一 id = HMAC-MD5( 明文记录, 口令 )，不可逆（需口令才能重算）。
- *   明文记录 = <来源码>|<日期>|<序号>|<原始文件名>
- *   口令保存于 ~/.weiqi-sgf-library/.library-key（权限 600），首次输入后免输。
+ * 唯一 id = 【内容派生】，与日期/序号/文件名/口令无关（2026-10-28 改）：
+ *   题库(life-and-death) = 初始局面棋形哈希（最小路数 × 8 方向 × 黑白互换的规范值）
+ *   棋谱(ai-review)      = contentMd5（白名单重建后 SGF 的 md5）
  *
+ *   为什么必须纯内容派生：内置库是【增量更新】的，每天生成一次。
+ *   旧算法 HMAC(来源码|日期|序号|文件名) 含日期与序号，二者每次生成都变，
+ *   于是同一条棋谱的 id 跟着变 —— 分享出去的 lib:// URL 过一天就失效，
+ *   做题历史按 URL 去重也会把昨天的题判成新题（已做数突破总数）。
+ *   改为内容派生后：只要这条棋谱还在库里（增量更新不会删存量），
+ *   lib://<category>/<md5> 就永久可打开。
  * 去重（v1.2）：按「分类 + 内容 MD5」去重，重复棋谱只入库首次出现的那条。
  *   rawMd5     = md5(原始文件文本)           —— 同一文件多次落盘
  *   contentMd5 = md5(白名单重建后的 SGF)      —— 同一题换个来源/文件名也算重复
@@ -63,7 +69,6 @@
  * 选项：
  *   --input  <path>   源目录（默认 ~/.weiqi-sgf）
  *   --output <path>   输出目录（默认 clients/web/shared/assets/data/games）
- *   --key-path <path> 口令文件（默认 ~/.weiqi-sgf-library/.library-key）
  *   --dedup-only      只统计重复、不改动输出（去重体检用）
  *   -h, --help
  */
@@ -84,7 +89,6 @@ import { SGFWriter } from "../domain/sgf/SGFWriter.js";
 const LIB_DIR = join(homedir(), '.weiqi-sgf-library');
 const DEFAULT_INPUT = join(homedir(), '.weiqi-sgf');
 const DEFAULT_OUTPUT = join(process.cwd(), 'clients/web/shared/assets/data/games');
-const DEFAULT_KEY_PATH = join(LIB_DIR, '.library-key');
 const PRIVATE_MAP_PATH = join(LIB_DIR, 'private-map.json');
 const DUPLICATE_MAP_PATH = join(LIB_DIR, 'duplicate-map.json');
 
@@ -123,12 +127,11 @@ const CHUNK_SIZE = {
 
 function parseArgs() {
   const args = process.argv.slice(2);
-  const opts = { input: DEFAULT_INPUT, output: DEFAULT_OUTPUT, keyPath: DEFAULT_KEY_PATH };
+  const opts = { input: DEFAULT_INPUT, output: DEFAULT_OUTPUT };
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
       case '--input': opts.input = args[++i]; break;
       case '--output': opts.output = args[++i]; break;
-      case '--key-path': opts.keyPath = args[++i]; break;
       case '--dedup-only': opts.dedupOnly = true; break;
       case '--help':
       case '-h':
@@ -143,7 +146,6 @@ function parseArgs() {
 选项:
   --input  <path>   源目录（默认 ~/.weiqi-sgf）
   --output <path>   输出目录（默认 clients/web/shared/assets/data/games）
-  --key-path <path> 口令文件（默认 ~/.weiqi-sgf-library/.library-key）
   --dedup-only      只统计重复、不改动输出（去重体检用）
   -h, --help        显示帮助
 `);
@@ -153,32 +155,31 @@ function parseArgs() {
   return opts;
 }
 
-// ─── 口令 ──────────────────────────────────────────────
 
-function loadOrCreateKey(keyPath) {
-  if (existsSync(keyPath)) {
-    const key = readFileSync(keyPath, 'utf-8').trim();
-    if (key) { console.log(`🔑 使用已有口令: ${keyPath}`); return key; }
-  }
-  const envKey = (process.env.LIBRARY_KEY || '').trim();
-  if (envKey) {
-    mkdirSync(dirname(keyPath), { recursive: true });
-    writeFileSync(keyPath, envKey + '\n', { mode: 0o600 });
-    console.log(`🔑 已根据 LIBRARY_KEY 写入口令文件: ${keyPath}`);
-    return envKey;
-  }
-  const key = crypto.randomBytes(16).toString('hex');
-  mkdirSync(dirname(keyPath), { recursive: true });
-  writeFileSync(keyPath, key + '\n', { mode: 0o600 });
-  console.log(`🔑 生成新的随机口令并写入: ${keyPath}`);
-  console.log(`   ${key}`);
-  console.log('   （如需自定义，请编辑该文件后重新生成）');
-  return key;
+/**
+ * 稳定题目 ID（题库专用）
+ *
+ * @description 由【初始局面棋形】派生：8 方向 × 黑白互换取规范最小值。
+ *
+ *   为什么不能用原来的 HMAC(sourceCode|date|seq|filename)：
+ *   它含 date 与 seq，而内置库是【增量更新】的 —— 每天新跑一次生成脚本，
+ *   date 变、序号整体平移，同一道题的 ID 跟着变。于是：
+ *     · 分享出去的 lib:// URL 过一天就失效；
+ *     · 做题历史按 URL 去重 → 昨天的题今天全被判成新题，已做数突破总数。
+ *
+ *   改为内容派生后：只要库是增量更新的，同一道题永远得到同一个 ID，
+ *   lib://<category>/<md5> 永久可打开（这正是「棋谱分享 URL 会变」的修复）。
+ *
+ * @param sgf 白名单重建后的 SGF
+ * @param contentMd5 该 SGF 的内容 md5，用于空局面（无摆子）回落
+ * @returns 32 位 hex；空局面返回 null（调用方回落 contentMd5）
+ */
+function computeStablePuzzleId(sgf) {
+  const ph = lifePositionHashes(sgf);
+  // 取字典序最小的那个哈希作规范值：保证同一棋形的 16 个变体收敛到同一个 ID
+  return ph ? [...ph].sort()[0] : null;
 }
 
-function computeId(key, sourceCode, date, seq, filename) {
-  return crypto.createHmac('md5', key).update(`${sourceCode}|${date}|${seq}|${filename}`).digest('hex');
-}
 
 // ─── 去重（MD5） ────────────────────────────────────────
 
@@ -201,7 +202,9 @@ function md5(text) {
 //      即同一棋形、只是黑白互换/先行方不同的，仍判为同一题。
 //      → 共 8 方向 × 2 种配色 = 16 个哈希，任一命中即判重。
 //   3) 不管首着。同一局面可能有多种正解，首着不同不代表是不同题。
-//   4) 按 SZ 实际路数分桶；小棋盘（4/5/7 路）同样参与，不特殊对待。
+//   4) 【路数由摆子包围盒自己算】（2026-10-28 修正）：最小标准路数 9/13/19，
+//      ⚠️ 不用 SGF 的 SZ —— SZ 只说明出题者用了多大的盘，不是棋形自身的属性。
+//      同一棋形摆在 9 路还是 19 路盘上，算出的 ID 必须相同，跨来源马甲才认得出。
 //   5) 不看先行方(PL)：先行方已由 2) 的黑白互换覆盖。
 //   6) 空局面（无摆子）无法算局面哈希 → 返回 null，调用方退回 contentMd5。
 //
@@ -243,18 +246,39 @@ function extractSetupPoints(sgf) {
  * 任一命中即判重。
  * @returns {Set<string>} 哈希集合；无摆子或非方形棋盘时返回 null
  */
-function lifePositionHashes(sgf) {
-  const szm = /SZ\[(\d+)(?::(\d+))?\]/.exec(sgf);
-  const n = szm ? parseInt(szm[1], 10) : 19;
-  if (!Number.isFinite(n) || n <= 0) return null;
-  // 非方形棋盘无法做旋转/镜像（当前数据里没有），退回调用方处理
-  if (szm && szm[2] && parseInt(szm[2], 10) !== n) return null;
+/**
+ * 最小标准路数（9 / 13 / 19）
+ *
+ * @description 与 domain/sgf/TsumegoMinBoard.ts 的 roundUpToStandard 同口径。
+ *              ⚠️ 由【摆子包围盒】推算，与 SGF 的 SZ 无关 —— 见 lifePositionHashes。
+ */
+function roundUpToStandard(n) {
+  if (n <= 9) return 9;
+  if (n <= 13) return 13;
+  return 19;
+}
 
+function lifePositionHashes(sgf) {
   const { black, white } = extractSetupPoints(sgf);
-  const inBoard = ([x, y]) => x >= 0 && x < n && y >= 0 && y < n;
-  const B = black.filter(inBoard);
-  const W = white.filter(inBoard);
+  const B = black.slice();
+  const W = white.slice();
   if (B.length === 0 && W.length === 0) return null;
+
+  // ① 最小路数：只由摆子包围盒推算，【与 SGF 的 SZ 无关】。
+  //    同一棋形摆在 SZ=9 或 SZ=19 的盘上算出的 ID 相同，跨来源马甲才能被认出。
+  //    （SZ 只反映「出题者用了多大的盘」，不是棋形本身的属性。）
+  let minX0 = Infinity, maxX0 = -Infinity, minY0 = Infinity, maxY0 = -Infinity;
+  for (const [x, y] of [...B, ...W]) {
+    if (x < minX0) minX0 = x;
+    if (x > maxX0) maxX0 = x;
+    if (y < minY0) minY0 = y;
+    if (y > maxY0) maxY0 = y;
+  }
+  const n = roundUpToStandard(Math.max(maxX0 - minX0 + 1, maxY0 - minY0 + 1));
+
+  // ② 先平移到包围盒原点：保证坐标落在 [0, n-1]，旋转/镜像才有确定定义域
+  const B0 = B.map(([x, y]) => [x - minX0, y - minY0]);
+  const W0 = W.map(([x, y]) => [x - minX0, y - minY0]);
 
   const hashes = new Set();
   for (let rot = 0; rot < 4; rot++) {
@@ -265,16 +289,17 @@ function lifePositionHashes(sgf) {
         if (flip) x = n - 1 - x;
         return [x, y];
       };
-      const qb = B.map(tf);
-      const qw = W.map(tf);
-      // 归一化原点用【黑白合并后】的包围盒左上角，保证两色的相对位置不被破坏
+      const qb = B0.map(tf);
+      const qw = W0.map(tf);
+      // ③ 变换会移动包围盒，故每个变体各自归零再序列化
+      //    归一化原点用【黑白合并后】的包围盒左上角，保证两色的相对位置不被破坏
       const all = [...qb, ...qw];
       const minX = Math.min(...all.map((p) => p[0]));
       const minY = Math.min(...all.map((p) => p[1]));
       const norm = (pts) => pts.map(([x, y]) => `${x - minX},${y - minY}`).sort().join(';');
       const nb = norm(qb);
       const nw = norm(qw);
-      // 原色 + 黑白互换：任一命中即判重
+      // 原色 + 黑白互换：任一命中即判重（黑白互换是同一道题）
       hashes.add(md5(`${n}|B${nb}|W${nw}`));
       hashes.add(md5(`${n}|B${nw}|W${nb}`));
     }
@@ -806,17 +831,19 @@ function writeMeta(catDir, category, date, entries, chunks, chunkSize) {
   // entries 已在 writeArchive 中按 id 排序，此处保持同序
   const isPuzzle = category === 'life-and-death';
   const meta = {
-    version: '2.1',
+    version: '2.2',
     category,
     date,
     count: entries.length,
     // 分块信息：取单条时按 chunkSize 定位所属块，只下载该块
     chunkSize,
     chunks: chunks.map(c => ({ start: c.start, count: c.count, size: c.size })),
-    // 二选一：题库的标签 / 棋谱的 md5 id（exactOptionalPropertyTypes 下不写空字段）
-    ...(isPuzzle
-      ? { pw: entries.map(e => extractPw(e.sgf)) }
-      : { ids: entries.map(e => e.id) }),
+    // 两个分类都写 ids[]：稳定 ID，纯内容派生（题库=初始局面棋形哈希，棋谱=contentMd5）。
+    // URL 形如 lib://<category>/<ids[i]>，与日期、序号无关 ——
+    // 库增量更新后同一条仍是同一个 URL，分享链接永久可打开。
+    ids: entries.map(e => e.id),
+    // 题库额外写 pw[]（标签），供列表展示与筛选
+    ...(isPuzzle ? { pw: entries.map(e => extractPw(e.sgf)) } : {}),
   };
   const buf = gzipSync(Buffer.from(JSON.stringify(meta), 'utf-8'));
   const metaPath = join(catDir, `${date}.meta.json.gz`);
@@ -862,12 +889,10 @@ function main() {
   console.log('内置棋谱库生成 v1.3（全量重建）');
   console.log(`源目录 : ${opts.input}`);
   console.log(`输出   : ${opts.output}`);
-  console.log(`口令   : ${opts.keyPath}`);
   console.log(`模式   : 全量重建`);
   console.log(`去重   : 死活题=初始局面8方向哈希；ai-review=内容MD5`);
   console.log('='.repeat(56));
 
-  const key = loadOrCreateKey(opts.keyPath);
   mkdirSync(opts.output, { recursive: true });
 
   // --dedup-only 是只读体检：清目录前先短路，避免误删已有产物
@@ -972,7 +997,15 @@ function main() {
       }
       dedup.all.add(dedupKey);
 
-      const id = computeId(key, cfg.code, f.date, f.seq, f.filename);
+      // 稳定 ID：只由内容派生（题库取棋形哈希，棋谱取 contentMd5）
+      // ⚠️ 绝不能掺入 date / seq / filename / 口令：内置库是增量更新的，
+      //    那些分量每次生成都会变，掺进去 ID 就跟着变 ——
+      //    分享出去的 lib:// URL 过一天失效，做题历史也去重不了。
+      const id = cfg.category === 'life-and-death'
+        // 题库：初始局面棋形哈希；算不出（空局面/无摆子）时回落 contentMd5
+        ? (computeStablePuzzleId(sgf) ?? contentMd5)
+        // 棋谱：对局初始皆空枰，算不出棋形 → 用内容 md5（同样是纯内容派生）
+        : contentMd5;
       if (!keepDedupOnly) {
         (buckets[cfg.category][f.date] ||= []).push({ id, sgf, date: f.date, contentMd5 });
       }

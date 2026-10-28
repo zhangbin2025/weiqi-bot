@@ -3,8 +3,16 @@
  * @module domain/intent/libUrl
  *
  * 内置棋谱库由 BuiltinLibraryProvider 提供（打包在本机 assets/data/games 下），URL 格式：
- *   lib://<category>/<date>/<index>   单盘棋谱（index 为该日期下按 id 排序的序号）
- *   lib://<category>                  仅用于源列表（无实际抓取）
+ *   lib://<category>/<id>   单盘棋谱（id 为【内容派生】的稳定 ID，32 位 hex）
+ *   lib://<category>        仅用于源列表（无实际抓取）
+ *
+ * 为什么 URL 用内容派生的 md5 而不是「日期 + 下标」（2026-10-28 改）：
+ *   内置库是【增量更新】的，每天生成一次。旧的 <date>/<index> 里两者每次都变，
+ *   同一盘棋谱今天和昨天的 URL 不同 —— 分享出去的链接过一天就失效，
+ *   做题历史按 URL 去重也会把昨天的题判成新题（已做数突破总数）。
+ *   改成内容派生后：只要这盘棋谱还在库里，lib://<category>/<id> 就永久可打开。
+ *     · 题库(life-and-death)：初始局面棋形哈希（最小路数 × 8 方向 × 黑白互换的规范值）
+ *     · 棋谱(ai-review)     ：SGF 内容 md5
  *
  * KataGo 归档棋谱由 KatagoGameProvider 提供，URL 格式：
  *   katago://date/YYYY-MM-DD[/index]  单盘棋谱（index 为该日期下的序号，默认 0）
@@ -26,8 +34,8 @@ export const KATAGO_URL_REGEX = /katago:\/\/[^\s]+/i;
  */
 export const GAME_URL_REGEX = /(?:https?|lib|katago):\/\/[^\s]+/i;
 
-/** lib://<category>[/<date>[/<index>]] 的结构化解析正则 */
-const LIB_URL_PARSE_REGEX = /^lib:\/\/([^/\s]+)(?:\/([^/\s]+))?(?:\/(\d+))?\/?$/i;
+/** lib://<category>[/<id>] 的结构化解析正则（id 为 32 位 hex） */
+const LIB_URL_PARSE_REGEX = /^lib:\/\/([^/\s]+)(?:\/([0-9a-f]{32}))?\/?$/i;
 
 /** 分类 → 展示名 */
 const CATEGORY_LABELS: Record<string, string> = {
@@ -39,10 +47,8 @@ const CATEGORY_LABELS: Record<string, string> = {
 export interface LibUrlParts {
   /** 分类（life-and-death / ai-review） */
   category: string;
-  /** 日期标签（YYYY-MM-DD） */
-  date?: string;
-  /** 条目下标 */
-  index?: number;
+  /** 稳定 ID（32 位 hex，内容派生）；仅源列表 URL 时缺省 */
+  id?: string;
 }
 
 /** 判断文本是否是内置棋谱库 URL */
@@ -70,10 +76,8 @@ export function parseLibUrl(url: string): LibUrlParts | null {
   const match = url.trim().match(LIB_URL_PARSE_REGEX);
   if (!match) return null;
   const parts: LibUrlParts = { category: match[1]! };
-  const date = match[2];
-  const indexRaw = match[3];
-  if (date !== undefined) parts.date = date;
-  if (indexRaw !== undefined) parts.index = parseInt(indexRaw, 10);
+  const id = match[2];
+  if (id !== undefined) parts.id = id;
   return parts;
 }
 
@@ -114,13 +118,13 @@ export function describeKatagoUrl(url: string): string {
 
 /**
  * 生成 lib:// URL 的可读描述，用于 UI 显示
- * 例：lib://life-and-death/2026-10-12/0 → 「内置题库 2026-10-12 #1」
+ * 例：lib://life-and-death/9f2c…a1 → 「内置题库 #9f2c」
  */
 export function describeLibUrl(url: string): string {
   const parts = parseLibUrl(url);
   if (!parts) return url;
   const segments: string[] = [CATEGORY_LABELS[parts.category] ?? parts.category];
-  if (parts.date !== undefined) segments.push(parts.date);
-  if (parts.index !== undefined) segments.push('#' + (parts.index + 1));
+  // 只展示前 4 位：够区分相邻题目，又不会让列表被长串刷屏
+  if (parts.id !== undefined) segments.push('#' + parts.id.slice(0, 4));
   return segments.join(' ');
 }
