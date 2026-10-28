@@ -38,12 +38,18 @@
  *        取整包会让「加载 1 道题」也下载整包（题库 3.3MB / 棋谱 2.8MB），故切块按需下载；
  *        块内顺序是全局顺序的一段，meta 下标可直接换算到块内偏移。
  *   <category>/<YYYY-MM-DD>.meta.json.gz  轻量元数据（两个分类都生成）：
- *        { version, category, date, count, chunkSize, chunks, pw?, ids? }
- *        pw[i] / ids[i] 对应 tar 内按文件名排序后的第 i 个 SGF，即 lib://<cat>/<date>/<i>。
- *        题库写 pw（标签）：只存标签不存 id —— id 是 md5 随机串不可压缩
- *          （实测存 id 会从 71KB 涨到 813KB），而标签重复度极高（4.2 万题仅 276 种取值）。
- *        棋谱写 ids（md5 文件名）：列表要展示 id，而棋谱盘数远少于题库，
- *          678 个 id 实测约 12KB（gzip 后），代价可忽略。
+ *        { version, category, date, count, chunkSize, chunks, ids, pw? }
+ *        ids[i] 对应 tar 内按文件名排序后的第 i 个 SGF，
+ *        且该 SGF 的 URL 恒为 lib://<cat>/<ids[i]>（pw[i] 同下标，仅题库有）。
+ *        两个分类都写 ids[] —— 稳定 ID 是 URL 的唯一寻址依据，缺了就打不开。
+ *        ⚠️ 顺序一致性是硬要求：ids[i] 必须与归档内第 i 个 SGF 严格对齐，
+ *          否则按 id 反查下标会取到别的棋谱（静默错误）。生成时按文件名排序保证全局序。
+ *        题库额外写 pw[]（标签），供列表按类型/难度筛选：标签重复度极高
+ *          （8.1 万题仅数百种取值），实测 gzip 后 100KB；而 ids[] 是 md5 随机串
+ *          不可压缩，实测 1.5MB（gzip 后）—— 两者体积差一个量级，故并存而非只存其一。
+ *        体积实测（2026-10-28，81106 题 / 1122 棋谱）：
+ *          题库 meta 1.6MB（ids 1.5MB + pw 100KB）、棋谱 meta 21KB。
+ *        用户已明确体积不是约束，换取 URL 永久可打开。
  *        用途：列表/筛选只下载这份索引，避免为拿一个标签或 id 而解压全包。
  *   index.json.gz                     { version, generatedAt, categories: { cat: [dates...] } }
  *
@@ -772,9 +778,11 @@ function writeArchive(outputDir, category, date, entries) {
   // 顺序 = 入库顺序（老 → 新）。文件名加零填充序号前缀，使「文件名字典序 == 时间序」。
   //
   // 为什么不能按 id 排序：id 是 md5，字典序与入库时间无关且恒定，
-  // 于是运行时 lib://<cat>/<date>/<i> 的下标永远指到同一批老棋谱，
-  // 新加入的棋谱散列到中段/尾段，取「前 N 盘」永远取不到它们。
-  // 改成序号前缀后下标即时间序，「最近 N 盘」就是末尾 N 个下标。
+  // 于是按 id 排序的话「取前 N 盘」永远指到同一批老棋谱，
+  // 新加入的棋谱散列到中段/尾段，取「最近 N 盘」永远取不到它们。
+  // 改成零填充序号前缀后，文件名字典序 == 时间序，下标即时间序，
+  // 「最近 N 盘」就是末尾 N 个下标；同时 ids[i] 与第 i 个文件严格对齐。
+  // （URL 里的 id 只用于反查下标，不参与排序 —— 两者不要混淆。）
   const seqWidth = Math.max(4, String(entries.length).length);
   const tmp = join(tmpdir(), `sgflib-${category}-${date}-${Date.now()}`);
   mkdirSync(tmp, { recursive: true });
