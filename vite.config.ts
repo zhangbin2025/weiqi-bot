@@ -184,6 +184,7 @@ export default defineConfig({
       '@infrastructure': path.resolve(__dirname, 'infrastructure'),
       '@domain': path.resolve(__dirname, 'domain'),
       '@weiqi/worker': path.resolve(__dirname, '../weiqi-worker/src'),
+      '@weiqi/photo': path.resolve(__dirname, '../weiqi-photo/src'),
       '@ui': path.resolve(__dirname, 'clients/web/shared/ui'),
     },
   },
