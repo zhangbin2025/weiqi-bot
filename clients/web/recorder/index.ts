@@ -143,6 +143,19 @@ async function main() {
     page.switchToPlayMode();
   });
 
+  // 拍照摆子：菜单项 → 确保在摆子模式 → 唤起相机
+  document.getElementById('photoSetupMenuItem')?.addEventListener('click', () => {
+    dropdownMenu?.classList.remove('visible');
+    page.startPhotoSetup();
+  });
+
+  // ⚠️ 先清 value 再触发，否则连续选同一张图不会触发 change
+  const photoFileInput = document.getElementById('photoFileInput') as HTMLInputElement | null;
+  photoFileInput?.addEventListener('change', () => {
+    const file = photoFileInput.files?.[0];
+    if (file) void page.applyPhoto(file);
+  });
+
   document.getElementById('downloadMenuItem')?.addEventListener('click', () => {
     dropdownMenu?.classList.remove('visible');
     page.downloadSGF();
@@ -158,7 +171,20 @@ async function main() {
     window.location.href = '../replay/list.html?category=recorder&key=all';
   });
 
-  // 11. 监听状态变化，更新 UI
+  // 11. 照片参考图：点击放大/缩小，方便对照实物修正
+  const photoRef = document.getElementById('photoRef');
+  photoRef?.addEventListener('click', (e) => {
+    // 点关闭按钮不触发放大
+    if ((e.target as HTMLElement | null)?.id === 'photoRefClose') return;
+    photoRef.classList.toggle('enlarged');
+  });
+
+  document.getElementById('photoRefClose')?.addEventListener('click', () => {
+    photoRef?.setAttribute('hidden', '');
+    photoRef?.classList.remove('enlarged');
+  });
+
+  // 12. 监听状态变化，更新 UI
   recorderApp.setOnUpdate((state) => {
     // 更新手数
     const moveNum = document.getElementById('moveNum');

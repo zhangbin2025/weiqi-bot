@@ -8,6 +8,8 @@ import type { PlayerColor } from '../../../../../domain/primitives';
 import type { IPage, PageParams } from '../../../../core/interfaces';
 import type { BoardSize } from '../../../../core/types';
 import type { RecorderApp } from '../../../../../application/recorder';
+import { recognizePhoto } from '../../../../../services/photo';
+import type { PhotoBoardResult, PhotoProgress } from '../../../../../services/photo';
 
 export interface RecorderPageConfig {
   recorderApp: RecorderApp;
@@ -122,11 +124,12 @@ export class RecorderPage implements IPage {
     }
   }
 
-  switchToSetupMode(): void {
+  /** @returns 是否成功进入摆子模式（已有落子记录时为 false） */
+  switchToSetupMode(): boolean {
     const state = this.recorderApp.getState();
     if (state.moveHistory.length > 0) {
       this.toast.warning('已有落子记录，不能切换到摆子模式');
-      return;
+      return false;
     }
     this.mode = 'setup';
     this.recorderApp.saveDraft('setup').catch(e => console.error('保存草稿失败', e));
@@ -153,6 +156,7 @@ export class RecorderPage implements IPage {
     
     const passMenuItem = document.getElementById('passMenuItem') as HTMLButtonElement;
     if (passMenuItem) passMenuItem.disabled = true;
+    return true;
   }
 
   switchToPlayMode(): void {
@@ -201,9 +205,156 @@ export class RecorderPage implements IPage {
     this.setupTool = tool;
   }
 
+  // ===== 拍照摆子 =====
+
+  /**
+   * 「拍照摆子」入口：先确保在摆子模式，再唤起相机/相册。
+   *
+   * 有落子记录时进不了摆子模式（switchToSetupMode 会拦下并提示），
+   * 此时直接返回——不让用户白拍一张才发现摆不上去。
+   */
+  startPhotoSetup(): void {
+    // ⚠️ 不能用 `if (this.mode !== 'setup')` 后的 this.mode 再判一次：
+    // TS 控制流分析会把 mode 收窄成 'play'，比较恒为 false。
+    if (this.mode !== 'setup' && !this.switchToSetupMode()) return;
+    this.requestPhoto();
+  }
+
+  /** 唤起系统相机/相册（点击页面里隐藏的 file input） */
+  requestPhoto(): void {
+    const input = document.getElementById('photoFileInput') as HTMLInputElement | null;
+    if (!input) {
+      this.toast.error('拍照入口未就绪');
+      return;
+    }
+    // 清空 value，否则连续选同一张图不会触发 change
+    input.value = '';
+    input.click();
+  }
+
+  /**
+   * 识别一张照片并把结果摆到棋盘上（替换现有初始摆子）。
+   *
+   * 为什么不弹「确认要用这个结果吗」：识别准确率约 98%，
+   * 但错的那 2% 只能靠肉眼比对发现。这里把照片做成右下角常驻缩略图
+   * （可点击放大），让用户边看照片边在摆子模式里增删子 —— 比弹窗更顺手。
+   * 摆子是 initialStones，落子前随时可改，也不影响后续对局记录。
+   */
+  async applyPhoto(file: File): Promise<void> {
+    this.showPhotoProgress({ stage: 'loading-cv', percent: null, message: '准备识别…' });
+    try {
+      const result = await recognizePhoto(file, (p) => this.showPhotoProgress(p));
+
+      this.clearInitialStones();
+      let placed = 0;
+      for (let j = 0; j < result.size; j++) {
+        for (let i = 0; i < result.size; i++) {
+          const v = result.stones[j * result.size + i];
+          if (v !== 1 && v !== 2) continue;
+          if (this.recorderApp.addInitialStone(i, j, v === 1 ? 'B' : 'W')) placed++;
+        }
+      }
+      this.renderBoard();
+
+      const thumb = this.makePhotoThumb(result);
+      if (thumb) this.setPhotoRef(thumb);
+
+      this.hidePhotoProgress();
+
+      if (placed === 0) {
+        this.toast.warning('没识别到棋子，建议重拍或手动摆子');
+      } else {
+        this.toast.success(`已摆 ${placed} 子，请对照照片修正`);
+      }
+    } catch (e) {
+      this.hidePhotoProgress();
+      console.error('拍照识别失败', e);
+      this.toast.error('识别失败：' + (e instanceof Error ? e.message : String(e)));
+    }
+  }
+
+  /** 更新识别进度遮罩（首次要下 10MB opencv，必须给进度，否则像卡死） */
+  private showPhotoProgress(p: PhotoProgress): void {
+    const box = document.getElementById('photoProgress');
+    const msg = document.getElementById('photoProgressMsg');
+    const bar = document.getElementById('photoProgressBar');
+    if (!box || !msg || !bar) return;
+    box.removeAttribute('hidden');
+    msg.textContent = p.message;
+    if (p.percent === null) {
+      bar.style.width = '';
+      bar.classList.add('indeterminate');
+    } else {
+      bar.classList.remove('indeterminate');
+      bar.style.width = p.percent + '%';
+    }
+  }
+
+  private hidePhotoProgress(): void {
+    document.getElementById('photoProgress')?.setAttribute('hidden', '');
+  }
+
+  /** 显示/更新右下角参考照片；传 null 收起 */
+  private setPhotoRef(dataUrl: string | null): void {
+    const wrap = document.getElementById('photoRef');
+    const img = document.getElementById('photoRefImg') as HTMLImageElement | null;
+    if (!wrap || !img) return;
+    if (!dataUrl) {
+      wrap.setAttribute('hidden', '');
+      img.removeAttribute('src');
+      return;
+    }
+    img.src = dataUrl;
+    img.style.height = 'auto';
+    wrap.removeAttribute('hidden');
+  }
+
+  /**
+   * 生成带四角标注的照片缩略图。
+   *
+   * 标四角是为了让用户一眼看出「机器以为棋盘在哪」——四角画歪了说明没拍好，
+   * 这时棋盘上的子基本不可信，直接重拍比一个个改更快。
+   * 缩到 600px 再转 JPEG：识别用的 canvas 有 2000px，直接 toDataURL 出来的
+   * dataURL 太大，塞进 <img> 会明显卡顿。
+   */
+  private makePhotoThumb(r: PhotoBoardResult): string {
+    const src = r.canvas;
+    const maxSide = 600;
+    const s = Math.min(1, maxSide / Math.max(src.width, src.height));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(src.width * s));
+    c.height = Math.max(1, Math.round(src.height * s));
+    const ctx = c.getContext('2d');
+    if (!ctx) return '';
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(src, 0, 0, c.width, c.height);
+
+    const R = Math.max(c.width, c.height) * 0.02;
+    ctx.strokeStyle = '#FF8A1F';
+    ctx.lineWidth = Math.max(2, R * 0.3);
+    ctx.beginPath();
+    const order = [0, 1, 3, 2, 0];
+    for (let k = 0; k < order.length; k++) {
+      const idx = order[k];
+      if (idx === undefined) continue;
+      const p = r.corners[idx];
+      if (!p) continue;
+      const x = p[0] * s;
+      const y = p[1] * s;
+      if (k === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.stroke();
+    return c.toDataURL('image/jpeg', 0.85);
+  }
+
   clearInitialStones(): void {
-    const state = this.recorderApp.getState();
-    for (const stone of state.initialStones) {
+    // ⚠️ 必须快照：getState() 返回的是 Game 内部的活引用（Game.getState 直接
+    // 传 this.initialStones），而 removeInitialStone 会 splice 同一个数组。
+    // 边遍历边删会让 for...of 的游标跳过元素——隔一个漏一个，留下幽灵子。
+    const stones = [...this.recorderApp.getState().initialStones];
+    for (const stone of stones) {
       this.recorderApp.removeInitialStone(stone.x, stone.y);
     }
     this.renderBoard();

@@ -15,8 +15,8 @@
     "lint": "eslint infrastructure --ext .ts",
     "typecheck": "tsc --noEmit",
     "dev": "vite",
-    "dev:build": "vite build && node scripts/build-ocr.mjs && node scripts/build-assets.mjs && find dist-web -name \"*.map\" -type f -delete",
-    "build:web": "vite build && node scripts/build-ocr.mjs && node scripts/build-assets.mjs",
+    "dev:build": "node scripts/build-photo.mjs && vite build && node scripts/build-ocr.mjs && node scripts/build-assets.mjs && find dist-web -name \"*.map\" -type f -delete",
+    "build:web": "node scripts/build-photo.mjs && vite build && node scripts/build-ocr.mjs && node scripts/build-assets.mjs",
     "build:app": "cd clients/app/android && ANDROID_HOME=~/android-sdk ./gradlew assembleDebug",
     "help": "node scripts/help.mjs",
     "generate:joseki": "node scripts/generate-joseki-tree.mjs",
@@ -25,7 +25,8 @@
     "dist:desktop": "npm run build:desktop && cd clients/desktop && npx electron-builder --win zip --x64 ",
     "build:cli": "bash scripts/build-cli.sh",
     "upgrade:katago": "bash scripts/upgrade-katago-android.sh",
-    "build:ocr": "node scripts/build-ocr.mjs"
+    "build:ocr": "node scripts/build-ocr.mjs",
+    "build:photo": "node scripts/build-photo.mjs"
   },
   "keywords": [
     "weiqi",
