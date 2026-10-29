@@ -236,8 +236,9 @@ export class RecorderPage implements IPage {
    * 识别一张照片并把结果摆到棋盘上（替换现有初始摆子）。
    *
    * 为什么不弹「确认要用这个结果吗」：识别准确率约 98%，
-   * 但错的那 2% 只能靠肉眼比对发现。这里把照片做成右下角常驻缩略图
-   * （可点击放大），让用户边看照片边在摆子模式里增删子 —— 比弹窗更顺手。
+   * 但错的那 2% 只能靠肉眼比对发现。这里把照片做成按钮栏右侧的常驻缩略图
+   * （可点击放大、放大后可拖动、可最小化回缩略图），让用户边看照片
+   * 边在摆子模式里增删子 —— 比弹窗更顺手。
    * 摆子是 initialStones，落子前随时可改，也不影响后续对局记录。
    */
   async applyPhoto(file: File): Promise<void> {
@@ -294,11 +295,20 @@ export class RecorderPage implements IPage {
     document.getElementById('photoProgress')?.setAttribute('hidden', '');
   }
 
-  /** 显示/更新右下角参考照片；传 null 收起 */
+  /**
+   * 显示/更新参考照片缩略图（常驻按钮栏最右侧）；传 null 收起。
+   *
+   * 这里只负责放图和复位，放大/拖动/最小化都是缩略图自己的交互
+   * （见 index.ts），换照片时必须复位，否则会留着上一张的放大浮层。
+   */
   private setPhotoRef(dataUrl: string | null): void {
     const wrap = document.getElementById('photoRef');
     const img = document.getElementById('photoRefImg') as HTMLImageElement | null;
     if (!wrap || !img) return;
+    // 复位放大态：新照片从头开始，位置与上一次拖动无关
+    wrap.classList.remove('enlarged', 'dragging');
+    wrap.style.left = '';
+    wrap.style.top = '';
     if (!dataUrl) {
       wrap.setAttribute('hidden', '');
       img.removeAttribute('src');

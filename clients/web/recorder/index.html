@@ -309,37 +309,59 @@
       background: #f0f4ff;
     }
 
-    /* 拍照摆子：参考照片悬浮缩略图，点击放大对照 */
+    /* 拍照摆子：参考照片
+       缩略图态：常驻工具栏右侧（棋盘下方按钮栏的最右），点击放大；
+       放大态：fixed 浮层，可拖到任意位置，避免遮住正在对照的棋盘区域 */
     .photo-ref {
-      position: fixed;
-      right: 10px;
-      bottom: 70px;
-      width: 96px;
-      height: 96px;
-      border-radius: 10px;
+      position: relative;
+      flex-shrink: 0;
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
       overflow: hidden;
-      border: 2px solid #fff;
-      box-shadow: 0 4px 14px rgba(0,0,0,0.3);
-      z-index: 1500;
-      cursor: pointer;
+      border: 2px solid #e0e0e0;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.18);
       background: #eee;
-      transition: all 0.2s ease;
+      cursor: zoom-in;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      /* 拖动时别选中文字/触发系统长按菜单 */
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
     }
 
+    .photo-ref[hidden] { display: none; }
+
+    .photo-ref:hover { border-color: #667eea; }
+
     .photo-ref.enlarged {
+      position: fixed;
       width: min(88vw, 420px);
       height: auto;
-      aspect-ratio: auto;
-      right: 50%;
-      bottom: 50%;
-      transform: translate(50%, 50%);
+      border-radius: 12px;
+      border-color: #fff;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+      z-index: 1500;
+      cursor: grab;
+      /* 拖动浮层时不要让页面跟着滚 */
+      touch-action: none;
+      transition: none;
     }
+
+    .photo-ref.enlarged.dragging { cursor: grabbing; }
 
     .photo-ref img {
       display: block;
       width: 100%;
       height: 100%;
       object-fit: cover;
+      /* ⚠️ 关键：不关掉原生图片拖拽，按下后浏览器会接管指针、发 pointercancel，
+         自定义拖动只走一两帧就停住（表现为“拖了只动一点点”）。
+         pointer-events:none 让命中测试落到容器上，容器再统一处理指针。 */
+      -webkit-user-drag: none;
+      user-select: none;
+      -webkit-user-select: none;
+      pointer-events: none;
     }
 
     .photo-ref.enlarged img {
@@ -347,23 +369,40 @@
       object-fit: contain;
     }
 
-    .photo-ref-close {
+    /* 按钮只在放大态出现，缩略图态保持干净（它本身就是最小化后的样子） */
+    .photo-ref-actions {
+      display: none;
       position: absolute;
-      top: 2px;
-      right: 2px;
-      width: 22px;
-      height: 22px;
+      top: 6px;
+      right: 6px;
+      gap: 6px;
+    }
+
+    .photo-ref.enlarged .photo-ref-btn {
+      background: rgba(0,0,0,0.6);
+    }
+
+    .photo-ref.enlarged .photo-ref-actions {
+      display: flex;
+    }
+
+    .photo-ref-btn {
+      width: 28px;
+      height: 28px;
       border: none;
       border-radius: 50%;
-      background: rgba(0,0,0,0.5);
+      background: rgba(0,0,0,0.55);
       color: #fff;
-      font-size: 14px;
+      font-size: 16px;
       line-height: 1;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
+      padding: 0;
     }
+
+    .photo-ref-btn:active { transform: scale(0.9); }
 
     /* 拍照摆子：识别进度遮罩 */
     .photo-progress {
@@ -582,6 +621,16 @@
         </div>
       </div>
       <span class="move-count" id="moveCountDisplay">第 <strong id="moveNum">0</strong> 手</span>
+
+      <!-- 拍照摆子：参考照片缩略图，常驻按钮栏最右侧。
+           放在这里而不是页面右下角，是为了让它和棋盘一起在视野里，
+           点一下放大对照，再点最小化回到原位。 -->
+      <div class="photo-ref" id="photoRef" hidden>
+        <img id="photoRefImg" alt="参考照片" draggable="false">
+        <div class="photo-ref-actions">
+          <button class="photo-ref-btn" id="photoRefMinBtn" type="button" title="最小化">−</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -604,12 +653,6 @@
       <div class="msg" id="photoProgressMsg">正在处理…</div>
       <div class="track"><div class="bar" id="photoProgressBar"></div></div>
     </div>
-  </div>
-
-  <!-- 拍照摆子：参考照片缩略图。识别准确率约 98%，用户要靠它对照实物修正 -->
-  <div class="photo-ref" id="photoRef" hidden>
-    <button class="photo-ref-close" id="photoRefClose" type="button" title="收起">×</button>
-    <img id="photoRefImg" alt="参考照片">
   </div>
 
   <!-- 拍照摆子：隐藏的 file input，由「📷 拍照摆子」菜单项触发。
