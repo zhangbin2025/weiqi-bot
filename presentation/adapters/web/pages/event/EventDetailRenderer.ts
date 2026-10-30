@@ -164,14 +164,15 @@ export class EventDetailRenderer {
       this.selectInstance = instance ?? undefined;
     }
     // 再渲染标签按钮
-    const TABS = [
-      { id: 'ranking', label: '📊 排名' },
-      { id: 'matches', label: '⚔️ 对阵' },
-    ];
-    // 「参赛名单」仅在无对阵表时补充显示（PDF 导入等场景有对阵表，故不会出现）
-    if (this.playersTabAvailable) {
-      TABS.push({ id: 'players', label: '👥 名单' });
-    }
+    // 无对阵表时只保留「名单」（排名/对阵此时必然为空，排名模式菜单也无从谈起）；
+    // 有对阵表时隐藏名单，维持原有的「排名 + 对阵」。
+    // PDF 导入本身就是对阵表，故走后者分支。
+    const TABS = this.playersTabAvailable
+      ? [{ id: 'players', label: '👥 名单' }]
+      : [
+        { id: 'ranking', label: '📊 排名' },
+        { id: 'matches', label: '⚔️ 对阵' },
+      ];
     TABS.forEach(tab => {
       const btn = document.createElement('div');
       btn.className = 'detail-tab' + (tab.id === this.activeTab ? ' active' : '');
@@ -204,7 +205,8 @@ export class EventDetailRenderer {
     });
     container.appendChild(refreshBtn);
 
-    // 添加排名模式扩展菜单
+    // 添加排名模式扩展菜单（无对阵表时排名为空，该菜单无意义，隐藏）
+    if (this.playersTabAvailable) return;
     const modeBtn = document.createElement('div');
     modeBtn.className = 'detail-tab';
     modeBtn.textContent = '⚙️';

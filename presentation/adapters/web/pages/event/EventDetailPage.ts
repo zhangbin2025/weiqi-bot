@@ -288,8 +288,9 @@ export class EventDetailPage implements IPage {
         this.playerData = null;
       }
       this.renderer.setPlayersTabAvailable(this.playersTabAvailable);
-      // 无对阵表时排名也必然为空，直接落到名单标签，避免停在「暂无排名数据」空屏
-      if (this.playersTabAvailable && (rr.rankings?.length ?? 0) === 0) {
+      // 无对阵表时标签组只保留「名单」，必须强制切过去，
+      // 否则 activeTab 还停在已不存在的 ranking/matches，导致无按钮高亮且内容空白
+      if (this.playersTabAvailable) {
         this.curTab = 'players';
         this.renderer.setActiveTab('players');
       }
