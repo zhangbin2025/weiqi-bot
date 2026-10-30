@@ -8,11 +8,15 @@
 
 export {
   ensureCv,
+  loadPhotoCanvas,
+  recognizeRegion,
   recognizePhoto,
   PHOTO_BOARD_SIZE,
+  MIN_CROP_SIDE,
 } from './PhotoImportService';
 export type {
   PhotoBoardResult,
   PhotoProgress,
   PhotoStage,
+  CropRect,
 } from './PhotoImportService';

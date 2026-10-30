@@ -8,8 +8,8 @@ import type { PlayerColor } from '../../../../../domain/primitives';
 import type { IPage, PageParams } from '../../../../core/interfaces';
 import type { BoardSize } from '../../../../core/types';
 import type { RecorderApp } from '../../../../../application/recorder';
-import { recognizePhoto } from '../../../../../services/photo';
-import type { PhotoBoardResult, PhotoProgress } from '../../../../../services/photo';
+import { recognizeRegion } from '../../../../../services/photo';
+import type { PhotoBoardResult, PhotoProgress, CropRect } from '../../../../../services/photo';
 import type { ISessionService } from '../../../../../services/session/ISessionService';
 
 export interface RecorderPageConfig {
@@ -315,45 +315,60 @@ export class RecorderPage implements IPage {
   }
 
   /**
-   * 识别一张照片并把结果摆到棋盘上（替换现有初始摆子）。
+   * 识别 canvas 的指定区域并把结果摆到棋盘上（替换现有初始摆子）。
    *
    * 为什么不弹「确认要用这个结果吗」：识别准确率约 98%，
    * 但错的那 2% 只能靠肉眼比对发现。这里把照片做成按钮栏右侧的常驻缩略图
    * （可点击放大、放大后可拖动、可最小化回缩略图），让用户边看照片
    * 边在摆子模式里增删子 —— 比弹窗更顺手。
    * 摆子是 initialStones，落子前随时可改，也不影响后续对局记录。
+   *
+   * @returns 是否识别成功；false 表示失败（多半是框错了），调用方可让用户重框
    */
-  async applyPhoto(file: File): Promise<void> {
+  async applyPhotoRegion(canvas: HTMLCanvasElement, region: CropRect): Promise<boolean> {
     this.showPhotoProgress({ stage: 'loading-cv', percent: null, message: '准备识别…' });
     try {
-      const result = await recognizePhoto(file, (p) => this.showPhotoProgress(p));
-
-      this.clearInitialStones();
-      let placed = 0;
-      for (let j = 0; j < result.size; j++) {
-        for (let i = 0; i < result.size; i++) {
-          const v = result.stones[j * result.size + i];
-          if (v !== 1 && v !== 2) continue;
-          if (this.recorderApp.addInitialStone(i, j, v === 1 ? 'B' : 'W')) placed++;
-        }
-      }
-      this.renderBoard();
-
-      const thumb = this.makePhotoThumb(result);
-      if (thumb) this.setPhotoRef(thumb);
-
-      this.hidePhotoProgress();
-
-      if (placed === 0) {
-        this.toast.warning('没识别到棋子，建议重拍或手动摆子');
-      } else {
-        this.toast.success(`已摆 ${placed} 子，请对照照片修正`);
-      }
+      const result = await recognizeRegion(canvas, region, (p) => this.showPhotoProgress(p));
+      this.applyResult(result);
+      return true;
     } catch (e) {
       this.hidePhotoProgress();
       console.error('拍照识别失败', e);
       this.toast.error('识别失败：' + (e instanceof Error ? e.message : String(e)));
+      return false;
     }
+  }
+
+  /**
+   * 把识别结果摆上棋盘 + 换掉参考缩略图。
+   *
+   * 单独拆一个方法：applyPhotoRegion 只管「识别 → 成败」，这里负责落子后的
+   * 收尾（缩略图 + toast）。将来若有别的识别入口可直接复用。
+   * @returns 摆上的子数
+   */
+  private applyResult(result: PhotoBoardResult): number {
+    this.clearInitialStones();
+    let placed = 0;
+    for (let j = 0; j < result.size; j++) {
+      for (let i = 0; i < result.size; i++) {
+        const v = result.stones[j * result.size + i];
+        if (v !== 1 && v !== 2) continue;
+        if (this.recorderApp.addInitialStone(i, j, v === 1 ? 'B' : 'W')) placed++;
+      }
+    }
+    this.renderBoard();
+
+    const thumb = this.makePhotoThumb(result);
+    if (thumb) this.setPhotoRef(thumb);
+
+    this.hidePhotoProgress();
+
+    if (placed === 0) {
+      this.toast.warning('没识别到棋子，建议重拍或手动摆子');
+    } else {
+      this.toast.success(`已摆 ${placed} 子，请对照照片修正`);
+    }
+    return placed;
   }
 
   /** 更新识别进度遮罩（首次要下 10MB opencv，必须给进度，否则像卡死） */
@@ -402,12 +417,18 @@ export class RecorderPage implements IPage {
   }
 
   /**
-   * 生成带四角标注的照片缩略图。
+   * 生成带框选范围 + 四角标注的照片缩略图。
    *
-   * 标四角是为了让用户一眼看出「机器以为棋盘在哪」——四角画歪了说明没拍好，
-   * 这时棋盘上的子基本不可信，直接重拍比一个个改更快。
+   * 画三样东西，用户对一次就能定位问题：
+   *  - 白色虚线框：用户自己选的范围（框错了是用户的锅，一眼能看出来）
+   *  - 橙色四边形：机器以为棋盘在哪（画歪了说明识别不可信，重框或重拍）
+   *  - 框外的画面压暗：强调「只有框里被识别了」
+   *
    * 缩到 600px 再转 JPEG：识别用的 canvas 有 2000px，直接 toDataURL 出来的
    * dataURL 太大，塞进 <img> 会明显卡顿。
+   *
+   * ⚠️ 坐标系：r.corners 已在 recognizeRegion 里加回裁剪偏移，和 r.region
+   *    同为整图坐标系，所以这里能直接乘同一个缩放比。
    */
   private makePhotoThumb(r: PhotoBoardResult): string {
     const src = r.canvas;
@@ -421,7 +442,23 @@ export class RecorderPage implements IPage {
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(src, 0, 0, c.width, c.height);
 
+    // 框外压暗：让「识别范围」这件事在缩略图上也看得见
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.beginPath();
+    ctx.rect(0, 0, c.width, c.height);
+    ctx.rect(r.region.x * s, r.region.y * s, r.region.w * s, r.region.h * s);
+    ctx.fill('evenodd');
+
     const R = Math.max(c.width, c.height) * 0.02;
+
+    // 用户框选范围：白色虚线
+    ctx.setLineDash([Math.max(4, R * 0.5), Math.max(3, R * 0.35)]);
+    ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+    ctx.lineWidth = Math.max(1.5, R * 0.18);
+    ctx.strokeRect(r.region.x * s, r.region.y * s, r.region.w * s, r.region.h * s);
+    ctx.setLineDash([]);
+
+    // 机器判定的棋盘四角：橙色实线
     ctx.strokeStyle = '#FF8A1F';
     ctx.lineWidth = Math.max(2, R * 0.3);
     ctx.beginPath();

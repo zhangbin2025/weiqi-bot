@@ -120,7 +120,7 @@ export function takePhotoHandoff(): PhotoHandoff | null {
   }
 }
 
-/** 把 dataURL 还原成 Blob（recognizePhoto 收 Blob，也方便走同一条解码路径） */
+/** 把 dataURL 还原成 Blob（loadPhotoCanvas 收 Blob，也方便走同一条解码路径） */
 export function dataUrlToBlob(dataUrl: string): Blob {
   const comma = dataUrl.indexOf(',');
   const header = dataUrl.slice(0, comma);

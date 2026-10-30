@@ -11,6 +11,14 @@
  *     优先用 public/photo/ 下预置的**预剥离版**（223KB JS + 独立 7.6MB wasm，
  *     走 emscripten 的 instantiateStreaming 流式编译）；该目录由
  *     scripts/build-photo.mjs 生成且不入库，缺失时自动回退 CDN 内嵌版。
+ *
+ * 识别分两步（先框再识）：
+ *   1. `loadPhotoCanvas` —— 纯 2D，只解码 + 缩放到 2000px，不碰 opencv，秒开，
+ *      给裁剪 UI 用。用户可能框完就取消，不该为此下 10MB。
+ *   2. `recognizeRegion` —— 点「确认」后才懒加载 opencv，按框裁剪再识别。
+ *
+ * 为什么要框：整图识别时粗定位会把桌面纹理/书本边/棋盒一起并进凸包，四角外扩，
+ * 后面的消失点与周期估计全跟着歪，这是边界识别不准的主因。
  */
 
 import { loadCv, recognizeBoard, type CvLike, type MatLike, type LoadCvOptions, type Quad, type Stone } from '@weiqi/photo';
@@ -29,6 +37,28 @@ const MAX_SIDE = 2000;
 
 /** 记谱页棋盘固定 19 路（presentation 的 BoardSize 只有 9|13|19，且页面无路数选择器） */
 export const PHOTO_BOARD_SIZE = 19;
+
+/**
+ * 裁剪框（缩放后图片坐标系，像素，左上角 + 宽高）。
+ *
+ * 为什么要裁剪：整图识别时粗定位（黑帽 + 连通域 + 凸包 + 最大四边形）会把桌面
+ * 纹理、书本边、棋盒一起并进凸包，四角外扩，后面消失点/周期估计全跟着歪。
+ * 用户手动框住棋盘后，画面里只剩棋盘 + 少量背景，粗定位基本不会跑偏。
+ */
+export interface CropRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * 裁剪后最短边下限（像素）。
+ *
+ * 再小的话 `small()` 把图缩到 1000px 后每格只剩几个像素，周期估计必崩
+ * （表现为四角乱飞或直接抛 noboard）。由裁剪 UI 用来禁用「确认」。
+ */
+export const MIN_CROP_SIDE = 300;
 
 export type PhotoStage = 'loading-cv' | 'recognizing' | 'done' | 'error';
 
@@ -50,10 +80,12 @@ export interface PhotoBoardResult {
   white: number;
   /** 四角检测得分 0~1，越高越可信（供 UI 提示「可能没拍准」） */
   win: number;
-  /** 检测到的四角（缩放后图片坐标系），用于在预览图上标注 */
+  /** 检测到的四角（未裁剪原图坐标系，已加回裁剪偏移），用于在预览图上标注 */
   corners: Quad;
-  /** 缩放后的原图 canvas，供 UI 展示给用户对照修正 */
+  /** 缩放后的原图 canvas（未裁剪），供 UI 展示给用户对照修正 */
   canvas: HTMLCanvasElement;
+  /** 本次实际送进识别的裁剪范围（原图坐标系）；整图识别时为全画布 */
+  region: CropRect;
   /** 识别耗时（毫秒） */
   elapsedMs: number;
 }
@@ -171,20 +203,59 @@ export function ensureCv(onProgress?: (p: PhotoProgress) => void): Promise<CvLik
 }
 
 /**
- * 识别一张棋盘照片。
+ * 只把图片解码 + 缩放成 canvas，不碰 opencv。
  *
- * @param file 用户拍照/选图得到的图片
- * @param onProgress 进度回调（识别阶段是同步 wasm 计算，无法报真实进度，
- *                   只能先渲染出提示再开跑，所以这里的 percent 为 null）
+ * 裁剪 UI 要先出图才能让用户框选，此时不该触发 10MB opencv 下载 —— 用户可能
+ * 只是想看看照片拍糊没有，框完取消掉。opencv 留到真正点「确认」时再加载。
  */
-export async function recognizePhoto(
-  file: Blob,
+export async function loadPhotoCanvas(file: Blob): Promise<HTMLCanvasElement> {
+  const im = await loadImage(file);
+  return drawToCanvas(im, MAX_SIDE);
+}
+
+/**
+ * 把裁剪框钳到画布范围内并取整。
+ *
+ * UI 拖出来的是 CSS 像素浮点，乘上缩放比再取整后可能越界一两个像素，
+ * drawImage 越界不报错（补透明），但会让四角偏移算错，所以在这里兜住。
+ */
+function clampRect(r: CropRect, w: number, h: number): CropRect {
+  const x = Math.max(0, Math.min(Math.round(r.x), Math.max(0, w - 1)));
+  const y = Math.max(0, Math.min(Math.round(r.y), Math.max(0, h - 1)));
+  const rw = Math.max(1, Math.min(Math.round(r.w), w - x));
+  const rh = Math.max(1, Math.min(Math.round(r.h), h - y));
+  return { x, y, w: rw, h: rh };
+}
+
+/**
+ * 识别 canvas 上指定矩形范围内的棋盘。
+ *
+ * 裁剪在这里完成：把框内的像素画到离屏 canvas，再交给 recognizeBoard。
+ * 库侧拿到的就是一张「棋盘占满画面」的图，粗定位不会被桌面对比度带偏。
+ *
+ * @param canvas loadPhotoCanvas() 得到的整图
+ * @param region 裁剪框（canvas 像素坐标系）
+ * @param onProgress 进度回调
+ */
+export async function recognizeRegion(
+  canvas: HTMLCanvasElement,
+  region: CropRect,
   onProgress?: (p: PhotoProgress) => void,
 ): Promise<PhotoBoardResult> {
+  const rect = clampRect(region, canvas.width, canvas.height);
+  if (Math.min(rect.w, rect.h) < MIN_CROP_SIDE) {
+    throw new Error(`框选范围太小（${rect.w}×${rect.h}），请把整个棋盘框进来`);
+  }
+
   const cv = await ensureCv(onProgress);
 
-  const im = await loadImage(file);
-  const canvas = drawToCanvas(im, MAX_SIDE);
+  const crop = document.createElement('canvas');
+  crop.width = rect.w;
+  crop.height = rect.h;
+  const cctx = crop.getContext('2d');
+  if (!cctx) throw new Error('无法创建 canvas 上下文');
+  cctx.imageSmoothingQuality = 'high';
+  cctx.drawImage(canvas, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h);
 
   onProgress?.({ stage: 'recognizing', percent: null, message: '正在识别棋局…' });
   // 让浏览器把上面这行画出来再进同步计算：识别会冻住主线程约 3 秒，
@@ -192,7 +263,7 @@ export async function recognizePhoto(
   await new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 50)));
 
   const t0 = performance.now();
-  const img: MatLike = cv.imread(canvas);
+  const img: MatLike = cv.imread(crop);
   try {
     const r = recognizeBoard(cv, img, { size: PHOTO_BOARD_SIZE });
     let black = 0;
@@ -203,17 +274,42 @@ export async function recognizePhoto(
       else if (v === 2) white++;
     }
     const win = typeof r.debug.win === 'number' ? r.debug.win : 0;
+    // ⚠️ 四角是裁剪图坐标系（warp 的透视变换在裁剪图上做），参考缩略图画的是
+    //    整图，必须把偏移加回去，否则橙色框会画到左上角去。
+    // ⚠️ 不能写 r.corners.map(...)：Quad 是四元元组，map 出来是 [number,number][]，
+    //    类型对不上；显式取四项，TS 才能保证长度
+    const corners: Quad = [
+      [r.corners[0][0] + rect.x, r.corners[0][1] + rect.y],
+      [r.corners[1][0] + rect.x, r.corners[1][1] + rect.y],
+      [r.corners[2][0] + rect.x, r.corners[2][1] + rect.y],
+      [r.corners[3][0] + rect.x, r.corners[3][1] + rect.y],
+    ];
     return {
       size: r.N,
       stones: r.stones,
       black,
       white,
       win,
-      corners: r.corners,
+      corners,
       canvas,
+      region: rect,
       elapsedMs: Math.round(performance.now() - t0),
     };
   } finally {
     img.delete();
   }
+}
+
+/**
+ * 识别整张照片（不裁剪）。
+ *
+ * 保留给不需要裁剪的调用方；记谱页的「拍照摆子」走 loadPhotoCanvas +
+ * recognizeRegion 两步，先框再识别。
+ */
+export async function recognizePhoto(
+  file: Blob,
+  onProgress?: (p: PhotoProgress) => void,
+): Promise<PhotoBoardResult> {
+  const canvas = await loadPhotoCanvas(file);
+  return recognizeRegion(canvas, { x: 0, y: 0, w: canvas.width, h: canvas.height }, onProgress);
 }

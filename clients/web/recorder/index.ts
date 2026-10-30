@@ -7,6 +7,9 @@ import { WebBootstrap } from '../shared/Bootstrap';
 import { createRecorderDeps } from '../shared/deps/recorder';
 import { RecorderPage } from '../../../presentation/adapters/web/pages/recorder';
 import { takePhotoHandoff, dataUrlToBlob } from '../shared/photo-handoff';
+import { openPhotoCropper } from '../shared/photo-cropper';
+import { loadPhotoCanvas } from '../../../services/photo';
+import type { CropRect } from '../../../services/photo';
 import { Dialog } from '../shared/ui/Dialog';
 
 async function main() {
@@ -40,6 +43,30 @@ async function main() {
   // 4. 初始化
   await page.initialize();
 
+  /**
+   * 拍照摆子主流程：解码 → 弹框选 → 按框识别 → 摆子。
+   *
+   * 框选是必过的一步（不是「识别失败了才框」）：整图识别的边界准确率不够，
+   * 先框住棋盘能把粗定位的错误来源（桌面纹理、书本边、棋盒）直接切掉。
+   *
+   * ⚠️ canvas 要跨「裁剪 → 识别」两阶段复用：裁剪器只读它的像素不修改，
+   *    识别完留着供「重新框选」再来一轮 —— 否则重框要用户重新拍一张。
+   */
+  async function runPhotoPipeline(file: Blob): Promise<void> {
+    // 解码 + 缩放是纯 2D 操作，碰不到 opencv（10MB），所以选完图是秒开的
+    const canvas = await loadPhotoCanvas(file);
+    // 记住上一次的框：识别失败回来重框时从原位微调，比从头拖省事
+    let region: CropRect | null = null;
+    for (;;) {
+      const r = await openPhotoCropper(canvas, { initial: region });
+      if (!r) return; // 取消
+      const ok = await page.applyPhotoRegion(canvas, r);
+      if (ok) return;
+      // 识别失败（多半是框错了）：回到裁剪浮层，调完再来
+      region = r;
+    }
+  }
+
   // 4.5 消费 assistant「拍照记谱」传来的照片：
   //     有未保存棋局先问（拍都拍了才发现摆不上去最气人，但更气的是摆上去才发现
   //     把没保存的棋局冲了），确认后清空再摆子。
@@ -65,7 +92,7 @@ async function main() {
       //    而摆子模式下 initialStones 落子前随时可改，配合参考图才修得动。
       //    有落子记录时切不过去（会 toast 提示），此时也不该往下摆。
       if (page.switchToSetupMode()) {
-        await page.applyPhoto(dataUrlToBlob(handoff.dataUrl));
+        await runPhotoPipeline(dataUrlToBlob(handoff.dataUrl));
       }
     }
   }
@@ -200,7 +227,7 @@ async function main() {
   const photoFileInput = document.getElementById('photoFileInput') as HTMLInputElement | null;
   photoFileInput?.addEventListener('change', () => {
     const file = photoFileInput.files?.[0];
-    if (file) void page.applyPhoto(file);
+    if (file) void runPhotoPipeline(file);
   });
 
   document.getElementById('downloadMenuItem')?.addEventListener('click', () => {
