@@ -82,9 +82,14 @@ export interface PhotoBoardResult {
   win: number;
   /** 检测到的四角（未裁剪原图坐标系，已加回裁剪偏移），用于在预览图上标注 */
   corners: Quad;
-  /** 缩放后的原图 canvas（未裁剪），供 UI 展示给用户对照修正 */
+  /**
+   * 实际送进识别的那张图 —— 即按 region 裁剪后的 canvas。
+   *
+   * 给 UI 做对照缩略图用：用户看到的就是算法看到的，两者不会有偏差。
+   * 相应地，corners 就是这张裁剪图的坐标系，不需要再加 region 偏移。
+   */
   canvas: HTMLCanvasElement;
-  /** 本次实际送进识别的裁剪范围（原图坐标系）；整图识别时为全画布 */
+  /** 本次裁剪在原图上的位置（原图坐标系）；canvas 就是这个范围的切片 */
   region: CropRect;
   /** 识别耗时（毫秒） */
   elapsedMs: number;
@@ -274,24 +279,17 @@ export async function recognizeRegion(
       else if (v === 2) white++;
     }
     const win = typeof r.debug.win === 'number' ? r.debug.win : 0;
-    // ⚠️ 四角是裁剪图坐标系（warp 的透视变换在裁剪图上做），参考缩略图画的是
-    //    整图，必须把偏移加回去，否则橙色框会画到左上角去。
-    // ⚠️ 不能写 r.corners.map(...)：Quad 是四元元组，map 出来是 [number,number][]，
-    //    类型对不上；显式取四项，TS 才能保证长度
-    const corners: Quad = [
-      [r.corners[0][0] + rect.x, r.corners[0][1] + rect.y],
-      [r.corners[1][0] + rect.x, r.corners[1][1] + rect.y],
-      [r.corners[2][0] + rect.x, r.corners[2][1] + rect.y],
-      [r.corners[3][0] + rect.x, r.corners[3][1] + rect.y],
-    ];
+    // 四角就是裁剪图坐标系 —— result.canvas 也是这张裁剪图，两者一致，
+    // 缩略图上直接画即可。（早期版本返回整图 + 加偏移，导致「看到的」和
+    // 「识别的」不是同一张，对照时无法判断到底是框错了还是判错了。）
     return {
       size: r.N,
       stones: r.stones,
       black,
       white,
       win,
-      corners,
-      canvas,
+      corners: r.corners,
+      canvas: crop,
       region: rect,
       elapsedMs: Math.round(performance.now() - t0),
     };

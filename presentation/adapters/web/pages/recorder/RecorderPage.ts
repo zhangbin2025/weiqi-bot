@@ -430,6 +430,14 @@ export class RecorderPage implements IPage {
    * ⚠️ 坐标系：r.corners 已在 recognizeRegion 里加回裁剪偏移，和 r.region
    *    同为整图坐标系，所以这里能直接乘同一个缩放比。
    */
+  /**
+   * 生成参考缩略图。
+   *
+   * ⚠️ 缩略图画的就是 r.canvas —— 也就是实际送进识别的那张裁剪图，不是整张照片。
+   * 用户看到什么，算法就是看什么。早期版本画整图再叠加「白虚线用户框 + 橙四角」，
+   * 结果缩略图和识别输入不是同一张：发现边界识别不准时，根本分不清是框错了
+   * 还是算法判错了。现在两者一致，对照才有意义。
+   */
   private makePhotoThumb(r: PhotoBoardResult): string {
     const src = r.canvas;
     const maxSide = 600;
@@ -442,23 +450,9 @@ export class RecorderPage implements IPage {
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(src, 0, 0, c.width, c.height);
 
-    // 框外压暗：让「识别范围」这件事在缩略图上也看得见
-    ctx.fillStyle = 'rgba(0,0,0,0.45)';
-    ctx.beginPath();
-    ctx.rect(0, 0, c.width, c.height);
-    ctx.rect(r.region.x * s, r.region.y * s, r.region.w * s, r.region.h * s);
-    ctx.fill('evenodd');
-
     const R = Math.max(c.width, c.height) * 0.02;
 
-    // 用户框选范围：白色虚线
-    ctx.setLineDash([Math.max(4, R * 0.5), Math.max(3, R * 0.35)]);
-    ctx.strokeStyle = 'rgba(255,255,255,0.95)';
-    ctx.lineWidth = Math.max(1.5, R * 0.18);
-    ctx.strokeRect(r.region.x * s, r.region.y * s, r.region.w * s, r.region.h * s);
-    ctx.setLineDash([]);
-
-    // 机器判定的棋盘四角：橙色实线
+    // 机器判定的棋盘四角：橙色实线（与 r.canvas 同坐标系，直接画）
     ctx.strokeStyle = '#FF8A1F';
     ctx.lineWidth = Math.max(2, R * 0.3);
     ctx.beginPath();
