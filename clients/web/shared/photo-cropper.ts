@@ -13,8 +13,10 @@
  *  - **只用单指** —— 页面注入的 no-zoom.js 会在 document 捕获阶段吞掉所有
  *    多指触摸（`e.touches.length > 1` 直接 preventDefault），双指捏合缩放框
  *    会被它吃掉。单指不受影响，所以手柄要做得足够大（44px 热区）。
- *  - **框要比棋盘大一圈** —— 消失点靠长直线的交点求，贴边裁会把线切短、
- *    交点飘。默认框取短边的 82%，文案提示四周留空隙。
+ *  - **默认框占满短边** —— 拍照习惯是让棋盘撑满画面短边，所以默认框取内接
+ *    正方形（边长 = 短边），长边方向留白让用户挪动即可，不必拉拽。
+ *    消失点靠长直线交点求，贴边裁会把线切短、交点飘；但用户拍摄时棋盘四周
+ *    本来就留有空隙，这个风险由拍摄习惯兜底。
  *  - **内部状态用 canvas 像素** —— CSS 像素只用于渲染，这样最小尺寸限制
  *    （MIN_CROP_SIDE）才是针对真实分辨率的，窗口 resize 也不会让框变形。
  */
@@ -151,9 +153,24 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.min(Math.max(v, lo), hi);
 }
 
-/** 默认框：居中的正方形，边长取短边的 82%（棋盘是方的，四周留空隙） */
+/**
+ * 默认框：内接于画布的最大正方形（边长 = 短边），居中。
+ *
+ * 为什么不取「短边 82%」再留一圈：拍照时人会本能地让棋盘撑满画面的短边方向
+ * （棋盘显得更大、更好判子），所以短边天然就贴着棋盘。取满短边 = 这个方向
+ * 大概率已经框对了，用户通常只需沿长边方向挪一下，不用拉拽 —— 少一步操作。
+ *
+ * 具体到两种画幅：
+ *  - 竖屏（w < h）：棋盘撑满画面宽度 → 边长 = w，即「宽度占满，高度等宽」，
+ *    用户只需上下移动；
+ *  - 横屏（w > h）：棋盘撑满画面高度 → 边长 = h，用户只需左右移动。
+ * 长边方向剩下的空间正是要裁掉的桌面/背景，留着反而会干扰粗定位。
+ *
+ * 棋盘是正方形，所以默认框也必须是正方形 —— 用内接正方形而非「w×w」，
+ * 后者在横屏下会被 sanitize 钳成 w×h（等于没裁）。
+ */
 function defaultRect(w: number, h: number): CropRect {
-  const side = Math.round(Math.min(w, h) * 0.82);
+  const side = Math.round(Math.min(w, h));
   return {
     x: Math.round((w - side) / 2),
     y: Math.round((h - side) / 2),
@@ -237,7 +254,7 @@ export function openPhotoCropper(
 
     const hint = document.createElement('div');
     hint.className = 'pc-hint';
-    hint.textContent = '拖动边框或四角，把整个棋盘框进来，四周留点空隙';
+    hint.textContent = '上下移动或拖四角，框住整个棋盘，别切到边线';
 
     const resetBtn = document.createElement('button');
     resetBtn.className = 'pc-btn';
