@@ -10,9 +10,12 @@ import type { BoardSize } from '../../../../core/types';
 import type { RecorderApp } from '../../../../../application/recorder';
 import { recognizePhoto } from '../../../../../services/photo';
 import type { PhotoBoardResult, PhotoProgress } from '../../../../../services/photo';
+import type { ISessionService } from '../../../../../services/session/ISessionService';
 
 export interface RecorderPageConfig {
   recorderApp: RecorderApp;
+  /** 会话服务（摆子模式走 session 把局面递给 review） */
+  sessionService?: ISessionService;
   onNavigate?: (page: string, params?: Record<string, string>) => void;
 }
 
@@ -23,6 +26,7 @@ export class RecorderPage implements IPage {
   private dialog: WebDialog;
   private toast: ReturnType<typeof AdapterFactory.createToast>;
   private onNavigate: ((page: string, params?: Record<string, string>) => void) | undefined;
+  private sessionService: ISessionService | undefined;
   private boardSize: BoardSize = 19;
   private initialized = false;
   private mode: 'play' | 'setup' = 'play';
@@ -32,6 +36,7 @@ export class RecorderPage implements IPage {
   constructor(config: RecorderPageConfig) {
     this.recorderApp = config.recorderApp;
     this.onNavigate = config.onNavigate;
+    this.sessionService = config.sessionService;
     this.board = new WebBoard();
     this.dialog = new WebDialog();
     this.toast = AdapterFactory.createToast();
@@ -203,6 +208,83 @@ export class RecorderPage implements IPage {
 
   setSetupTool(tool: 'stone' | 'eraser'): void {
     this.setupTool = tool;
+  }
+
+  // ===== AI 分析 =====
+
+  /**
+   * 「🤖 AI 分析」菜单入口：把当前棋谱/局面递给 review 页面。
+   *
+   * 两种模式分别走 review 已支持的两条入参路径，review 端零改动：
+   * - 对局模式：`?sgf=<base64>` → 默认复盘模式（深度分析 + 胜率图 + 归档）
+   * - 摆子模式：`?sessionId=<id>&analyzePosition=true&moveTo=0` → 局面分析模式
+   *   摆子只有 AB[]/AW[] 没有着法序列，复盘模式没东西可分析，且复盘会把它
+   *   归档成一条空棋谱，所以走 session 传局面（joseki 探索页同款做法）。
+   *
+   * ⚠️ base64 前必须先 encodeURIComponent：SGF 里有中文棋手名，btoa 遇到
+   *   码位 >0xFF 的字符直接抛 InvalidCharacterError。review 端是
+   *   `decodeURIComponent(atob(...))`，正好配对。
+   * ⚠️ base64 结果仍要再 encodeURIComponent 一次才拼进 URL：`+` 在 query
+   *   里会被解成空格，atob 拿到空格就废了。
+   */
+  async startAIAnalysis(): Promise<void> {
+    const state = this.recorderApp.getState();
+    const hasMoves = state.moveHistory.length > 0;
+    const hasSetup = state.initialStones.length > 0;
+
+    if (!hasMoves && !hasSetup) {
+      this.toast.warning('棋盘是空的，先落子或摆子再分析');
+      return;
+    }
+
+    // 摆子模式（无落子）：局面里只有初始摆子，AI 不知道轮谁下。
+    // SGFWriter 会把 state.initialPlayer 写成 PL[]，所以问完先手方再生成 SGF。
+    if (!hasMoves) {
+      // ⚠️ 不能用 type:'confirm'：WebDialog 的 confirm 取消按钮走 close()，
+      //    resolve 出来是 null 而不是 false（Dialog.ts 里 close() 无条件 resolve(null)），
+      //    于是「白先」永远选不中（saveToHistory 里同样的写法也有这个坑）。
+      //    custom 类型按 btn.id 返回，行为才是确定的。
+      const result = await this.dialog.show({
+        type: 'custom',
+        title: '选择先手方',
+        content: '当前没有落子记录，请选择先手方：',
+        buttons: [
+          { id: 'black', text: '⚫ 黑先' },
+          { id: 'white', text: '⚪ 白先' },
+          { id: 'cancel', text: '取消' },
+        ],
+      });
+      if (result === 'black') {
+        this.recorderApp.setInitialPlayer('black');
+      } else if (result === 'white') {
+        this.recorderApp.setInitialPlayer('white');
+      } else {
+        return; // 取消 / 点背景关闭
+      }
+      // ⚠️ 先手方变了要落草稿，否则下次进页面退回黑先，和刚才问的结果对不上
+      this.recorderApp.saveDraft('setup').catch(e => console.error('保存草稿失败', e));
+    }
+
+    const sgf = this.recorderApp.generateSGF();
+
+    try {
+      // 对局模式：整段 SGF 塞 URL，走默认复盘
+      if (hasMoves) {
+        const encoded = btoa(encodeURIComponent(sgf));
+        window.location.href = `../review/index.html?sgf=${encodeURIComponent(encoded)}`;
+        return;
+      }
+      // 摆子模式：走 session 传局面
+      if (!this.sessionService) {
+        this.toast.error('会话服务未就绪，无法分析局面');
+        return;
+      }
+      const sessionId = await this.sessionService.create('recorder', { sgf });
+      window.location.href = `../review/index.html?sessionId=${encodeURIComponent(sessionId)}&analyzePosition=true&moveTo=0`;
+    } catch (e) {
+      console.error('跳转 AI 分析失败', e);
+      this.toast.error('跳转失败：' + (e instanceof Error ? e.message : String(e)));
+    }
   }
 
   // ===== 拍照摆子 =====

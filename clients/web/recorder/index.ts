@@ -18,9 +18,18 @@ async function main() {
   // 2. 创建记谱依赖
   const { recorderApp } = await createRecorderDeps(ctx);
 
+  // 2.5 创建 SessionService（摆子模式把局面经 session 递给 review）
+  //     只在摆子模式才用得上，但构造很轻（LocalStorage 适配器 + 初始化），
+  //     留着比在菜单回调里临时建省事，也不会拖慢首屏。
+  const cacheStorage = ctx.createCacheStorage();
+  await cacheStorage.initialize();
+  const { SessionService } = await import('../../../services/session');
+  const sessionService = new SessionService(cacheStorage);
+
   // 3. 创建页面
   const page = new RecorderPage({
     recorderApp,
+    sessionService,
     onNavigate: (pageId: string) => {
       if (pageId === 'home') {
         window.location.replace('../index.html');
@@ -179,6 +188,12 @@ async function main() {
   document.getElementById('photoSetupMenuItem')?.addEventListener('click', () => {
     dropdownMenu?.classList.remove('visible');
     page.startPhotoSetup();
+  });
+
+  // 🤖 AI 分析：对局模式 → review 默认复盘；摆子模式 → review 局面分析
+  document.getElementById('aiAnalysisMenuItem')?.addEventListener('click', () => {
+    dropdownMenu?.classList.remove('visible');
+    void page.startAIAnalysis();
   });
 
   // ⚠️ 先清 value 再触发，否则连续选同一张图不会触发 change
