@@ -79,8 +79,26 @@ export class EventService implements IEventService {
   }
 
   async getGroupPlayers(eventId: number, groupId: number): Promise<PlayerListResult> {
-    // open.yunbisai.com API 返回 403，无法获取选手列表
-    return { players: [], total: 0 };
+    const config = await this.getConfig();
+    const params = new URLSearchParams({ groupid: String(groupId) });
+    const url = this.buildUrl(config.eventpartBaseUrl, params);
+
+    try {
+      const res = await this.request<{
+        error?: number;
+        datArr?: { rows?: Record<string, unknown>[] };
+      }>(url, config.timeout);
+      if (res.error !== 0) return { players: [], total: 0 };
+      const rows = res.datArr?.rows || [];
+      const players = rows
+        .map(mapPlayer)
+        // 过滤掉无姓名的脏数据（部分赛事存在占位空行）
+        .filter((p) => p.name.trim() !== '');
+      return { players, total: players.length };
+    } catch (e) {
+      console.warn('获取参赛名单失败', e instanceof Error ? e.message : String(e));
+      return { players: [], total: 0 };
+    }
   }
 
   async getAgainstPlan(groupId: number, bout: number): Promise<AgainstPlanResult> {

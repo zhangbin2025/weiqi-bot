@@ -73,6 +73,7 @@ const DEFAULT_EVENT_CONFIG = {
   eventsBaseUrl: 'https://data-center.yunbisai.com/api/lswl-events',
   groupsBaseUrl: 'https://open.yunbisai.com/api/event/feel/list',
   againstPlanBaseUrl: 'https://api.yunbisai.com/request/Group/Againstplan',
+  eventpartBaseUrl: 'https://api.yunbisai.com/request/Group/Eventpart',
   timeout: 30000,
   eventCacheTTL: 1800000,
   enableEventCache: true,

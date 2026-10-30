@@ -77,6 +77,10 @@ export interface Player {
   id: number;
   /** 姓名 */
   name: string;
+  /** 所属团队（可为 null，部分赛事无团队信息） */
+  team?: string | null;
+  /** 名单序号（对应 API 的 short 字段） */
+  short?: number | null;
   /** 段位/级别 */
   rank?: string;
   /** 积分 */

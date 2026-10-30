@@ -3,7 +3,7 @@ import type { IPage, PageParams, IAdapterFactory } from '../../../../core/interf
 import type { IPageCache } from '../../../../core/interfaces/IPageCache';
 import type { EventQuerier, EventDetail } from '../../../../../application/event';
 import type { IEventFormatter } from './IEventFormatter';
-import type { Group, AgainstPlanResult } from '../../../../../services/event/types';
+import type { Group, PlayerListResult, AgainstPlanResult } from '../../../../../services/event/types';
 import type { RankingResult, RankingMode } from '../../../../../domain/ranking/types';
 import type { PdfEventDetailRef, PdfEvent, PdfGroup as PdfGroupType } from '../../../../../services/event/PdfEventTypes';
 import type { Match } from '../../../../../services/event/types';
@@ -23,8 +23,9 @@ export interface EventDetailPageConfig {
 
 interface Cache {
   groups: Group[]; selectedGroupId?: number | undefined; currentRound: number;
-  totalRounds: number; currentTab: 'ranking' | 'matches'; rankingData: RankingResult | null;
-  matchData: AgainstPlanResult | null; timestamp: number;
+  totalRounds: number; currentTab: 'ranking' | 'matches' | 'players'; rankingData: RankingResult | null;
+  matchData: AgainstPlanResult | null; playerData: PlayerListResult | null;
+  playersTabAvailable: boolean; timestamp: number;
 }
 
 const CACHE_TTL = 5 * 60 * 1000;
@@ -40,8 +41,11 @@ export class EventDetailPage implements IPage {
   private groups: Group[] = []; private selGid?: number | undefined;
   private rankData: RankingResult | null = null;
   private matchData: AgainstPlanResult | null = null;
+  private playerData: PlayerListResult | null = null;
+  /** 「参赛名单」标签是否可用（无对阵表时列出报名名单） */
+  private playersTabAvailable = false;
   private curRound = 1; private totRounds = 1;
-  private curTab: 'ranking' | 'matches' = 'ranking';
+  private curTab: 'ranking' | 'matches' | 'players' = 'ranking';
   private init = false; private renderer: EventDetailRenderer;
   private rankingMode: RankingMode = 'default';
   private pdfService = new PdfEventService();
@@ -57,7 +61,7 @@ export class EventDetailPage implements IPage {
     this.nav = c.onNavigate; this.pcFn = c.onPlayerClick; this.cache = c.pageCache;
     this.renderer = new EventDetailRenderer({
       onGroupChange: (g) => this.selectGroup(g),
-      onTabChange: (t) => { this.curTab = t as 'ranking' | 'matches'; this.renderContent(); this.saveCache(); },
+      onTabChange: (t) => { this.curTab = t as 'ranking' | 'matches' | 'players'; this.renderContent(); this.saveCache(); },
       onPrevRound: () => { if (this.curRound > 1 && this.selGid) { this.curRound--; this.loadRound(); } },
       onNextRound: () => { if (this.curRound < this.totRounds && this.selGid) { this.curRound++; this.loadRound(); } },
       onPlayerClick: (n) => { if (this.pcFn) this.pcFn(n); },
@@ -196,6 +200,11 @@ export class EventDetailPage implements IPage {
       success: true,
     };
 
+    // PDF 导入本身就是对阵表，不存在「无对阵表」的空窗期，名单标签不参与
+    this.playersTabAvailable = false;
+    this.playerData = null;
+    this.renderer.setPlayersTabAvailable(false);
+
     this.renderContent();
   }
 
@@ -206,7 +215,8 @@ export class EventDetailPage implements IPage {
     this.cache.set(this.ckey(), JSON.stringify({
       groups: this.groups, selectedGroupId: this.selGid, currentRound: this.curRound,
       totalRounds: this.totRounds, currentTab: this.curTab, rankingData: this.rankData,
-      matchData: this.matchData, timestamp: Date.now(),
+      matchData: this.matchData, playerData: this.playerData,
+      playersTabAvailable: this.playersTabAvailable, timestamp: Date.now(),
     } as Cache));
   }
 
@@ -220,6 +230,10 @@ export class EventDetailPage implements IPage {
       this.groups = c.groups; this.selGid = c.selectedGroupId;
       this.curRound = c.currentRound; this.totRounds = c.totalRounds;
       this.curTab = c.currentTab; this.rankData = c.rankingData; this.matchData = c.matchData;
+      // 旧缓存没有名单字段，回退为 false（名单标签随之隐藏）
+      this.playerData = c.playerData ?? null;
+      this.playersTabAvailable = c.playersTabAvailable ?? false;
+      this.renderer.setPlayersTabAvailable(this.playersTabAvailable);
       this.renderer.setActiveTab(this.curTab); // 同步渲染器的标签页状态
       this.renderer.renderGroupSelect(this.groups, this.selGid);
       this.renderContent();
@@ -264,6 +278,21 @@ export class EventDetailPage implements IPage {
       this.rankData = rr; this.totRounds = rr.totalRounds; this.curRound = rr.totalRounds;
       this.renderer.showProgress(90, '正在加载对阵数据...');
       this.matchData = await this.q.getGroupMatches(g.id, this.curRound);
+      // 只要存在任意一轮对阵表，就不再展示参赛名单（名单仅用于填补无对阵表的空窗期）
+      const hasMatches = (rr.rankings?.length ?? 0) > 0 || (this.matchData?.rows?.length ?? 0) > 0;
+      this.playersTabAvailable = !hasMatches;
+      if (this.playersTabAvailable) {
+        this.renderer.showProgress(95, '正在加载参赛名单...');
+        this.playerData = await this.q.getGroupPlayers(g.id);
+      } else {
+        this.playerData = null;
+      }
+      this.renderer.setPlayersTabAvailable(this.playersTabAvailable);
+      // 无对阵表时排名也必然为空，直接落到名单标签，避免停在「暂无排名数据」空屏
+      if (this.playersTabAvailable && (rr.rankings?.length ?? 0) === 0) {
+        this.curTab = 'players';
+        this.renderer.setActiveTab('players');
+      }
       this.renderer.showProgress(100, '加载完成');
       this.renderContent(); this.saveCache();
     } catch (e) { console.error('加载分组数据失败', e as Error); this.renderer.renderError('加载分组数据失败，请重试'); }
@@ -300,6 +329,8 @@ export class EventDetailPage implements IPage {
       this.renderer.renderRoundNav(this.curRound, this.totRounds);
       const roundMatches = this.filterMatchesByRound(this.matchData, this.curRound);
       this.renderer.renderMatches(roundMatches, this.buildScoreMap(this.curRound));
+    } else if (this.curTab === 'players' && this.playerData) {
+      this.renderer.renderPlayers(this.playerData);
     }
     // 数据渲染后尝试恢复返回前的对手弹窗（内部只消费一次）
     this.tryRestoreOpponentModal();

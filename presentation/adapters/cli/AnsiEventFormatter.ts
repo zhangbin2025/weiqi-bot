@@ -5,7 +5,7 @@
  */
 import type { IEventFormatter } from '../../pages/event/IEventFormatter';
 import type { EventHistoryEntry } from '../../../application/event';
-import type { Event, Group } from '../../../services/event/types';
+import type { Event, Group, Player } from '../../../services/event/types';
 import type { PlayerRanking } from '../../../domain/ranking/types';
 import type { AgainstPlanResult } from '../../../services/event/types';
 import { TerminalTable } from './TerminalTable';
@@ -88,6 +88,19 @@ export class AnsiEventFormatter implements IEventFormatter {
   formatLoadError(message: string): string { return `${RED}❌ ${message}${RESET}`; }
   formatEmptyRanking(): string { return `${GRAY}暂无排名数据${RESET}`; }
   formatEmptyMatches(): string { return `${GRAY}暂无对阵数据${RESET}`; }
+  formatPlayerTable(players: Player[]): string {
+    if (!players?.length) return this.formatEmptyPlayers();
+    const table = new TerminalTable([
+      { header: '序号', align: 'right', width: 4 },
+      { header: '姓名', align: 'left', color: (t) => `${BOLD}${t}${RESET}` },
+      { header: '所属团队', align: 'left' },
+    ]);
+    for (const [i, p] of players.entries()) {
+      table.addRow([String(p.short ?? i + 1), cleanName(p.name), p.team || '-']);
+    }
+    return table.render();
+  }
+  formatEmptyPlayers(): string { return `${GRAY}暂无参赛名单${RESET}`; }
   formatGroupOption(group: Group): string {
     const p = group.players ?? '?';
     return `${group.name}(${p}人)`;

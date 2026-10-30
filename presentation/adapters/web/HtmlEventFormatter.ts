@@ -3,7 +3,7 @@
  */
 import type { IEventFormatter } from './pages/event/IEventFormatter';
 import type { EventHistoryEntry } from '../../../application/event';
-import type { Event, Group, AgainstPlanResult } from '../../../services/event/types';
+import type { Event, Group, Player, AgainstPlanResult } from '../../../services/event/types';
 import type { PlayerRanking } from '../../../domain/ranking/types';
 import { tokens } from '../../core/styles/tokens';
 const S = {
@@ -102,6 +102,22 @@ export class HtmlEventFormatter implements IEventFormatter {
   }
   formatEmptyRanking(): string { return `<div style="text-align:center;padding:40px;color:${tokens.colors.textHint};">暂无排名数据</div>`; }
   formatEmptyMatches(): string { return `<div style="text-align:center;padding:40px;color:${tokens.colors.textHint};">暂无对阵数据</div>`; }
+  /** 参赛名单：序号 + 姓名（可跳转棋手查询）+ 所属团队 */
+  formatPlayerTable(players: Player[]): string {
+    if (!players?.length) return this.formatEmptyPlayers();
+    const th = `padding:10px 6px;font-weight:600;color:${tokens.colors.textSecondary};font-size:0.85em;`;
+    const td = 'padding:10px 6px;';
+    let html = `<table style="width:100%;border-collapse:collapse;font-size:0.9em;background:white;border-radius:${tokens.radius.md}px;overflow:hidden;"><thead><tr style="background:${tokens.colors.bg};"><th style="${th}text-align:center;">序号</th><th style="${th}text-align:left;">姓名</th><th style="${th}text-align:left;">所属团队</th></tr></thead><tbody>`;
+    players.forEach((p, i) => {
+      const cn = cleanName(p.name);
+      // 团队可能为空，统一显示为短横线，避免出现空白格
+      const team = p.team ? esc(p.team) : `<span style="color:${tokens.colors.textHint};">-</span>`;
+      // 姓名链接与排行榜保持一致，供 initialize() 的全局拦截复用（返回时高亮）
+      html += `<tr id="player-row-${esc(cn)}" style="border-bottom:1px solid ${tokens.colors.border};"><td style="${td}text-align:center;font-weight:600;color:${tokens.colors.textSecondary};">${p.short ?? i + 1}</td><td style="${td}text-align:left;font-weight:500;"><a href="../player/?name=${encodeURIComponent(cn)}" style="${S.link}" data-action="playerClick" data-name="${esc(p.name)}">${esc(p.name)}</a></td><td style="${td}text-align:left;color:${tokens.colors.textSecondary};">${team}</td></tr>`;
+    });
+    return html + '</tbody></table>';
+  }
+  formatEmptyPlayers(): string { return `<div style="text-align:center;padding:40px;color:${tokens.colors.textHint};">暂无参赛名单</div>`; }
   formatGroupOption(g: Group): string { return g.name + (g.players != null ? ` (${g.players}人)` : ''); }
   formatOpponentModal(playerName: string, games: PlayerRanking['games'], rankMap?: Map<string, { rank: number; score: number }>): string {
     if (!games?.length) return '';

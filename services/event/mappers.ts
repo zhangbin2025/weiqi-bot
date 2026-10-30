@@ -27,12 +27,25 @@ export const mapGroup = (r: Record<string, unknown>): Group => ({
 
 /**
  * 映射选手数据
+ * @description 兼容两种字段命名：
+ * - Eventpart 接口返回 participantid / teamname / short
+ * - 旧接口返回 participant_id
  */
 export const mapPlayer = (r: Record<string, unknown>): Player => {
+  const rawId = r['participantid'] ?? r['participant_id'];
   const result: Player = {
-    id: Number(r['participant_id']),
+    id: Number(rawId) || 0,
     name: String(r['participantname'] || ''),
   };
+  // 团队名可能为空串或 null，统一归一化为 null
+  const team = r['teamname'];
+  if (team != null && String(team).trim() !== '') result.team = String(team);
+  else result.team = null;
+  const short = r['short'];
+  if (short != null && String(short).trim() !== '') {
+    const n = Number(short);
+    result.short = Number.isFinite(n) ? n : null;
+  }
   if (r['rank_num']) result.rank = String(r['rank_num']);
   if (r['integral']) result.score = Number(r['integral']);
   return result;

@@ -35,6 +35,7 @@ describe('EventService', () => {
         eventsBaseUrl: 'https://data-center.yunbisai.com/api/lswl-events',
         groupsBaseUrl: 'https://open.yunbisai.com/api/event/feel/list',
         againstPlanBaseUrl: 'https://api.yunbisai.com/request/Group/Againstplan',
+        eventpartBaseUrl: 'https://api.yunbisai.com/request/Group/Eventpart',
         timeout: 30000,
       }),
     } as unknown as IConfigProvider;
@@ -101,7 +102,47 @@ describe('EventService', () => {
   });
 
   describe('getGroupPlayers', () => {
-    it('应返回空列表（API不可用）', async () => {
+    it('应返回参赛名单（姓名 + 团队）', async () => {
+      (mockNetwork.request as ReturnType<typeof vi.fn>).mockResolvedValue({
+        data: {
+          error: 0,
+          datArr: {
+            rows: [
+              { participantname: '张三', teamname: '文昌小学', participantid: '10670025', short: '1' },
+              { participantname: '李四', teamname: '流塘小学', participantid: '10670026', short: '2' },
+            ],
+          },
+        },
+      });
+
+      const result = await service.getGroupPlayers(12345, 101);
+      expect(result.players.length).toBe(2);
+      expect(result.total).toBe(2);
+      expect(result.players[0]?.name).toBe('张三');
+      expect(result.players[0]?.team).toBe('文昌小学');
+      expect(result.players[0]?.id).toBe(10670025);
+      expect(result.players[1]?.team).toBe('流塘小学');
+    });
+
+    it('无姓名的数据应被过滤', async () => {
+      (mockNetwork.request as ReturnType<typeof vi.fn>).mockResolvedValue({
+        data: {
+          error: 0,
+          datArr: {
+            rows: [
+              { participantname: '张三', teamname: '文昌小学', participantid: '1' },
+              { participantname: '', teamname: '', participantid: '2' },
+            ],
+          },
+        },
+      });
+
+      const result = await service.getGroupPlayers(12345, 101);
+      expect(result.players.length).toBe(1);
+    });
+
+    it('请求失败时应返回空列表而非抛错', async () => {
+      (mockNetwork.request as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('network down'));
       const result = await service.getGroupPlayers(12345, 101);
       expect(result.players.length).toBe(0);
       expect(result.total).toBe(0);

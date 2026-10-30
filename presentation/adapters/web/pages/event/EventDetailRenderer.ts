@@ -3,7 +3,7 @@
  */
 import type { ICard, IToast, IAdapterFactory, IOverlay } from '../../../../core/interfaces';
 import type { IEventFormatter } from './IEventFormatter';
-import type { Group, AgainstPlanResult } from '../../../../../services/event/types';
+import type { Group, Player, PlayerListResult, AgainstPlanResult } from '../../../../../services/event/types';
 import type { RankingResult } from '../../../../../domain/ranking';
 import type { PlayerRanking, RankingMode } from '../../../../../domain/ranking/types';
 import { GroupSelector } from '../../../../../domain/ranking/GroupSelector';
@@ -35,9 +35,14 @@ export class EventDetailRenderer {
   readonly toast: IToast;
   private rankingCard: ICard;
   private matchCard: ICard;
+  private playerCard: ICard;
   private roundNav: ICard;
   // opponentCard 已移除，改为直接操作 DOM
   private activeTab: string = 'ranking';
+  /** 「参赛名单」标签是否可用：仅当该分组没有对阵表时显示 */
+  private playersTabAvailable: boolean = false;
+  /** 参赛名单数据 */
+  private playerData: PlayerListResult | null = null;
   private groups: Group[] = [];
   private activeGroupId: string = '';
   private highlightedPlayerName: string = '';
@@ -56,6 +61,7 @@ export class EventDetailRenderer {
   ) {
     this.rankingCard = factory.createCard();
     this.matchCard = factory.createCard();
+    this.playerCard = factory.createCard();
     this.roundNav = factory.createCard();
     this.overlay = factory.createOverlay();
     this.toast = factory.createToast();
@@ -162,6 +168,10 @@ export class EventDetailRenderer {
       { id: 'ranking', label: '📊 排名' },
       { id: 'matches', label: '⚔️ 对阵' },
     ];
+    // 「参赛名单」仅在无对阵表时补充显示（PDF 导入等场景有对阵表，故不会出现）
+    if (this.playersTabAvailable) {
+      TABS.push({ id: 'players', label: '👥 名单' });
+    }
     TABS.forEach(tab => {
       const btn = document.createElement('div');
       btn.className = 'detail-tab' + (tab.id === this.activeTab ? ' active' : '');
@@ -232,13 +242,48 @@ export class EventDetailRenderer {
     this.rankingCard.setVisible(true);
     this.roundNav.setVisible(false);
     this.matchCard.setVisible(false);
+    this.playerCard.setVisible(false);
   }
   showMatchesTab(): void {
     this.rankingCard.setVisible(false);
+    this.playerCard.setVisible(false);
     this.roundNav.render();
     this.matchCard.render();
     this.roundNav.setVisible(true);
     this.matchCard.setVisible(true);
+  }
+  showPlayersTab(): void {
+    this.rankingCard.setVisible(false);
+    this.roundNav.setVisible(false);
+    this.matchCard.setVisible(false);
+    this.playerCard.render();
+    this.playerCard.setVisible(true);
+  }
+  /**
+   * 设置「参赛名单」标签的可用性
+   * @description 只要分组存在任意一轮对阵表，就不显示名单标签（名单仅用于填补无对阵表的空窗期）
+   */
+  setPlayersTabAvailable(available: boolean): void {
+    const changed = this.playersTabAvailable !== available;
+    this.playersTabAvailable = available;
+    // 标签被移除而当前正停留在该标签时，回退到排名标签并通知 Page 重新渲染
+    if (changed && !available && this.activeTab === 'players') {
+      this.activeTab = 'ranking';
+      this.cb.onTabChange('ranking');
+    }
+    if (changed) this.renderTabs();
+  }
+  renderPlayers(data: PlayerListResult): void {
+    this.playerData = data;
+    this.hideOverlay();
+    this.playerCard.setContent(
+      (!data.players || data.players.length === 0)
+        ? this.formatter.formatEmptyPlayers()
+        : this.formatter.formatPlayerTable(data.players)
+    );
+    this.showPlayersTab();
+    this.showContainer();
+    this.flushContentReady();
   }
   renderRanking(result: RankingResult): void {
     this.hideOverlay();
@@ -415,7 +460,7 @@ export class EventDetailRenderer {
   }
 
   /** 设置当前激活的标签页（用于从缓存恢复时） */
-  setActiveTab(tab: 'ranking' | 'matches'): void {
+  setActiveTab(tab: 'ranking' | 'matches' | 'players'): void {
     this.activeTab = tab;
     this.renderTabs(); // 重新渲染标签按钮
   }
@@ -476,6 +521,7 @@ export class EventDetailRenderer {
     this.overlay.destroy();
     this.rankingCard.destroy();
     this.matchCard.destroy();
+    this.playerCard.destroy();
     this.roundNav.destroy();
     this.toast.destroy();
   }

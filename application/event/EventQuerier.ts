@@ -2,7 +2,7 @@
  * 云比赛应用编排器
  * @description Application 层编排器，组合 EventService、RankingCalculator、FavoriteService 完成云比赛业务流程
  */
-import type { IEventService, EventListResult, Group, AgainstPlanResult, AllRoundsResult, ProgressCallback } from '../../services/event';
+import type { IEventService, EventListResult, Group, AgainstPlanResult, AllRoundsResult, PlayerListResult, ProgressCallback } from '../../services/event';
 import type { IRankingCalculator, RankingResult, RankingMode, MatchData } from '../../domain/ranking';
 import type { IFavoriteService } from '../../services/favorite';
 import type { EventQueryOptions } from '../../services/event/types';
@@ -67,6 +67,13 @@ export class EventQuerier {
    */
   async getGroupMatches(groupId: number, bout?: number): Promise<AgainstPlanResult> {
     return this.eventService!.getAgainstPlan(groupId, bout ?? 1);
+  }
+  /**
+   * 获取分组参赛名单（姓名 + 所属团队）
+   * @description 仅在无对阵表时使用，用于展示已报名但未编排对阵的选手
+   */
+  async getGroupPlayers(groupId: number): Promise<PlayerListResult> {
+    return this.eventService!.getGroupPlayers(0, groupId);
   }
   /**
    * 获取所有轮次对阵

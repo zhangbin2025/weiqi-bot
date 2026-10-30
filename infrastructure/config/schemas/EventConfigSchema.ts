@@ -18,6 +18,8 @@ export interface IEventConfig {
   groupsBaseUrl: string;
   /** 对阵表 API */
   againstPlanBaseUrl: string;
+  /** 参赛名单 API */
+  eventpartBaseUrl: string;
   /** 请求超时（毫秒） */
   timeout: number;
 
@@ -55,6 +57,12 @@ export const EventConfigSchema: IConfigSchemaDefinition<IEventConfig> = {
     required: true,
     default: 'https://api.yunbisai.com/request/Group/Againstplan',
     description: '对阵表 API 地址',
+  },
+  eventpartBaseUrl: {
+    type: 'string',
+    required: true,
+    default: 'https://api.yunbisai.com/request/Group/Eventpart',
+    description: '参赛名单 API 地址',
   },
   timeout: {
     type: 'number',

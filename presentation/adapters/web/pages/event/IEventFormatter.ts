@@ -6,7 +6,7 @@
  * Renderer 通过此接口获取内容字符串，由适配器决定渲染方式。
  */
 import type { EventHistoryEntry, EventDetail } from '../../../../../application/event';
-import type { Event, Group } from '../../../../../services/event/types';
+import type { Event, Group, Player } from '../../../../../services/event/types';
 import type { RankingResult, PlayerRanking } from '../../../../../domain/ranking';
 import type { AgainstPlanResult } from '../../../../../services/event/types';
 /** 首页格式化方法 */
@@ -55,6 +55,10 @@ export interface IEventDetailFormatter {
   formatEmptyRanking(): string;
   /** 空对阵提示 */
   formatEmptyMatches(): string;
+  /** 参赛名单表格（姓名 + 团队），姓名可跳转棋手查询 */
+  formatPlayerTable(players: Player[]): string;
+  /** 空参赛名单提示 */
+  formatEmptyPlayers(): string;
   /** 分组选择项 */
   formatGroupOption(group: Group): string;
   /** 对手详情弹窗 */
