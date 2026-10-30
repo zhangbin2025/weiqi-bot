@@ -45,13 +45,19 @@ async function main() {
         { title: '拍照记谱', confirmText: '清空并识别', cancelText: '取消', danger: true },
       );
       if (ok) {
+        // ⚠️ newGame 会把模式重置回对局模式，所以切摆子必须排在它后面
         await page.newGame({ skipConfirm: true });
       } else {
         goOn = false; // 照片已随 takePhotoHandoff 删除，不重来
       }
     }
     if (goOn) {
-      await page.applyPhoto(dataUrlToBlob(handoff.dataUrl));
+      // ⚠️ 必须进摆子模式：识别准确率做不到 100%，留在对局模式用户没法修正，
+      //    而摆子模式下 initialStones 落子前随时可改，配合参考图才修得动。
+      //    有落子记录时切不过去（会 toast 提示），此时也不该往下摆。
+      if (page.switchToSetupMode()) {
+        await page.applyPhoto(dataUrlToBlob(handoff.dataUrl));
+      }
     }
   }
 
