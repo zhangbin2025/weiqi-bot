@@ -8,6 +8,7 @@ import type { IManagementService, ManagementCommand } from '../../../../../servi
 import { ClipboardHandler } from './ClipboardHandler';
 import { QRScanner } from './QRScanner';
 import { buildArchiveUrl } from '../../../../../domain/sgf/SGFUtils';
+import { writePhotoHandoff } from '../../../../../clients/web/shared/photo-handoff';
 /**
  * UI 控制器配置
  */
@@ -98,6 +99,53 @@ export class UIController {
     // 调用回调
     this.onSendMessage(text);
   }
+  /**
+   * 拍照记谱
+   *
+   * 唤起相机 → 压缩暂存 → 直接跳记谱页。识别与摆子在 recorder 页做，
+   * 那里已有进度遮罩、参考图缩略图、摆子模式，复用比在这里重做一遍省事。
+   *
+   * 不在聊天区留任何消息/图片：照片只是给记谱页的入参，不是会话内容，
+   * 留着既占上下文又没用。
+   */
+  photoRecord(): void {
+    this.toggleCommandMenu(); // 关闭菜单
+    const input = document.getElementById('photoRecordInput') as HTMLInputElement | null;
+    if (!input) {
+      this.showPhotoError('拍照入口未就绪');
+      return;
+    }
+    // 清空 value，否则连续选同一张图不会触发 change
+    input.value = '';
+    input.click();
+  }
+
+  /** 处理拍照结果：压缩 → 暂存 → 跳转 */
+  private async handlePhotoRecord(file: File): Promise<void> {
+    try {
+      await writePhotoHandoff(file);
+      // 意图明确（用户刚拍完照），直接跳，不走 3 秒倒计时
+      window.location.href = '../recorder/index.html';
+    } catch (e) {
+      console.error('拍照记谱失败', e);
+      this.showPhotoError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  /** 在聊天区显示错误提示（复用二维码扫描的错误展示方式） */
+  private showPhotoError(message: string): void {
+    const chat = document.getElementById('chatContainer');
+    if (!chat) return;
+    const div = document.createElement('div');
+    div.className = 'message assistant';
+    const content = document.createElement('div');
+    content.className = 'message-content';
+    content.textContent = '❌ ' + message;
+    div.appendChild(content);
+    chat.appendChild(div);
+    div.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }
+
   /**
    * 扫描二维码
    */
@@ -279,7 +327,16 @@ export class UIController {
       // 清空 input，允许重复上传同一文件
       input.value = '';
     });
+
+    // 拍照记谱：选中/拍完照片后压缩暂存并跳记谱页
+    document.getElementById('photoRecordInput')?.addEventListener('change', async (e) => {
+      const input = e.target as HTMLInputElement;
+      const file = input.files?.[0];
+      input.value = '';
+      if (file) await this.handlePhotoRecord(file);
+    });
   }
+
   /**
    * 绑定全局函数
    */
@@ -300,5 +357,6 @@ export class UIController {
     (window as any).clearAllHistory = () => this.useCase.clearAllHistory();
     (window as any).exportHistory = () => this.useCase.exportHistory();
     (window as any).scanQRCode = () => this.scanQRCode();
+    (window as any).photoRecord = () => this.photoRecord();
   }
 }

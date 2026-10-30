@@ -59,6 +59,11 @@ mkdirSync(OUT_DIR, { recursive: true });
  */
 function localizeWasmPath(jsPath) {
   const raw = readFileSync(jsPath, 'utf8');
+
+  // 已经是占位符说明上游 extract-wasm.mjs 这次直接产出了占位符版本，
+  // 无需再改 —— 早先这里会误报「预剥离版格式变了」，实际只是幂等重跑。
+  if (/wasmBinaryFile\s*=\s*"__WASM_URL__"/.test(raw)) return false;
+
   const patched = raw.replace(
     /wasmBinaryFile\s*=\s*"[^"]*opencv\.wasm"/g,
     'wasmBinaryFile="__WASM_URL__"',
@@ -70,6 +75,7 @@ function localizeWasmPath(jsPath) {
     );
   }
   writeFileSync(jsPath, patched);
+  return true;
 }
 
 const copied = [];
@@ -81,7 +87,10 @@ for (const f of FILES) {
   }
   const dest = join(OUT_DIR, f);
   copyFileSync(src, dest);
-  if (f === 'opencv.stripped.js') localizeWasmPath(dest);
+  if (f === 'opencv.stripped.js') {
+    const replaced = localizeWasmPath(dest);
+    if (!replaced) console.log('  \u2139\ufe0f  opencv.stripped.js 已是占位符版本，跳过路径替换');
+  }
   const size = statSync(src).size;
   copied.push({ file: f, size });
   console.log(`  ✅ ${f}  ${(size / 1048576).toFixed(2)} MB`);

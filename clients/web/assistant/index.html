@@ -758,6 +758,9 @@
             
             <textarea class="input-textarea" id="userInput" placeholder="输入您想做的事" disabled rows="1"></textarea>
             <input type="file" id="sgfUpload" accept=".sgf" style="display: none;">
+            <!-- 拍照记谱：拍照入口。accept="image/*" 不加 capture —— 加了会强制
+                 后置相机且不给选相册，recorder 的「拍照摆子」也是这个取舍。 -->
+            <input type="file" id="photoRecordInput" accept="image/*" style="display: none;">
             <button class="toolbar-btn send-btn" id="sendBtn" onclick="sendMessage()" disabled title="发送">➤</button>
         </div>
         
@@ -770,6 +773,10 @@
             <div class="command-item" onclick="scanQRCode()">
                 <div class="command-icon">📷</div>
                 <div class="command-title">扫描二维码</div>
+            </div>
+            <div class="command-item" onclick="photoRecord()">
+                <div class="command-icon">🎯</div>
+                <div class="command-title">拍照记谱</div>
             </div>
             <div class="command-item" onclick="clearAllHistory(); toggleCommandMenu();">
                 <div class="command-icon">🗑️</div>

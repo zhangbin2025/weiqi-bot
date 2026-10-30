@@ -6,6 +6,8 @@
 import { WebBootstrap } from '../shared/Bootstrap';
 import { createRecorderDeps } from '../shared/deps/recorder';
 import { RecorderPage } from '../../../presentation/adapters/web/pages/recorder';
+import { takePhotoHandoff, dataUrlToBlob } from '../shared/photo-handoff';
+import { Dialog } from '../shared/ui/Dialog';
 
 async function main() {
   // 1. 初始化 Shell 上下文
@@ -28,6 +30,30 @@ async function main() {
 
   // 4. 初始化
   await page.initialize();
+
+  // 4.5 消费 assistant「拍照记谱」传来的照片：
+  //     有未保存棋局先问（拍都拍了才发现摆不上去最气人，但更气的是摆上去才发现
+  //     把没保存的棋局冲了），确认后清空再摆子。
+  const handoff = takePhotoHandoff();
+  if (handoff) {
+    const state = recorderApp.getState();
+    const hasWork = state.moveHistory.length > 0 || state.initialStones.length > 0;
+    let goOn = true;
+    if (hasWork) {
+      const ok = await Dialog.confirm(
+        '拍照记谱会清空当前棋局的摆子和落子，确定继续吗？',
+        { title: '拍照记谱', confirmText: '清空并识别', cancelText: '取消', danger: true },
+      );
+      if (ok) {
+        await page.newGame({ skipConfirm: true });
+      } else {
+        goOn = false; // 照片已随 takePhotoHandoff 删除，不重来
+      }
+    }
+    if (goOn) {
+      await page.applyPhoto(dataUrlToBlob(handoff.dataUrl));
+    }
+  }
 
   // 5. 渲染
   page.render();
