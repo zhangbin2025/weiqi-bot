@@ -373,33 +373,46 @@
     .photo-ref-actions {
       display: none;
       position: absolute;
-      top: 6px;
-      right: 6px;
+      top: 4px;
+      right: 4px;
       gap: 6px;
     }
 
     .photo-ref.enlarged .photo-ref-btn {
-      background: rgba(0,0,0,0.6);
+      background: rgba(0,0,0,0.3);
     }
 
     .photo-ref.enlarged .photo-ref-actions {
       display: flex;
     }
 
+    /* ⚠️ 别做大：放大态的照片浮在棋盘上，按钮越靠近右上角越容易压住
+       那一片棋子，而那恰恰是要对着照片改的地方。所以小 + 半透明 +
+       只在悬停时加深，平时让底下的棋子透出来。 */
     .photo-ref-btn {
-      width: 28px;
-      height: 28px;
-      border: none;
+      width: 22px;
+      height: 22px;
+      border: 1px solid rgba(255,255,255,0.55);
       border-radius: 50%;
-      background: rgba(0,0,0,0.55);
-      color: #fff;
-      font-size: 16px;
+      background: rgba(0,0,0,0.22);
+      color: rgba(255,255,255,0.92);
+      font-size: 13px;
       line-height: 1;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
       padding: 0;
+      /* 半透明底下垫一层模糊，浅色照片上也看得清 */
+      backdrop-filter: blur(2px);
+      -webkit-backdrop-filter: blur(2px);
+      opacity: 0.7;
+      transition: opacity 0.15s ease, background 0.15s ease;
+    }
+
+    .photo-ref-btn:hover {
+      opacity: 1;
+      background: rgba(0,0,0,0.45);
     }
 
     .photo-ref-btn:active { transform: scale(0.9); }

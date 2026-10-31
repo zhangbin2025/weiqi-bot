@@ -248,8 +248,10 @@ async function main() {
   // 11. 照片参考图
   //  - 缩略图态：常驻按钮栏最右侧，点一下放大
   //  - 放大态：可拖动（放大后默认居中会挡住棋盘，必须能挪开）
-  //  - 最小化：回到按钮栏右侧的缩略图。不做“关闭”——重拍会自然替换，
+  //  - 最小化：点右上小按钮，或点照片以外的任意位置（document 上监听接住），
+  //    回到按钮栏右侧的缩略图。不做“关闭”——重拍会自然替换，
   //    缩略图本身就是最小化态，留个真关闭反而让人不敢点。
+  //  - 清空棋盘时缩略图一起清掉（见 RecorderPage.newGame）
   const photoRef = document.getElementById('photoRef') as HTMLElement | null;
   const photoRefImg = document.getElementById('photoRefImg') as HTMLImageElement | null;
 
@@ -283,6 +285,9 @@ async function main() {
     photoRef.classList.remove('enlarged', 'dragging');
     photoRef.style.left = '';
     photoRef.style.top = '';
+    // 顺手复位拖动状态：从外部点击/Esc 收起时不会走到 photoRef 自己的 click 分支
+    dragging = false;
+    dragMoved = false;
   }
 
   // 拖动：Pointer Events 一套代码覆盖鼠标和触屏。
@@ -338,6 +343,10 @@ async function main() {
     dragging = false;
     photoRef?.classList.remove('dragging');
     clampPhotoRef();
+    // ⚠️ 拖出照片范围松手时，click 会派发到按下/抬起的共同祖先（多半是 body），
+    //   进不到 photoRef 自己的 click，dragMoved 就卡在 true 把下一次点击吃掉。
+    //   延后一拍复位：click 是同步派发的，此刻读到的仍是真值。
+    window.setTimeout(() => { dragMoved = false; }, 0);
   }
 
   window.addEventListener('pointerup', endDrag);
@@ -354,6 +363,32 @@ async function main() {
   document.getElementById('photoRefMinBtn')?.addEventListener('click', (e) => {
     e.stopPropagation();
     minimizePhotoRef();
+  });
+
+  // 点照片以外的地方最小化：最小化按钮又小又靠右上角，正好压在最需要对照的
+  // 那片棋子上，多点一个地方就能收，比去够那个按钮省事。
+  //
+  // ⚠️ 故意不铺全屏透明遮罩：那样会把棋盘的点击一起吃掉，放大照片时点棋盘
+  //    就只剩「收起照片」，落子/摆子得点第二次。改成 document 上的监听
+  //    （只观察不拦截、不 stopPropagation），棋盘自己的 handler 照常跑，
+  //    于是「点棋盘 = 落子 + 收起照片」两者并存。
+  // ⚠️ capture 阶段读状态：放大/收起都发生在后续阶段，capture 里读到的一定是
+  //    点击之前的态，不会被同一次点击自己改过的 class 骗到。
+  // ⚠️ 必须排除 photoRef 自身：否则点照片收起后，它自己的 click 又会看到
+  //    enlarged 已为 false，转头当成「点缩略图」再放大一次。
+  document.addEventListener('click', (e) => {
+    if (!photoRef?.classList.contains('enlarged')) return;
+    if (photoRef.contains(e.target as Node)) return;
+    // 拖完手指抬起的那一下不算“点外面”
+    if (dragging || dragMoved) return;
+    minimizePhotoRef();
+  }, true);
+
+  // Esc 收起：键盘/桌面端顺手，和点外面同一个出口
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && photoRef?.classList.contains('enlarged')) {
+      minimizePhotoRef();
+    }
   });
 
   // 转屏/改窗口大小后把浮层拉回可视区

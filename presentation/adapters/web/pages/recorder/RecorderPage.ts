@@ -527,6 +527,9 @@ export class RecorderPage implements IPage {
     this.board.clear();
     this.mode = 'play';
     this.switchToPlayMode();
+    // 摆子随 newGame 一起没了，参考照片留着就是张对不上的旧图
+    // （工具栏右侧那个缩略图也要跟着消失）。重拍会自然替换，无需确认。
+    this.setPhotoRef(null);
   }
 
   async saveToHistory(blackName: string, whiteName: string): Promise<void> {
