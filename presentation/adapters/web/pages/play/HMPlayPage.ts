@@ -68,6 +68,10 @@ export class HMPlayPage implements IPage {
   private audioPlayer: WebAudioPlayer;
   private playerColor: PlayerColor = 'black';
   private visits: number = 100;  // 默认计算量
+  /** 最新的领地归属数据（AI 每次搜索后更新，复用 MCTS 结果） */
+  private ownership: Float32Array | null = null;
+  /** 是否显示形势（黑白领地） */
+  private showTerritory: boolean = false;
   // private difficulty: number = 5;  // 已移除，改用 visits
   private boardSize: BoardSize = 19;
   private moveCount: number = 0;
@@ -185,6 +189,11 @@ export class HMPlayPage implements IPage {
       updateButtons: () => this.updateButtons(),
       handleGameEnd: (w: PlayerColor, r: string) => this.handleGameEnd(w, r),
       render: () => this.render(),
+      setOwnership: (ownership: Float32Array | undefined) => {
+        this.setOwnership(ownership);
+        // 数据到达后形势菜单项才可用；若已开启则刷新显示
+        this.updateTerritoryButton();
+      },
     };
   }
   handleParams(params: PageParams): void {
@@ -223,6 +232,7 @@ export class HMPlayPage implements IPage {
         modelId: 'default',
       });
       this.moveCount = 0;
+      this.resetTerritory();
       this.board.clear();
       this.board.render();
       this.render();
@@ -230,6 +240,15 @@ export class HMPlayPage implements IPage {
     } catch (error) {
       this.toast.error('启动对局失败');
     }
+  }
+  /** 新对局开始：清空上一局的领地数据，避免显示过期归属 */
+  private resetTerritory(): void {
+    this.ownership = null;
+    this.showTerritory = false;
+    // 同时清除棋盘缓存的归属数据，否则 board.clear() 内部的 render 会画出过期领地
+    const boardImpl = this.board as { setOwnership?: (o: Float32Array | number[] | null) => void };
+    boardImpl.setOwnership?.(null);
+    this.updateTerritoryButton();
   }
   private async handleMove(pos: Position): Promise<void> {
     if (!this.hmPlayApp.isPlayerTurn()) {
@@ -277,6 +296,9 @@ export class HMPlayPage implements IPage {
     const success = await this.hmPlayApp.undo();
     if (success) {
       this.moveCount = Math.max(0, this.moveCount - 2);
+      // 悔棋后棋盘局面变了，旧领地数据已失效，清除避免显示过期归属
+      this.ownership = null;
+      this.updateTerritoryButton();
       this.toast.info('已悔棋');
       this.render();
       // 更新手数显示
@@ -345,7 +367,34 @@ export class HMPlayPage implements IPage {
         this.board.highlight({ x: lastMove.x, y: lastMove.y }, 'last');
       }
     }
+    // 领地归属（形势显示）：开启且有数据时才传入，否则清除
+    const boardImpl = this.board as { setOwnership?: (o: Float32Array | number[] | null) => void };
+    if (boardImpl.setOwnership) {
+      boardImpl.setOwnership(this.showTerritory && this.ownership ? this.ownership : null);
+    }
     this.board.render();
+  }
+  /** 切换形势（黑白领地）显示 */
+  toggleTerritory(): void {
+    this.showTerritory = !this.showTerritory;
+    if (this.showTerritory && !this.ownership) {
+      this.toast.info('等待 AI 分析后有形势数据');
+    }
+    this.updateTerritoryButton();
+    this.renderBoard();
+  }
+  /** 保存最新的领地归属数据（供回调上下文调用） */
+  setOwnership(ownership: Float32Array | undefined): void {
+    this.ownership = ownership ?? null;
+  }
+  /** 更新形势菜单项的显示状态（启用/禁用 + 选中态） */
+  private updateTerritoryButton(): void {
+    const btn = document.getElementById('menuTerritoryBtn') as HTMLButtonElement | null;
+    if (!btn) return;
+    const hasData = this.ownership !== null;
+    btn.disabled = !hasData;
+    const label = btn.querySelector('span');
+    if (label) label.textContent = this.showTerritory ? '形势 ✓' : '形势';
   }
   /** 确认落子 */
   async confirmMove(): Promise<void> {
@@ -684,6 +733,9 @@ export class HMPlayPage implements IPage {
       // 更新页面的玩家颜色(用于预览棋子颜色)
       this.playerColor = options.playerColor;
       this.visits = options.visits;
+
+      // 新对局：清空上一局的领地数据与显示开关，避免显示过期归属
+      this.resetTerritory();
 
       this.progressManager.hideLoading();
       this.setGameState('running');

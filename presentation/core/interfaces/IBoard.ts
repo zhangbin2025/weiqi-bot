@@ -44,6 +44,8 @@ export interface IBoard {
   clearMoveNumbers(): void;
   /** 批量设置手数 */
   setMoveNumbers(moves: Array<{ pos: Position; number: number }>): void;
+  /** 设置领地归属（形势显示）；传 undefined/null 清除 */
+  setOwnership?(ownership: Float32Array | number[] | null): void;
   /** 注册事件 */
   on(events: IBoardEvents): void;
   /** 销毁 */

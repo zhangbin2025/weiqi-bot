@@ -37,9 +37,9 @@ export class HMNotifier {
     this.callbacks.onAiThinking?.(thinking);
   }
 
-  /** 通知 AI 落子 */
-  notifyAiMove(x: number, y: number, winRate?: number, scoreLead?: number): void {
-    this.callbacks.onAiMove?.(x, y, winRate, scoreLead);
+  /** 通知 AI 落子（ownership 为本次搜索的领地归属，复用结果，无额外开销） */
+  notifyAiMove(x: number, y: number, winRate?: number, scoreLead?: number, ownership?: Float32Array): void {
+    this.callbacks.onAiMove?.(x, y, winRate, scoreLead, ownership);
   }
 
   /** 通知提子 */

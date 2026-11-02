@@ -71,6 +71,7 @@ export class HMEventBinder {
     const menuUndoBtn = document.getElementById('menuUndoBtn');
     const menuPassBtn = document.getElementById('menuPassBtn');
     const menuResignBtn = document.getElementById('menuResignBtn');
+    const menuTerritoryBtn = document.getElementById('menuTerritoryBtn');
 
     // 工具栏按钮
     confirmBtn?.addEventListener('click', () => {
@@ -85,6 +86,11 @@ export class HMEventBinder {
 
     menuPassBtn?.addEventListener('click', () => {
       this.config.page.pass();
+      this.closeMenu();
+    });
+
+    menuTerritoryBtn?.addEventListener('click', () => {
+      this.config.page.toggleTerritory();
       this.closeMenu();
     });
 

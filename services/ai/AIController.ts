@@ -105,7 +105,7 @@ export class AIController implements IAIController {
     initialStones?: Array<{ player: PlayerColor; x: number; y: number }>,  // 让子棋
     wideRootNoise?: number,  // 根节点随机性
     nnRandomize?: boolean    // 神经网络随机
-  ): Promise<{ x: number; y: number; winRate: number; scoreLead: number } | null> {
+  ): Promise<{ x: number; y: number; winRate: number; scoreLead: number; ownership?: Float32Array } | null> {
     this.thinking = true;
     this.canceled = false;
 
@@ -122,11 +122,19 @@ export class AIController implements IAIController {
 
       // 返回最佳着法（order 为 0）+ 胜率和目差
       const best = result.moves.find((m: { order: number; x: number; y: number }) => m.order === 0) ?? result.moves[0];
-      return { 
-        x: best!.x, 
-        y: best!.y, 
-        winRate: result.rootWinRate, 
-        scoreLead: result.rootScoreLead 
+      // ownership 是 MCTS 搜索的副产品，不额外发起请求：
+      // worker 默认 ownershipMode='root'，每次 analyze 都已算好整盘领地归属。
+      // 这里把它透传出去，供 UI 直接绘制形势（复用结果，零额外开销）。
+      const ownership = (result as { ownership?: Float32Array | number[] }).ownership;
+      const owned: Float32Array | undefined = ownership
+        ? (ownership instanceof Float32Array ? ownership : new Float32Array(ownership))
+        : undefined;
+      return {
+        x: best!.x,
+        y: best!.y,
+        winRate: result.rootWinRate,
+        scoreLead: result.rootScoreLead,
+        ...(owned ? { ownership: owned } : {}),
       };
     } finally {
       this.thinking = false;
@@ -465,6 +473,12 @@ export class AIController implements IAIController {
             options.regionOfInterest = regionOfInterest;
     }
     
+    // 确保返回领地归属（worker 默认 ownershipMode='root'；
+    // 此处显式声明，避免将来默认值变更导致形势功能静默失效）
+    if (options.ownershipMode === undefined) {
+      options.ownershipMode = 'root';
+    }
+
     // 设置规则
     if (rules) {
         options.rules = rules as any;

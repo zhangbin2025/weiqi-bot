@@ -5,6 +5,14 @@
  */
 import type { IBoard, IBoardConfig, IBoardEvents, Position, BoardSize, HighlightType, PlayerColor } from '../../../core';
 import { BoardImageRenderer, type RecommendationCircle } from './BoardImageRenderer';
+
+/** 领地判定阈值：|ownership| >= 此值才认为是确定的领地（其余视为未定，不绘制） */
+const TERRITORY_THRESHOLD = 0.5;
+/** 领地小方格边长（占格子比例） */
+const TERRITORY_SQUARE_RATIO = 0.46;
+/** 死子中心小方格边长（占格子比例，比领地方格更小以便看出是死子） */
+const DEAD_STONE_SQUARE_RATIO = 0.34;
+
 export class WebBoard implements IBoard {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -26,6 +34,8 @@ export class WebBoard implements IBoard {
   private imageRenderer: BoardImageRenderer; // 图片渲染器
   private lastHoverKey = ''; // 上次 hover 的格子 key，用于去重（避免同一格内 mousemove 重复触发 render）
   private canvasSize = 0; // 缓存 canvas 尺寸，避免重复重设
+  /** 领地归属（形势显示）：长度 = size²，索引 = y*size+x，+1 黑领地 / -1 白领地 */
+  private ownership: Float32Array | number[] | null = null;
   constructor(container?: HTMLElement) {
     this.canvas = document.createElement('canvas');
     this.ctx = this.canvas.getContext('2d')!;
@@ -86,9 +96,11 @@ export class WebBoard implements IBoard {
     // 棋盘格子大小：boardWidth / (size + 1)
     this.cellSize = boardWidth / (this.size + 1);
     this.drawBoard();
+    this.drawTerritory();
     this.drawStones();
     this.drawPreviewStone();
     this.drawHighlights();
+    this.drawDeadStones();
     this.drawMoveNumbers();
     this.drawMarkers();
     this.drawRecommendationCircles();
@@ -103,6 +115,75 @@ export class WebBoard implements IBoard {
       this.cellSize,
       boardWidth
     );
+  }
+
+  /**
+   * 绘制领地（形势）
+   *
+   * 在棋盘线之上、棋子之下绘制：
+   * - 空交叉点：黑领地画黑色实心小方格，白领地画白色实心小方格
+   * - |ownership| < 阈值 的未定区域不绘制
+   */
+  private drawTerritory(): void {
+    if (!this.ownership) return;
+    const n = this.size;
+    const side = this.cellSize * TERRITORY_SQUARE_RATIO;
+    const half = side / 2;
+    for (let y = 0; y < n; y++) {
+      for (let x = 0; x < n; x++) {
+        const key = `${x},${y}`;
+        // 有棋子的点交给棋子/死子标记处理，这里只画空点
+        if (this.stones.has(key)) continue;
+        const v = this.ownership[y * n + x] ?? 0;
+        if (v >= TERRITORY_THRESHOLD) {
+          const { cx, cy } = BoardImageRenderer.toCanvas(x, y, this.cellSize);
+          this.ctx.fillStyle = '#1a1a1c';
+          this.ctx.fillRect(cx - half, cy - half, side, side);
+        } else if (v <= -TERRITORY_THRESHOLD) {
+          const { cx, cy } = BoardImageRenderer.toCanvas(x, y, this.cellSize);
+          this.ctx.fillStyle = '#fcfcfa';
+          this.ctx.fillRect(cx - half, cy - half, side, side);
+          // 白色方格在浅色棋盘上描边，避免边界看不清
+          this.ctx.strokeStyle = 'rgba(120, 110, 95, 0.9)';
+          this.ctx.lineWidth = 1;
+          this.ctx.strokeRect(cx - half, cy - half, side, side);
+        }
+      }
+    }
+  }
+
+  /**
+   * 绘制死子标记（形势）
+   *
+   * 棋子颜色与领地归属相反且确信度高 → 判为死子，
+   * 在棋子中心画反色实心小方格（黑死子画白方，白死子画黑方）。
+   */
+  private drawDeadStones(): void {
+    if (!this.ownership) return;
+    const n = this.size;
+    const side = this.cellSize * DEAD_STONE_SQUARE_RATIO;
+    const half = side / 2;
+    for (const [key, color] of Array.from(this.stones)) {
+      // 最后一手不判死子：ownership 是 AI 落子前算的，
+      // 把这颗刚落下的子纳入判定会因「差一手」而误标
+      if (this.highlights.get(key) === 'last') continue;
+      const [x, y] = key.split(',').map(Number);
+      const v = this.ownership[y! * n + x!] ?? 0;
+      const isDead = color === 'black' ? v <= -TERRITORY_THRESHOLD : v >= TERRITORY_THRESHOLD;
+      if (!isDead) continue;
+      const { cx, cy } = BoardImageRenderer.toCanvas(x!, y!, this.cellSize);
+      this.ctx.fillStyle = color === 'black' ? '#fcfcfa' : '#1a1a1c';
+      this.ctx.fillRect(cx - half, cy - half, side, side);
+    }
+  }
+
+  /**
+   * 设置领地归属（形势显示）
+   * @param ownership 长度 = size²，索引 = y*size+x，+1 黑领地 / -1 白领地；null 表示清除
+   */
+  setOwnership(ownership: Float32Array | number[] | null): void {
+    this.ownership = ownership ?? null;
+    this.render();
   }
   private drawStones(): void {
     for (const [key, color] of Array.from(this.stones)) {
@@ -190,6 +271,8 @@ export class WebBoard implements IBoard {
     this.previewStone = null;
     this.recommendationCircles = [];
     this.candidates = [];
+    // 保留 ownership：领地归属由页面按开关决定是否显示，
+    // clear() 只负责清空棋子等局面内容（renderBoard 每手都会重新传入归属）
     this.render();
   }
   clearHighlights(): void {

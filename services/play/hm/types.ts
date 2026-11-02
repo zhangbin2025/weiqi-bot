@@ -114,7 +114,12 @@ export interface IHMPlayCallbacks {
   /** AI 思考状态变化 */
   onAiThinking?: (thinking: boolean) => void;
   /** AI 落子 */
-  onAiMove?: (x: number, y: number, winRate?: number, scoreLead?: number) => void;
+  /**
+   * AI 落子
+   * @param ownership 本次搜索的领地归属（长度 = boardSize²，索引 = y * boardSize + x，
+   *                  +1 黑领地 / -1 白领地）。复用 MCTS 结果，无额外开销
+   */
+  onAiMove?: (x: number, y: number, winRate?: number, scoreLead?: number, ownership?: Float32Array) => void;
   /** 提子 */
   onCapture?: (count: number, color: PlayerColor) => void;
   /** 目数变化 */

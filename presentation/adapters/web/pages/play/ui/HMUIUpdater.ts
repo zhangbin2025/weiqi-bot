@@ -68,6 +68,7 @@ export class HMUIUpdater {
     const menuUndoBtn = document.getElementById('menuUndoBtn') as HTMLButtonElement;
     const menuPassBtn = document.getElementById('menuPassBtn') as HTMLButtonElement;
     const menuResignBtn = document.getElementById('menuResignBtn') as HTMLButtonElement;
+    const menuTerritoryBtn = document.getElementById('menuTerritoryBtn') as HTMLButtonElement;
 
     switch (state) {
       case 'idle':
@@ -76,6 +77,7 @@ export class HMUIUpdater {
         if (menuUndoBtn) menuUndoBtn.disabled = true;
         if (menuPassBtn) menuPassBtn.disabled = true;
         if (menuResignBtn) menuResignBtn.disabled = true;
+        if (menuTerritoryBtn) menuTerritoryBtn.disabled = true;
         break;
 
       case 'running':
@@ -83,6 +85,8 @@ export class HMUIUpdater {
         if (menuUndoBtn) menuUndoBtn.disabled = this.currentOptions?.noUndo ?? false;
         if (menuPassBtn) menuPassBtn.disabled = false;
         if (menuResignBtn) menuResignBtn.disabled = false;
+        // 形势需要 AI 返回的领地数据，由 HMPlayPage 在数据到达时启用
+        // 这里不强制启用，避免覆盖页面侧的状态
         break;
 
       case 'ended':
@@ -90,6 +94,7 @@ export class HMUIUpdater {
         if (menuUndoBtn) menuUndoBtn.disabled = true;
         if (menuPassBtn) menuPassBtn.disabled = true;
         if (menuResignBtn) menuResignBtn.disabled = true;
+        if (menuTerritoryBtn) menuTerritoryBtn.disabled = true;
         break;
     }
   }

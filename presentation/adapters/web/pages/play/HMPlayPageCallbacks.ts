@@ -19,6 +19,8 @@ export interface HMCallbackContext {
   updateButtons: () => void;
   handleGameEnd: (winner: PlayerColor, reason: string) => void;
   render: () => void;
+  /** 保存最新的领地归属数据（来自 AI 本次搜索，复用结果） */
+  setOwnership: (ownership: Float32Array | undefined) => void;
   }
 /**
  * 创建人机对弈回调处理器
@@ -46,11 +48,13 @@ export function createHMPlayCallbacks(ctx: HMCallbackContext): IHMPlayCallbacks 
       }
       ctx.updateButtons();
     },
-    onAiMove: (x, y, winRate, scoreLead) => {
+    onAiMove: (x, y, winRate, scoreLead, ownership) => {
       // AI 落子
       ctx.moveCount++;
       ctx.updateMoveCount(ctx.moveCount);
       ctx.updateStatus('轮到你落子');
+      // 保存领地归属（MCTS 搜索的副产品，不额外消耗 visits）
+      ctx.setOwnership(ownership);
       // 播放 AI 落子音效
       ctx.audioPlayer.play('stone').catch(() => {
         console.warn('AI 落子音效播放失败');
