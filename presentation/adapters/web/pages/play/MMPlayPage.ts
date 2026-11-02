@@ -492,11 +492,6 @@ export class MMPlayPage implements IPage {
       this.closeTerritory();
       return;
     }
-    // 按钮始终可点，但未开局/加载中时引擎尚未就绪 → 明确提示
-    if (this.gameState === 'idle' || this.gameState === 'loading') {
-      this.toast.info('请先开始对局');
-      return;
-    }
     // App 原生 KataGo 必须显式请求才返回 ownership（额外 NN 计算）→ 用完即关
     this.mmPlayApp.setOwnershipRequested(true);
     try {
