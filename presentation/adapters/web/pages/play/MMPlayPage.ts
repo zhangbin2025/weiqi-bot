@@ -123,17 +123,20 @@ export class MMPlayPage implements IPage {
           this.audioPlayer.play('stone').catch(() => {});
         }
         
-        this.board.render();
-        
-        // 立即更新手数和提子数显示
-        const state = this.mmPlayApp.getState();
-        this.renderStats(state);
-        
         // 保存领地归属（MCTS 搜索的副产品，不额外消耗 visits）
         if (ownership) {
           this.ownership = ownership;
           this.updateTerritoryButton();
         }
+
+        // 必须在保存归属之后再重绘：棋盘内部缓存着自己的归属副本，
+        // 只有 setOwnership() 会更新它。若先 render 再保存，本手画出的
+        // 仍是上一手的领地，开启形势后就会看到形势「不跟着变」。
+        this.renderBoardWithTerritory();
+
+        // 立即更新手数和提子数显示
+        const state = this.mmPlayApp.getState();
+        this.renderStats(state);
 
         // 更新副标题显示胜率和目差
         if (winRate !== undefined && scoreLead !== undefined) {
@@ -403,12 +406,8 @@ export class MMPlayPage implements IPage {
       }
     }
 
-    // 领地归属（形势显示）：开启且有数据时才传入，否则清除
-    const boardImpl = this.board as { setOwnership?: (o: Float32Array | number[] | null) => void };
-    boardImpl.setOwnership?.(this.showTerritory && this.ownership ? this.ownership : null);
-    
-    this.board.render();
-    
+    this.renderBoardWithTerritory();
+
     // 更新统计信息
     this.renderStats(state);
     
@@ -417,6 +416,16 @@ export class MMPlayPage implements IPage {
       moveCount: this.moveCount,
       modelId: this.modelId,
     });
+  }
+
+  /**
+   * 把领地归属写入棋盘并重绘
+   * @description 写入与渲染必须成对出现，且写入在前；否则会用上一手的归属绘制
+   */
+  private renderBoardWithTerritory(): void {
+    const boardImpl = this.board as { setOwnership?: (o: Float32Array | number[] | null) => void };
+    boardImpl.setOwnership?.(this.showTerritory && this.ownership ? this.ownership : null);
+    this.board.render();
   }
 
   /**
@@ -465,7 +474,7 @@ export class MMPlayPage implements IPage {
       this.toast.info('等待 AI 分析后有形势数据');
     }
     this.updateTerritoryButton();
-    this.render();
+    this.renderBoardWithTerritory();
   }
 
   /** 新对局开始：清空上一局的领地数据，避免显示过期归属 */
