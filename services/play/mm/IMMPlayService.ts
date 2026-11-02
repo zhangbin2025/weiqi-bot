@@ -27,7 +27,8 @@ export interface IMMPlayCallbacks {
     moveNum: number,
     captured?: Array<{x: number; y: number}>,
     winRate?: number,
-    scoreLead?: number
+    scoreLead?: number,
+    ownership?: Float32Array
   ) => void;
 
   /** 对局结束回调 */

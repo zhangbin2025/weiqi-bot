@@ -51,6 +51,10 @@ export class MMPlayPage implements IPage {
   private speed: PlaySpeed = 'normal';
   private initialized = false;
   private uiState = new MMPlayPageUIState();
+  /** 最新的领地归属数据（AI 每次搜索后更新，复用 MCTS 结果） */
+  private ownership: Float32Array | null = null;
+  /** 是否显示形势（黑白领地） */
+  private showTerritory: boolean = false;
   
   // 新增属性
   private gameState: MMGameState = 'idle';
@@ -91,7 +95,7 @@ export class MMPlayPage implements IPage {
     
     // 设置回调监听自对弈落子
     this.mmPlayApp.setCallbacks({
-      onMove: (x: number, y: number, color: PlayerColor, moveNum: number, captured?: Array<{x: number; y: number}>, winRate?: number, scoreLead?: number) => {
+      onMove: (x: number, y: number, color: PlayerColor, moveNum: number, captured?: Array<{x: number; y: number}>, winRate?: number, scoreLead?: number, ownership?: Float32Array) => {
         // 处理 pass（停一手）
         if (x === -1 && y === -1) {
           updateStatus(`${color === 'black' ? '黑方' : '白方'} 停一手`);
@@ -125,6 +129,12 @@ export class MMPlayPage implements IPage {
         const state = this.mmPlayApp.getState();
         this.renderStats(state);
         
+        // 保存领地归属（MCTS 搜索的副产品，不额外消耗 visits）
+        if (ownership) {
+          this.ownership = ownership;
+          this.updateTerritoryButton();
+        }
+
         // 更新副标题显示胜率和目差
         if (winRate !== undefined && scoreLead !== undefined) {
           this.updateSubtitleWithScore(winRate, scoreLead);
@@ -177,6 +187,7 @@ export class MMPlayPage implements IPage {
       getGameState: () => this.gameState,
       setGameState: (state) => this.setGameState(state as MMGameState),
       handleEarlyStop: () => this.handleEarlyStop(),
+      onToggleTerritory: () => this.toggleTerritory(),
     });
     
     // 绑定所有事件
@@ -227,6 +238,8 @@ export class MMPlayPage implements IPage {
   async startAutoPlay(options: any): Promise<void> {
     try {
       this.currentOptions = options;
+      // 新对局：清空上一局的领地数据与显示开关，避免显示过期归属
+      this.resetTerritory();
       this.setGameState('loading');
       
       // 显示 loading
@@ -318,6 +331,7 @@ export class MMPlayPage implements IPage {
       await this.mmPlayApp.start();
       this.running = true;
       this.moveCount = 0;
+      this.resetTerritory();
       this.board.clear();
       this.board.render();
       this.toast.success('自对弈开始');
@@ -388,6 +402,10 @@ export class MMPlayPage implements IPage {
         this.board.highlight({ x: lastMove.x, y: lastMove.y }, 'last');
       }
     }
+
+    // 领地归属（形势显示）：开启且有数据时才传入，否则清除
+    const boardImpl = this.board as { setOwnership?: (o: Float32Array | number[] | null) => void };
+    boardImpl.setOwnership?.(this.showTerritory && this.ownership ? this.ownership : null);
     
     this.board.render();
     
@@ -436,6 +454,36 @@ export class MMPlayPage implements IPage {
       return `${modelName} · ${this.currentOptions.visits} visits`;
     }
     return this.modelId || 'AI自对弈';
+  }
+
+  /**
+   * 切换形势（黑白领地）显示
+   */
+  toggleTerritory(): void {
+    this.showTerritory = !this.showTerritory;
+    if (this.showTerritory && !this.ownership) {
+      this.toast.info('等待 AI 分析后有形势数据');
+    }
+    this.updateTerritoryButton();
+    this.render();
+  }
+
+  /** 新对局开始：清空上一局的领地数据，避免显示过期归属 */
+  private resetTerritory(): void {
+    this.ownership = null;
+    this.showTerritory = false;
+    const boardImpl = this.board as { setOwnership?: (o: Float32Array | number[] | null) => void };
+    boardImpl.setOwnership?.(null);
+    this.updateTerritoryButton();
+  }
+
+  /** 更新形势菜单项的显示状态（启用/禁用 + 选中态） */
+  private updateTerritoryButton(): void {
+    const btn = document.getElementById('menuTerritoryBtn') as HTMLButtonElement | null;
+    if (!btn) return;
+    btn.disabled = this.ownership === null;
+    const label = btn.querySelector('span');
+    if (label) label.textContent = this.showTerritory ? '形势 ✓' : '形势';
   }
 
   /**

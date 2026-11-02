@@ -37,9 +37,10 @@ export class MMPlayNotifier {
 
   /**
    * 通知落子
+   * @param ownership 本次搜索的领地归属（MCTS 副产品，复用结果，无额外开销）
    */
-  notifyMove(x: number, y: number, color: PlayerColor, moveNum: number, captured?: Array<{x: number; y: number}>, winRate?: number, scoreLead?: number): void {
-    this.callbacks.onMove?.(x, y, color, moveNum, captured, winRate, scoreLead);
+  notifyMove(x: number, y: number, color: PlayerColor, moveNum: number, captured?: Array<{x: number; y: number}>, winRate?: number, scoreLead?: number, ownership?: Float32Array): void {
+    this.callbacks.onMove?.(x, y, color, moveNum, captured, winRate, scoreLead, ownership);
   }
 
   /**

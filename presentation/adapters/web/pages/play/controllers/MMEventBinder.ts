@@ -10,6 +10,7 @@ export interface MMEventBinderConfig {
   getGameState: () => string;
   setGameState: (state: string) => void;
   handleEarlyStop: () => void;
+  onToggleTerritory: () => void;
 }
 
 /**
@@ -20,12 +21,14 @@ export class MMEventBinder {
   private getGameState: () => string;
   private setGameState: (state: string) => void;
   private handleEarlyStop: () => void;
+  private onToggleTerritory: () => void;
 
   constructor(config: MMEventBinderConfig) {
     this.mmPlayApp = config.mmPlayApp;
     this.getGameState = config.getGameState;
     this.setGameState = config.setGameState;
     this.handleEarlyStop = config.handleEarlyStop;
+    this.onToggleTerritory = config.onToggleTerritory;
   }
 
   /**
@@ -44,6 +47,7 @@ export class MMEventBinder {
     const menuBtn = document.getElementById('menuBtn');
     const dropdownMenu = document.getElementById('dropdownMenu');
     const menuStopBtn = document.getElementById('menuStopBtn');
+    const menuTerritoryBtn = document.getElementById('menuTerritoryBtn');
     
     if (!menuBtn || !dropdownMenu) return;
     
@@ -68,6 +72,12 @@ export class MMEventBinder {
       if (gameState === 'running' || gameState === 'paused') {
         this.handleEarlyStop();
       }
+    });
+
+    // 形势菜单项：切换黑白领地显示
+    menuTerritoryBtn?.addEventListener('click', () => {
+      dropdownMenu.classList.remove('visible');
+      this.onToggleTerritory();
     });
   }
 

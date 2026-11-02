@@ -28,6 +28,7 @@ export class MMUIUpdater {
   updateButtonStates(state: MMGameState): void {
     const pauseBtn = document.getElementById('pauseBtn') as HTMLButtonElement;
     const menuStopBtn = document.getElementById('menuStopBtn');
+    const menuTerritoryBtn = document.getElementById('menuTerritoryBtn');
     
     if (!pauseBtn) return;
     
@@ -35,11 +36,13 @@ export class MMUIUpdater {
       case 'idle':
         pauseBtn.disabled = true;
         if (menuStopBtn) menuStopBtn.style.display = 'none';
+        if (menuTerritoryBtn) menuTerritoryBtn.style.display = 'none';
         break;
         
       case 'loading':
         pauseBtn.disabled = true;
         if (menuStopBtn) menuStopBtn.style.display = 'none';
+        if (menuTerritoryBtn) menuTerritoryBtn.style.display = 'none';
         break;
         
       case 'running':
@@ -52,6 +55,9 @@ export class MMUIUpdater {
         `;
         pauseBtn.title = '暂停';
         if (menuStopBtn) menuStopBtn.style.display = 'flex';
+        // 形势需要 AI 返回的领地数据，由 MMPlayPage 在数据到达时启用
+        // 这里只负责显示，不强制启用，避免覆盖页面侧的状态
+        if (menuTerritoryBtn) menuTerritoryBtn.style.display = 'flex';
         break;
         
       case 'paused':
@@ -63,11 +69,13 @@ export class MMUIUpdater {
         `;
         pauseBtn.title = '继续';
         if (menuStopBtn) menuStopBtn.style.display = 'flex';
+        if (menuTerritoryBtn) menuTerritoryBtn.style.display = 'flex';
         break;
         
       case 'ended':
         pauseBtn.disabled = true;
         if (menuStopBtn) menuStopBtn.style.display = 'none';
+        if (menuTerritoryBtn) menuTerritoryBtn.style.display = 'none';
         break;
     }
   }

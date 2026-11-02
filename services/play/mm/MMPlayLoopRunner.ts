@@ -145,7 +145,9 @@ export class MMPlayLoopRunner {
       const currentMove = this.stateManager.getCurrentMove();
       this.notifier.notifyBoardChange(this.stateManager.getBoard());
       this.notifier.notifyPlayerChange(this.stateManager.getCurrentPlayer());
-      this.notifier.notifyMove(move.x, move.y, currentPlayer, currentMove, captured, move.winRate, move.scoreLead);
+      // ownership 是本次 MCTS 搜索的副产品（落子前算的整盘领地归属），
+      // 直接透传给 UI 绘制形势，不额外发起 analyze 请求
+      this.notifier.notifyMove(move.x, move.y, currentPlayer, currentMove, captured, move.winRate, move.scoreLead, move.ownership);
 
       // 保存草稿
       await saveDraft();
