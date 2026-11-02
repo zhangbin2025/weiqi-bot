@@ -97,6 +97,12 @@ export class ReviewApp {
   ): Promise<FullReviewResult> => this.requireReview().analyzeGameBatch(reviewId, options, callbacks);
   analyzePosition = (reviewId: string, moveIndex: number, options?: ReviewOptions): Promise<MoveReview | null> =>
     this.requireReview().analyzePosition(reviewId, moveIndex, options);
+  /**
+   * 设置是否向引擎请求整盘领地归属（供「形势」功能使用）
+   * @description 仅在用户开启「形势」时为 true。App 原生 KataGo 需要额外 NN 计算，
+   * 故按需开启，避免拖慢每次分析。
+   */
+  setOwnershipRequested = (requested: boolean): void => this.requireReview().setOwnershipRequested(requested);
   evaluateMovesBatch = (reviewId: string, moveIndices: number[]): Promise<Array<{ moveNumber: number; winRate: number; scoreLead: number }>> =>
     this.requireReview().evaluateMovesBatch(reviewId, moveIndices);
 

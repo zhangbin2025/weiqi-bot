@@ -88,6 +88,11 @@ export interface IAnalysisResult {
   scoreLead: number;
   /** 推荐着法 */
   topMoves: IMoveAnalysis[];
+  /**
+   * 整盘领地归属（绝对黑方视角：+1 黑地，-1 白地），长度 boardSize²
+   * @description 供「形势」功能绘制；仅在引擎返回时携带
+   */
+  ownership?: Float32Array | undefined;
 }
 
 /**

@@ -215,10 +215,22 @@ export class MMPlayService implements IMMPlayService {
   // ========== 形势判断和数目 ==========
 
   /**
+   * 设置是否向引擎请求整盘领地归属（供「形势」功能使用）
+   * @description App 原生 KataGo 需额外 NN 计算，按需开启避免拖慢每次思考
+   */
+  setOwnershipRequested(requested: boolean): void {
+    this.aiController.setOwnershipRequested(requested);
+  }
+
+  /**
    * 形势判断
    * @returns 黑方胜率和目差
    */
-  async analyzePosition(): Promise<{ winRate: number; scoreLead: number }> {
+  /**
+   * 形势判断
+   * @returns 黑方胜率、目差，以及（引擎返回时）整盘领地归属
+   */
+  async analyzePosition(): Promise<{ winRate: number; scoreLead: number; ownership?: Float32Array }> {
     const state = this.stateManager.getState();
     
     if (!this.aiController) {
@@ -246,6 +258,7 @@ export class MMPlayService implements IMMPlayService {
     return {
       winRate: blackWinRate,
       scoreLead: blackScoreLead,
+      ...(result.ownership ? { ownership: result.ownership } : {}),
     };
   }
 

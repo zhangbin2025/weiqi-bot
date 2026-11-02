@@ -781,6 +781,15 @@ export class ReviewService implements IReviewService {
   private ensureAI(): void { if (!this.ai) throw new Error('AIController not provided'); }
 
   /**
+   * 设置是否向引擎请求整盘领地归属（供「形势」功能使用）
+   * @description 仅在用户开启「形势」时为 true。Web worker 本就每次都算（零额外开销）；
+   * App 原生 KataGo 需要额外 NN 计算，故按需开启，避免拖慢每次分析。
+   */
+  setOwnershipRequested(requested: boolean): void {
+    this.ai?.setOwnershipRequested(requested);
+  }
+
+  /**
    * 批量评估指定着法的胜率（直播增量着法用）
    * @param reviewId 复盘 ID
    * @param moveIndices 要评估的着法索引数组

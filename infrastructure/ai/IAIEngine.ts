@@ -82,6 +82,8 @@ export interface AnalyzeOptions {
   reuseTree?: boolean | undefined;
   /** 所有权模式 */
   ownershipMode?: 'none' | 'root' | 'tree' | undefined;
+  /** 是否返回整盘领地归属（App 原生 KataGo 需显式请求；Web 走 ownershipMode） */
+  includeOwnership?: boolean | undefined;
   /** 棋盘尺寸（非19路时需指定） */
   boardXSize?: number;
   boardYSize?: number;

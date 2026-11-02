@@ -24,6 +24,12 @@ export class AIController implements IAIController {
   private modelUrl: string | null = null;
   private modelFileName: string | null = null;
   private initialized = false;
+  /**
+   * 是否向引擎请求整盘领地归属
+   * @description 仅在用户开启「形势」时为 true。Web worker 本就每次都算（零开销）；
+   * App 原生 KataGo 需要额外 NN 计算，故必须按需开启，避免拖慢每次 AI 思考。
+   */
+  private ownershipRequested = false;
 
   /**
    * 创建 AI 控制器
@@ -33,6 +39,19 @@ export class AIController implements IAIController {
   constructor(engine?: IAIEngine, difficulty: Difficulty | DifficultyConfig = 'medium') {
     this.engine = engine ?? null;
     this.difficultyManager = new DifficultyManager(difficulty);
+  }
+
+  /**
+   * 设置是否请求整盘领地归属（供「形势」功能使用）
+   * @description 页面在开启/关闭形势时调用。关闭后引擎不再计算 ownership。
+   */
+  setOwnershipRequested(requested: boolean): void {
+    this.ownershipRequested = requested;
+  }
+
+  /** 当前是否需要领地归属数据 */
+  isOwnershipRequested(): boolean {
+    return this.ownershipRequested;
   }
 
   async init(modelId: string, modelUrl?: string, onProgress?: (loaded: number, total: number, progress: number) => void, onInitProgress?: (info: { stage: string; message: string; current?: number; total?: number }) => void): Promise<void> {
@@ -94,6 +113,22 @@ export class AIController implements IAIController {
     }
   }
 
+  /**
+   * 规范化领地归属：引擎未返回（或返回全 0）时视为无数据
+   * @description App 原生 KataGo 在查询未带 includeOwnership 时，解析器会用
+   * 全 0 数组填充 ownership —— 那是"没有数据"，不是"全中立"。若把它当有效数据
+   * 透传，形势会静默地一个格子都画不出来（比 undefined 更难排查）。
+   */
+  private normalizeOwnership(raw?: Float32Array | number[]): Float32Array | undefined {
+    if (!raw) return undefined;
+    const arr = raw instanceof Float32Array ? raw : new Float32Array(raw);
+    if (arr.length === 0) return undefined;
+    for (let i = 0; i < arr.length; i++) {
+      if (arr[i] !== 0) return arr;
+    }
+    return undefined;
+  }
+
   async genmove(
     board: BoardState,
     previousBoard: BoardState | null,
@@ -115,7 +150,7 @@ export class AIController implements IAIController {
       const actualRandomize = nnRandomize ?? this.difficultyManager.getNnRandomize();
 
       const result = await this.callAnalyze(
-        board, previousBoard, currentPlayer, moveHistory, komi, actualVisits, maxTimeMs, undefined, initialStones, actualNoise, actualRandomize
+        board, previousBoard, currentPlayer, moveHistory, komi, actualVisits, maxTimeMs, undefined, initialStones, actualNoise, actualRandomize, undefined, undefined, this.ownershipRequested
       );
 
       if (this.canceled || !result.moves.length) return null;
@@ -125,10 +160,7 @@ export class AIController implements IAIController {
       // ownership 是 MCTS 搜索的副产品，不额外发起请求：
       // worker 默认 ownershipMode='root'，每次 analyze 都已算好整盘领地归属。
       // 这里把它透传出去，供 UI 直接绘制形势（复用结果，零额外开销）。
-      const ownership = (result as { ownership?: Float32Array | number[] }).ownership;
-      const owned: Float32Array | undefined = ownership
-        ? (ownership instanceof Float32Array ? ownership : new Float32Array(ownership))
-        : undefined;
+      const owned = this.normalizeOwnership((result as { ownership?: Float32Array | number[] }).ownership);
       return {
         x: best!.x,
         y: best!.y,
@@ -161,16 +193,13 @@ export class AIController implements IAIController {
     const actualRandomize = nnRandomize ?? this.difficultyManager.getNnRandomize();
     
     const result = await this.callAnalyze(
-      board, previousBoard, currentPlayer, moveHistory, komi, actualVisits, maxTimeMs, analysisPvLen, initialStones, actualNoise, actualRandomize, regionOfInterest, rules
+      board, previousBoard, currentPlayer, moveHistory, komi, actualVisits, maxTimeMs, analysisPvLen, initialStones, actualNoise, actualRandomize, regionOfInterest, rules, this.ownershipRequested
     );
 
     // ownership 是 MCTS 搜索的副产品，不额外发起请求：
     // worker 默认 ownershipMode='root'，每次 analyze 都已算好整盘领地归属。
     // 这里把它透传出去，供 UI 直接绘制形势（复用结果，零额外开销）。
-    const ownership = (result as { ownership?: Float32Array | number[] }).ownership;
-    const owned: Float32Array | undefined = ownership
-      ? (ownership instanceof Float32Array ? ownership : new Float32Array(ownership))
-      : undefined;
+    const owned = this.normalizeOwnership((result as { ownership?: Float32Array | number[] }).ownership);
 
     return {
       winRate: result.rootWinRate,
@@ -432,6 +461,7 @@ export class AIController implements IAIController {
     nnRandomize?: boolean,    // 神经网络随机
     regionOfInterest?: { xMin: number; yMin: number; xMax: number; yMax: number } | null,
     rules?: string,
+    includeOwnership?: boolean,
   ) {
     this.ensureInitialized();
 
@@ -482,10 +512,15 @@ export class AIController implements IAIController {
             options.regionOfInterest = regionOfInterest;
     }
     
-    // 确保返回领地归属（worker 默认 ownershipMode='root'；
-    // 此处显式声明，避免将来默认值变更导致形势功能静默失效）
+    // 领地归属（ownership）：
+    // - Web worker 本就每次都算（默认 ownershipMode='root'），零额外开销 → 保持开启
+    // - App 原生 KataGo 需要显式 includeOwnership 才有该字段，且是额外 NN 计算
+    //   → 仅在形势功能开启时请求，避免拖慢手机端每一次 AI 思考
     if (options.ownershipMode === undefined) {
       options.ownershipMode = 'root';
+    }
+    if (includeOwnership !== undefined) {
+      options.includeOwnership = includeOwnership;
     }
 
     // 设置规则

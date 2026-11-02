@@ -22,6 +22,7 @@ function createMockAI(): IAIController {
       ],
     }),
     countTerritory: vi.fn(),
+    setOwnershipRequested: vi.fn(),
     cancel: vi.fn(),
     isThinking: vi.fn().mockReturnValue(false),
     setDifficulty: vi.fn(),

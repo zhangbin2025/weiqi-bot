@@ -393,6 +393,8 @@ export class ReviewPage implements IPage {
     if (this.showTerritory) {
       this.showTerritory = false;
       this.ownership = undefined;
+      // 同时关闭归属请求，避免 App 端在已不显示形势时继续付出 NN 开销
+      this.reviewApp.setOwnershipRequested(false);
       this.syncOwnershipToBoard();
       this.updateTerritoryButton();
     }
@@ -605,12 +607,17 @@ export class ReviewPage implements IPage {
     if (this.showTerritory) {
       this.showTerritory = false;
       this.ownership = undefined;
+      // 关闭后不再请求归属，避免 App 端持续额外的 NN 开销
+      this.reviewApp.setOwnershipRequested(false);
       this.syncOwnershipToBoard();
       this.board.render();
       this.updateTerritoryButton();
       this.ui.updateStatus('');
       return;
     }
+
+    // 开启：本次分析需要归属（App 原生 KataGo 必须显式请求才会返回）
+    this.reviewApp.setOwnershipRequested(true);
 
     this.ui.updateStatus('分析中...');
     this.analyzing = true;
@@ -629,6 +636,7 @@ export class ReviewPage implements IPage {
 
       const ownership = moveReview?.ownership;
       if (!ownership) {
+        this.reviewApp.setOwnershipRequested(false);
         this.ui.updateStatus('未能获取形势数据');
         return;
       }
@@ -639,6 +647,7 @@ export class ReviewPage implements IPage {
       this.ui.updateStatus('形势显示中');
     } catch (error) {
       console.error('[ReviewPage] 形势分析失败', error as Error | undefined);
+      this.reviewApp.setOwnershipRequested(false);
       this.ui.updateStatus('分析失败');
     } finally {
       this.analyzing = false;

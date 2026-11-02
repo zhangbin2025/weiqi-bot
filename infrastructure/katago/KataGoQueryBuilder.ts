@@ -156,6 +156,9 @@ export class KataGoQueryBuilder {
       query['analysisPVLen'] = opts.analysisPvLen >= 1 ? opts.analysisPvLen : 1;
     }
     if (opts.includeMovesOwnership !== undefined) query['includeMovesOwnership'] = opts.includeMovesOwnership;
+    // 整盘归属：App 原生 KataGo 需要在查询里显式请求才有 ownership 字段
+    // （Web worker 默认 ownershipMode='root'，本就返回；此处补齐 App 侧）
+    if (opts.includeOwnership !== undefined) query['includeOwnership'] = opts.includeOwnership;
     if (opts.wideRootNoise !== undefined) query['wideRootNoise'] = opts.wideRootNoise;
 
     // 处理局部分析区域（框选范围）

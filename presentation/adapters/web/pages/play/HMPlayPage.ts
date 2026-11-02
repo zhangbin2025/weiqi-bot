@@ -243,6 +243,8 @@ export class HMPlayPage implements IPage {
   private resetTerritory(): void {
     this.ownership = null;
     this.showTerritory = false;
+    // 新局开始：同时关闭归属请求，避免 App 端持续付出额外 NN 开销
+    try { this.hmPlayApp.setOwnershipRequested(false); } catch { /* 服务未就绪时忽略 */ }
     // 同时清除棋盘缓存的归属数据，否则 board.clear() 内部的 render 会画出过期领地
     this.syncOwnershipToBoard();
     this.updateTerritoryButton();
@@ -372,11 +374,31 @@ export class HMPlayPage implements IPage {
   /** 切换形势（黑白领地）显示 */
   toggleTerritory(): void {
     this.showTerritory = !this.showTerritory;
+    // 按需向引擎请求归属：App 原生 KataGo 必须显式开启才返回 ownership，
+    // 且是额外 NN 计算 → 关闭形势时立即关掉，避免拖慢每次 AI 思考
+    try { this.hmPlayApp.setOwnershipRequested(this.showTerritory); } catch { /* 服务未就绪时忽略 */ }
     if (this.showTerritory && !this.ownership) {
-      this.toast.info('等待 AI 分析后有形势数据');
+      // 尚无数据：主动分析一次立即取归属（打开就能看到，不必等下一手）
+      void this.requestOwnership();
     }
     this.updateTerritoryButton();
     this.renderBoard();
+  }
+
+  /** 主动分析当前局面以取得领地归属 */
+  private async requestOwnership(): Promise<void> {
+    try {
+      const result = await this.hmPlayApp.analyze();
+      if (result?.ownership) {
+        this.setOwnership(result.ownership);
+        this.renderBoard();
+      } else {
+        this.toast.info('未能获取形势数据');
+      }
+    } catch (e) {
+      console.error('[HMPlayPage] 形势分析失败', e as Error | undefined);
+      this.toast.info('未能获取形势数据');
+    }
   }
   /**
    * 保存最新的领地归属数据（供回调上下文调用）
@@ -404,8 +426,9 @@ export class HMPlayPage implements IPage {
   private updateTerritoryButton(): void {
     const btn = document.getElementById('menuTerritoryBtn') as HTMLButtonElement | null;
     if (!btn) return;
-    const hasData = this.ownership !== null;
-    btn.disabled = !hasData;
+    // 启用条件改为「引擎可用」而非「已有数据」：
+    // App 端归属是按需请求的，若等有数据才启用，按钮将永远点不动（死锁）
+    btn.disabled = this.gameState !== 'running';
     const label = btn.querySelector('span');
     if (label) label.textContent = this.showTerritory ? '形势 ✓' : '形势';
   }
