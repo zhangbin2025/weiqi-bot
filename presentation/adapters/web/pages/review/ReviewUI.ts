@@ -470,7 +470,9 @@ export class ReviewUI {
   /** 更新形势菜单项显示（启用态 + 选中标记） */
   updateTerritoryButton(enabled: boolean, active: boolean): void {
     if (!this.territoryBtnEl) return;
-    this.territoryBtnEl.textContent = active ? '形势 ✓' : '形势';
+    // 只改文字标签：按钮内还有 SVG 图标，不能用 textContent 整体覆盖
+    const label = document.getElementById('territoryLabel');
+    if (label) label.textContent = active ? '形势 ✓' : '形势';
     (this.territoryBtnEl as HTMLButtonElement).disabled = !enabled;
     this.territoryBtnEl.style.opacity = enabled ? '1' : '0.5';
     this.territoryBtnEl.style.cursor = enabled ? 'pointer' : 'not-allowed';
