@@ -148,30 +148,30 @@ describe('formatLead', () => {
 });
 
 describe('territoryVisitsForModel', () => {
-  it('小模型(blocks<=10) → 20', () => {
+  it('小模型(blocks<=10) → 10', () => {
     expect(territoryVisitsForModel({ blocks: 10 })).toBe(TERRITORY_VISITS_SMALL_MODEL);
-    expect(territoryVisitsForModel({ blocks: 6 })).toBe(20);
+    expect(territoryVisitsForModel({ blocks: 6 })).toBe(10);
   });
 
-  it('大模型(blocks>10) → 10', () => {
+  it('大模型(blocks>10) → 5', () => {
     expect(territoryVisitsForModel({ blocks: 18 })).toBe(TERRITORY_VISITS_LARGE_MODEL);
-    expect(territoryVisitsForModel({ blocks: 40 })).toBe(10);
+    expect(territoryVisitsForModel({ blocks: 40 })).toBe(5);
   });
 
   it('blocks 缺失时从 url 解析 b{num}c', () => {
-    expect(territoryVisitsForModel({ url: 'models/g170-b10c128.bin.gz' })).toBe(20);
-    expect(territoryVisitsForModel({ url: 'https://x/kata1-b18c384nbt-s999.bin.gz' })).toBe(10);
+    expect(territoryVisitsForModel({ url: 'models/g170-b10c128.bin.gz' })).toBe(10);
+    expect(territoryVisitsForModel({ url: 'https://x/kata1-b18c384nbt-s999.bin.gz' })).toBe(5);
   });
 
-  it('完全无法判定 → 兜底 20', () => {
-    expect(territoryVisitsForModel(null)).toBe(20);
-    expect(territoryVisitsForModel(undefined)).toBe(20);
-    expect(territoryVisitsForModel({})).toBe(20);
+  it('完全无法判定 → 兜底 10', () => {
+    expect(territoryVisitsForModel(null)).toBe(10);
+    expect(territoryVisitsForModel(undefined)).toBe(10);
+    expect(territoryVisitsForModel({})).toBe(10);
   });
 
   it('配置里的两个真实模型取值符合预期', () => {
     // model-config.json: g170-b10c128 (10 blocks) / kata1-b18c384nbt (18 blocks)
-    expect(territoryVisitsForModel({ blocks: 10, url: 'models/g170-b10c128.bin.gz' })).toBe(20);
-    expect(territoryVisitsForModel({ blocks: 18, url: 'https://bot.weiqi.lol/models/kata1-b18c384nbt-*.bin.gz' })).toBe(10);
+    expect(territoryVisitsForModel({ blocks: 10, url: 'models/g170-b10c128.bin.gz' })).toBe(10);
+    expect(territoryVisitsForModel({ blocks: 18, url: 'https://bot.weiqi.lol/models/kata1-b18c384nbt-*.bin.gz' })).toBe(5);
   });
 });
