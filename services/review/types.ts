@@ -17,6 +17,12 @@ export interface ReviewOptions {
   /** 是否包含PV line（后续变化），默认false（不包含，速度更快） */
   includePv?: boolean;
   /** 局部分析区域（可选） */  regionOfInterest?: { xMin: number; yMin: number; xMax: number; yMax: number } | null;
+  /**
+   * 是否返回整盘领地归属（供「形势」功能使用）
+   * @description App 原生 KataGo 必须在查询里显式请求才会返回 ownership；
+   * Web worker 默认就算（零开销）。此处为单发开关，不影响其它分析。
+   */
+  includeOwnership?: boolean;
 }
 
 /** 复盘回调 */

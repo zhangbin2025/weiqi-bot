@@ -89,8 +89,10 @@ export class HMEventBinder {
       this.closeMenu();
     });
 
+    // 形势：一次性触发（不再是开关模式）。点菜单本身也算「其它操作」，
+    // 但因为这里紧接着就发起分析，交由页面内部判断是否已在显示中。
     menuTerritoryBtn?.addEventListener('click', () => {
-      this.config.page.toggleTerritory();
+      void this.config.page.showTerritoryOnce();
       this.closeMenu();
     });
 

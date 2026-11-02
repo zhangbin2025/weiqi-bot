@@ -73,7 +73,11 @@ export interface IHMPlayService {
    * @ai-example
    * const analysis = await service.analyze();
    */
-  analyze(): Promise<IAnalysisResult>;
+  /**
+   * 分析当前局面
+   * @param options - 可选参数。形势功能用它指定独立 visits（小模型50/大模型10，图快）
+   */
+  analyze(options?: { visits?: number }): Promise<IAnalysisResult>;
 
   /**
    * 设置是否向引擎请求整盘领地归属（供「形势」功能使用）

@@ -31,7 +31,7 @@ export interface UICallbacks {
   onToggleLiveRecommendations?: () => void;
   onRefreshIntervalChange?: (seconds: number) => void;
   onToggleRegionSelection?: () => void;
-  onToggleTerritory?: () => void;
+  onShowTerritory?: () => void;
 }
 
 /**
@@ -178,7 +178,7 @@ export class ReviewUI {
     });
     document.addEventListener('click', () => this.closeMenu());
     this.regionSelectBtnEl?.addEventListener('click', () => {      this.closeMenu();      this.callbacks.onToggleRegionSelection?.();    });
-    this.territoryBtnEl?.addEventListener('click', () => {      this.closeMenu();      this.callbacks.onToggleTerritory?.();    });
+    this.territoryBtnEl?.addEventListener('click', () => {      this.closeMenu();      this.callbacks.onShowTerritory?.();    });
   }
 
   private toggleMenu(): void {
@@ -467,12 +467,28 @@ export class ReviewUI {
     }
   }
 
-  /** 更新形势菜单项显示（启用态 + 选中标记） */
-  updateTerritoryButton(enabled: boolean, active: boolean): void {
+  /**
+   * 获取当前模型配置（供形势功能按模型规模决定 visits）
+   * @returns 模型配置；未能确定时返回 null（调用方会走兜底值）
+   */
+  getCurrentModel(): unknown | null {
+    try {
+      return (this as unknown as { currentModel?: unknown }).currentModel ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * 更新形势菜单项显示
+   * @description 一次性触发，不再有勾选态 —— active 参数保留仅为兼容既有调用，
+   * 恒按未选中渲染（形勢是「看一次」而非「进入模式」）。
+   */
+  updateTerritoryButton(enabled: boolean, _active?: boolean): void {
     if (!this.territoryBtnEl) return;
     // 只改文字标签：按钮内还有 SVG 图标，不能用 textContent 整体覆盖
     const label = document.getElementById('territoryLabel');
-    if (label) label.textContent = active ? '形势 ✓' : '形势';
+    if (label) label.textContent = '形势';
     (this.territoryBtnEl as HTMLButtonElement).disabled = !enabled;
     this.territoryBtnEl.style.opacity = enabled ? '1' : '0.5';
     this.territoryBtnEl.style.cursor = enabled ? 'pointer' : 'not-allowed';

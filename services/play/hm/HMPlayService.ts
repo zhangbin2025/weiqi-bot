@@ -186,7 +186,7 @@ export class HMPlayService implements IHMPlayService {
     return true;
   }
 
-  async analyze(): Promise<IAnalysisResult> {
+  async analyze(options?: { visits?: number }): Promise<IAnalysisResult> {
     const state = this.game.getState();
     const moves = this.getMoveHistory();
     
@@ -204,7 +204,7 @@ export class HMPlayService implements IHMPlayService {
       state.currentPlayer,
       moves,
       state.komi,
-      200,
+      options?.visits ?? 200,
       undefined, // maxTimeMs
       0, // analysisPvLen
       initialStones.length > 0 ? initialStones : undefined

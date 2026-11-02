@@ -139,7 +139,12 @@ export interface IMMPlayService {
    * 形势判断
    * @returns 黑方胜率和目差
    */
-  analyzePosition(): Promise<{ winRate: number; scoreLead: number; ownership?: Float32Array }>;
+  /**
+   * 形势判断
+   * @param options - 可选参数。形势功能用它指定独立 visits（小模型50/大模型10，图快）
+   * @returns 黑方胜率、目差，以及（引擎返回时）整盘领地归属
+   */
+  analyzePosition(options?: { visits?: number }): Promise<{ winRate: number; scoreLead: number; ownership?: Float32Array }>;
 
   /**
    * 设置是否向引擎请求整盘领地归属（供「形势」功能使用）

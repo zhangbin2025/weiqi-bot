@@ -6,6 +6,9 @@
  *   持有核心组件（board / game / winrateChart），暴露页面生命周期接口。
  */
 import { MoveNavigator } from '../../../../core/controllers';
+import { computeTerritoryStats, territoryVisitsForModel, type TerritoryStats } from '../../../../../services/ai/TerritoryStats';
+import { showTerritoryPanel, hideTerritoryPanel, injectTerritoryPanelCss } from '../../components/TerritoryPanel';
+import { komiForHandicap } from '../../../../../domain';
 import { WebBoard } from '../../components/Board';
 import { BoardRebuilder, type MoveNumber } from '../../../../core/helpers/BoardRebuilder';
 import { BoardSyncer } from '../../../../core/helpers/BoardSyncer';
@@ -94,7 +97,12 @@ export class ReviewPage implements IPage {
   // 当前 AI 推荐
   private currentCandidates: Array<{ x: number; y: number; pv?: string[]; isCurrentMove?: boolean }> = [];
 
-  // 形势（黑白领地）显示开关与数据；不做缓存，切换手数即失效
+  // 形势（黑白领地）：一次性查看，非模式。
+  //
+  // 关键设计：**进入形势时不改变任何页面状态**（不动棋盘、不切模式、不退出试下）。
+  // 只在现有局面上叠加一层领地绘制 + 显示统计面板。
+  // 这样退出时只需撤掉这层叠加，回归天然正确 —— 不需要「快照恢复」，
+  // 也就不会在试下/变化图等嵌套状态下恢复错层。
   private showTerritory = false;
   private ownership: Float32Array | undefined = undefined;
   private savedRecommendationCircles: RecommendationCircle[] = [];
@@ -134,7 +142,7 @@ export class ReviewPage implements IPage {
 
     // 创建子模块
     this.interaction = new ReviewInteraction(this.board, this.game, {
-      onModeChange: (mode) => this.handleModeChange(mode),
+      onModeChange: (mode) => { this.dismissTerritoryIfVisible(); this.handleModeChange(mode); },
       onStatusUpdate: (msg) => this.ui.updateStatus(msg),
       onDepthChange: (depth) => this.handleDepthChange(depth),
       onLayerChange: (layer) => this.handleLayerChange(layer),
@@ -167,11 +175,11 @@ export class ReviewPage implements IPage {
       onToggleSound: () => this.toggleSound(),
       onFileSelect: (file) => this.handleFileSelect(file),
       onShowHistory: () => this.ui.showHistory(),
-      onShowConfig: () => this.showConfigDialog(),
+      onShowConfig: () => { this.dismissTerritoryIfVisible(); this.showConfigDialog(); },
       onHandleKeyDown: (e) => this.handleKeyDown(e),
       onToggleLiveRecommendations: () => this.toggleLiveRecommendations(),
       onRefreshIntervalChange: (seconds) => this.liveModeManager?.setRefreshInterval(seconds),
-      onToggleTerritory: () => { void this.toggleTerritory(); },
+      onShowTerritory: () => { void this.showTerritoryOnce(); },
       onToggleRegionSelection: () => {
         if (this.hasRegionSelection) {
           // 清除框选
@@ -204,6 +212,7 @@ export class ReviewPage implements IPage {
   }
 
   async initialize(): Promise<void> {
+    injectTerritoryPanelCss();
     // 设置 ModelManagementService 引用（用于读取全局模型配置）
     if (this.modelManager) {
       this.ui.setModelManager(this.modelManager);
@@ -214,7 +223,7 @@ export class ReviewPage implements IPage {
     this.analysis.setConfigVisits(this.ui.getConfigVisits());
     this.board.initialize({ size: 19, showCoordinates: true });
     this.board.on({
-      onClick: (pos) => this.handleBoardClick(pos.x, pos.y),
+      onClick: (pos) => { this.dismissTerritoryIfVisible(); this.handleBoardClick(pos.x, pos.y); },
       onHover: (pos) => this.handleBoardHover(pos),
     });
     this.interaction.initVariationManager();
@@ -389,15 +398,8 @@ export class ReviewPage implements IPage {
     if (this.analyzing) return;
     if (moveNumber < 0 || moveNumber > this.totalMoves) return;
     this.currentMove = moveNumber;
-    // 形势归属只属于当前局面，切换手数后即失效（不做缓存，直接清除）
-    if (this.showTerritory) {
-      this.showTerritory = false;
-      this.ownership = undefined;
-      // 同时关闭归属请求，避免 App 端在已不显示形势时继续付出 NN 开销
-      this.reviewApp.setOwnershipRequested(false);
-      this.syncOwnershipToBoard();
-      this.updateTerritoryButton();
-    }
+    // 切换手数属于「其它操作」：先关闭形势（不点 × 也会关）
+    this.dismissTerritoryIfVisible();
     this.rebuildBoard(moveNumber);
     this.ui.updateDisplay(this.currentMove, this.totalMoves);
     this.ui.setSliderValue(moveNumber);
@@ -591,11 +593,15 @@ export class ReviewPage implements IPage {
   }
 
   /**
-   * 切换形势（黑白领地）显示
-   * @description 开启时对当前局面发起一次分析取归属，与工具栏「AI」按钮同一链路；
-   * KataGo 自身有缓存，分析过的局面会很快返回。不做额外缓存，切换手数即失效。
+   * 形势：一次性查看（非模式）
+   *
+   * @description 对**当前实际局面**（可能是试下/变化图中的临时局面）发起一次独立
+   * 分析取归属 → 叠加领地绘制 + 显示统计面板。全程不改动页面状态。
+   *
+   * 退出时只撤掉叠加层（清 ownership + 隐面板 + 重绘），因此回到进入前的状态
+   * （打谱 / 试下 / 变化图 / 推荐）是天然正确的，无需快照与重放。
    */
-  async toggleTerritory(): Promise<void> {
+  async showTerritoryOnce(): Promise<void> {
     if (this.analyzing) return;
     const reviewId = this.analysis.getReviewId();
     if (!reviewId) {
@@ -603,51 +609,56 @@ export class ReviewPage implements IPage {
       return;
     }
 
-    // 关闭：直接清除并重绘
+    // 已在显示 → 关闭（点菜单项时若已开着，等同按了关闭）
     if (this.showTerritory) {
-      this.showTerritory = false;
-      this.ownership = undefined;
-      // 关闭后不再请求归属，避免 App 端持续额外的 NN 开销
-      this.reviewApp.setOwnershipRequested(false);
-      this.syncOwnershipToBoard();
-      this.board.render();
-      this.updateTerritoryButton();
-      this.ui.updateStatus('');
+      this.closeTerritory();
       return;
     }
-
-    // 开启：本次分析需要归属（App 原生 KataGo 必须显式请求才会返回）
-    this.reviewApp.setOwnershipRequested(true);
 
     this.ui.updateStatus('分析中...');
     this.analyzing = true;
     this.ui.setButtonsEnabled(false);
     try {
-      const visits = this.ui.getConfigVisits();
+      const visits = this.getTerritoryVisits();
       const roi = this.interaction.getRegionOfInterest();
       let moveReview: MoveReview | null = null;
 
       if (!this.interaction.isInTrial()) {
-        moveReview = await this.reviewApp.analyzePosition(reviewId, this.currentMove, { visits, includePv: false, regionOfInterest: roi });
+        moveReview = await this.reviewApp.analyzePosition(
+          reviewId, this.currentMove,
+          { visits, includePv: false, regionOfInterest: roi, includeOwnership: true },
+        );
       } else {
+        // 试下/变化图：把当前临时局面（base + trial）整条送给引擎，
+        // 这样不必改动页面状态就能拿到该局面的归属
         const allMoves = this.interaction.getCurrentMoves();
-        moveReview = await this.reviewApp.analyzeMoves(allMoves, 7.5, { visits, regionOfInterest: roi }, this.handicapStones, undefined, this.boardSize, this.initialPlayer);
+        moveReview = await this.reviewApp.analyzeMoves(
+          allMoves, this.getKomi(),
+          { visits, regionOfInterest: roi, includeOwnership: true },
+          this.handicapStones, undefined, this.boardSize, this.initialPlayer,
+        );
       }
 
       const ownership = moveReview?.ownership;
       if (!ownership) {
-        this.reviewApp.setOwnershipRequested(false);
         this.ui.updateStatus('未能获取形势数据');
         return;
       }
-      this.ownership = ownership;
+      this.ownership = ownership instanceof Float32Array ? ownership : new Float32Array(ownership);
       this.showTerritory = true;
       this.syncOwnershipToBoard();
       this.board.render();
+
+      const stats = this.buildTerritoryStats(this.ownership);
+      if (!stats) {
+        this.closeTerritory();
+        this.ui.updateStatus('未能获取形势数据');
+        return;
+      }
+      showTerritoryPanel(stats, { onClose: () => this.closeTerritory() });
       this.ui.updateStatus('形势显示中');
     } catch (error) {
       console.error('[ReviewPage] 形势分析失败', error as Error | undefined);
-      this.reviewApp.setOwnershipRequested(false);
       this.ui.updateStatus('分析失败');
     } finally {
       this.analyzing = false;
@@ -655,6 +666,48 @@ export class ReviewPage implements IPage {
       this.ui.showProgress(false);
       this.updateTerritoryButton();
     }
+  }
+
+  /**
+   * 关闭形势：撤掉叠加层
+   * @description 不触碰任何页面状态（棋盘/模式/试下层都不动），
+   * 只清归属 + 隐面板 + 重绘 —— 因此回到进入前状态是天然正确的。
+   */
+  private closeTerritory(): void {
+    this.showTerritory = false;
+    this.ownership = undefined;
+    hideTerritoryPanel();
+    this.syncOwnershipToBoard();
+    this.board.render();
+    this.updateTerritoryButton();
+    this.ui.updateStatus('');
+  }
+
+  /** 任何交互前调用：正在看形势就先关闭 */
+  private dismissTerritoryIfVisible(): void {
+    if (this.showTerritory) this.closeTerritory();
+  }
+
+  /** 形势分析 visits：小模型 50 / 大模型 10 */
+  private getTerritoryVisits(): number {
+    return territoryVisitsForModel(this.ui.getCurrentModel?.() ?? null);
+  }
+
+  /** 当前贴目（review 从 SGF 解析；缺省按让子数折算） */
+  private getKomi(): number {
+    const k = (this as unknown as { komi?: number }).komi;
+    return typeof k === 'number' ? k : komiForHandicap(this.handicapStones?.length ?? 0);
+  }
+
+  /** 组装统计（review 为静态棋谱，提子数按 0 展示） */
+  private buildTerritoryStats(ownership: Float32Array): TerritoryStats | null {
+    return computeTerritoryStats({
+      ownership,
+      boardSize: this.boardSize,
+      capturedBlack: 0,
+      capturedWhite: 0,
+      komi: this.getKomi(),
+    });
   }
 
   /** 把领地归属写入棋盘（只写不渲染） */
@@ -675,7 +728,8 @@ export class ReviewPage implements IPage {
 
   /** 更新形势菜单项状态 */
   private updateTerritoryButton(): void {
-    this.ui.updateTerritoryButton(!!this.analysis.getReviewId(), this.showTerritory);
+    // 一次性触发：菜单项不显示勾选态（active 恒 false）
+    this.ui.updateTerritoryButton(!!this.analysis.getReviewId(), false);
   }
 
   getDepth(): number { return this.interaction.getDepth(); }

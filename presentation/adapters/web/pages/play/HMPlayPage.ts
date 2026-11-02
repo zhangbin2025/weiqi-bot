@@ -3,6 +3,9 @@
  * @module presentation/pages/play/HMPlayPage
  */
 import { AdapterFactory } from '../../../../adapters';
+import { computeTerritoryStats, territoryVisitsForModel, type TerritoryStats } from '../../../../../services/ai/TerritoryStats';
+import { showTerritoryPanel, hideTerritoryPanel, injectTerritoryPanelCss } from '../../components/TerritoryPanel';
+import { komiForHandicap } from '../../../../../domain';
 import { WebAudioPlayer } from '../../../../../infrastructure/audio/WebAudioPlayer';
 import type { IPage, IBoard, ICard, IDialog, IToast, IProgress, PageParams } from '../../../../core/interfaces';
 import type { HMPlayApp, PlayHistoryEntry } from '../../../../../application/play';
@@ -68,10 +71,14 @@ export class HMPlayPage implements IPage {
   private audioPlayer: WebAudioPlayer;
   private playerColor: PlayerColor = 'black';
   private visits: number = 100;  // 默认计算量
-  /** 最新的领地归属数据（AI 每次搜索后更新，复用 MCTS 结果） */
+  /**
+   * 当前形势快照的领地归属
+   * @description 仅在「形势」面板显示期间非空 —— 一次性查看，不是模式：
+   * 点菜单 → 独立 analyze 一次 → 显示面板；任何其它操作即清空。
+   */
   private ownership: Float32Array | null = null;
-  /** 是否显示形势（黑白领地） */
-  private showTerritory: boolean = false;
+  /** 是否正在显示形势面板（用于判断「其它操作触发关闭」） */
+  private territoryVisible: boolean = false;
   // private difficulty: number = 5;  // 已移除，改用 visits
   private boardSize: BoardSize = 19;
   private moveCount: number = 0;
@@ -115,6 +122,7 @@ export class HMPlayPage implements IPage {
   }
   async initialize(): Promise<void> {
     if (this.initialized) return;
+    injectTerritoryPanelCss();
     this.board.initialize({ size: this.boardSize, showCoordinates: true });
     this.board.on({
       onClick: (pos: Position) => this.handleMove(pos),
@@ -239,17 +247,17 @@ export class HMPlayPage implements IPage {
       this.toast.error('启动对局失败');
     }
   }
-  /** 新对局开始：清空上一局的领地数据，避免显示过期归属 */
+  /** 新对局开始：清空上一局的形势数据 */
   private resetTerritory(): void {
     this.ownership = null;
-    this.showTerritory = false;
-    // 新局开始：同时关闭归属请求，避免 App 端持续付出额外 NN 开销
-    try { this.hmPlayApp.setOwnershipRequested(false); } catch { /* 服务未就绪时忽略 */ }
-    // 同时清除棋盘缓存的归属数据，否则 board.clear() 内部的 render 会画出过期领地
+    this.territoryVisible = false;
+    hideTerritoryPanel();
     this.syncOwnershipToBoard();
     this.updateTerritoryButton();
   }
   private async handleMove(pos: Position): Promise<void> {
+    // 点棋盘一律先关闭形势（不点 × 也会关）
+    this.dismissTerritoryIfVisible();
     if (!this.hmPlayApp.isPlayerTurn()) {
       this.toast.info('等待 AI 落子');
       return;
@@ -292,11 +300,14 @@ export class HMPlayPage implements IPage {
     }
   }
   async undo(): Promise<void> {
+    this.dismissTerritoryIfVisible();
     const success = await this.hmPlayApp.undo();
     if (success) {
       this.moveCount = Math.max(0, this.moveCount - 2);
       // 悔棋后棋盘局面变了，旧领地数据已失效，清除避免显示过期归属
       this.ownership = null;
+      this.territoryVisible = false;
+      hideTerritoryPanel();
       this.syncOwnershipToBoard();
       this.updateTerritoryButton();
       this.toast.info('已悔棋');
@@ -307,6 +318,7 @@ export class HMPlayPage implements IPage {
     }
   }
   async pass(): Promise<void> {
+    this.dismissTerritoryIfVisible();
     // 先即时反馈，避免等 AI 落子后才提示
     this.toast.info('停一手');
     this.moveCount++;
@@ -316,6 +328,7 @@ export class HMPlayPage implements IPage {
     await this.hmPlayApp.playerPass();
   }
   async resign(): Promise<void> {
+    this.dismissTerritoryIfVisible();
     const confirmed = await this.dialog.show({
       type: 'confirm',
       title: '确认认输',
@@ -371,69 +384,123 @@ export class HMPlayPage implements IPage {
     this.syncOwnershipToBoard();
     this.board.render();
   }
-  /** 切换形势（黑白领地）显示 */
-  toggleTerritory(): void {
-    this.showTerritory = !this.showTerritory;
-    // 按需向引擎请求归属：App 原生 KataGo 必须显式开启才返回 ownership，
-    // 且是额外 NN 计算 → 关闭形势时立即关掉，避免拖慢每次 AI 思考
-    try { this.hmPlayApp.setOwnershipRequested(this.showTerritory); } catch { /* 服务未就绪时忽略 */ }
-    if (this.showTerritory && !this.ownership) {
-      // 尚无数据：主动分析一次立即取归属（打开就能看到，不必等下一手）
-      void this.requestOwnership();
+  /**
+   * 形势：一次性查看（非模式）
+   *
+   * @description 点菜单 → 独立发起一次 analyze（visits 按模型规模分档，图快）
+   * → 画领地 + 显示统计面板。任何其它操作（落子/点棋盘/点菜单…）都会关闭。
+   * 不再维护「形势模式」开关，也不再让引擎持续计算 ownership。
+   */
+  async showTerritoryOnce(): Promise<void> {
+    // 已在显示 → 当作关闭（幂等，避免重复触发分析）
+    if (this.territoryVisible) {
+      this.closeTerritory();
+      return;
     }
-    this.updateTerritoryButton();
-    this.renderBoard();
-  }
-
-  /** 主动分析当前局面以取得领地归属 */
-  private async requestOwnership(): Promise<void> {
+    // App 原生 KataGo 必须显式请求才返回 ownership（额外 NN 计算）→ 用完即关
+    this.hmPlayApp.setOwnershipRequested(true);
     try {
-      const result = await this.hmPlayApp.analyze();
-      if (result?.ownership) {
-        this.setOwnership(result.ownership);
-        this.renderBoard();
-      } else {
+      const visits = this.getTerritoryVisits();
+      const result = await this.hmPlayApp.analyze({ visits });
+      const ownership = result?.ownership;
+      if (!ownership) {
         this.toast.info('未能获取形势数据');
+        return;
       }
+      this.ownership = ownership instanceof Float32Array ? ownership : new Float32Array(ownership);
+      this.territoryVisible = true;
+      this.syncOwnershipToBoard();
+      this.renderBoard();
+
+      const stats = this.buildTerritoryStats(this.ownership);
+      if (!stats) {
+        this.closeTerritory();
+        this.toast.info('未能获取形势数据');
+        return;
+      }
+      showTerritoryPanel(stats, { onClose: () => this.closeTerritory() });
     } catch (e) {
       console.error('[HMPlayPage] 形势分析失败', e as Error | undefined);
       this.toast.info('未能获取形势数据');
+    } finally {
+      this.hmPlayApp.setOwnershipRequested(false);
     }
   }
+
+  /** 关闭形势（面板 × 按钮与「其它操作触发」共用同一条路径） */
+  private closeTerritory(): void {
+    this.territoryVisible = false;
+    this.ownership = null;
+    this.syncOwnershipToBoard();
+    hideTerritoryPanel();
+    this.renderBoard();
+  }
+
   /**
-   * 保存最新的领地归属数据（供回调上下文调用）
-   * @description 存字段的同时立即同步到棋盘，使本函数与 renderBoard 的先后
-   * 顺序不再影响正确性（mm 曾因「只存字段、不同步」导致形势冻结）
+   * 任何交互前的统一入口：若正在看形势，先关掉
+   * @description 保证「不点关闭、其它操作也触发形势关闭」。
+   * 各操作处只需调用一次本方法，无需各自判断。
+   */
+  private dismissTerritoryIfVisible(): void {
+    if (this.territoryVisible) this.closeTerritory();
+  }
+
+  /** 形势分析用的 visits：小模型 50 / 大模型 10（看形势图快，不追求精度） */
+  private getTerritoryVisits(): number {
+    const model = this.modelCards.find(m => m.id === (this.currentOptions?.modelId ?? ''));
+    return territoryVisitsForModel(model ?? null);
+  }
+
+  /** 由 ownership + 当前提子数 + 贴目 组装统计 */
+  private buildTerritoryStats(ownership: Float32Array): TerritoryStats | null {
+    const state = this.hmPlayApp.getState();
+    const handicap = (state as { handicap?: number }).handicap ?? 0;
+    return computeTerritoryStats({
+      ownership,
+      boardSize: this.boardSize,
+      capturedBlack: state.capturedBlack ?? 0,
+      capturedWhite: state.capturedWhite ?? 0,
+      komi: komiForHandicap(handicap),
+    });
+  }
+
+  /**
+   * 保存领地归属（供回调上下文调用）
+   * @description 仅在形势面板显示期间保留；其余情况一律清空，
+   * 避免旧数据残留到下一手。
    */
   setOwnership(ownership: Float32Array | undefined): void {
+    if (!this.territoryVisible) {
+      this.ownership = null;
+      this.syncOwnershipToBoard();
+      return;
+    }
     this.ownership = ownership ?? null;
     this.syncOwnershipToBoard();
-    // 数据到达后形势菜单项才可用；若已开启则刷新显示
-    this.updateTerritoryButton();
   }
 
   /**
    * 把领地归属写入棋盘（只写不渲染）
    * @description 棋盘内部缓存着自己的归属副本，只有 setOwnership 能更新它。
-   * 与渲染解耦后，写入时机可以自由安排，不会因调用顺序而丢失更新。
    */
   private syncOwnershipToBoard(): void {
     const boardImpl = this.board as { setOwnership?: (o: Float32Array | number[] | null) => void };
     if (!boardImpl.setOwnership) return;
-    boardImpl.setOwnership(this.showTerritory && this.ownership ? this.ownership : null);
+    boardImpl.setOwnership(this.territoryVisible && this.ownership ? this.ownership : null);
   }
-  /** 更新形势菜单项的显示状态（启用/禁用 + 选中态） */
+
+  /** 更新形势菜单项：一次性触发，无勾选态；仅对局进行中可用 */
   private updateTerritoryButton(): void {
     const btn = document.getElementById('menuTerritoryBtn') as HTMLButtonElement | null;
     if (!btn) return;
-    // 启用条件改为「引擎可用」而非「已有数据」：
-    // App 端归属是按需请求的，若等有数据才启用，按钮将永远点不动（死锁）
     btn.disabled = this.gameState !== 'running';
     const label = btn.querySelector('span');
-    if (label) label.textContent = this.showTerritory ? '形势 ✓' : '形势';
+    if (label) label.textContent = '形势';
   }
+
   /** 确认落子 */
   async confirmMove(): Promise<void> {
+    this.dismissTerritoryIfVisible();
     const pos = this.uiState.getSelectedPosition();
     if (!pos) return;
     // 先清除选择状态，恢复功能栏

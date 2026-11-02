@@ -160,12 +160,20 @@ export class ReviewService implements IReviewService {
     const includePv = options?.regionOfInterest ? false : (options?.includePv ?? true);
     const regionOfInterest = options?.regionOfInterest;
         
-    // 如果是最后一着之后（moveIndex >= data.moves.length），分析当前局面的下一步
-    if (moveIndex >= data.moves.length) {
-      return this.analyzeNextMove(data, komi, visits, topK, includePv, regionOfInterest);
+    // 本次是否需要领地归属（形势功能用）。App 原生 KataGo 必须显式请求才有该字段，
+    // 且是额外 NN 计算 → 用完即关，不影响后续其它分析的速度。
+    const wantOwnership = options?.includeOwnership === true;
+    if (wantOwnership) this.ai?.setOwnershipRequested(true);
+    try {
+      // 如果是最后一着之后（moveIndex >= data.moves.length），分析当前局面的下一步
+      if (moveIndex >= data.moves.length) {
+        return await this.analyzeNextMove(data, komi, visits, topK, includePv, regionOfInterest);
+      }
+
+      return await this.analyzeMoveAt(data, moveIndex, komi, visits, topK, [], includePv, regionOfInterest);
+    } finally {
+      if (wantOwnership) this.ai?.setOwnershipRequested(false);
     }
-    
-    return this.analyzeMoveAt(data, moveIndex, komi, visits, topK, [], includePv, regionOfInterest);
   }
 
   /**
@@ -467,8 +475,17 @@ export class ReviewService implements IReviewService {
       y: s.y,
     }));
     
-    const analysis = await this.ai!.analyze(board, previousBoard, currentPlayer, moveHistory as any, komi, visits, undefined, includePv ? 15 : 0, initialStones, undefined, undefined, regionOfInterest, rules);
-    
+    // 本次是否需要领地归属（形势功能用，试下/变化图走这条路径）。
+    // App 原生 KataGo 是额外 NN 计算 → 用完即关。
+    const wantOwnership = options?.includeOwnership === true;
+    if (wantOwnership) this.ai!.setOwnershipRequested(true);
+    let analysis;
+    try {
+      analysis = await this.ai!.analyze(board, previousBoard, currentPlayer, moveHistory as any, komi, visits, undefined, includePv ? 15 : 0, initialStones, undefined, undefined, regionOfInterest, rules);
+    } finally {
+      if (wantOwnership) this.ai!.setOwnershipRequested(false);
+    }
+
     // 返回结果
     return {
       moveNumber: moves.length + 1,  // 下一步的手数

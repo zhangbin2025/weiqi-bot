@@ -174,8 +174,8 @@ export class MMPlayApp {
    * 形势判断
    * @returns 黑方胜率和目差
    */
-  analyzePosition = (): Promise<{ winRate: number; scoreLead: number; ownership?: Float32Array }> => 
-    this.requirePlay().analyzePosition();
+  analyzePosition = (options?: { visits?: number }): Promise<{ winRate: number; scoreLead: number; ownership?: Float32Array }> => 
+    this.requirePlay().analyzePosition(options);
   /**
    * 设置是否向引擎请求整盘领地归属（供「形势」功能使用）
    * @description 仅在用户开启「形势」时为 true。App 原生 KataGo 需要额外 NN 计算，

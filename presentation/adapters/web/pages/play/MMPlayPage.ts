@@ -4,6 +4,9 @@
  */
 
 import { AdapterFactory } from '../../../../adapters';
+import { computeTerritoryStats, territoryVisitsForModel, type TerritoryStats } from '../../../../../services/ai/TerritoryStats';
+import { showTerritoryPanel, hideTerritoryPanel, injectTerritoryPanelCss } from '../../components/TerritoryPanel';
+import { komiForHandicap } from '../../../../../domain';
 import { WebAudioPlayer } from '../../../../../infrastructure/audio/WebAudioPlayer';
 import type { IPage, IBoard, ICard, IToast, IProgress, PageParams } from '../../../../core/interfaces';
 import type { MMPlayApp } from '../../../../../application/play';
@@ -52,9 +55,10 @@ export class MMPlayPage implements IPage {
   private initialized = false;
   private uiState = new MMPlayPageUIState();
   /** 最新的领地归属数据（AI 每次搜索后更新，复用 MCTS 结果） */
+  /** 形势快照的领地归属；仅在面板显示期间非空（一次性查看，非模式） */
   private ownership: Float32Array | null = null;
-  /** 是否显示形势（黑白领地） */
-  private showTerritory: boolean = false;
+  /** 是否正在显示形势面板 */
+  private territoryVisible: boolean = false;
   
   // 新增属性
   private gameState: MMGameState = 'idle';
@@ -86,6 +90,7 @@ export class MMPlayPage implements IPage {
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
+    injectTerritoryPanelCss();
     
     this.board.initialize({ size: this.boardSize, showCoordinates: true });
     await this.loadModel();
@@ -125,7 +130,8 @@ export class MMPlayPage implements IPage {
         
         // 保存领地归属（MCTS 搜索的副产品，不额外消耗 visits）
         // setOwnership 内部已同步到棋盘，本手重绘即可用上新归属
-        if (ownership) {
+        // 仅形势面板显示期间保留；否则清空，避免旧归属残留到下一手
+        if (ownership && this.territoryVisible) {
           this.ownership = ownership;
           this.syncOwnershipToBoard();
           this.updateTerritoryButton();
@@ -189,7 +195,7 @@ export class MMPlayPage implements IPage {
       getGameState: () => this.gameState,
       setGameState: (state) => this.setGameState(state as MMGameState),
       handleEarlyStop: () => this.handleEarlyStop(),
-      onToggleTerritory: () => this.toggleTerritory(),
+      onShowTerritory: () => this.showTerritoryOnce(),
     });
     
     // 绑定所有事件
@@ -197,6 +203,7 @@ export class MMPlayPage implements IPage {
     
     // 监听显示设置对话框事件
     window.addEventListener('showSettingsDialog', () => {
+      this.dismissTerritoryIfVisible();
       if (this.onShowSettingsDialog) {
         this.onShowSettingsDialog();
       }
@@ -360,6 +367,7 @@ export class MMPlayPage implements IPage {
   }
 
   async stop(): Promise<void> {
+    this.dismissTerritoryIfVisible();
     if (!this.running && this.moveCount === 0) return;
     this.mmPlayApp.stop();
     this.running = false;
@@ -425,7 +433,7 @@ export class MMPlayPage implements IPage {
   private syncOwnershipToBoard(): void {
     const boardImpl = this.board as { setOwnership?: (o: Float32Array | number[] | null) => void };
     if (!boardImpl.setOwnership) return;
-    boardImpl.setOwnership(this.showTerritory && this.ownership ? this.ownership : null);
+    boardImpl.setOwnership(this.territoryVisible && this.ownership ? this.ownership : null);
   }
 
   /**
@@ -474,45 +482,81 @@ export class MMPlayPage implements IPage {
   }
 
   /**
-   * 切换形势（黑白领地）显示
+   * 形势：一次性查看（非模式）
+   *
+   * @description 点菜单 → 独立 analyze 一次（visits 按模型规模分档，图快）
+   * → 画领地 + 显示统计面板。任何其它操作都会关闭。
    */
-  toggleTerritory(): void {
-    this.showTerritory = !this.showTerritory;
-    // 按需向引擎请求归属：App 原生 KataGo 必须显式开启才返回 ownership，
-    // 且是额外 NN 计算 → 关闭形势时立即关掉，避免拖慢每次 AI 思考
-    try { this.mmPlayApp.setOwnershipRequested(this.showTerritory); } catch { /* 服务未就绪时忽略 */ }
-    if (this.showTerritory && !this.ownership) {
-      // 尚无数据：主动分析一次立即取归属
-      void this.requestOwnership();
+  async showTerritoryOnce(): Promise<void> {
+    if (this.territoryVisible) {
+      this.closeTerritory();
+      return;
     }
-    this.updateTerritoryButton();
-    this.renderBoardWithTerritory();
-  }
-
-  /** 主动分析当前局面以取得领地归属 */
-  private async requestOwnership(): Promise<void> {
+    // App 原生 KataGo 必须显式请求才返回 ownership（额外 NN 计算）→ 用完即关
+    this.mmPlayApp.setOwnershipRequested(true);
     try {
-      const result = await this.mmPlayApp.analyzePosition();
-      if (result?.ownership) {
-        this.ownership = result.ownership;
-        this.syncOwnershipToBoard();
-        this.renderBoardWithTerritory();
-        this.updateTerritoryButton();
-      } else {
+      const visits = this.getTerritoryVisits();
+      const result = await this.mmPlayApp.analyzePosition({ visits });
+      const ownership = result?.ownership;
+      if (!ownership) {
         this.toast.info('未能获取形势数据');
+        return;
       }
+      this.ownership = ownership instanceof Float32Array ? ownership : new Float32Array(ownership);
+      this.territoryVisible = true;
+      this.renderBoardWithTerritory();
+
+      const stats = this.buildTerritoryStats(this.ownership);
+      if (!stats) {
+        this.closeTerritory();
+        this.toast.info('未能获取形势数据');
+        return;
+      }
+      showTerritoryPanel(stats, { onClose: () => this.closeTerritory() });
     } catch (e) {
       console.error('[MMPlayPage] 形势分析失败', e as Error | undefined);
       this.toast.info('未能获取形势数据');
+    } finally {
+      this.mmPlayApp.setOwnershipRequested(false);
     }
+  }
+
+  /** 关闭形势（× 按钮与其它操作共用同一路径） */
+  private closeTerritory(): void {
+    this.territoryVisible = false;
+    this.ownership = null;
+    hideTerritoryPanel();
+    this.renderBoardWithTerritory();
+  }
+
+  /** 任何交互前调用：正在看形势就先关掉 */
+  private dismissTerritoryIfVisible(): void {
+    if (this.territoryVisible) this.closeTerritory();
+  }
+
+  /** 形势分析 visits：小模型 50 / 大模型 10 */
+  private getTerritoryVisits(): number {
+    const model = this.modelCards.find(m => m.id === this.modelId);
+    return territoryVisitsForModel(model ?? null);
+  }
+
+  /** 组装统计：mm 为分先对局，komi 恒为基础贴目 */
+  private buildTerritoryStats(ownership: Float32Array): TerritoryStats | null {
+    const st = this.mmPlayApp.getState?.() as { capturedBlack?: number; capturedWhite?: number } | undefined;
+    return computeTerritoryStats({
+      ownership,
+      boardSize: this.boardSize,
+      capturedBlack: st?.capturedBlack ?? 0,
+      capturedWhite: st?.capturedWhite ?? 0,
+      komi: komiForHandicap(0),
+    });
   }
 
   /** 新对局开始：清空上一局的领地数据，避免显示过期归属 */
   private resetTerritory(): void {
     this.ownership = null;
-    this.showTerritory = false;
-    // 新局开始：同时关闭归属请求，避免 App 端持续付出额外 NN 开销
-    try { this.mmPlayApp.setOwnershipRequested(false); } catch { /* 服务未就绪时忽略 */ }
+    this.territoryVisible = false;
+    hideTerritoryPanel();
     this.syncOwnershipToBoard();
     this.updateTerritoryButton();
   }
@@ -525,7 +569,7 @@ export class MMPlayPage implements IPage {
     // App 端归属是按需请求的，若等有数据才启用，按钮将永远点不动（死锁）
     btn.disabled = !(this.gameState === 'running' || this.gameState === 'paused');
     const label = btn.querySelector('span');
-    if (label) label.textContent = this.showTerritory ? '形势 ✓' : '形势';
+    if (label) label.textContent = '形势';
   }
 
   /**

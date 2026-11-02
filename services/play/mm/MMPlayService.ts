@@ -7,6 +7,7 @@ import type { IAIEngine } from '../../../infrastructure/ai';
 import type { IConfigProvider } from '../../../infrastructure/config/interfaces/IConfigProvider';
 import type { MMPlayDraft } from './MMPlayDraftTypes';
 import { SGFWriter } from '../../../domain/sgf';
+import { komiForHandicap } from '../../../domain/game/KomiNormalizer';
 import { AutoPlayController } from './AutoPlayController';
 import { MMStateManager } from './MMStateManager';
 import { MMPlayDraftManager } from './MMPlayDraftManager';
@@ -230,20 +231,22 @@ export class MMPlayService implements IMMPlayService {
    * 形势判断
    * @returns 黑方胜率、目差，以及（引擎返回时）整盘领地归属
    */
-  async analyzePosition(): Promise<{ winRate: number; scoreLead: number; ownership?: Float32Array }> {
+  async analyzePosition(options?: { visits?: number }): Promise<{ winRate: number; scoreLead: number; ownership?: Float32Array }> {
     const state = this.stateManager.getState();
     
     if (!this.aiController) {
       throw new Error('AI controller not initialized');
     }
     
+    // mm 无让子，komi 恒为基础贴目；统一走 komiForHandicap 保持与 hm/review 一致
+    const komi = komiForHandicap(0); // mm 为分先对局，无让子
     const result = await this.aiController.analyze(
       state.board,
       null, // previousBoard
       state.currentPlayer,
       state.moveHistory.map(m => ({ x: m.x, y: m.y, player: m.color })),
-      7.5, // komi
-      100, // visits
+      komi,
+      options?.visits ?? 100, // visits：形势功能会传更低的值（图快）
       5000 // maxTimeMs
     );
     

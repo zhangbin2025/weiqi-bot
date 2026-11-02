@@ -69,7 +69,7 @@ export class HMPlayApp {
   playerMove = (x: number, y: number): Promise<boolean> => this.requirePlay().playerMove(x, y);
   playerPass = (): Promise<void> => this.requirePlay().playerPass();
   undo = (): Promise<boolean> => this.requirePlay().undo();
-  analyze = (): Promise<IAnalysisResult> => this.requirePlay().analyze();
+  analyze = (options?: { visits?: number }): Promise<IAnalysisResult> => this.requirePlay().analyze(options);
   /**
    * 设置是否向引擎请求整盘领地归属（供「形势」功能使用）
    * @description 仅在用户开启「形势」时为 true。Web worker 本就每次都算（零额外开销）；

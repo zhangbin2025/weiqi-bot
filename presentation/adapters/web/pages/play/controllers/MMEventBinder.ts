@@ -10,7 +10,7 @@ export interface MMEventBinderConfig {
   getGameState: () => string;
   setGameState: (state: string) => void;
   handleEarlyStop: () => void;
-  onToggleTerritory: () => void;
+  onShowTerritory: () => void;
 }
 
 /**
@@ -21,14 +21,14 @@ export class MMEventBinder {
   private getGameState: () => string;
   private setGameState: (state: string) => void;
   private handleEarlyStop: () => void;
-  private onToggleTerritory: () => void;
+  private onShowTerritory: () => void;
 
   constructor(config: MMEventBinderConfig) {
     this.mmPlayApp = config.mmPlayApp;
     this.getGameState = config.getGameState;
     this.setGameState = config.setGameState;
     this.handleEarlyStop = config.handleEarlyStop;
-    this.onToggleTerritory = config.onToggleTerritory;
+    this.onShowTerritory = config.onShowTerritory;
   }
 
   /**
@@ -74,10 +74,10 @@ export class MMEventBinder {
       }
     });
 
-    // 形势菜单项：切换黑白领地显示
+    // 形势菜单项：一次性触发分析并显示统计面板（非开关模式）
     menuTerritoryBtn?.addEventListener('click', () => {
       dropdownMenu.classList.remove('visible');
-      this.onToggleTerritory();
+      void this.onShowTerritory();
     });
   }
 
