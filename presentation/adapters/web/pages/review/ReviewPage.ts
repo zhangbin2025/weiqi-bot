@@ -93,6 +93,10 @@ export class ReviewPage implements IPage {
 
   // 当前 AI 推荐
   private currentCandidates: Array<{ x: number; y: number; pv?: string[]; isCurrentMove?: boolean }> = [];
+
+  // 形势（黑白领地）显示开关与数据；不做缓存，切换手数即失效
+  private showTerritory = false;
+  private ownership: Float32Array | undefined = undefined;
   private savedRecommendationCircles: RecommendationCircle[] = [];
   private currentModelName = 'AI 复盘分析';
 
@@ -167,6 +171,7 @@ export class ReviewPage implements IPage {
       onHandleKeyDown: (e) => this.handleKeyDown(e),
       onToggleLiveRecommendations: () => this.toggleLiveRecommendations(),
       onRefreshIntervalChange: (seconds) => this.liveModeManager?.setRefreshInterval(seconds),
+      onToggleTerritory: () => { void this.toggleTerritory(); },
       onToggleRegionSelection: () => {
         if (this.hasRegionSelection) {
           // 清除框选
@@ -246,6 +251,7 @@ export class ReviewPage implements IPage {
 
     // 禁用所有功能按钮（没有棋谱时）
     this.ui.disableAllButtons();
+    this.updateTerritoryButton();
     
     // 初始化胜率图
     const chartContainer = document.getElementById('chart-container');
@@ -383,6 +389,13 @@ export class ReviewPage implements IPage {
     if (this.analyzing) return;
     if (moveNumber < 0 || moveNumber > this.totalMoves) return;
     this.currentMove = moveNumber;
+    // 形势归属只属于当前局面，切换手数后即失效（不做缓存，直接清除）
+    if (this.showTerritory) {
+      this.showTerritory = false;
+      this.ownership = undefined;
+      this.syncOwnershipToBoard();
+      this.updateTerritoryButton();
+    }
     this.rebuildBoard(moveNumber);
     this.ui.updateDisplay(this.currentMove, this.totalMoves);
     this.ui.setSliderValue(moveNumber);
@@ -573,6 +586,87 @@ export class ReviewPage implements IPage {
       this.analyzing = false;
       this.ui.showProgress(false);
     }
+  }
+
+  /**
+   * 切换形势（黑白领地）显示
+   * @description 开启时对当前局面发起一次分析取归属，与工具栏「AI」按钮同一链路；
+   * KataGo 自身有缓存，分析过的局面会很快返回。不做额外缓存，切换手数即失效。
+   */
+  async toggleTerritory(): Promise<void> {
+    if (this.analyzing) return;
+    const reviewId = this.analysis.getReviewId();
+    if (!reviewId) {
+      this.ui.updateStatus('请先加载棋谱');
+      return;
+    }
+
+    // 关闭：直接清除并重绘
+    if (this.showTerritory) {
+      this.showTerritory = false;
+      this.ownership = undefined;
+      this.syncOwnershipToBoard();
+      this.board.render();
+      this.updateTerritoryButton();
+      this.ui.updateStatus('');
+      return;
+    }
+
+    this.ui.updateStatus('分析中...');
+    this.analyzing = true;
+    this.ui.setButtonsEnabled(false);
+    try {
+      const visits = this.ui.getConfigVisits();
+      const roi = this.interaction.getRegionOfInterest();
+      let moveReview: MoveReview | null = null;
+
+      if (!this.interaction.isInTrial()) {
+        moveReview = await this.reviewApp.analyzePosition(reviewId, this.currentMove, { visits, includePv: false, regionOfInterest: roi });
+      } else {
+        const allMoves = this.interaction.getCurrentMoves();
+        moveReview = await this.reviewApp.analyzeMoves(allMoves, 7.5, { visits, regionOfInterest: roi }, this.handicapStones, undefined, this.boardSize, this.initialPlayer);
+      }
+
+      const ownership = moveReview?.ownership;
+      if (!ownership) {
+        this.ui.updateStatus('未能获取形势数据');
+        return;
+      }
+      this.ownership = ownership;
+      this.showTerritory = true;
+      this.syncOwnershipToBoard();
+      this.board.render();
+      this.ui.updateStatus('形势显示中');
+    } catch (error) {
+      console.error('[ReviewPage] 形势分析失败', error as Error | undefined);
+      this.ui.updateStatus('分析失败');
+    } finally {
+      this.analyzing = false;
+      this.ui.setButtonsEnabled(true);
+      this.ui.showProgress(false);
+      this.updateTerritoryButton();
+    }
+  }
+
+  /** 把领地归属写入棋盘（只写不渲染） */
+  private syncOwnershipToBoard(): void {
+    const boardImpl = this.board as { setOwnership?: (o: Float32Array | number[] | null) => void };
+    if (!boardImpl.setOwnership) return;
+    boardImpl.setOwnership(this.showTerritory && this.ownership ? this.ownership : null);
+  }
+
+  /** 清除形势数据与开关 */
+  private resetTerritory(): void {
+    if (!this.showTerritory && !this.ownership) return;
+    this.showTerritory = false;
+    this.ownership = undefined;
+    this.syncOwnershipToBoard();
+    this.updateTerritoryButton();
+  }
+
+  /** 更新形势菜单项状态 */
+  private updateTerritoryButton(): void {
+    this.ui.updateTerritoryButton(!!this.analysis.getReviewId(), this.showTerritory);
   }
 
   getDepth(): number { return this.interaction.getDepth(); }
@@ -776,6 +870,8 @@ export class ReviewPage implements IPage {
   }
 
   private handleAnalysisComplete(result: AnalysisCompleteResult): void {
+    // 新棋谱/重新分析完成后，上一份形势归属已失效
+    this.resetTerritory();
     this.totalMoves = result.totalMoves;
     this.winrateTrend = result.winrateTrend;
     if (result.moves.length > 0) {
@@ -828,6 +924,8 @@ export class ReviewPage implements IPage {
     if (!this.analyzePositionMode) {
       this.ui.enableAllButtons();
     }
+    // 形势独立于导航控件：只要棋谱已加载就可用（分析局面模式下同样可用）
+    this.updateTerritoryButton();
 
     // 如果有待选中的选点（从直播跳转过来），自动分析并选中
     if (this.pendingSelectCoord) {

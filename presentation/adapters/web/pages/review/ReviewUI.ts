@@ -31,6 +31,7 @@ export interface UICallbacks {
   onToggleLiveRecommendations?: () => void;
   onRefreshIntervalChange?: (seconds: number) => void;
   onToggleRegionSelection?: () => void;
+  onToggleTerritory?: () => void;
 }
 
 /**
@@ -64,6 +65,7 @@ export class ReviewUI {
   private depthCountEl: HTMLElement | null = null;
   private regionSelectBtnEl: HTMLElement | null = null;
   private regionStatusEl: HTMLElement | null = null;
+  private territoryBtnEl: HTMLElement | null = null;
 
   // 配置
   private configVisits = 15;  // 默认分析局面用
@@ -120,6 +122,7 @@ export class ReviewUI {
     this.specialControlsBarEl = document.getElementById('specialControlsBar');
     this.mainControlsBarEl = document.getElementById('mainControlsBar');
     this.depthCountEl = document.getElementById('depthCount');    this.regionSelectBtnEl = document.getElementById('regionSelectBtn');    this.regionStatusEl = document.getElementById('regionStatus');
+    this.territoryBtnEl = document.getElementById('territoryBtn');
     this.setupMenu();
   }
 
@@ -175,6 +178,7 @@ export class ReviewUI {
     });
     document.addEventListener('click', () => this.closeMenu());
     this.regionSelectBtnEl?.addEventListener('click', () => {      this.closeMenu();      this.callbacks.onToggleRegionSelection?.();    });
+    this.territoryBtnEl?.addEventListener('click', () => {      this.closeMenu();      this.callbacks.onToggleTerritory?.();    });
   }
 
   private toggleMenu(): void {
@@ -461,6 +465,15 @@ export class ReviewUI {
     if (this.regionStatusEl) {
       this.regionStatusEl.textContent = hasSelection ? ' ✓' : ' ✗';
     }
+  }
+
+  /** 更新形势菜单项显示（启用态 + 选中标记） */
+  updateTerritoryButton(enabled: boolean, active: boolean): void {
+    if (!this.territoryBtnEl) return;
+    this.territoryBtnEl.textContent = active ? '形势 ✓' : '形势';
+    (this.territoryBtnEl as HTMLButtonElement).disabled = !enabled;
+    this.territoryBtnEl.style.opacity = enabled ? '1' : '0.5';
+    this.territoryBtnEl.style.cursor = enabled ? 'pointer' : 'not-allowed';
   }
 
   showHistory(): void {

@@ -164,6 +164,14 @@ export class AIController implements IAIController {
       board, previousBoard, currentPlayer, moveHistory, komi, actualVisits, maxTimeMs, analysisPvLen, initialStones, actualNoise, actualRandomize, regionOfInterest, rules
     );
 
+    // ownership 是 MCTS 搜索的副产品，不额外发起请求：
+    // worker 默认 ownershipMode='root'，每次 analyze 都已算好整盘领地归属。
+    // 这里把它透传出去，供 UI 直接绘制形势（复用结果，零额外开销）。
+    const ownership = (result as { ownership?: Float32Array | number[] }).ownership;
+    const owned: Float32Array | undefined = ownership
+      ? (ownership instanceof Float32Array ? ownership : new Float32Array(ownership))
+      : undefined;
+
     return {
       winRate: result.rootWinRate,
       scoreLead: result.rootScoreLead,
@@ -175,6 +183,7 @@ export class AIController implements IAIController {
         visits: m.visits,
         pv: m.pv,  // 保留 PV line
       })),
+      ...(owned ? { ownership: owned } : {}),
     };
   }
 

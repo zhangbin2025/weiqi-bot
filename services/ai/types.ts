@@ -49,6 +49,11 @@ export interface IAnalysisResult {
   scoreLead: number;
   /** 推荐着法 */
   topMoves: IMoveAnalysis[];
+  /**
+   * 整盘领地归属（绝对黑方视角：+1 黑地，-1 白地），长度 boardSize²
+   * @description MCTS 搜索的副产品，不额外发起请求
+   */
+  ownership?: Float32Array | undefined;
 }
 
 /**

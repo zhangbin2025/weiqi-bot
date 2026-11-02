@@ -227,6 +227,8 @@ export class ReviewService implements IReviewService {
         // 局部分析不返回 PV（regionOfInterest 存在时）
         ...(m.pv && !regionOfInterest ? { pv: m.pv } : {}),
       })),
+      // 领地归属：MCTS 分析的副产品，零额外开销
+      ...(analysis.ownership ? { ownership: analysis.ownership } : {}),
     };
   }
 
@@ -486,6 +488,8 @@ export class ReviewService implements IReviewService {
         // 局部分析不返回 PV（regionOfInterest 存在时）
         ...(m.pv && !regionOfInterest ? { pv: m.pv } : {}),
       })),
+      // 领地归属：MCTS 分析的副产品，零额外开销
+      ...(analysis.ownership ? { ownership: analysis.ownership } : {}),
     };
   }
 
@@ -701,6 +705,8 @@ export class ReviewService implements IReviewService {
       result.betterMove = { x: better.x, y: better.y, winRate: better.winRate, scoreLead: better.scoreLead };
     }
     if (severity) result.badMoveSeverity = severity;
+    // 领地归属：MCTS 分析的副产品，零额外开销
+    if (analysis.ownership) result.ownership = analysis.ownership;
     return result;
   }
   

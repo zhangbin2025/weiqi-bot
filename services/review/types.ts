@@ -68,6 +68,11 @@ export interface MoveReview {
     visits: number;
     pv?: string[];  // PV line（后续变化）
   }>;
+  /**
+   * 整盘领地归属（绝对黑方视角：+1 黑地，-1 白地），长度 boardSize²
+   * @description 供复盘「形势」功能绘制；仅在发起过分析时携带，不做缓存
+   */
+  ownership?: Float32Array | undefined;
 }
 
 /** 简单复盘结果 */
