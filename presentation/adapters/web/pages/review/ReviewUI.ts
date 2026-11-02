@@ -489,9 +489,11 @@ export class ReviewUI {
     // 只改文字标签：按钮内还有 SVG 图标，不能用 textContent 整体覆盖
     const label = document.getElementById('territoryLabel');
     if (label) label.textContent = '形势';
-    (this.territoryBtnEl as HTMLButtonElement).disabled = !enabled;
-    this.territoryBtnEl.style.opacity = enabled ? '1' : '0.5';
-    this.territoryBtnEl.style.cursor = enabled ? 'pointer' : 'not-allowed';
+    // 不再禁用：一次性动作，任何时刻都可点。
+    // 未加载棋谱时点击由 showTerritoryOnce 提示「请先加载棋谱」。
+    (this.territoryBtnEl as HTMLButtonElement).disabled = false;
+    this.territoryBtnEl.style.opacity = '1';
+    this.territoryBtnEl.style.cursor = 'pointer';
   }
 
   showHistory(): void {

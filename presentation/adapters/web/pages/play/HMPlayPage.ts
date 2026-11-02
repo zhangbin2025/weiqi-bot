@@ -397,6 +397,11 @@ export class HMPlayPage implements IPage {
       this.closeTerritory();
       return;
     }
+    // 按钮始终可点，但空棋盘分析只会给出无意义的目数 → 明确提示
+    if (this.gameState === 'idle' || this.gameState === 'loading') {
+      this.toast.info('请先开始对局');
+      return;
+    }
     // App 原生 KataGo 必须显式请求才返回 ownership（额外 NN 计算）→ 用完即关
     this.hmPlayApp.setOwnershipRequested(true);
     try {
@@ -489,11 +494,15 @@ export class HMPlayPage implements IPage {
     boardImpl.setOwnership(this.territoryVisible && this.ownership ? this.ownership : null);
   }
 
-  /** 更新形势菜单项：一次性触发，无勾选态；仅对局进行中可用 */
+  /**
+   * 更新形势菜单项：一次性触发，无勾选态
+   * @description 不再禁用 —— 一次性动作没有「状态不一致」的问题，
+   * 任何时刻都可点；不满足条件时由 showTerritoryOnce 给出提示。
+   */
   private updateTerritoryButton(): void {
     const btn = document.getElementById('menuTerritoryBtn') as HTMLButtonElement | null;
     if (!btn) return;
-    btn.disabled = this.gameState !== 'running';
+    btn.disabled = false;
     const label = btn.querySelector('span');
     if (label) label.textContent = '形势';
   }

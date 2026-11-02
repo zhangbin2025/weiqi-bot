@@ -492,6 +492,11 @@ export class MMPlayPage implements IPage {
       this.closeTerritory();
       return;
     }
+    // 按钮始终可点，但未开局/加载中时引擎尚未就绪 → 明确提示
+    if (this.gameState === 'idle' || this.gameState === 'loading') {
+      this.toast.info('请先开始对局');
+      return;
+    }
     // App 原生 KataGo 必须显式请求才返回 ownership（额外 NN 计算）→ 用完即关
     this.mmPlayApp.setOwnershipRequested(true);
     try {
@@ -561,13 +566,15 @@ export class MMPlayPage implements IPage {
     this.updateTerritoryButton();
   }
 
-  /** 更新形势菜单项的显示状态（启用/禁用 + 选中态） */
+  /**
+   * 更新形势菜单项的显示状态
+   * @description 不再禁用 —— 一次性动作，任何时刻都可点；
+   * 不满足条件时由 showTerritoryOnce 给出提示。
+   */
   private updateTerritoryButton(): void {
     const btn = document.getElementById('menuTerritoryBtn') as HTMLButtonElement | null;
     if (!btn) return;
-    // 启用条件改为「引擎可用」而非「已有数据」：
-    // App 端归属是按需请求的，若等有数据才启用，按钮将永远点不动（死锁）
-    btn.disabled = !(this.gameState === 'running' || this.gameState === 'paused');
+    btn.disabled = false;
     const label = btn.querySelector('span');
     if (label) label.textContent = '形势';
   }

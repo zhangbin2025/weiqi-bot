@@ -36,13 +36,14 @@ export class MMUIUpdater {
       case 'idle':
         pauseBtn.disabled = true;
         if (menuStopBtn) menuStopBtn.style.display = 'none';
-        if (menuTerritoryBtn) menuTerritoryBtn.style.display = 'none';
+        // 形势是菜单项，始终显示（一次性动作，随时可点）
+        if (menuTerritoryBtn) menuTerritoryBtn.style.display = 'flex';
         break;
         
       case 'loading':
         pauseBtn.disabled = true;
         if (menuStopBtn) menuStopBtn.style.display = 'none';
-        if (menuTerritoryBtn) menuTerritoryBtn.style.display = 'none';
+        if (menuTerritoryBtn) menuTerritoryBtn.style.display = 'flex';
         break;
         
       case 'running':
@@ -75,7 +76,8 @@ export class MMUIUpdater {
       case 'ended':
         pauseBtn.disabled = true;
         if (menuStopBtn) menuStopBtn.style.display = 'none';
-        if (menuTerritoryBtn) menuTerritoryBtn.style.display = 'none';
+        // 终局看最终目数是刚需，保持可见可点
+        if (menuTerritoryBtn) menuTerritoryBtn.style.display = 'flex';
         break;
     }
   }

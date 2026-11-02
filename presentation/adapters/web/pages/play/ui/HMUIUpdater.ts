@@ -73,11 +73,11 @@ export class HMUIUpdater {
     switch (state) {
       case 'idle':
       case 'loading':
-        // 禁用菜单按钮
+        // 禁用菜单按钮（形势除外：一次性动作，始终可点）
         if (menuUndoBtn) menuUndoBtn.disabled = true;
         if (menuPassBtn) menuPassBtn.disabled = true;
         if (menuResignBtn) menuResignBtn.disabled = true;
-        if (menuTerritoryBtn) menuTerritoryBtn.disabled = true;
+        if (menuTerritoryBtn) menuTerritoryBtn.disabled = false;
         break;
 
       case 'running':
@@ -90,11 +90,11 @@ export class HMUIUpdater {
         break;
 
       case 'ended':
-        // 禁用菜单按钮
+        // 禁用菜单按钮（形势除外：终局看最终目数正是刚需，保持可点）
         if (menuUndoBtn) menuUndoBtn.disabled = true;
         if (menuPassBtn) menuPassBtn.disabled = true;
         if (menuResignBtn) menuResignBtn.disabled = true;
-        if (menuTerritoryBtn) menuTerritoryBtn.disabled = true;
+        if (menuTerritoryBtn) menuTerritoryBtn.disabled = false;
         break;
     }
   }
