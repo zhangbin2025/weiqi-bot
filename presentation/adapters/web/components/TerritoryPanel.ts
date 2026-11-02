@@ -182,7 +182,7 @@ const PANEL_CSS = `
 .territory-stats-panel {
   width: 100%;
   box-sizing: border-box;
-  padding: 8px 12px;
+  padding: 10px 14px;
   background: #f0f4ff;
   border-bottom: 1px solid #e8e8e8;
   font-size: 13px;
@@ -193,12 +193,13 @@ const PANEL_CSS = `
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 .territory-panel-header .territory-panel-title {
   font-size: 14px;
   font-weight: bold;
   color: #333;
+  line-height: normal;
 }
 .territory-panel-close {
   width: 24px;
@@ -220,7 +221,7 @@ const PANEL_CSS = `
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: center;
-  gap: 2px 12px;
+  gap: 6px 14px;
 }
 .territory-cell {
   display: flex;
