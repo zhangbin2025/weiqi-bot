@@ -1,8 +1,16 @@
 /**
  * @fileoverview 形势统计面板（一次性查看，非模式）
  *
- * @description 在棋盘下方显示黑白目数、提子、领先关系与贴目，带关闭按钮。
- * 三页（hm / mm / review）共用，只依赖 DOM，不依赖页面内部状态。
+ * @description 在棋盘下方以 2×2 紧凑网格显示黑白目数/提子、领先与贴目。
+ * 视觉与宽度对齐 review 页的试下面板（`.special-controls-bar`）：
+ * 满宽、`#f0f4ff` 背景、`8px 12px` 内边距、`1px solid #e8e8e8` 下边框。
+ *
+ * 布局（两行两列）：
+ * ```
+ * 形势                      ✕
+ * ●黑 42.5目 提3    黑领先 7.5目
+ * ○白 35.0目 提5    黑贴 6.5目
+ * ```
  *
  * 设计要点：
  * - **不是模式**：不维护开关态。显示期间被任何其它操作打断即自行关闭（调用方负责）。
@@ -119,20 +127,19 @@ export function showTerritoryPanel(stats: TerritoryStats, opts: TerritoryPanelOp
         </svg>
       </button>
     </div>
-    <div class="territory-stats-card">
-      <div class="territory-stats-row">
-        <span class="territory-stats-color"><span class="territory-dot black"></span>黑</span>
-        <span class="territory-stats-num">${stats.blackTerritory.toFixed(1)} 目</span>
-        <span class="territory-stats-cap">提 ${stats.capturedBlack}</span>
+    <div class="territory-grid">
+      <div class="territory-cell territory-cell-side">
+        <span class="territory-dot black"></span><span class="territory-side-label">黑</span>
+        <span class="territory-num">${stats.blackTerritory.toFixed(1)} 目</span>
+        <span class="territory-cap">提 ${stats.capturedBlack}</span>
       </div>
-      <div class="territory-stats-row">
-        <span class="territory-stats-color"><span class="territory-dot white"></span>白</span>
-        <span class="territory-stats-num">${stats.whiteTerritory.toFixed(1)} 目</span>
-        <span class="territory-stats-cap">提 ${stats.capturedWhite}</span>
+      <div class="territory-cell territory-cell-lead" title="目数差 ${stats.rawDiff >= 0 ? '+' : ''}${stats.rawDiff.toFixed(1)}">${formatLead(stats)}</div>
+      <div class="territory-cell territory-cell-side">
+        <span class="territory-dot white"></span><span class="territory-side-label">白</span>
+        <span class="territory-num">${stats.whiteTerritory.toFixed(1)} 目</span>
+        <span class="territory-cap">提 ${stats.capturedWhite}</span>
       </div>
-      <div class="territory-stats-divider"></div>
-      <div class="territory-stats-row territory-stats-lead">${formatLead(stats)}</div>
-      <div class="territory-stats-row territory-stats-komi">黑贴 ${stats.komi} 目（目数差 ${stats.rawDiff >= 0 ? '+' : ''}${stats.rawDiff.toFixed(1)}）</div>
+      <div class="territory-cell territory-cell-komi">黑贴 ${stats.komi} 目</div>
     </div>
   `;
 
@@ -167,22 +174,26 @@ export function isTerritoryPanelVisible(): boolean {
 /**
  * 面板样式（注入一次）
  *
- * @description 视觉参考 review 页的选点面板：`.panel-header`（标题 + 关闭按钮）
- * 与白底卡片（1px #e0e0e0 边框、6px 圆角），保持三页观感一致。
+ * @description 对齐 review 试下面板 `.special-controls-bar`：
+ * 满宽、`#f0f4ff` 背景、`8px 12px` 内边距、`1px solid #e8e8e8` 下边框。
+ * 内容区为两行两列紧凑网格：左列黑白目数/提子，右列领先与贴目。
  */
 const PANEL_CSS = `
 .territory-stats-panel {
-  margin: 8px auto 0;
-  max-width: 420px;
-  padding: 8px 12px 12px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  background: #f0f4ff;
+  border-bottom: 1px solid #e8e8e8;
   font-size: 13px;
+  line-height: 1.5;
   color: #333;
 }
 .territory-panel-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 .territory-panel-header .territory-panel-title {
   font-size: 14px;
@@ -190,10 +201,10 @@ const PANEL_CSS = `
   color: #333;
 }
 .territory-panel-close {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   color: #ff6b6b;
   display: flex;
@@ -205,46 +216,36 @@ const PANEL_CSS = `
 .territory-panel-close:hover {
   background: #fff5f5;
 }
-.territory-stats-card {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  border: 1px solid #e0e0e0;
-  border-radius: 6px;
-  overflow: hidden;
-  background: white;
+.territory-grid {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 2px 12px;
 }
-.territory-stats-row {
+.territory-cell {
   display: flex;
   align-items: center;
-  padding: 8px 12px;
-  background: white;
-  border-bottom: 1px solid #f0f0f0;
-  gap: 10px;
+  gap: 4px;
+  white-space: nowrap;
 }
-.territory-stats-card .territory-stats-row:last-child {
-  border-bottom: none;
-}
-.territory-stats-color { min-width: 48px; display: inline-flex; align-items: center; gap: 5px; }
-.territory-stats-num { min-width: 72px; font-weight: 600; }
-.territory-stats-cap { color: #666; }
-.territory-stats-divider {
-  height: 1px;
-  background: #e0e0e0;
-  margin: 0;
-}
-.territory-stats-lead {
+.territory-side-label { font-weight: 600; }
+.territory-num { font-weight: 600; }
+.territory-cap { color: #666; }
+.territory-cell-lead {
   font-weight: 600;
   color: #333;
-  background: #fafbff;
+  justify-self: end;
 }
-.territory-stats-komi { color: #666; }
+.territory-cell-komi {
+  color: #666;
+  justify-self: end;
+}
 .territory-dot {
   display: inline-block;
   width: 11px;
   height: 11px;
   border-radius: 50%;
-  vertical-align: middle;
+  flex: none;
 }
 .territory-dot.black { background: #1a1a1c; }
 .territory-dot.white { background: #fcfcfa; border: 1px solid #b9b0a0; }
