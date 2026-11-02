@@ -191,8 +191,6 @@ export class HMPlayPage implements IPage {
       render: () => this.render(),
       setOwnership: (ownership: Float32Array | undefined) => {
         this.setOwnership(ownership);
-        // 数据到达后形势菜单项才可用；若已开启则刷新显示
-        this.updateTerritoryButton();
       },
     };
   }
@@ -246,8 +244,7 @@ export class HMPlayPage implements IPage {
     this.ownership = null;
     this.showTerritory = false;
     // 同时清除棋盘缓存的归属数据，否则 board.clear() 内部的 render 会画出过期领地
-    const boardImpl = this.board as { setOwnership?: (o: Float32Array | number[] | null) => void };
-    boardImpl.setOwnership?.(null);
+    this.syncOwnershipToBoard();
     this.updateTerritoryButton();
   }
   private async handleMove(pos: Position): Promise<void> {
@@ -298,6 +295,7 @@ export class HMPlayPage implements IPage {
       this.moveCount = Math.max(0, this.moveCount - 2);
       // 悔棋后棋盘局面变了，旧领地数据已失效，清除避免显示过期归属
       this.ownership = null;
+      this.syncOwnershipToBoard();
       this.updateTerritoryButton();
       this.toast.info('已悔棋');
       this.render();
@@ -368,10 +366,7 @@ export class HMPlayPage implements IPage {
       }
     }
     // 领地归属（形势显示）：开启且有数据时才传入，否则清除
-    const boardImpl = this.board as { setOwnership?: (o: Float32Array | number[] | null) => void };
-    if (boardImpl.setOwnership) {
-      boardImpl.setOwnership(this.showTerritory && this.ownership ? this.ownership : null);
-    }
+    this.syncOwnershipToBoard();
     this.board.render();
   }
   /** 切换形势（黑白领地）显示 */
@@ -383,9 +378,27 @@ export class HMPlayPage implements IPage {
     this.updateTerritoryButton();
     this.renderBoard();
   }
-  /** 保存最新的领地归属数据（供回调上下文调用） */
+  /**
+   * 保存最新的领地归属数据（供回调上下文调用）
+   * @description 存字段的同时立即同步到棋盘，使本函数与 renderBoard 的先后
+   * 顺序不再影响正确性（mm 曾因「只存字段、不同步」导致形势冻结）
+   */
   setOwnership(ownership: Float32Array | undefined): void {
     this.ownership = ownership ?? null;
+    this.syncOwnershipToBoard();
+    // 数据到达后形势菜单项才可用；若已开启则刷新显示
+    this.updateTerritoryButton();
+  }
+
+  /**
+   * 把领地归属写入棋盘（只写不渲染）
+   * @description 棋盘内部缓存着自己的归属副本，只有 setOwnership 能更新它。
+   * 与渲染解耦后，写入时机可以自由安排，不会因调用顺序而丢失更新。
+   */
+  private syncOwnershipToBoard(): void {
+    const boardImpl = this.board as { setOwnership?: (o: Float32Array | number[] | null) => void };
+    if (!boardImpl.setOwnership) return;
+    boardImpl.setOwnership(this.showTerritory && this.ownership ? this.ownership : null);
   }
   /** 更新形势菜单项的显示状态（启用/禁用 + 选中态） */
   private updateTerritoryButton(): void {

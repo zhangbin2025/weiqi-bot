@@ -124,14 +124,13 @@ export class MMPlayPage implements IPage {
         }
         
         // 保存领地归属（MCTS 搜索的副产品，不额外消耗 visits）
+        // setOwnership 内部已同步到棋盘，本手重绘即可用上新归属
         if (ownership) {
           this.ownership = ownership;
+          this.syncOwnershipToBoard();
           this.updateTerritoryButton();
         }
 
-        // 必须在保存归属之后再重绘：棋盘内部缓存着自己的归属副本，
-        // 只有 setOwnership() 会更新它。若先 render 再保存，本手画出的
-        // 仍是上一手的领地，开启形势后就会看到形势「不跟着变」。
         this.renderBoardWithTerritory();
 
         // 立即更新手数和提子数显示
@@ -419,12 +418,21 @@ export class MMPlayPage implements IPage {
   }
 
   /**
+   * 把领地归属写入棋盘（只写不渲染）
+   * @description 棋盘内部缓存着自己的归属副本，只有 setOwnership 能更新它。
+   * 与渲染解耦后，写入时机可以自由安排，不会因调用顺序而丢失更新。
+   */
+  private syncOwnershipToBoard(): void {
+    const boardImpl = this.board as { setOwnership?: (o: Float32Array | number[] | null) => void };
+    if (!boardImpl.setOwnership) return;
+    boardImpl.setOwnership(this.showTerritory && this.ownership ? this.ownership : null);
+  }
+
+  /**
    * 把领地归属写入棋盘并重绘
-   * @description 写入与渲染必须成对出现，且写入在前；否则会用上一手的归属绘制
    */
   private renderBoardWithTerritory(): void {
-    const boardImpl = this.board as { setOwnership?: (o: Float32Array | number[] | null) => void };
-    boardImpl.setOwnership?.(this.showTerritory && this.ownership ? this.ownership : null);
+    this.syncOwnershipToBoard();
     this.board.render();
   }
 
@@ -481,8 +489,7 @@ export class MMPlayPage implements IPage {
   private resetTerritory(): void {
     this.ownership = null;
     this.showTerritory = false;
-    const boardImpl = this.board as { setOwnership?: (o: Float32Array | number[] | null) => void };
-    boardImpl.setOwnership?.(null);
+    this.syncOwnershipToBoard();
     this.updateTerritoryButton();
   }
 
