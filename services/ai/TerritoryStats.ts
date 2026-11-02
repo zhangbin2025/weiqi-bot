@@ -135,15 +135,15 @@ export function formatCaptures(count: number): string {
  *
  * 分档（与 ReviewUI.getAnalysisVisitsForModel 保持同样的判定模式：
  * blocks 优先，URL 正则兜底）：
- * - 小/中模型（blocks <= 10）→ 50
+ * - 小/中模型（blocks <= 10）→ 20
  * - 大模型（blocks > 10）     → 10
  *
  * 用户决策（2026-11-02）：业界看形势普遍不追求精度，要的是响应速度。
  */
-export const TERRITORY_VISITS_SMALL_MODEL = 50;
+export const TERRITORY_VISITS_SMALL_MODEL = 20;
 export const TERRITORY_VISITS_LARGE_MODEL = 10;
 /** 无法判定模型规模时的保守值（取小模型档，保证有足够搜索量） */
-export const TERRITORY_VISITS_FALLBACK = 50;
+export const TERRITORY_VISITS_FALLBACK = 20;
 
 /**
  * 按模型规模给出形势分析用的 visits
