@@ -130,15 +130,16 @@ export function showTerritoryPanel(stats: TerritoryStats, opts: TerritoryPanelOp
     <div class="territory-grid">
       <div class="territory-cell territory-cell-side">
         <span class="territory-dot black"></span><span class="territory-side-label">黑</span>
-        <span class="territory-num">${stats.blackTerritory.toFixed(1)} 目</span>
-        <span class="territory-cap">提 ${stats.capturedBlack}</span>
       </div>
+      <div class="territory-cell territory-cell-num">${stats.blackTerritory.toFixed(1)} 目</div>
+      <div class="territory-cell territory-cell-cap">提 ${stats.capturedBlack}</div>
       <div class="territory-cell territory-cell-lead" title="目数差 ${stats.rawDiff >= 0 ? '+' : ''}${stats.rawDiff.toFixed(1)}">${formatLead(stats)}</div>
+
       <div class="territory-cell territory-cell-side">
         <span class="territory-dot white"></span><span class="territory-side-label">白</span>
-        <span class="territory-num">${stats.whiteTerritory.toFixed(1)} 目</span>
-        <span class="territory-cap">提 ${stats.capturedWhite}</span>
       </div>
+      <div class="territory-cell territory-cell-num">${stats.whiteTerritory.toFixed(1)} 目</div>
+      <div class="territory-cell territory-cell-cap">提 ${stats.capturedWhite}</div>
       <div class="territory-cell territory-cell-komi">黑贴 ${stats.komi} 目</div>
     </div>
   `;
@@ -219,9 +220,12 @@ const PANEL_CSS = `
 }
 .territory-grid {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: auto auto auto 1fr;
   align-items: center;
   gap: 6px 14px;
+}
+.territory-cell-side {
+  min-width: 52px;
 }
 .territory-cell {
   display: flex;
@@ -230,8 +234,16 @@ const PANEL_CSS = `
   white-space: nowrap;
 }
 .territory-side-label { font-weight: 600; }
-.territory-num { font-weight: 600; }
-.territory-cap { color: #666; }
+.territory-cell-num {
+  font-weight: 600;
+  justify-self: end;
+  font-variant-numeric: tabular-nums;
+}
+.territory-cell-cap {
+  color: #666;
+  justify-self: end;
+  font-variant-numeric: tabular-nums;
+}
 .territory-cell-lead {
   font-weight: 600;
   color: #333;
