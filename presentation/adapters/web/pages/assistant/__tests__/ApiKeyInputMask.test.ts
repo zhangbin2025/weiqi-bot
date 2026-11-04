@@ -149,3 +149,74 @@ describe('pruneRestorations / 队列式还原', () => {
     expect(restoreApiKeys('/llm url sk-***1234 m', [])).toBe('/llm url sk-***1234 m');
   });
 });
+
+
+describe('删除脱敏 token 不回弹（回归：backspace 删到 apiKey 反复刷新）', () => {
+  const KEY = 'abc123def456ghi789jkl';
+  const RAW = `/llm https://api.x.com/v1 ${KEY} tc-code-latest`;
+
+  /** 复刻 UIController 的 input 分流：删除操作跳过脱敏扫描，只裁剪还原表 */
+  function step(value: string, restorations: { token: string; raw: string }[], type: 'insert' | 'delete') {
+    if (type === 'delete') {
+      const next = value.slice(0, -1);
+      return {
+        value: next,
+        rewritten: false as const,
+        restorations: pruneRestorations(next, restorations),
+      };
+    }
+    const r = maskApiKeysInText(value, value.length);
+    const rewritten = r.restorations.length > 0;
+    const next = rewritten ? r.display : value;
+    return {
+      value: next,
+      rewritten,
+      restorations: pruneRestorations(next, [...restorations, ...r.restorations]),
+    };
+  }
+
+  it('从完整 token 逐字符 backspace 删到空，任何一步都不改写 value', () => {
+    const first = maskApiKeysInText(RAW, RAW.length);
+    let value = first.display;
+    let restorations = pruneRestorations(value, [...first.restorations]);
+
+    for (let i = 0; i < 80 && value.length > 0; i++) {
+      const before = value;
+      const out = step(value, restorations, 'delete');
+      expect(out.value).toBe(before.slice(0, -1));   // 严格等于「用户删后的文本」
+      expect(out.rewritten).toBe(false);
+      value = out.value;
+      restorations = out.restorations;
+    }
+    expect(value).toBe('');
+    expect(restorations).toHaveLength(0);           // 残片对应的映射已丢弃，发送不会串位
+  });
+
+  it('脱敏 token 的删除残片不会被当成新明文 key 再次脱敏（isMaskedToken 兜底）', () => {
+    // 覆盖从右往左删的各个形态：完整 → 少末位 → 只剩星号 → 只剩 sk- → sk
+    for (const frag of [
+      'sk-***9jkl', 'sk-***9jk', 'sk-***', 'sk-**', 'sk-*', 'sk-',
+    ]) {
+      const text = `/llm https://api.x.com/v1 ${frag}`;
+      const r = maskApiKeysInText(text);
+      expect(r.display, frag).toBe(text);
+      expect(r.restorations, frag).toEqual([]);
+    }
+  });
+
+  it('短 key **** 的删除残片同样不二次脱敏', () => {
+    for (const frag of ['****', '***', '**', '*']) {
+      const text = `/llm https://api.x.com/v1 ${frag}`;
+      const r = maskApiKeysInText(text);
+      expect(r.display, frag).toBe(text);
+      expect(r.restorations, frag).toEqual([]);
+    }
+  });
+
+  it('正常粘贴/输入仍照常脱敏（删除分流不误伤新增内容）', () => {
+    const r = maskApiKeysInText(RAW);
+    expect(r.display).not.toContain(KEY);
+    expect(r.restorations).toHaveLength(1);
+    expect(restoreApiKeys(r.display, r.restorations)).toBe(RAW);
+  });
+});

@@ -36,9 +36,22 @@ export interface MaskResult {
 
 interface Span { start: number; end: number; raw: string; }
 
-/** 已经是脱敏 token 的形态（避免二次脱敏） */
+/**
+ * 已经是脱敏 token（或用户正在 backspace 删除它时的残缺片段）。
+ *
+ * ⚠️ 不能只认完整的 `sk-***xxxx`：用户把 `sk-***9jkl` 从右往左删到
+ * `sk-**` / `sk-*` / `sk-` 时，若这里返回 false，残片会被当成「新的明文
+ * key」再次脱敏并写回 textarea，字符复活 + 光标被强制挪位 —— 表现为
+ * 「删一个字符输入框刷一次、又回到删除前状态」的无限回弹。
+ *
+ * 形态覆盖：
+ *  - 完整 token：`sk-***` + 末 4 位、`****`
+ *  - 删除残片：`sk-***9jk`、`sk-***`、`sk-**`、`sk-*`、`sk-`、`***`、`**`、`*`
+ * 真正的明文 key 是 `sk-` + 16 位以上字母数字（由 skRe 负责），或不含
+ * 星号的 /llm 第 3 段，均不以星号开头，不会被这里误判。
+ */
 function isMaskedToken(s: string): boolean {
-  return /^sk-\*{3}/.test(s) || s === '****';
+  return /^sk-(?:\*|$)/.test(s) || /^\*+$/.test(s);
 }
 
 /** 找出文本中所有待脱敏的明文 key 区间（不重叠、按出现顺序） */

@@ -330,8 +330,19 @@ export class UIController {
     // 监听 textarea 输入，自动调整高度 + 命令补全
     document.getElementById('userInput')?.addEventListener('input', (e) => {
       const textarea = e.target as HTMLTextAreaElement;
-      // 粘贴/输入后若含明文 apiKey，立即把显示换成脱敏 token（原文留在内存映射里）
-      this.maskApiKeysInInput(textarea);
+      const inputType = (e as InputEvent).inputType ?? '';
+      // 删除操作绝不重新扫描脱敏：否则 backspace 删到脱敏 token 时，
+      // 残缺片段会被当成「新的明文 key」再次脱敏并写回 textarea，
+      // 表现为「删一个字符输入框刷一次、又回到删除前」的无限回弹。
+      // 删除时只需把已被删掉的 token 从还原表里清掉（发送时也不会串位）。
+      const isDeletion = /^delete/.test(inputType);
+      if (isDeletion) {
+        this.keyRestorations = pruneRestorations(textarea.value, this.keyRestorations);
+        this.notifyKeyMasked(this.keyRestorations.length > 0);
+      } else {
+        // 粘贴/输入后若含明文 apiKey，立即把显示换成脱敏 token（原文留在内存映射里）
+        this.maskApiKeysInInput(textarea);
+      }
       this.autoResizeTextarea(textarea);
       
       // 命令补全
