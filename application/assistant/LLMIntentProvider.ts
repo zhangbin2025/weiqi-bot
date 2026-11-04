@@ -22,6 +22,7 @@ import {
   DEFAULT_LLM_MODEL,
   type LLMStoredConfig,
 } from '../../infrastructure/llm/LLMCredentialStore';
+import { PUZZLE_FILTER_TYPES } from '../../services/game/providers/library/puzzleFilter';
 
 /** 特殊意图：不在 INTENT_CONFIG 里，但下游已支持 */
 const SPECIAL_INTENTS = ['help', 'unknown'] as const;
@@ -42,6 +43,38 @@ const MAX_REPLY_LENGTH = 2000;
 const MAX_PARAM_LENGTH = 2000;
 const MAX_ALTERNATIVES = 3;
 
+/** 题库合法题型原子：与 services/.../puzzleFilter.ts 共用同一份常量，避免两处漂移 */
+const PUZZLE_TYPE_ATOMS: readonly string[] = PUZZLE_FILTER_TYPES.map(t => t.value);
+/** 非法 keyword 的兜底题型：「至少指定为棋理」，且它本身就是合法题型 */
+const FALLBACK_PUZZLE_KEYWORD = '棋理';
+
+/**
+ * 归一化 start_puzzle.keyword。
+ *
+ * keyword 是题库筛选表达式，只认题型 / 难度 / and-or-括号。LLM 常把用户输入的
+ * 概念词原样塞进来（「双打吃」→ params.keyword='双打吃'），题库 evaluateFilter
+ * 会筛出 0 道题。代码级校验贯彻「LLM 输出一律不可信」，不只靠 prompt 自觉：
+ *  - 空串：保留（= 不筛选，展示全部题目）
+ *  - 每个原子都是合法题型或难度：原样保留（含 and/or 组合表达式）
+ *  - 出现任何非法原子（概念词、术语原词、HTML 残片等）：降级为「棋理」
+ */
+export function sanitizePuzzleKeyword(raw: string): string {
+  const expr = raw.trim();
+  if (!expr) return '';
+  const atoms = expr
+    .replace(/[()]/g, ' ')
+    .split(/\s+/)
+    .filter(t => t && t.toLowerCase() !== 'and' && t.toLowerCase() !== 'or');
+  const allValid = atoms.every(atom => {
+    const a = atom.toUpperCase();
+    // 难度原子：2D / 15K / 2D+（与题库 atomMatches 的正则口径一致）
+    if (/^\d+[KD]\+?$/.test(a)) return true;
+    // 题型原子：允许「死活」以及带后缀的「死活题」
+    return PUZZLE_TYPE_ATOMS.some(t => atom === t || atom === t + '题');
+  });
+  return allValid ? expr : FALLBACK_PUZZLE_KEYWORD;
+}
+
 export type LLMOutcome =
   | { kind: 'intent'; result: IntentRecognizeResult }
   | { kind: 'chat'; reply: string }
@@ -50,6 +83,7 @@ export type LLMOutcome =
 /** 构造 system prompt：意图表直接从现有配置生成，避免手抄导致漂移 */
 export function buildSystemPrompt(): string {
   const descriptions = new Map(INTENT_KEYWORDS.map(k => [k.intent, k.description]));
+  const puzzleTypes = PUZZLE_TYPE_ATOMS.join('、');
   const lines = Object.entries(INTENT_CONFIG).map(([intent, config]) => {
     const desc = descriptions.get(intent) || config.name;
     const params = config.params.length > 0 ? config.params.join(', ') : '（无）';
@@ -81,6 +115,8 @@ export function buildSystemPrompt(): string {
     '   引用术语请用中文引号「」或全角引号，不要嵌套英文引号；解释完直接收尾，不要追加第二个 JSON。',
     `9. 区分「问答」与「功能调用」：单纯想知道某个信息（如棋手交战历史、什么是打吃、某届赛事背景）→ ${CHAT_INTENT} 直接回答；`,
     '   明确要使用工具/打开页面（如「查查柯洁的等级分」「分析对手」「复盘这盘棋」「下棋」）→ 对应功能意图，不要判 chat。',
+    `10. start_puzzle 的 keyword 是题库筛选表达式，只能由题型（${puzzleTypes}）、难度（如 2D、15K）、and/or/括号组成；`,
+    '   严禁把用户输入的围棋术语或概念原词（如「双打吃」「双活」）直接当 keyword；这类概念题归到「棋理」或最贴近的题型，不确定就填「棋理」，否则题库会筛出 0 道题。',
     '',
     '示例:',
     '用户输入: 帮我查查柯洁的等级分',
@@ -97,6 +133,8 @@ export function buildSystemPrompt(): string {
     '输出: {"intent":"chat","confidence":0.95,"params":{},"responseType":"foreground","alternatives":[],"reply":"两人是当今棋坛的顶尖对手，多次交手互有胜负；具体比分建议以官方赛事记录为准。"}',
     '用户输入: 每天后台看看申真谞的棋谱',
     '输出: {"intent":"analyze_opponent","confidence":0.9,"params":{"player":"申真谞"},"responseType":"periodic","alternatives":[],"reply":""}',
+    '用户输入: 来几道双打吃的题',
+    '输出: {"intent":"start_puzzle","confidence":0.9,"params":{"keyword":"棋理"},"responseType":"foreground","alternatives":[],"reply":""}',
   ].join('\n');
 }
 
@@ -261,6 +299,12 @@ export function normalizeLLMResult(raw: unknown): LLMOutcome {
       }
       // 对象/数组/null 一律丢弃
     }
+  }
+
+  // 代码级护栏：LLM 判了 start_puzzle 又编造非法 keyword（概念词/术语原词）时，
+  // 收敛到题库合法题型，避免跳到做题页却筛出 0 道题。分类结果本身不改。
+  if (intent === 'start_puzzle' && typeof params['keyword'] === 'string') {
+    params['keyword'] = sanitizePuzzleKeyword(params['keyword']);
   }
 
   const responseTypeRaw = raw['responseType'];

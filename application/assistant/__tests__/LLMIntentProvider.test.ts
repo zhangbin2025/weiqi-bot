@@ -5,6 +5,7 @@ import {
   sanitizeLlmText,
   extractJson,
   repairLooseJson,
+  sanitizePuzzleKeyword,
 } from '../LLMIntentProvider';
 
 describe('buildSystemPrompt', () => {
@@ -43,6 +44,55 @@ describe('buildSystemPrompt', () => {
     expect(p).toContain('用户输入: 帮我查查柯洁的等级分');
     const qIdx = p.indexOf('用户输入: 帮我查查柯洁的等级分');
     expect(p.slice(qIdx, qIdx + 120)).toContain('"intent":"query_player"');
+  });
+
+  // 回归：「双打吃」被 LLM 判 start_puzzle 且编造 keyword='双打吃'，
+  // 题库筛出 0 道题。prompt 必须把 keyword 限定为合法题型/难度，概念题归「棋理」。
+  it('prompt 明确 start_puzzle.keyword 只能是题库合法题型（概念题归棋理）', () => {
+    const p = buildSystemPrompt();
+    expect(p).toContain('start_puzzle 的 keyword');
+    expect(p).toContain('棋理');
+    expect(p).toContain('双打吃');
+    expect(p).toContain('否则题库会筛出 0 道题');
+    // 正例：概念题示范成 keyword=棋理，而不是把术语原词塞进去
+    const idx = p.indexOf('用户输入: 来几道双打吃的题');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(p.slice(idx, idx + 200)).toContain('"keyword":"棋理"');
+  });
+});
+
+describe('sanitizePuzzleKeyword（start_puzzle.keyword 代码级护栏）', () => {
+  it('合法题型原样保留', () => {
+    for (const t of ['棋理', '死活', '手筋', '官子', '中盘', '布局', '对杀', '死活题']) {
+      expect(sanitizePuzzleKeyword(t), t).toBe(t);
+    }
+  });
+
+  it('难度原子与 and/or 表达式原样保留', () => {
+    expect(sanitizePuzzleKeyword('2D')).toBe('2D');
+    expect(sanitizePuzzleKeyword('15K')).toBe('15K');
+    expect(sanitizePuzzleKeyword('(死活 or 官子) and 2D')).toBe('(死活 or 官子) and 2D');
+    expect(sanitizePuzzleKeyword('死活 and (3D or 4D)')).toBe('死活 and (3D or 4D)');
+  });
+
+  it('空串 = 不筛选，原样保留', () => {
+    expect(sanitizePuzzleKeyword('')).toBe('');
+    expect(sanitizePuzzleKeyword('   ')).toBe('');
+  });
+
+  it('概念词/术语原词降级为「棋理」', () => {
+    for (const t of ['双打吃', '双活', '双飞燕', '倒脱靴', '征子', '打吃']) {
+      expect(sanitizePuzzleKeyword(t), t).toBe('棋理');
+    }
+  });
+
+  it('混合表达式里只要有一个非法原子就整体降级', () => {
+    expect(sanitizePuzzleKeyword('死活 and 双打吃')).toBe('棋理');
+  });
+
+  it('HTML / 注入残片不会透传给题库', () => {
+    expect(sanitizePuzzleKeyword('<img src=x>')).toBe('棋理');
+    expect(sanitizePuzzleKeyword('&lt;img src=x&gt;')).toBe('棋理');
   });
 });
 
@@ -91,12 +141,45 @@ describe('normalizeLLMResult', () => {
     if (r.kind !== 'intent') throw new Error('unreachable');
     expect(r.result.params['source']).toBe('野狐');
     expect(r.result.params['count']).toBeUndefined();
-    expect(r.result.params['keyword']).toBe('&lt;img src=x&gt;');
+    // 回归：非法 keyword（HTML 残片）不再原样透传给题库，护栏收敛为「棋理」
+    expect(r.result.params['keyword']).toBe('棋理');
     expect(r.result.params['bogus']).toBeUndefined();
   });
 
   it('未知意图抛错', () => {
     expect(() => normalizeLLMResult({ intent: 'rm_rf', confidence: 1 })).toThrow(/未知意图/);
+  });
+
+  it('回归：用户实测 LLM 输出 start_puzzle + keyword=双打吃 → 护栏收敛为棋理', () => {
+    // 2026-11-04 用户贴的真实 /chat/completions 返回：
+    // {"intent":"start_puzzle","confidence":0.74,"params":{"keyword":"双打吃"},...}
+    // 分类结果保留，只修 keyword：题库里没有「双打吃」这个标签，会筛出 0 道题。
+    const r = normalizeLLMResult({
+      intent: 'start_puzzle',
+      confidence: 0.74,
+      params: { keyword: '双打吃' },
+      responseType: 'foreground',
+      alternatives: [{ intent: 'unknown', confidence: 0.16 }],
+      reply: '',
+    });
+    if (r.kind !== 'intent') throw new Error('unreachable');
+    expect(r.result.intent).toBe('start_puzzle');
+    expect(r.result.params['keyword']).toBe('棋理');
+  });
+
+  it('合法 keyword 不被护栏改写', () => {
+    const r = normalizeLLMResult({
+      intent: 'start_puzzle', confidence: 0.9,
+      params: { keyword: '(死活 or 官子) and 2D' },
+    });
+    if (r.kind !== 'intent') throw new Error('unreachable');
+    expect(r.result.params['keyword']).toBe('(死活 or 官子) and 2D');
+  });
+
+  it('没给 keyword 时保持不筛选，不擅自塞棋理', () => {
+    const r = normalizeLLMResult({ intent: 'start_puzzle', confidence: 0.9, params: {} });
+    if (r.kind !== 'intent') throw new Error('unreachable');
+    expect(r.result.params['keyword']).toBeUndefined();
   });
 
   it('非对象抛错', () => {
