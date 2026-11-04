@@ -9,6 +9,7 @@ import { ClipboardHandler } from './ClipboardHandler';
 import { QRScanner } from './QRScanner';
 import { buildArchiveUrl } from '../../../../../domain/sgf/SGFUtils';
 import { writePhotoHandoff } from '../../../../../clients/web/shared/photo-handoff';
+import { WebToast } from '../../components/Toast';
 import {
   maskApiKeysInText,
   restoreApiKeys,
@@ -38,6 +39,9 @@ export class UIController {
   private availableCommands: ManagementCommand[] = []; // 可用命令列表
   /** 输入框中已脱敏的 apiKey：token → 原文。仅存内存，发送时消费后清空 */
   private keyRestorations: KeyRestoration[] = [];
+  /** 当前是否处于「输入框里有脱敏 key」状态，用于只在状态跃迁时弹一次 toast */
+  private keyMaskActive = false;
+  private keyMaskToast: WebToast | null = null;
   
   constructor(config: UIControllerConfig) {
     this.useCase = config.useCase;
@@ -110,7 +114,7 @@ export class UIController {
       this.autoResizeTextarea(input);
     }
     this.keyRestorations = [];
-    this.setKeyMaskedHint(false);
+    this.notifyKeyMasked(false);
     // 调用回调
     this.onSendMessage(text);
   }
@@ -217,35 +221,27 @@ export class UIController {
     }
     // 与当前显示文本对齐，丢弃已被用户删掉的 token 对应的映射
     this.keyRestorations = pruneRestorations(textarea.value, this.keyRestorations);
-    this.setKeyMaskedHint(this.keyRestorations.length > 0);
+    this.notifyKeyMasked(this.keyRestorations.length > 0);
   }
 
   /** 程序化回填输入框时清掉旧的脱敏映射与提示，避免串位 */
   private resetKeyMask(): void {
     this.keyRestorations = [];
-    this.setKeyMaskedHint(false);
+    this.notifyKeyMasked(false);
   }
 
-  /** 输入框旁的「🔒 密钥已脱敏」提示，让用户知道 key 没丢、照常发送即可 */
-  private setKeyMaskedHint(show: boolean): void {
-    let hint = document.getElementById('keyMaskedHint');
-    if (!hint) {
-      const container = document.querySelector('.input-container');
-      if (!container) return;
-      hint = document.createElement('span');
-      hint.id = 'keyMaskedHint';
-      hint.className = 'key-masked-hint';
-      hint.textContent = '🔒 密钥已脱敏';
-      // 插到 textarea 之后、发送按钮之前
-      const textarea = document.getElementById('userInput');
-      if (textarea?.parentElement === container) {
-        container.insertBefore(hint, textarea.nextSibling);
-      } else {
-        container.appendChild(hint);
-      }
+  /**
+   * 密钥脱敏提示：改用 toast（浮层，不占输入框布局）。
+   * 只在「无脱敏 key → 有脱敏 key」跃迁时弹一次，避免用户继续编辑
+   * baseUrl / 模型名时每次 input 都反复弹；发送或清空后状态复位，
+   * 下次再粘贴新 key 会重新提示。
+   */
+  private notifyKeyMasked(hasMask: boolean): void {
+    if (hasMask && !this.keyMaskActive) {
+      if (!this.keyMaskToast) this.keyMaskToast = new WebToast();
+      this.keyMaskToast.info('🔒 密钥已脱敏，发送时自动还原');
     }
-    hint.style.display = show ? 'inline-flex' : 'none';
-    hint.title = '输入框中的 API Key 已隐藏显示，发送时会自动还原为原文';
+    this.keyMaskActive = hasMask;
   }
 
   /**
