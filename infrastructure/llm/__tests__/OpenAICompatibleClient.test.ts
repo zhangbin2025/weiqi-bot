@@ -55,7 +55,9 @@ describe('OpenAICompatibleClient 截断标记', () => {
       }],
     });
     await expect(client().chat([{ role: 'user', content: 'x' }]))
-      .rejects.toThrow(/输出被截断/);
+      .rejects.toThrow(/思考过程占满了 token 预算/);
+    await expect(client().chat([{ role: 'user', content: 'x' }]))
+      .rejects.toThrow(/maxtokens/);
   });
 
   it('content 为空、非截断、但只有思考过程 → 提示换非推理模型', async () => {
@@ -78,7 +80,7 @@ describe('OpenAICompatibleClient 截断标记', () => {
     vi.stubGlobal('fetch', spy);
     await client().chat([{ role: 'user', content: 'x' }]);
     const body = JSON.parse((spy.mock.calls[0] as any)[1].body as string);
-    expect(body.max_tokens).toBe(1024);
+    expect(body.max_tokens).toBe(4096);
     expect(body.response_format).toEqual({ type: 'json_object' });
     expect(body.model).toBe('test-model');
   });
@@ -96,5 +98,47 @@ describe('OpenAICompatibleClient 截断标记', () => {
     await noModel.chat([{ role: 'user', content: 'x' }]);
     const body = JSON.parse((spy.mock.calls[0] as any)[1].body as string);
     expect(body.model).toBe('');
+  });
+});
+
+
+describe('真截断（content 为空 + finish_reason=length）', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+  const client = () => new OpenAICompatibleClient({
+    baseUrl: 'https://api.example.com/v1', apiKey: 'k', model: 'm',
+  });
+
+  it('报错指向 maxtokens，不再误导用户调 timeout', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true, status: 200,
+      text: async () => '',
+      json: async () => ({
+        choices: [{
+          message: { content: '', reasoning_content: '我需要判断意图……' },
+          finish_reason: 'length',
+        }],
+        usage: { completion_tokens: 1024, completion_tokens_details: { reasoning_tokens: 1024 } },
+      }),
+    })));
+    await expect(client().chat([{ role: 'user', content: '什么叫倒脱靴' }]))
+      .rejects.toThrow(/maxtokens/);
+    await expect(client().chat([{ role: 'user', content: '什么叫倒脱靴' }]))
+      .rejects.not.toThrow(/llm timeout/);
+  });
+
+  it('maxTokens 可自定义并透传到请求体', async () => {
+    const spy = vi.fn(async () => ({
+      ok: true, status: 200, text: async () => '',
+      json: async () => completion('{}', 'stop'),
+    }));
+    vi.stubGlobal('fetch', spy);
+    const c = new OpenAICompatibleClient({
+      baseUrl: 'https://api.example.com/v1', apiKey: 'k', model: 'm', maxTokens: 8192,
+    });
+    await c.chat([{ role: 'user', content: 'x' }]);
+    const body = JSON.parse((spy.mock.calls[0] as any)[1].body as string);
+    expect(body.max_tokens).toBe(8192);
   });
 });

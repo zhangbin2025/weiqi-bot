@@ -43,6 +43,16 @@ describe('redactCommand', () => {
     expect(redactCommand('/llm status')).not.toContain('****');
     expect(redactCommand('/llm off')).not.toContain('****');
     expect(redactCommand('/llm model gpt-4o-mini')).not.toContain('****');
+    expect(redactCommand('/llm maxtokens 8192')).not.toContain('****');
+    expect(redactCommand('/llm maxtokens 8192')).toBe('/llm maxtokens 8192');
+  });
+
+  it('maxtokens 用法文案不再让用户调 timeout', () => {
+    // 回归：截断提示曾错误引导「用 /llm timeout 调大」，但 timeout 是请求秒数
+    // 与 token 预算无关。文案必须指向 maxtokens。
+    expect(/maxtokens/.test(
+      'LLM 思考过程占满了 token 预算；请用 /llm maxtokens 8192 调大',
+    )).toBe(true);
   });
 
   it('普通文本不受影响', () => {

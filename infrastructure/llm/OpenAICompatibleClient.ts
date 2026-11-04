@@ -27,9 +27,9 @@ export interface OpenAICompatibleConfig {
   /** 超时（毫秒），默认 60s（推理模型闲聊较慢） */
   timeoutMs?: number;
   /**
-   * 单次回复最大 token 数，默认 1024。
-   * 推理模型（tc-code-latest 等）会先生成 reasoning_content 再吐 content，
-   * 512 偶尔会把闲聊的 JSON 挤到预算外导致未闭合，故留一倍余量。
+   * 单次补全 token 预算，默认 4096。
+   * 推理模型的 reasoning_content 与 content 共享预算，1024 常被思考过程吃光
+   * 导致 content 为空、finish_reason=length（真截断）。调 timeout 无用。
    */
   maxTokens?: number;
 }
@@ -47,7 +47,7 @@ export class OpenAICompatibleClient {
     // 不再兜底任何默认模型：各家 ID 不同，写死会直接 400 invalid model
     this.model = config.model || '';
     this.timeoutMs = config.timeoutMs ?? 60_000;
-    this.maxTokens = config.maxTokens ?? 1024;
+    this.maxTokens = config.maxTokens ?? 4096;
   }
 
   /**
@@ -111,7 +111,10 @@ export class OpenAICompatibleClient {
       const truncated = choice?.finish_reason === 'length';
       if (!content.trim()) {
         if (truncated) {
-          throw new Error('LLM 输出被截断（max_tokens 太小），请用 /llm timeout 调大或换非推理模型');
+          throw new Error(
+            'LLM 思考过程占满了 token 预算，未输出正式回复；' +
+            '请用 /llm maxtokens 8192 调大，或 /llm model 换非推理模型',
+          );
         }
         if (message?.reasoning_content) {
           throw new Error('LLM 只返回了思考过程，未给出结果（建议换非推理模型）');

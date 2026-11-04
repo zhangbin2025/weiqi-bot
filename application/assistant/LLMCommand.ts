@@ -12,6 +12,7 @@
  *   /llm <baseUrl> <apiKey> <model>   配置并启用（模型必填，各家 ID 不同）
  *   /llm model <name>                 仅改模型名
  *   /llm timeout <秒>                 调整请求超时（5~300 秒）
+ *   /llm maxtokens <数>               调整 token 预算（512~16384，默认 4096）
  *   /llm status                      查看当前配置（脱敏）
  *   /llm off                         关闭并清除凭据
  *   /llm                             显示用法
@@ -30,6 +31,10 @@ import {
   MIN_LLM_TIMEOUT_MS,
   MAX_LLM_TIMEOUT_MS,
   normalizeTimeoutMs,
+  DEFAULT_LLM_MAX_TOKENS,
+  MIN_LLM_MAX_TOKENS,
+  MAX_LLM_MAX_TOKENS,
+  normalizeMaxTokens,
 } from '../../infrastructure/llm/LLMCredentialStore';
 
 export interface LLMCommandDeps {
@@ -49,7 +54,8 @@ function usage(): string {
     '```',
     '/llm <baseUrl> <apiKey> <model>  配置并启用（模型必填）',
     '/llm model <name>                修改模型名',
-    '/llm timeout <秒>                调整超时（默认 60 秒，推理模型闲聊较慢）',
+    '/llm timeout <秒>                调整请求超时（默认 60 秒）',
+    '/llm maxtokens <数>               调整 token 预算（默认 4096）',
     '/llm status                      查看当前配置',
     '/llm off                         关闭并清除凭据',
     '/llm                             显示本帮助',
@@ -63,8 +69,10 @@ function usage(): string {
     '  填错会返回 400 `invalid model`。可用 `/llm model <name>` 随时改。',
     '',
     '- 启用后，所有**自然语言**都交给 LLM 解析；`/` 开头的命令仍然本地处理，不走 LLM',
-    '- 超时默认 60 秒。推理模型（tc-code-latest 等）闲聊要先生成思考过程，可能较慢；',
-    '  超时可用 `/llm timeout 90` 调大，或换非推理模型（如 hunyuan-turbos）',
+    '- 超时默认 60 秒，只管「等多久」，与 token 预算无关；慢可用 `/llm timeout 90` 调大',
+    '- token 预算默认 4096。推理模型（tc-code-latest 等）的「思考过程」和「正式回复」',
+    '  **共享**这份预算：思考太长会挤掉正式回复，表现为 content 为空 / 输出被截断。',
+    '  遇到截断请用 `/llm maxtokens 8192` 调大（调 timeout 无效），或换非推理模型',
     '- LLM 失败（超时 / 报错 / 返回非法 JSON）会提示失败并**不执行**任何意图，也不会回落本地识别',
     '',
     '⚠️ apiKey 以混淆方式存在 localStorage（密钥为本机随机生成，不硬编码）。',
@@ -73,7 +81,7 @@ function usage(): string {
 }
 
 /** 已知子命令（这些命令的第二段是子命令名，不是 apiKey，不能脱敏） */
-const LLM_SUBCOMMANDS = new Set(['model', 'status', 'off', 'timeout']);
+const LLM_SUBCOMMANDS = new Set(['model', 'status', 'off', 'timeout', 'maxtokens']);
 
 /** 把用户输入的命令渲染成脱敏版本（主命令 + 参数名，不含 apiKey 明文） */
 export function redactCommand(raw: string): string {
@@ -121,6 +129,7 @@ export async function handleLLMCommand(raw: string, deps: LLMCommandDeps): Promi
       `- 端点：\`${buildChatCompletionsUrl(config.baseUrl)}\``,
       `- 模型：\`${config.model || '（未设置，请执行 /llm model <模型名>）'}\``,
       `- 超时：${(config.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS) / 1000} 秒`,
+      `- token 预算：${config.maxTokens ?? DEFAULT_LLM_MAX_TOKENS}（/llm maxtokens <数> 可调）`,
       `- apiKey：\`${config.keyHint || '****'}\`（已加密缓存）`,
       `- 更新时间：${new Date(config.updatedAt).toLocaleString()}`,
     ].join('\n');
@@ -154,8 +163,45 @@ export async function handleLLMCommand(raw: string, deps: LLMCommandDeps): Promi
       return true;
     }
     const ms = normalizeTimeoutMs(seconds * 1000);
-    saveLLMCredentials(config.baseUrl, apiKey, config.model, ms);
+    // 保留已有 maxtokens，避免被默认值覆盖
+    saveLLMCredentials(config.baseUrl, apiKey, config.model, ms,
+      config.maxTokens ?? DEFAULT_LLM_MAX_TOKENS);
     await deps.renderMessage(`✅ 请求超时已改为 ${ms / 1000} 秒`);
+    return true;
+  }
+
+  // /llm maxtokens <数>
+  if (sub === 'maxtokens') {
+    const raw = parts[2];
+    if (!raw) {
+      await deps.renderMessage(
+        `ℹ️ 当前 token 预算 ${loadLLMConfig()?.maxTokens ?? DEFAULT_LLM_MAX_TOKENS}。` +
+        `\n用法：\`/llm maxtokens <数>\`（${MIN_LLM_MAX_TOKENS}~${MAX_LLM_MAX_TOKENS}）`,
+      );
+      return true;
+    }
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) {
+      await deps.renderMessage('❌ 必须是正数，例如 `/llm maxtokens 8192`');
+      return true;
+    }
+    const config = loadLLMConfig();
+    if (!config) {
+      await deps.renderMessage('❌ 尚未配置 LLM，请先执行 `/llm <baseUrl> <apiKey> <model>`');
+      return true;
+    }
+    const apiKey = loadApiKey();
+    if (!apiKey) {
+      await deps.renderMessage('❌ 现有凭据无法解密，请重新执行 `/llm <baseUrl> <apiKey> <model>`');
+      return true;
+    }
+    const tokens = normalizeMaxTokens(n);
+    saveLLMCredentials(config.baseUrl, apiKey, config.model,
+      config.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS, tokens);
+    await deps.renderMessage(
+      `✅ token 预算已改为 ${tokens}` +
+      (tokens !== n ? `（已收敛到 ${MIN_LLM_MAX_TOKENS}~${MAX_LLM_MAX_TOKENS}）` : ''),
+    );
     return true;
   }
 
@@ -176,8 +222,10 @@ export async function handleLLMCommand(raw: string, deps: LLMCommandDeps): Promi
       await deps.renderMessage('❌ 现有凭据无法解密，请重新执行 `/llm <baseUrl> <apiKey> <model>`');
       return true;
     }
-    // 保留已有超时设置，不要被 saveLLMCredentials 的默认值覆盖
-    saveLLMCredentials(config.baseUrl, apiKey, model, config.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS);
+    // 保留已有超时与 maxtokens，不要被 saveLLMCredentials 的默认值覆盖
+    saveLLMCredentials(config.baseUrl, apiKey, model,
+      config.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS,
+      config.maxTokens ?? DEFAULT_LLM_MAX_TOKENS);
     await deps.renderMessage(`✅ 模型已改为 \`${model.trim()}\``);
     return true;
   }
@@ -214,6 +262,7 @@ export async function handleLLMCommand(raw: string, deps: LLMCommandDeps): Promi
       `- 端点：\`${buildChatCompletionsUrl(config.baseUrl)}\``,
       `- 模型：\`${config.model}\``,
       `- 超时：${(config.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS) / 1000} 秒`,
+      `- token 预算：${config.maxTokens ?? DEFAULT_LLM_MAX_TOKENS}`,
       `- apiKey：\`${config.keyHint}\`（已加密缓存到 localStorage）`,
       '',
       '后续自然语言将由 LLM 解析；命令（`/` 开头）仍本地处理。',

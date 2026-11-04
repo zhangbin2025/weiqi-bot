@@ -35,11 +35,29 @@ export const DEFAULT_LLM_TIMEOUT_MS = 60_000;
 export const MIN_LLM_TIMEOUT_MS = 5_000;
 export const MAX_LLM_TIMEOUT_MS = 300_000;
 
+/**
+ * 单次补全的 token 预算默认值。
+ * ⚠️ 推理模型（tc-code-latest 等）的 reasoning_content 与 content 共享这份预算：
+ * 实测「什么叫倒脱靴」这类术语问答，模型光思考就烧满 1024，content 为空、
+ * finish_reason=length。故默认 4096，留足「思考 + 输出 JSON」的空间。
+ * 注意：调大 timeout（请求超时秒数）对此毫无帮助，两者不是一回事。
+ */
+export const DEFAULT_LLM_MAX_TOKENS = 4096;
+export const MIN_LLM_MAX_TOKENS = 512;
+export const MAX_LLM_MAX_TOKENS = 16384;
+
 /** 把用户输入/存储的超时值收敛到合法区间 */
 export function normalizeTimeoutMs(value: unknown): number {
   const n = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(n)) return DEFAULT_LLM_TIMEOUT_MS;
   return Math.min(MAX_LLM_TIMEOUT_MS, Math.max(MIN_LLM_TIMEOUT_MS, Math.round(n)));
+}
+
+/** 把用户输入/存储的 max_tokens 收敛到合法区间 */
+export function normalizeMaxTokens(value: unknown): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n)) return DEFAULT_LLM_MAX_TOKENS;
+  return Math.min(MAX_LLM_MAX_TOKENS, Math.max(MIN_LLM_MAX_TOKENS, Math.round(n)));
 }
 
 const STORAGE_KEY = 'weiqi.llm.config';
@@ -56,6 +74,8 @@ export interface LLMStoredConfig {
   keyHint: string;
   /** 请求超时（毫秒）；老配置缺此字段时按默认值处理 */
   timeoutMs?: number;
+  /** 单次补全 token 预算；老配置缺此字段时按默认值处理 */
+  maxTokens?: number;
   updatedAt: number;
 }
 
@@ -202,6 +222,7 @@ export function saveLLMCredentials(
   apiKey: string,
   model: string = DEFAULT_LLM_MODEL,
   timeoutMs: number = DEFAULT_LLM_TIMEOUT_MS,
+  maxTokens: number = DEFAULT_LLM_MAX_TOKENS,
 ): LLMStoredConfig {
   const config: LLMStoredConfig = {
     baseUrl: normalizeBaseUrl(baseUrl),
@@ -209,6 +230,7 @@ export function saveLLMCredentials(
     encryptedApiKey: encryptApiKey(apiKey),
     keyHint: maskApiKey(apiKey),
     timeoutMs: normalizeTimeoutMs(timeoutMs),
+    maxTokens: normalizeMaxTokens(maxTokens),
     updatedAt: Date.now(),
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
@@ -228,8 +250,9 @@ export function loadLLMConfig(): LLMStoredConfig | null {
       model: parsed.model,
       encryptedApiKey: parsed.encryptedApiKey,
       keyHint: parsed.keyHint ?? '',
-      // 兼容旧配置（无 timeoutMs 字段）
+      // 兼容旧配置（无 timeoutMs / maxTokens 字段）
       timeoutMs: normalizeTimeoutMs(parsed.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS),
+      maxTokens: normalizeMaxTokens(parsed.maxTokens ?? DEFAULT_LLM_MAX_TOKENS),
       updatedAt: parsed.updatedAt ?? 0,
     };
   } catch {

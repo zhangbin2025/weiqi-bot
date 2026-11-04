@@ -163,3 +163,42 @@ describe('maskApiKey', () => {
     expect(maskApiKey('abc')).toBe('****');
   });
 });
+
+
+describe('maxTokens 预算配置', () => {
+  const KEY = 'sk-test-key-1234567890';
+
+  it('默认值 4096', () => {
+    const cfg = saveLLMCredentials('https://api.x.com/v1', KEY, 'tc-code-latest');
+    expect(cfg.maxTokens).toBe(4096);
+    expect(loadLLMConfig()?.maxTokens).toBe(4096);
+  });
+
+  it('可保存到合法区间内', () => {
+    saveLLMCredentials('https://api.x.com/v1', KEY, 'm', 60_000, 8192);
+    expect(loadLLMConfig()?.maxTokens).toBe(8192);
+  });
+
+  it('超界收敛：过小 → 512，过大 → 16384', () => {
+    saveLLMCredentials('https://api.x.com/v1', KEY, 'm', 60_000, 10);
+    expect(loadLLMConfig()?.maxTokens).toBe(512);
+    saveLLMCredentials('https://api.x.com/v1', KEY, 'm', 60_000, 999999);
+    expect(loadLLMConfig()?.maxTokens).toBe(16384);
+  });
+
+  it('回归：旧配置无 maxTokens 字段时回落默认 4096，不变成 0/undefined', () => {
+    const cfg = saveLLMCredentials('https://api.x.com/v1', KEY, 'm');
+    const legacy = JSON.parse(localStorage.getItem('weiqi.llm.config')!);
+    delete legacy.maxTokens;
+    localStorage.setItem('weiqi.llm.config', JSON.stringify(legacy));
+    expect(loadLLMConfig()?.maxTokens).toBe(4096);
+    expect(cfg.maxTokens).toBe(4096);
+  });
+
+  it('非法值（NaN / 字符串垃圾）回落默认', () => {
+    saveLLMCredentials('https://api.x.com/v1', KEY, 'm', 60_000, NaN);
+    expect(loadLLMConfig()?.maxTokens).toBe(4096);
+    saveLLMCredentials('https://api.x.com/v1', KEY, 'm', 60_000, 'abc' as any);
+    expect(loadLLMConfig()?.maxTokens).toBe(4096);
+  });
+});

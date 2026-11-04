@@ -314,6 +314,7 @@ export class LLMIntentProvider {
       model,
       // exactOptionalPropertyTypes: 只在有值时传，不传 undefined
       ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
+      ...(config.maxTokens !== undefined ? { maxTokens: config.maxTokens } : {}),
     });
 
     const chatResult = await client.chat([
@@ -329,7 +330,10 @@ export class LLMIntentProvider {
       // 只有「确实解析不了」且输出被截断，才归因为 max_tokens 太小；
       // 否则保留 extractJson 的中文友好错误
       if (chatResult.truncated) {
-        throw new Error('LLM 输出被截断（max_tokens 太小），请用 /llm timeout 调大或换非推理模型');
+        throw new Error(
+          'LLM 输出被截断（token 预算不足），请用 /llm maxtokens 8192 调大，' +
+          '或 /llm model 换非推理模型',
+        );
       }
       throw error;
     }
