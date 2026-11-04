@@ -315,6 +315,7 @@ export class LLMIntentProvider {
       // exactOptionalPropertyTypes: 只在有值时传，不传 undefined
       ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
       ...(config.maxTokens !== undefined ? { maxTokens: config.maxTokens } : {}),
+      ...(config.disableThinking !== undefined ? { disableThinking: config.disableThinking } : {}),
     });
 
     const chatResult = await client.chat([
@@ -332,7 +333,7 @@ export class LLMIntentProvider {
       if (chatResult.truncated) {
         throw new Error(
           'LLM 输出被截断（token 预算不足），请用 /llm maxtokens 8192 调大，' +
-          '或 /llm model 换非推理模型',
+          '或 /llm thinking off 关闭思考、/llm model 换非推理模型',
         );
       }
       throw error;

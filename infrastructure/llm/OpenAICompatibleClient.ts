@@ -32,6 +32,8 @@ export interface OpenAICompatibleConfig {
    * 导致 content 为空、finish_reason=length（真截断）。调 timeout 无用。
    */
   maxTokens?: number;
+  /** 是否关闭推理模型的思考过程，默认 true（发 reasoning_effort: 'none'） */
+  disableThinking?: boolean;
 }
 
 export class OpenAICompatibleClient {
@@ -40,6 +42,7 @@ export class OpenAICompatibleClient {
   private readonly model: string;
   private readonly timeoutMs: number;
   private readonly maxTokens: number;
+  private readonly disableThinking: boolean;
 
   constructor(config: OpenAICompatibleConfig) {
     this.endpoint = buildChatCompletionsUrl(config.baseUrl);
@@ -48,6 +51,7 @@ export class OpenAICompatibleClient {
     this.model = config.model || '';
     this.timeoutMs = config.timeoutMs ?? 60_000;
     this.maxTokens = config.maxTokens ?? 4096;
+    this.disableThinking = config.disableThinking ?? true;
   }
 
   /**
@@ -55,15 +59,21 @@ export class OpenAICompatibleClient {
    * 失败一律抛错，由调用方决定提示文案（不回落本地识别）。
    */
   async chat(messages: ChatMessage[]): Promise<ChatResult> {
-    return this.request(messages, true);
+    return this.request(messages, true, this.disableThinking);
   }
 
   /**
    * @param withJsonMode 是否带 response_format。部分 OpenAI 兼容端点（Ollama、
    *   某些代理）不认这个字段会直接 400，此时自动去掉该字段重试一次；
    *   JSON 仍靠 system prompt 约束 + 上层容错解析保证。
+   * @param withNoThinking 是否带 reasoning_effort: 'none'。部分端点不认这个字段
+   *   会 400，同样自动去掉重试一次（此时退回模型默认行为）。
    */
-  private async request(messages: ChatMessage[], withJsonMode: boolean): Promise<ChatResult> {
+  private async request(
+    messages: ChatMessage[],
+    withJsonMode: boolean,
+    withNoThinking: boolean,
+  ): Promise<ChatResult> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
@@ -75,6 +85,9 @@ export class OpenAICompatibleClient {
         max_tokens: this.maxTokens,
       };
       if (withJsonMode) body['response_format'] = { type: 'json_object' };
+      // 推理模型默认关思考：实测腾讯 lkeap 只认 'none'（reasoning_tokens=0），
+      // 'minimal'/'low' 反而会烧满预算导致 content 为空
+      if (withNoThinking) body['reasoning_effort'] = 'none';
 
       const response = await fetch(this.endpoint, {
         method: 'POST',
@@ -88,10 +101,16 @@ export class OpenAICompatibleClient {
 
       if (!response.ok) {
         const detail = await response.text().catch(() => '');
-        // 400/422 且带了 json mode → 大概率是该字段不被支持，去掉重试一次
-        if (withJsonMode && (response.status === 400 || response.status === 422)) {
+        const badRequest = response.status === 400 || response.status === 422;
+        // 端点不认 reasoning_effort → 去掉重试一次（优先于 json mode 降级）
+        if (badRequest && withNoThinking && /reasoning_effort|thinking|effort/i.test(detail)) {
           clearTimeout(timer);
-          return this.request(messages, false);
+          return this.request(messages, withJsonMode, false);
+        }
+        // 400/422 且带了 json mode → 大概率是该字段不被支持，去掉重试一次
+        if (badRequest && withJsonMode) {
+          clearTimeout(timer);
+          return this.request(messages, false, withNoThinking);
         }
         const brief = detail.slice(0, 160).replace(/\s+/g, ' ');
         throw new Error(`LLM 请求失败 (HTTP ${response.status})${brief ? `：${brief}` : ''}`);

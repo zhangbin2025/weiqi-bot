@@ -142,3 +142,72 @@ describe('真截断（content 为空 + finish_reason=length）', () => {
     expect(body.max_tokens).toBe(8192);
   });
 });
+
+
+describe('reasoning_effort 关闭思考', () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  const mk = (extra: any = {}) => new OpenAICompatibleClient({
+    baseUrl: 'https://api.example.com/v1', apiKey: 'k', model: 'm', ...extra,
+  });
+  const mockOk = () => vi.fn(async () => ({
+    ok: true, status: 200, text: async () => '',
+    json: async () => completion('{}', 'stop'),
+  }));
+
+  it('默认发送 reasoning_effort: none', async () => {
+    const spy = mockOk(); vi.stubGlobal('fetch', spy);
+    await mk().chat([{ role: 'user', content: 'hi' }]);
+    const body = JSON.parse((spy.mock.calls[0] as any)[1].body as string);
+    expect(body.reasoning_effort).toBe('none');
+  });
+
+  it('disableThinking: false 时不发该字段', async () => {
+    const spy = mockOk(); vi.stubGlobal('fetch', spy);
+    await mk({ disableThinking: false }).chat([{ role: 'user', content: 'hi' }]);
+    const body = JSON.parse((spy.mock.calls[0] as any)[1].body as string);
+    expect(body.reasoning_effort).toBeUndefined();
+  });
+
+  it('端点不认 reasoning_effort 报 400 → 自动去掉重试一次', async () => {
+    const spy = vi.fn()
+      .mockImplementationOnce(async () => ({
+        ok: false, status: 400, text: async () => 'unsupported field: reasoning_effort',
+      }))
+      .mockImplementationOnce(async () => ({
+        ok: true, status: 200, text: async () => '',
+        json: async () => completion('{"intent":"chat"}', 'stop'),
+      }));
+    vi.stubGlobal('fetch', spy);
+    const r = await mk().chat([{ role: 'user', content: 'hi' }]);
+    expect(r.content).toContain('chat');
+    expect(spy).toHaveBeenCalledTimes(2);
+    const retryBody = JSON.parse((spy.mock.calls[1] as any)[1].body as string);
+    expect(retryBody.reasoning_effort).toBeUndefined();
+  });
+
+  it('无关的 400 不误触发降级，直接报错', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false, status: 400, text: async () => 'invalid model',
+    })));
+    await expect(mk().chat([{ role: 'user', content: 'hi' }]))
+      .rejects.toThrow(/HTTP 400/);
+  });
+
+  it('回归：json mode 400 降级仍保留 reasoning_effort', async () => {
+    const spy = vi.fn()
+      .mockImplementationOnce(async () => ({
+        ok: false, status: 400, text: async () => 'response_format not supported',
+      }))
+      .mockImplementationOnce(async () => ({
+        ok: true, status: 200, text: async () => '',
+        json: async () => completion('{}', 'stop'),
+      }));
+    vi.stubGlobal('fetch', spy);
+    await mk().chat([{ role: 'user', content: 'hi' }]);
+    expect(spy).toHaveBeenCalledTimes(2);
+    const retryBody = JSON.parse((spy.mock.calls[1] as any)[1].body as string);
+    expect(retryBody.response_format).toBeUndefined();
+    expect(retryBody.reasoning_effort).toBe('none');
+  });
+});

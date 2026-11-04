@@ -202,3 +202,32 @@ describe('maxTokens 预算配置', () => {
     expect(loadLLMConfig()?.maxTokens).toBe(4096);
   });
 });
+
+
+describe('disableThinking 配置', () => {
+  const KEY = 'sk-tes…7890';
+
+  it('默认关闭思考（true）', () => {
+    const cfg = saveLLMCredentials('https://api.x.com/v1', KEY, 'm');
+    expect(cfg.disableThinking).toBe(true);
+    expect(loadLLMConfig()?.disableThinking).toBe(true);
+  });
+
+  it('可显式开启思考并存读', () => {
+    saveLLMCredentials('https://api.x.com/v1', KEY, 'm', 60_000, 4096, false);
+    expect(loadLLMConfig()?.disableThinking).toBe(false);
+  });
+
+  it('回归：旧配置无字段时回落默认 true', () => {
+    saveLLMCredentials('https://api.x.com/v1', KEY, 'm');
+    const legacy = JSON.parse(localStorage.getItem('weiqi.llm.config')!);
+    delete legacy.disableThinking;
+    localStorage.setItem('weiqi.llm.config', JSON.stringify(legacy));
+    expect(loadLLMConfig()?.disableThinking).toBe(true);
+  });
+
+  it('非法值回落默认 true', () => {
+    saveLLMCredentials('https://api.x.com/v1', KEY, 'm', 60_000, 4096, 'yes' as any);
+    expect(loadLLMConfig()?.disableThinking).toBe(true);
+  });
+});

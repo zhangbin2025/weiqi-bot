@@ -45,6 +45,9 @@ describe('redactCommand', () => {
     expect(redactCommand('/llm model gpt-4o-mini')).not.toContain('****');
     expect(redactCommand('/llm maxtokens 8192')).not.toContain('****');
     expect(redactCommand('/llm maxtokens 8192')).toBe('/llm maxtokens 8192');
+    expect(redactCommand('/llm thinking off')).not.toContain('****');
+    expect(redactCommand('/llm thinking off')).toBe('/llm thinking off');
+    expect(redactCommand('/llm thinking on')).toBe('/llm thinking on');
   });
 
   it('maxtokens 用法文案不再让用户调 timeout', () => {

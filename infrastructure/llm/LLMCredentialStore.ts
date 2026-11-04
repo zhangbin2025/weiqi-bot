@@ -46,6 +46,21 @@ export const DEFAULT_LLM_MAX_TOKENS = 4096;
 export const MIN_LLM_MAX_TOKENS = 512;
 export const MAX_LLM_MAX_TOKENS = 16384;
 
+/**
+ * 是否关闭推理模型的思考过程，默认开（true = 关闭思考）。
+ * 实测腾讯 lkeap coding v3 只认 reasoning_effort: 'none'：思考 token 归零，
+ * 简单意图解析从数百 token 降到几十。其它参数（thinking:disabled、
+ * enable_thinking:false 等）该端点静默忽略。
+ * 注意不要用 'minimal'/'low'，实测会把预算烧满导致 content 为空。
+ */
+export const DEFAULT_LLM_DISABLE_THINKING = true;
+
+/** 把存储值收敛为布尔（老配置缺字段时按默认 true） */
+export function normalizeDisableThinking(value: unknown): boolean {
+  if (typeof value === 'boolean') return value;
+  return DEFAULT_LLM_DISABLE_THINKING;
+}
+
 /** 把用户输入/存储的超时值收敛到合法区间 */
 export function normalizeTimeoutMs(value: unknown): number {
   const n = typeof value === 'number' ? value : Number(value);
@@ -76,6 +91,8 @@ export interface LLMStoredConfig {
   timeoutMs?: number;
   /** 单次补全 token 预算；老配置缺此字段时按默认值处理 */
   maxTokens?: number;
+  /** 是否关闭思考过程；老配置缺此字段时按默认 true（关闭） */
+  disableThinking?: boolean;
   updatedAt: number;
 }
 
@@ -223,6 +240,7 @@ export function saveLLMCredentials(
   model: string = DEFAULT_LLM_MODEL,
   timeoutMs: number = DEFAULT_LLM_TIMEOUT_MS,
   maxTokens: number = DEFAULT_LLM_MAX_TOKENS,
+  disableThinking: boolean = DEFAULT_LLM_DISABLE_THINKING,
 ): LLMStoredConfig {
   const config: LLMStoredConfig = {
     baseUrl: normalizeBaseUrl(baseUrl),
@@ -231,6 +249,7 @@ export function saveLLMCredentials(
     keyHint: maskApiKey(apiKey),
     timeoutMs: normalizeTimeoutMs(timeoutMs),
     maxTokens: normalizeMaxTokens(maxTokens),
+    disableThinking: normalizeDisableThinking(disableThinking),
     updatedAt: Date.now(),
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
@@ -253,6 +272,9 @@ export function loadLLMConfig(): LLMStoredConfig | null {
       // 兼容旧配置（无 timeoutMs / maxTokens 字段）
       timeoutMs: normalizeTimeoutMs(parsed.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS),
       maxTokens: normalizeMaxTokens(parsed.maxTokens ?? DEFAULT_LLM_MAX_TOKENS),
+      disableThinking: normalizeDisableThinking(
+        parsed.disableThinking ?? DEFAULT_LLM_DISABLE_THINKING,
+      ),
       updatedAt: parsed.updatedAt ?? 0,
     };
   } catch {
