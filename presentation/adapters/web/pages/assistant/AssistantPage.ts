@@ -380,7 +380,8 @@ export class AssistantPage {
               msg.actionText,
               false,
               msg.taskId,
-              msg.timestamp
+              msg.timestamp,
+              msg.variant
             );
           }
           
@@ -464,7 +465,8 @@ export class AssistantPage {
         msg.actionUrl,
         msg.actionText,
         msg.taskId,
-        msg.timestamp
+        msg.timestamp,
+        msg.variant
       );
     }
     

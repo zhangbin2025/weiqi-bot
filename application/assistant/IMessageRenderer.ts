@@ -18,6 +18,9 @@ export interface IMessageRenderer {
    * @param actionText 按钮文本（可选）
    * @param useTypewriter 是否使用打字机效果
    * @param taskId 任务 ID（可选）
+   * @param timestamp 时间戳（可选）
+   * @param variant 消息变体：'chat' 表示闲聊回复，渲染器会套用专属气泡样式；
+   *                不传则保持默认（功能消息 / 带意图标签的消息）
    */
   renderMessage(
     text: string,
@@ -28,7 +31,8 @@ export interface IMessageRenderer {
     actionText?: string,
     useTypewriter?: boolean,
     taskId?: string,
-    timestamp?: number
+    timestamp?: number,
+    variant?: 'chat'
   ): Promise<void>;
   /**
    * 清空所有消息

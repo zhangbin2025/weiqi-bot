@@ -207,10 +207,12 @@ export class AssistantUseCase implements IAssistantUseCase {
           // 打字机根因已修（长文本自动加速、超长直接整段渲染），恢复逐字效果
           await this.messageRenderer.renderMessage(
             outcome.reply, false, null, null, undefined, undefined, true,
+            undefined, undefined, 'chat',
           );
           await this.chatHistoryManager.addMessage({
             role: 'assistant',
             content: outcome.reply,
+            variant: 'chat',
           });
           return;
         }

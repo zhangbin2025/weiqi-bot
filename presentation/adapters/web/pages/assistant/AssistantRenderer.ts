@@ -39,12 +39,15 @@ export class AssistantRenderer implements IMessageRenderer {
     actionText?: string,
     useTypewriter: boolean = true,
     taskId?: string,
-    timestamp?: number
+    timestamp?: number,
+    variant?: 'chat'
   ): Promise<void> {
     const chatContainer = document.getElementById('chatContainer');
     if (!chatContainer) return;
     const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${isUser ? 'user' : 'assistant'}`;
+    // 闲聊变体加专属 class：只影响 chat，功能消息 / 意图消息保持原样
+    const variantClass = !isUser && variant === 'chat' ? ' chat' : '';
+    messageDiv.className = `message ${isUser ? 'user' : 'assistant'}${variantClass}`;
     
     // 如果提供了 taskId，设置 data-task-id 属性
     if (taskId) {
@@ -577,13 +580,15 @@ export class AssistantRenderer implements IMessageRenderer {
     actionUrl?: string,
     actionText?: string,
     taskId?: string,
-    timestamp?: number
+    timestamp?: number,
+    variant?: 'chat'
   ): Promise<void> {
     const chatContainer = document.getElementById('chatContainer');
     if (!chatContainer) return;
     
     const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${isUser ? 'user' : 'assistant'}`;
+    const variantClass = !isUser && variant === 'chat' ? ' chat' : '';
+    messageDiv.className = `message ${isUser ? 'user' : 'assistant'}${variantClass}`;
     
     if (taskId) {
       messageDiv.setAttribute('data-task-id', taskId);
