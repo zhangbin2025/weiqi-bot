@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isLLMCommand, redactCommand } from '../LLMCommand';
+import { isLLMCommand, redactCommand, handleLLMCommand } from '../LLMCommand';
 
 describe('isLLMCommand', () => {
   it('匹配主命令，大小写不敏感', () => {
@@ -60,5 +60,26 @@ describe('redactCommand', () => {
 
   it('普通文本不受影响', () => {
     expect(redactCommand('帮我下载柯洁的棋谱')).toBe('帮我下载柯洁的棋谱');
+  });
+});
+
+
+describe('/llm 帮助信息', () => {
+  it('保持简洁：不再堆协议/思考预算/存储安全等长说明', async () => {
+    let shown = '';
+    await handleLLMCommand('/llm', { renderMessage: async (c) => { shown = c; } });
+    expect(shown.split('\n').length).toBeLessThanOrEqual(16);
+    expect(shown).not.toContain('Authorization: Bearer');
+    expect(shown).not.toContain('localStorage');
+    expect(shown).not.toContain('共享');
+  });
+
+  it('命令速查仍完整', async () => {
+    let shown = '';
+    await handleLLMCommand('/llm', { renderMessage: async (c) => { shown = c; } });
+    for (const cmd of ['model', 'timeout', 'maxtokens', 'thinking', 'status', 'off']) {
+      expect(shown).toContain(`/llm ${cmd}`);
+    }
+    expect(shown).toContain('/llm <baseUrl> <apiKey> <model>');
   });
 });
