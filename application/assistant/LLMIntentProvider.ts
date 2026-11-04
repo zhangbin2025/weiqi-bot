@@ -56,8 +56,8 @@ export function buildSystemPrompt(): string {
     return `- ${intent} | ${config.name} | ${desc} | 允许参数: ${params}`;
   });
   lines.push(`- help | 帮助 | 用户询问能做什么 | 允许参数: （无）`);
-  lines.push(`- unknown | 无法判断 | 无法归入以上任何功能 | 允许参数: （无）`);
-  lines.push(`- ${CHAT_INTENT} | 闲聊 | 与围棋功能无关的聊天、开放问答、闲谈（不含单纯打招呼） | 允许参数: （无）`);
+  lines.push(`- unknown | 无法判断 | 仅限乱码、无意义字符串或完全无法理解的输入；任何能读懂的提问都不要用 unknown | 允许参数: （无）`);
+  lines.push(`- ${CHAT_INTENT} | 闲聊与知识问答 | 不要求打开/执行某个功能页面的自然语言提问与闲谈：包含围棋知识、棋手交战历史与趣闻、规则常识、赛事背景，以及任何与围棋无关的日常聊天（不含单纯打招呼） | 允许参数: （无）`);
   lines.push(`- ${GREETING_INTENT} | 打招呼 | 用户只是单纯问候/打招呼（如 hi、你好、hello、早上好、在吗），没有提出任何具体问题或任务 | 允许参数: （无）`);
 
   return [
@@ -75,10 +75,12 @@ export function buildSystemPrompt(): string {
     '3. alternatives 最多 3 项，每项 {"intent":...,"confidence":...}，用于表达「还可能是哪个意图」。不确定时可为空数组。',
     `4. 当且仅当 intent 为 ${CHAT_INTENT} 时，reply 填你对用户的自然语言回答（中文，简洁）；其它意图（含 ${GREETING_INTENT}）reply 一律空字符串。`,
     `5. 单纯打招呼（hi / 你好 / hello / 早上好 / 在吗 等，且没有附带任何具体问题或任务）一律用 ${GREETING_INTENT}，不要用 ${CHAT_INTENT}、不要用 unknown。`,
-    `6. 除打招呼以外的闲聊、常识问答、与围棋功能无关的交谈，用 ${CHAT_INTENT} 并在 reply 里直接回答；不要用 unknown。`,
+    `6. 除打招呼以外，凡是不要求「打开/执行某个功能页面」的自然语言提问与闲谈，一律用 ${CHAT_INTENT} 并在 reply 里直接回答；包括围棋知识、棋手交战历史、规则常识、赛事背景等；不要用 unknown。`,
     '7. 严禁在 params 里放 HTML、脚本、URL 伪协议；棋手名、赛事名等用原文。',
     `8. ${CHAT_INTENT} 的 reply 必须是单行纯文本：严禁出现未转义的 ASCII 双引号 (")、换行、制表符。`,
     '   引用术语请用中文引号「」或全角引号，不要嵌套英文引号；解释完直接收尾，不要追加第二个 JSON。',
+    `9. 区分「问答」与「功能调用」：单纯想知道某个信息（如棋手交战历史、什么是打吃、某届赛事背景）→ ${CHAT_INTENT} 直接回答；`,
+    '   明确要使用工具/打开页面（如「查查柯洁的等级分」「分析对手」「复盘这盘棋」「下棋」）→ 对应功能意图，不要判 chat。',
     '',
     '示例:',
     '用户输入: 帮我查查柯洁的等级分',
@@ -91,6 +93,8 @@ export function buildSystemPrompt(): string {
     '输出: {"intent":"greeting","confidence":0.97,"params":{},"responseType":"foreground","alternatives":[],"reply":""}',
     '用户输入: 今天天气真不错，随便聊聊',
     '输出: {"intent":"chat","confidence":0.95,"params":{},"responseType":"foreground","alternatives":[],"reply":"是呀，好天气正适合摆一盘棋，最近在研究什么定式？"}',
+    '用户输入: 柯洁和申真谞的交战历史',
+    '输出: {"intent":"chat","confidence":0.95,"params":{},"responseType":"foreground","alternatives":[],"reply":"两人是当今棋坛的顶尖对手，多次交手互有胜负；具体比分建议以官方赛事记录为准。"}',
     '用户输入: 每天后台看看申真谞的棋谱',
     '输出: {"intent":"analyze_opponent","confidence":0.9,"params":{"player":"申真谞"},"responseType":"periodic","alternatives":[],"reply":""}',
   ].join('\n');

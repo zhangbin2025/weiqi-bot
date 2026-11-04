@@ -24,6 +24,26 @@ describe('buildSystemPrompt', () => {
     expect(p).toContain('"intent":"greeting"');
     expect(p).toContain('"intent":"chat"');
   });
+
+  // 回归：围棋相关的知识问答（棋手交战历史等）必须落 chat，不能判 unknown。
+  // 旧定义把 chat 限死为「与围棋功能无关」，导致这类问句 LLM 无处安放 → unknown
+  // → 用户看到「抱歉,我不太理解您的意思」。
+  it('聊天/知识问答覆盖围棋相关提问，unknown 只留给乱码', () => {
+    const p = buildSystemPrompt();
+    expect(p).toContain('闲聊与知识问答');
+    expect(p).toContain('棋手交战历史');
+    expect(p).not.toContain('与围棋功能无关的聊天');
+    expect(p).toMatch(/仅限乱码/);
+    expect(p).toMatch(/区分「问答」与「功能调用」/);
+    // 正例：这句必须被示范成 chat
+    expect(p).toContain('用户输入: 柯洁和申真谞的交战历史');
+    const idx = p.indexOf('用户输入: 柯洁和申真谞的交战历史');
+    expect(p.slice(idx, idx + 120)).toContain('"intent":"chat"');
+    // 功能调用仍然走功能意图，不能被 chat 吞掉
+    expect(p).toContain('用户输入: 帮我查查柯洁的等级分');
+    const qIdx = p.indexOf('用户输入: 帮我查查柯洁的等级分');
+    expect(p.slice(qIdx, qIdx + 120)).toContain('"intent":"query_player"');
+  });
 });
 
 describe('sanitizeLlmText', () => {
