@@ -117,8 +117,7 @@
         }
         
         .message-content {
-            /* 气泡在内容盒内吃满可用宽度（右侧头像位由 .message.assistant 预留）；
-               短消息仍会自适应收缩，不强行撑满 */
+            /* 气泡在内容盒内吃满可用宽度（右侧头像位由 .message.assistant 预留） */
             max-width: 100%;
             padding: 10px 12px;
             border-radius: 4px;
@@ -138,14 +137,15 @@
             border: 1px solid #e0e0e0;
         }
         
-        /* AI 消息 - 灰色 */
+        /* AI 消息 - 灰色、固定等宽：不论文字多少都占满同一宽度 */
         .message.assistant .message-content {
             background: #f5f5f5;
             color: #333;
             border: 1px solid #e0e0e0;
+            width: 100%;
         }
         /* AI 消息贴左显示，右侧只预留一个头像宽度，其余宽度全给气泡。
-           chat 命中「聊天意图」时也按普通消息块渲染（无专属气泡、无徽章）。 */
+           chat 命中「聊天意图」时同样是普通消息块，仅多一个「聊天」意图标识。 */
         .message.assistant {
             padding-right: 46px;
             align-items: flex-start;
