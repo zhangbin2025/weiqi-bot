@@ -6,12 +6,21 @@ import {
 } from '../LLMIntentProvider';
 
 describe('buildSystemPrompt', () => {
-  it('包含所有真实意图与 chat/help/unknown', () => {
+  it('包含所有真实意图与 chat/greeting/help/unknown', () => {
     const p = buildSystemPrompt();
-    for (const intent of ['query_player', 'download_game', 'start_review', 'chat', 'help', 'unknown']) {
+    for (const intent of ['query_player', 'download_game', 'start_review', 'chat', 'greeting', 'help', 'unknown']) {
       expect(p).toContain(intent);
     }
     expect(p).toContain('允许参数');
+    // 回归：打招呼示例不应再带一句会被 LLM 原样复读的固定话术
+    expect(p).not.toContain('可以帮你查棋手、复盘、做题、下载棋谱');
+  });
+
+  it('prompt 明确区分 greeting 与 chat', () => {
+    const p = buildSystemPrompt();
+    expect(p).toMatch(/单纯打招呼/);
+    expect(p).toContain('"intent":"greeting"');
+    expect(p).toContain('"intent":"chat"');
   });
 });
 
@@ -124,5 +133,28 @@ describe('normalizeLLMResult', () => {
 
   it('chat 回复为空时抛错', () => {
     expect(() => normalizeLLMResult({ intent: 'chat', reply: '' })).toThrow(/闲聊回复为空/);
+  });
+
+  it('greeting 返回独立 kind，不进执行流水线', () => {
+    const r = normalizeLLMResult({ intent: 'greeting', confidence: 0.99, reply: '' });
+    expect(r.kind).toBe('greeting');
+  });
+
+  it('greeting 忽略 reply，空 reply 也不报错', () => {
+    expect(normalizeLLMResult({ intent: 'greeting', reply: '随便写点什么' }).kind).toBe('greeting');
+    expect(normalizeLLMResult({ intent: 'greeting' }).kind).toBe('greeting');
+  });
+
+  it('greeting / chat 不允许作为候选意图', () => {
+    const r = normalizeLLMResult({
+      intent: 'help', confidence: 0.7,
+      alternatives: [
+        { intent: 'greeting', confidence: 0.5 },
+        { intent: 'chat', confidence: 0.4 },
+        { intent: 'query_player', confidence: 0.3 },
+      ],
+    });
+    if (r.kind !== 'intent') throw new Error('unreachable');
+    expect(r.result.alternatives?.map(a => a.intent)).toEqual(['query_player']);
   });
 });

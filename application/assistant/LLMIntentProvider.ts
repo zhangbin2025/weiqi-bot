@@ -9,6 +9,7 @@
  * - intent 必须在白名单内（INTENT_CONFIG 的 key + 特殊意图）
  * - params 按意图的参数白名单过滤，值只允许基本类型，字符串做 HTML 净化
  * - chat 回复做 HTML 转义 + markdown 链接语法中和后再交给 marked 渲染
+ * - greeting 意图不进执行流水线，由上层触发 handleHelp() 展示功能引导
  */
 
 import type { IntentRecognizeResult } from './IAssistantUseCase';
@@ -26,11 +27,14 @@ import {
 const SPECIAL_INTENTS = ['help', 'unknown'] as const;
 /** 闲聊意图：由本层直接回复，不进入跳转/执行流水线 */
 const CHAT_INTENT = 'chat';
+/** 打招呼意图：由本层直接触发 handleHelp()，展示功能引导 */
+const GREETING_INTENT = 'greeting';
 
 const VALID_INTENTS = new Set<string>([
   ...Object.keys(INTENT_CONFIG),
   ...SPECIAL_INTENTS,
   CHAT_INTENT,
+  GREETING_INTENT,
 ]);
 
 const RESPONSE_TYPES = new Set(['foreground', 'background', 'periodic']);
@@ -40,7 +44,8 @@ const MAX_ALTERNATIVES = 3;
 
 export type LLMOutcome =
   | { kind: 'intent'; result: IntentRecognizeResult }
-  | { kind: 'chat'; reply: string };
+  | { kind: 'chat'; reply: string }
+  | { kind: 'greeting' };
 
 /** 构造 system prompt：意图表直接从现有配置生成，避免手抄导致漂移 */
 export function buildSystemPrompt(): string {
@@ -52,7 +57,8 @@ export function buildSystemPrompt(): string {
   });
   lines.push(`- help | 帮助 | 用户询问能做什么 | 允许参数: （无）`);
   lines.push(`- unknown | 无法判断 | 无法归入以上任何功能 | 允许参数: （无）`);
-  lines.push(`- ${CHAT_INTENT} | 闲聊 | 与围棋无关的问候、聊天、开放问答 | 允许参数: （无）`);
+  lines.push(`- ${CHAT_INTENT} | 闲聊 | 与围棋功能无关的聊天、开放问答、闲谈（不含单纯打招呼） | 允许参数: （无）`);
+  lines.push(`- ${GREETING_INTENT} | 打招呼 | 用户只是单纯问候/打招呼（如 hi、你好、hello、早上好、在吗），没有提出任何具体问题或任务 | 允许参数: （无）`);
 
   return [
     '你是「围棋 AI 助手」的意图解析器。把用户这句话解析成一个 JSON 对象，不要输出任何其它文字、不要包 markdown 代码块。',
@@ -67,15 +73,22 @@ export function buildSystemPrompt(): string {
     '1. params 只能出现该 intent「允许参数」列出的键，值只能是字符串/数字/布尔值；没提取到就留空对象，不要编造参数。',
     '2. responseType 默认 foreground。只有用户明确说「后台/后台执行」才用 background；明确说「每天/每周/定时/定期」才用 periodic。',
     '3. alternatives 最多 3 项，每项 {"intent":...,"confidence":...}，用于表达「还可能是哪个意图」。不确定时可为空数组。',
-    `4. 当且仅当 intent 为 ${CHAT_INTENT} 时，reply 填你对用户的自然语言回答（中文，简洁）；其它意图 reply 一律空字符串。`,
-    '5. 与围棋功能无关的闲聊、问候、常识问答，请用 chat 并在 reply 里直接回答，不要用 unknown。',
-    '6. 严禁在 params 里放 HTML、脚本、URL 伪协议；棋手名、赛事名等用原文。',
+    `4. 当且仅当 intent 为 ${CHAT_INTENT} 时，reply 填你对用户的自然语言回答（中文，简洁）；其它意图（含 ${GREETING_INTENT}）reply 一律空字符串。`,
+    `5. 单纯打招呼（hi / 你好 / hello / 早上好 / 在吗 等，且没有附带任何具体问题或任务）一律用 ${GREETING_INTENT}，不要用 ${CHAT_INTENT}、不要用 unknown。`,
+    `6. 除打招呼以外的闲聊、常识问答、与围棋功能无关的交谈，用 ${CHAT_INTENT} 并在 reply 里直接回答；不要用 unknown。`,
+    '7. 严禁在 params 里放 HTML、脚本、URL 伪协议；棋手名、赛事名等用原文。',
     '',
     '示例:',
     '用户输入: 帮我查查柯洁的等级分',
     '输出: {"intent":"query_player","confidence":0.95,"params":{"player":"柯洁"},"responseType":"foreground","alternatives":[],"reply":""}',
+    '用户输入: hi',
+    '输出: {"intent":"greeting","confidence":0.99,"params":{},"responseType":"foreground","alternatives":[],"reply":""}',
     '用户输入: 你好呀',
-    '输出: {"intent":"chat","confidence":0.99,"params":{},"responseType":"foreground","alternatives":[],"reply":"你好！我是围棋 AI 助手，可以帮你查棋手、复盘、做题、下载棋谱。"}',
+    '输出: {"intent":"greeting","confidence":0.99,"params":{},"responseType":"foreground","alternatives":[],"reply":""}',
+    '用户输入: 在吗',
+    '输出: {"intent":"greeting","confidence":0.97,"params":{},"responseType":"foreground","alternatives":[],"reply":""}',
+    '用户输入: 今天天气真不错，随便聊聊',
+    '输出: {"intent":"chat","confidence":0.95,"params":{},"responseType":"foreground","alternatives":[],"reply":"是呀，好天气正适合摆一盘棋，最近在研究什么定式？"}',
     '用户输入: 每天后台看看申真谞的棋谱',
     '输出: {"intent":"analyze_opponent","confidence":0.9,"params":{"player":"申真谞"},"responseType":"periodic","alternatives":[],"reply":""}',
   ].join('\n');
@@ -147,6 +160,11 @@ export function normalizeLLMResult(raw: unknown): LLMOutcome {
     return { kind: 'chat', reply };
   }
 
+  // 打招呼：不进执行流水线，由上层触发 handleHelp() 展示功能引导
+  if (intent === GREETING_INTENT) {
+    return { kind: 'greeting' };
+  }
+
   // params：只允许该意图配置里声明的键
   const allowedParams = new Set<string>(INTENT_CONFIG[intent]?.params ?? []);
   const params: Record<string, any> = {};
@@ -174,7 +192,7 @@ export function normalizeLLMResult(raw: unknown): LLMOutcome {
     for (const item of raw['alternatives'].slice(0, MAX_ALTERNATIVES)) {
       if (!isPlainObject(item)) continue;
       const altIntent = typeof item['intent'] === 'string' ? item['intent'] : '';
-      if (!VALID_INTENTS.has(altIntent) || altIntent === CHAT_INTENT || altIntent === intent) continue;
+      if (!VALID_INTENTS.has(altIntent) || altIntent === CHAT_INTENT || altIntent === GREETING_INTENT || altIntent === intent) continue;
       alternatives.push({
         intent: altIntent,
         confidence: clampConfidence(item['confidence'], 0.1),

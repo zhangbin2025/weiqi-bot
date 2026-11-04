@@ -206,6 +206,12 @@ export class AssistantUseCase implements IAssistantUseCase {
           });
           return;
         }
+        if (outcome.kind === 'greeting') {
+          // 打招呼：展示与「未接入 LLM」时一致的功能引导（handleHelp）
+          this.messageRenderer.hideTyping();
+          await this.handleHelp();
+          return;
+        }
         recognizeResult = outcome.result;
       } catch (error) {
         this.messageRenderer.hideTyping();

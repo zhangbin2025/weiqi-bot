@@ -19,7 +19,11 @@ export interface OpenAICompatibleConfig {
   model?: string;
   /** 超时（毫秒），默认 60s（推理模型闲聊较慢） */
   timeoutMs?: number;
-  /** 单次回复最大 token 数，默认 512：够输出意图 JSON 或简短闲聊，避免推理模型无限展开 */
+  /**
+   * 单次回复最大 token 数，默认 1024。
+   * 推理模型（tc-code-latest 等）会先生成 reasoning_content 再吐 content，
+   * 512 偶尔会把闲聊的 JSON 挤到预算外导致未闭合，故留一倍余量。
+   */
   maxTokens?: number;
 }
 
@@ -36,7 +40,7 @@ export class OpenAICompatibleClient {
     // 不再兜底任何默认模型：各家 ID 不同，写死会直接 400 invalid model
     this.model = config.model || '';
     this.timeoutMs = config.timeoutMs ?? 60_000;
-    this.maxTokens = config.maxTokens ?? 512;
+    this.maxTokens = config.maxTokens ?? 1024;
   }
 
   /**
