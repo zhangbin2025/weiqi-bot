@@ -5,6 +5,7 @@
 import type { IMessageRenderer } from '../../../../../application/assistant/IMessageRenderer';
 import { typewriterEffectHTML } from '../../../../../clients/web/assistant/typewriter';
 import { INTENT_CONFIG } from '../../../../../domain/intent/intent-config';
+
 import {
   isLibUrl, describeLibUrl, isKatagoUrl, describeKatagoUrl,
 } from '../../../../../domain/intent/libUrl';
@@ -46,8 +47,8 @@ export class AssistantRenderer implements IMessageRenderer {
     if (!chatContainer) return;
     const messageDiv = document.createElement('div');
     // 闲聊变体加专属 class：只影响 chat，功能消息 / 意图消息保持原样
-    const variantClass = !isUser && variant === 'chat' ? ' chat' : '';
-    messageDiv.className = `message ${isUser ? 'user' : 'assistant'}${variantClass}`;
+    // variant 仅为兼容旧历史数据保留：chat 不再有专属样式，统一按普通消息块渲染
+    messageDiv.className = `message ${isUser ? 'user' : 'assistant'}`;
     
     // 如果提供了 taskId，设置 data-task-id 属性
     if (taskId) {
@@ -58,7 +59,7 @@ export class AssistantRenderer implements IMessageRenderer {
     if (text.includes('\n')) {
       contentDiv.classList.add('multi-line');
     }
-    if (intent && !isUser) {
+    if (intent && intent !== 'chat' && !isUser) {
       const badge = document.createElement('span');
       badge.className = 'intent-badge';
       badge.textContent = INTENT_CONFIG[intent]?.name || intent;
@@ -587,8 +588,8 @@ export class AssistantRenderer implements IMessageRenderer {
     if (!chatContainer) return;
     
     const messageDiv = document.createElement('div');
-    const variantClass = !isUser && variant === 'chat' ? ' chat' : '';
-    messageDiv.className = `message ${isUser ? 'user' : 'assistant'}${variantClass}`;
+    // variant 仅为兼容旧历史数据保留：chat 不再有专属样式，统一按普通消息块渲染
+    messageDiv.className = `message ${isUser ? 'user' : 'assistant'}`;
     
     if (taskId) {
       messageDiv.setAttribute('data-task-id', taskId);
@@ -600,7 +601,7 @@ export class AssistantRenderer implements IMessageRenderer {
       contentDiv.classList.add('multi-line');
     }
     
-    if (intent && !isUser) {
+    if (intent && intent !== 'chat' && !isUser) {
       const badge = document.createElement('span');
       badge.className = 'intent-badge';
       badge.textContent = INTENT_CONFIG[intent]?.name || intent;

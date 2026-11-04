@@ -21,7 +21,7 @@ export interface ChatMessage {
   actionUrl?: string;
   /** 跳转按钮文本 */
   actionText?: string;
-  /** 消息变体：'chat' 表示闲聊回复（用于渲染专属样式，刷新后仍生效） */
+  /** @deprecated 旧版闲聊专属气泡用；现 chat 与普通消息块完全一致，保留仅为兼容历史数据 */
   variant?: 'chat';
   /** 时间戳 */
   timestamp: number;
