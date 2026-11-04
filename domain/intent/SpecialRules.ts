@@ -62,11 +62,17 @@ export const SPECIAL_RULES: SpecialRule[] = [
     priority: 85,
     match: (text: string): boolean => {
       const trimmed = text.trim();
-      return EntityValidator.isValidPlayerName(trimmed);
+      // 只认「已知棋手名单」里的裸姓名，做确定性路由。
+      // ⚠️ 不能用「百家姓 + 2~4 汉字」猜人名：围棋术语「双打吃」「双活」
+      // 「双飞燕」首字「双」恰是百家姓单姓，会被 isValidPlayerName 判成
+      // 人名 → 短路 LLM、错误跳到棋手查询页（而这类知识问答本应交给 LLM
+      // 判 chat）。名单外的裸姓名（含业余棋手）交给 LLM / 本地评分处理，
+      // 与「普通自然语言返回 null、交给 LLM」的既有约定一致。
+      return PLAYER_NAMES.includes(trimmed);
     },
     intent: 'query_player',
     extractParams: (text: string): Record<string, any> => ({ player: text.trim() }),
-    description: '姓名模式自动识别为查询棋手',
+    description: '已知棋手名单里的裸姓名自动识别为查询棋手',
   },
   {
     name: 'foxwq_nickname',

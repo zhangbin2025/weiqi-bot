@@ -220,6 +220,19 @@ describe('matchSpecialRulesOnly（LLM 前置的确定性路由）', () => {
     expect(recognizer.matchSpecialRulesOnly('帮我查查柯洁')).toBeNull();
   });
 
+  it('回归：以百家姓开头的围棋术语不被当成棋手姓名（双打吃 → 交 LLM）', () => {
+    // 「双」是百家姓单姓，旧的 player_query 用「百家姓 + 2~4 汉字」猜人名，
+    // 会把「双打吃」「双活」「双飞燕」判成人名 → 短路 LLM、错误跳棋手查询页。
+    // 这类知识问答应返回 null 交给 LLM 判 chat。
+    for (const term of ['双打吃', '双活', '双飞燕', '打吃', '征子', '倒脱靴']) {
+      expect(recognizer.matchSpecialRulesOnly(term), term).toBeNull();
+    }
+    // 已知棋手名单内的裸姓名仍是确定性路由，不受影响
+    expect(recognizer.matchSpecialRulesOnly('柯洁')?.intent).toBe('query_player');
+    expect(recognizer.matchSpecialRulesOnly('申真谞')?.intent).toBe('query_player');
+    expect(recognizer.recognize('双打吃').matchedRule).not.toBe('player_query');
+  });
+
   it('回归：带 http 的「直播」句子优先命中 url_download，不是 live_stream', () => {
     // live_stream 规则明确排除含 http 的输入；url_download 优先级 100 > 79
     const r = recognizer.matchSpecialRulesOnly('看这个直播 https://example.com/live.sgf');
