@@ -203,15 +203,18 @@ export class AssistantUseCase implements IAssistantUseCase {
         const outcome = await this.llmIntentProvider.recognize(text);
         if (outcome.kind === 'chat') {
           // 闲聊：直接引用 LLM 回答，不进入意图执行流水线。
-          // 与普通助手消息完全一致（无专属气泡、无意图徽章）。
+          // 消息块用普通样式；variant='chat' 仅让渲染层加一个「聊天」意图标识，
+          // 不改变分类结果、不写 intent 到历史、不动任何意图规则。
           this.messageRenderer.hideTyping();
           // 打字机根因已修（长文本自动加速、超长直接整段渲染），恢复逐字效果
           await this.messageRenderer.renderMessage(
             outcome.reply, false, null, null, undefined, undefined, true,
+            undefined, undefined, 'chat',
           );
           await this.chatHistoryManager.addMessage({
             role: 'assistant',
             content: outcome.reply,
+            variant: 'chat',
           });
           return;
         }

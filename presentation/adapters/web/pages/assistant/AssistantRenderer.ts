@@ -5,10 +5,15 @@
 import type { IMessageRenderer } from '../../../../../application/assistant/IMessageRenderer';
 import { typewriterEffectHTML } from '../../../../../clients/web/assistant/typewriter';
 import { INTENT_CONFIG } from '../../../../../domain/intent/intent-config';
-
 import {
   isLibUrl, describeLibUrl, isKatagoUrl, describeKatagoUrl,
 } from '../../../../../domain/intent/libUrl';
+
+/**
+ * 纯展示用的意图标识名：chat 是「LLM 直接回复」的特殊意图，不属于 INTENT_CONFIG
+ * （不进跳转/白名单/prompt），只在消息块上显示一个徽章。
+ */
+const CHAT_INTENT_LABEL = '聊天';
 /**
  * 消息渲染器
  * 实现 IMessageRenderer 接口，渲染消息到 UI
@@ -59,10 +64,21 @@ export class AssistantRenderer implements IMessageRenderer {
     if (text.includes('\n')) {
       contentDiv.classList.add('multi-line');
     }
-    if (intent && intent !== 'chat' && !isUser) {
+    // 功能意图徽章照旧；chat 不在 INTENT_CONFIG 里，统一用「聊天」标签（兼容旧历史数据）
+    if (intent && !isUser) {
       const badge = document.createElement('span');
       badge.className = 'intent-badge';
-      badge.textContent = INTENT_CONFIG[intent]?.name || intent;
+      badge.textContent = intent === 'chat'
+        ? CHAT_INTENT_LABEL
+        : (INTENT_CONFIG[intent]?.name || intent);
+      contentDiv.appendChild(badge);
+    }
+    // variant='chat' 只用于显示：给普通消息块加「聊天」意图标识，不改消息块样式
+    // （不重复画：上面 intent==='chat' 已经画过）
+    if (!isUser && variant === 'chat' && intent !== 'chat') {
+      const badge = document.createElement('span');
+      badge.className = 'intent-badge';
+      badge.textContent = CHAT_INTENT_LABEL;
       contentDiv.appendChild(badge);
     }
     if (entities && Object.keys(entities).length > 0) {
@@ -601,10 +617,21 @@ export class AssistantRenderer implements IMessageRenderer {
       contentDiv.classList.add('multi-line');
     }
     
-    if (intent && intent !== 'chat' && !isUser) {
+    // 功能意图徽章照旧；chat 不在 INTENT_CONFIG 里，统一用「聊天」标签（兼容旧历史数据）
+    if (intent && !isUser) {
       const badge = document.createElement('span');
       badge.className = 'intent-badge';
-      badge.textContent = INTENT_CONFIG[intent]?.name || intent;
+      badge.textContent = intent === 'chat'
+        ? CHAT_INTENT_LABEL
+        : (INTENT_CONFIG[intent]?.name || intent);
+      contentDiv.appendChild(badge);
+    }
+    // variant='chat' 只用于显示：给普通消息块加「聊天」意图标识，不改消息块样式
+    // （不重复画：上面 intent==='chat' 已经画过）
+    if (!isUser && variant === 'chat' && intent !== 'chat') {
+      const badge = document.createElement('span');
+      badge.className = 'intent-badge';
+      badge.textContent = CHAT_INTENT_LABEL;
       contentDiv.appendChild(badge);
     }
     
