@@ -174,3 +174,56 @@ describe('IntentRecognizer', () => {
     });
   });
 });
+
+
+describe('matchSpecialRulesOnly（LLM 前置的确定性路由）', () => {
+  const recognizer = new IntentRecognizer();
+
+  it('回归：直播命中 live_stream，Web 环境注入 ogs-live', () => {
+    const r = recognizer.matchSpecialRulesOnly('直播');
+    expect(r).not.toBeNull();
+    expect(r!.matchedRule).toBe('live_stream');
+    expect(r!.intent).toBe('download_game');
+    expect(r!.params['source']).toBe('ogs-live');
+    expect(r!.responseType).toBeDefined();
+  });
+
+  it('含「直播」且不带 http 的句子同样命中', () => {
+    const r = recognizer.matchSpecialRulesOnly('看看今天有什么直播');
+    expect(r?.matchedRule).toBe('live_stream');
+  });
+
+  it('URL 下载规则命中，url 参数完整', () => {
+    const r = recognizer.matchSpecialRulesOnly('https://example.com/game.sgf');
+    expect(r?.matchedRule).toBe('url_download');
+    expect(r?.params['url']).toBe('https://example.com/game.sgf');
+  });
+
+  it('SGF 粘贴规则命中', () => {
+    const r = recognizer.matchSpecialRulesOnly('(;GM[1]FF[4]SZ[19];B[pd])');
+    expect(r?.matchedRule).toBe('sgf_download');
+  });
+
+  it('死活题规则命中', () => {
+    expect(recognizer.matchSpecialRulesOnly('死活')?.matchedRule).toBe('tsumego_puzzle');
+  });
+
+  it('关键：普通自然语言返回 null，交给 LLM 处理', () => {
+    // 不能把什么都劫持到本地，否则 LLM 等于没接
+    expect(recognizer.matchSpecialRulesOnly('什么叫倒脱靴')).toBeNull();
+    expect(recognizer.matchSpecialRulesOnly('今天天气真不错，聊聊')).toBeNull();
+    expect(recognizer.matchSpecialRulesOnly('hi')).toBeNull();
+    expect(recognizer.matchSpecialRulesOnly('你好')).toBeNull();
+  });
+
+  it('关键：查询棋手等普通意图返回 null（交给 LLM 或本地评分）', () => {
+    expect(recognizer.matchSpecialRulesOnly('帮我查查柯洁')).toBeNull();
+  });
+
+  it('回归：带 http 的「直播」句子优先命中 url_download，不是 live_stream', () => {
+    // live_stream 规则明确排除含 http 的输入；url_download 优先级 100 > 79
+    const r = recognizer.matchSpecialRulesOnly('看这个直播 https://example.com/live.sgf');
+    expect(r?.matchedRule).toBe('url_download');
+    expect(r?.params['url']).toBe('https://example.com/live.sgf');
+  });
+});

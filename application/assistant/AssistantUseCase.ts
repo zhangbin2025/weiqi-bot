@@ -187,10 +187,18 @@ export class AssistantUseCase implements IAssistantUseCase {
     // 显示打字状态
     this.messageRenderer.showTyping();
 
-    // 意图识别：配置并启用 LLM 后，自然语言交给 LLM；否则走本地识别。
-    // LLM 失败直接提示并中止，不回落本地识别（按确认的方案）。
+    // 特殊规则优先：URL 下载 / SGF 粘贴 / 直播 / 死活题 / 赛事名等是确定性
+    // 路由，带环境相关的 extractParams（如直播按 UA 注入 ogs-live / yike-live），
+    // LLM 的 prompt 里没有这些规则、也拿不到 navigator，必须命中即走本地捷径。
+    // 否则「直播」会被 LLM 判成 unknown → 「抱歉,我不太理解」。
+    const localRule = this.intentRecognizer.matchSpecialRulesOnly(text);
+
+    // 意图识别：本地特殊规则命中则直接用；否则配置并启用 LLM 后交给 LLM；
+    // 再否则走本地识别。LLM 失败直接提示并中止，不回落本地识别。
     let recognizeResult: IntentRecognizeResult;
-    if (this.llmIntentProvider?.isEnabled()) {
+    if (localRule) {
+      recognizeResult = localRule;
+    } else if (this.llmIntentProvider?.isEnabled()) {
       try {
         const outcome = await this.llmIntentProvider.recognize(text);
         if (outcome.kind === 'chat') {

@@ -45,6 +45,21 @@ export class IntentRecognizer {
   }
 
   /**
+   * 只跑第一层「特殊规则」匹配，命中返回结果，未命中返回 null。
+   *
+   * 供 LLM 路径前置使用：URL 下载、SGF 粘贴、直播、死活题、赛事名等是
+   * 确定性路由（正则/字典/环境判断），不该交给模型猜。命中后调用方应
+   * 直接采用本地结果、跳过 LLM，以保持与「未接入 LLM」时完全一致的行为。
+   */
+  matchSpecialRulesOnly(text: string): RecognizeResult | null {
+    const ruleResult = this.matchByRules(text.trim());
+    if (!ruleResult) return null;
+    // 补上响应类型识别，与 recognize() 保持一致
+    ruleResult.responseType = this.recognizeResponseType(text.trim());
+    return ruleResult;
+  }
+
+  /**
    * 识别意图
    */
   recognize(text: string): RecognizeResult {
