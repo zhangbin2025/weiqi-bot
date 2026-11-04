@@ -7,7 +7,6 @@ import {
   maskApiKey,
   normalizeBaseUrl,
   buildChatCompletionsUrl,
-  DEFAULT_LLM_MODEL,
 } from '../LLMCredentialStore';
 
 // 用内存 Map 模拟 localStorage（含 atob/btoa 由 Node 提供）
@@ -50,14 +49,26 @@ describe('normalizeBaseUrl / buildChatCompletionsUrl', () => {
     expect(buildChatCompletionsUrl('https://api.x.com/v1/chat/completions'))
       .toBe('https://api.x.com/v1/chat/completions');
   });
+
+  it('用户贴完整端点时归一化掉尾段', () => {
+    expect(normalizeBaseUrl('https://api.x.com/v1/chat/completions/'))
+      .toBe('https://api.x.com/v1');
+    expect(buildChatCompletionsUrl('https://api.x.com/v1/chat/completions'))
+      .toBe('https://api.x.com/v1/chat/completions');
+  });
+
+  it('腾讯云 lkeap /v3 也能正确补端点', () => {
+    expect(buildChatCompletionsUrl('https://api.lkeap.cloud.tencent.com/coding/v3'))
+      .toBe('https://api.lkeap.cloud.tencent.com/coding/v3/chat/completions');
+  });
 });
 
 describe('凭据加密存取（无需 Web Crypto）', () => {
   const KEY = 'sk-AbC-dEfGhIjKlMnOpQrStUvWxYz0123456789';
 
   it('保存后可解密回原 key，且 localStorage 里没有明文', () => {
-    const cfg = saveLLMCredentials('https://api.x.com/v1', KEY);
-    expect(cfg.model).toBe(DEFAULT_LLM_MODEL);
+    const cfg = saveLLMCredentials('https://api.x.com/v1', KEY, 'tc-code-latest');
+    expect(cfg.model).toBe('tc-code-latest');
     expect(cfg.keyHint).toBe(maskApiKey(KEY));
     expect(loadApiKey()).toBe(KEY);
 

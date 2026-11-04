@@ -206,13 +206,17 @@ export class LLMIntentProvider {
     if (!config) throw new Error('尚未配置 LLM');
     const apiKey = loadApiKey();
     if (!apiKey) {
-      throw new Error('LLM 凭据已损坏，请重新执行 /llm <url> <apikey> 配置');
+      throw new Error('凭据已损坏，请重新 /llm <url> <apikey> <model>');
+    }
+    const model = config.model || DEFAULT_LLM_MODEL;
+    if (!model) {
+      throw new Error('未指定模型，请执行 /llm model <模型名>');
     }
 
     const client = new OpenAICompatibleClient({
       baseUrl: config.baseUrl,
       apiKey,
-      model: config.model || DEFAULT_LLM_MODEL,
+      model,
     });
 
     const rawText = await client.chat([

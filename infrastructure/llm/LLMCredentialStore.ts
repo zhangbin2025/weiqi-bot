@@ -16,8 +16,14 @@
  * - 解密不需要用户重输 apiKey → 刷新页面后可直接复用（满足「缓存以便后用」）。
  */
 
-/** 默认模型名 */
-export const DEFAULT_LLM_MODEL = 'gpt-4o-mini';
+/**
+ * 默认模型名。
+ * ⚠️ 各家 OpenAI 兼容端点只认自己的模型 ID，不存在通用默认值：
+ * 腾讯云 lkeap coding 用 `tc-code-latest`，OpenAI 官方用 `gpt-4o-mini`，
+ * 写死任一个都会让另一家直接 400 invalid model。因此留空，
+ * 由 /llm 配置时要求显式指定，LLMIntentProvider 里再做兜底提示。
+ */
+export const DEFAULT_LLM_MODEL = '';
 
 const STORAGE_KEY = 'weiqi.llm.config';
 const KEY_MATERIAL_KEY = 'weiqi.llm.key';
@@ -152,12 +158,14 @@ export function maskApiKey(apiKey: string): string {
   return `sk-***${apiKey.slice(-4)}`;
 }
 
-/** 归一化 base URL：去掉末尾斜杠，拒绝非 http(s) */
+/** 归一化 base URL：去尾斜杠、去掉误贴的 /chat/completions，拒绝非 http(s) */
 export function normalizeBaseUrl(input: string): string {
-  const trimmed = input.trim().replace(/\/+$/, '');
+  let trimmed = input.trim().replace(/\/+$/, '');
   if (!/^https?:\/\//i.test(trimmed)) {
     throw new Error('URL 必须以 http:// 或 https:// 开头');
   }
+  // 用户常直接贴完整端点，去掉后让 buildChatCompletionsUrl 统一拼，避免重复
+  trimmed = trimmed.replace(/\/chat\/completions\/?$/i, '');
   return trimmed;
 }
 
@@ -177,7 +185,7 @@ export function saveLLMCredentials(
 ): LLMStoredConfig {
   const config: LLMStoredConfig = {
     baseUrl: normalizeBaseUrl(baseUrl),
-    model: model.trim() || DEFAULT_LLM_MODEL,
+    model: model.trim(),
     encryptedApiKey: encryptApiKey(apiKey),
     keyHint: maskApiKey(apiKey),
     updatedAt: Date.now(),
@@ -192,7 +200,8 @@ export function loadLLMConfig(): LLMStoredConfig | null {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<LLMStoredConfig>;
-    if (!parsed.baseUrl || !parsed.encryptedApiKey || !parsed.model) return null;
+    // model 允许为空字符串：用户可先只配 url/key，再用 /llm model 补
+    if (!parsed.baseUrl || !parsed.encryptedApiKey || typeof parsed.model !== 'string') return null;
     return {
       baseUrl: parsed.baseUrl,
       model: parsed.model,

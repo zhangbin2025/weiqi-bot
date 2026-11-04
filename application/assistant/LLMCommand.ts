@@ -9,7 +9,7 @@
  *    apiKey 全部转小写。本模块直接拿原始字符串，只对主命令做小写比较。
  *
  * 用法:
- *   /llm <baseUrl> <apiKey> [model]   配置并启用
+ *   /llm <baseUrl> <apiKey> <model>   配置并启用（模型必填，各家 ID 不同）
  *   /llm model <name>                 仅改模型名
  *   /llm status                      查看当前配置（脱敏）
  *   /llm off                         关闭并清除凭据
@@ -42,16 +42,20 @@ function usage(): string {
     '🤖 **LLM 接入**',
     '',
     '```',
-    '/llm <baseUrl> <apiKey> [model]   配置并启用',
+    '/llm <baseUrl> <apiKey> <model>  配置并启用（模型必填）',
     '/llm model <name>                修改模型名',
     '/llm status                      查看当前配置',
     '/llm off                         关闭并清除凭据',
     '/llm                             显示本帮助',
     '```',
     '',
-    `- baseUrl 是服务根地址（如 \`https://api.example.com/v1\`），代码自动补 \`/chat/completions\``,
-    `- 协议：OpenAI 兼容 \`POST /chat/completions\`，\`Authorization: Bearer <apiKey>\``,
-    `- 模型默认 \`${DEFAULT_LLM_MODEL}\`，可用第四个参数或 \`/llm model\` 修改`,
+    '- baseUrl 填服务根地址（如 `https://api.x.com/v1`），也接受完整 `/chat/completions` 端点',
+    '- 协议：OpenAI 兼容 `POST /chat/completions`，`Authorization: Bearer <apiKey>`',
+    '',
+    '⚠️ **模型名必须显式指定**：各家兼容端点只认自己的模型 ID，没有通用默认值。',
+    '  例：腾讯云 lkeap → `tc-code-latest`；OpenAI 官方 → `gpt-4o-mini`。',
+    '  填错会返回 400 `invalid model`。可用 `/llm model <name>` 随时改。',
+    '',
     '- 启用后，所有**自然语言**都交给 LLM 解析；`/` 开头的命令仍然本地处理，不走 LLM',
     '- LLM 失败（超时 / 报错 / 返回非法 JSON）会提示失败并**不执行**任何意图，也不会回落本地识别',
     '',
@@ -64,7 +68,7 @@ function usage(): string {
 export function redactCommand(raw: string): string {
   const parts = raw.trim().split(/\s+/);
   if (parts.length >= 3 && parts[0]?.toLowerCase() === '/llm' && parts[1]?.toLowerCase() !== 'model') {
-    // 配置命令：/llm <baseUrl> <apiKey> [model]
+    // 配置命令：/llm <baseUrl> <apiKey> <model>
     const model = parts[3];
     return `/llm ${parts[1]} ${maskApiKey(parts[2]!)}${model ? ` ${model}` : ''}`;
   }
@@ -90,7 +94,7 @@ export async function handleLLMCommand(raw: string, deps: LLMCommandDeps): Promi
   if (sub === 'status') {
     const config = loadLLMConfig();
     if (!config) {
-      await deps.renderMessage('ℹ️ 尚未配置 LLM。使用 `/llm <baseUrl> <apiKey> [model]` 接入。');
+      await deps.renderMessage('ℹ️ 尚未配置 LLM。使用 `/llm <baseUrl> <apiKey> <model>` 接入。');
       return true;
     }
     const usable = loadApiKey() !== null;
@@ -100,7 +104,7 @@ export async function handleLLMCommand(raw: string, deps: LLMCommandDeps): Promi
       `- 状态：${usable ? '✅ 已启用' : '⚠️ 凭据无法解密，请重新配置'}`,
       `- baseUrl：\`${config.baseUrl}\``,
       `- 端点：\`${buildChatCompletionsUrl(config.baseUrl)}\``,
-      `- 模型：\`${config.model}\``,
+      `- 模型：\`${config.model || '（未设置，请执行 /llm model <模型名>）'}\``,
       `- apiKey：\`${config.keyHint || '****'}\`（已加密缓存）`,
       `- 更新时间：${new Date(config.updatedAt).toLocaleString()}`,
     ].join('\n');
@@ -117,12 +121,12 @@ export async function handleLLMCommand(raw: string, deps: LLMCommandDeps): Promi
     }
     const config = loadLLMConfig();
     if (!config) {
-      await deps.renderMessage('❌ 尚未配置 LLM，请先执行 `/llm <baseUrl> <apiKey> [model]`');
+      await deps.renderMessage('❌ 尚未配置 LLM，请先执行 `/llm <baseUrl> <apiKey> <model>`');
       return true;
     }
     const apiKey = loadApiKey();
     if (!apiKey) {
-      await deps.renderMessage('❌ 现有凭据无法解密，请重新执行 `/llm <baseUrl> <apiKey> [model]`');
+      await deps.renderMessage('❌ 现有凭据无法解密，请重新执行 `/llm <baseUrl> <apiKey> <model>`');
       return true;
     }
     saveLLMCredentials(config.baseUrl, apiKey, model);
@@ -142,6 +146,13 @@ export async function handleLLMCommand(raw: string, deps: LLMCommandDeps): Promi
   const model = parts[3];
   if (!apiKey) {
     await deps.renderMessage(`❌ 缺少 apiKey。\n\n${usage()}`);
+    return true;
+  }
+  if (!model) {
+    await deps.renderMessage(
+      '⚠️ 未指定模型名，各家端点只认自己的模型 ID（腾讯云 lkeap 用 `tc-code-latest`）。\n' +
+      '请补上模型：`/llm ' + baseUrl + ' ' + maskApiKey(apiKey) + ' <model>`，或稍后 `/llm model <model>`。',
+    );
     return true;
   }
 

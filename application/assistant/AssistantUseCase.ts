@@ -196,7 +196,10 @@ export class AssistantUseCase implements IAssistantUseCase {
         if (outcome.kind === 'chat') {
           // 闲聊：直接引用 LLM 回答，不进入意图执行流水线
           this.messageRenderer.hideTyping();
-          await this.messageRenderer.renderMessage(outcome.reply, false);
+          // 闲聊回复可能较长，同样跳过打字机，避免 5s 超时兜底
+          await this.messageRenderer.renderMessage(
+            outcome.reply, false, null, null, undefined, undefined, false,
+          );
           await this.chatHistoryManager.addMessage({
             role: 'assistant',
             content: outcome.reply,
@@ -207,8 +210,12 @@ export class AssistantUseCase implements IAssistantUseCase {
       } catch (error) {
         this.messageRenderer.hideTyping();
         const message = error instanceof Error ? error.message : String(error);
-        const errorText = `❌ LLM 解析失败，本次请求未执行。\n\n${message}\n\n可用 \`/llm status\` 检查配置，或 \`/llm off\` 关闭 LLM 恢复本地识别。`;
-        await this.messageRenderer.renderMessage(errorText, false);
+        // 保持简短：打字机按 30ms/字推进，长文案会撞 5s 超时兜底并刷屏
+        const errorText = `❌ LLM 解析失败（未执行）：${message}\n/llm status 查配置 · /llm off 关闭`;
+        // 第 7 个参数 useTypewriter=false：错误提示直接渲染，不走打字机
+        await this.messageRenderer.renderMessage(
+          errorText, false, null, null, undefined, undefined, false,
+        );
         await this.chatHistoryManager.addMessage({
           role: 'assistant',
           content: errorText,
