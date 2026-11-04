@@ -7,6 +7,8 @@ import {
   maskApiKey,
   normalizeBaseUrl,
   buildChatCompletionsUrl,
+  DEFAULT_LLM_TIMEOUT_MS,
+  normalizeTimeoutMs,
 } from '../LLMCredentialStore';
 
 // 用内存 Map 模拟 localStorage（含 atob/btoa 由 Node 提供）
@@ -114,6 +116,31 @@ describe('凭据加密存取（无需 Web Crypto）', () => {
     const a = saveLLMCredentials('https://api.x.com/v1', KEY);
     const b = saveLLMCredentials('https://api.x.com/v1', KEY);
     expect(a.encryptedApiKey).not.toBe(b.encryptedApiKey);
+    expect(loadApiKey()).toBe(KEY);
+  });
+
+  it('默认超时 60s，且可保存到配置', () => {
+    const cfg = saveLLMCredentials('https://api.x.com/v1', KEY, 'tc-code-latest');
+    expect(cfg.timeoutMs).toBe(DEFAULT_LLM_TIMEOUT_MS);
+    expect(DEFAULT_LLM_TIMEOUT_MS).toBe(60_000);
+    expect(loadLLMConfig()?.timeoutMs).toBe(60_000);
+  });
+
+  it('超时收敛到 5~300 秒', () => {
+    expect(normalizeTimeoutMs(1000)).toBe(5_000);
+    expect(normalizeTimeoutMs(999_000)).toBe(300_000);
+    expect(normalizeTimeoutMs('abc')).toBe(60_000);
+    expect(normalizeTimeoutMs(90_000)).toBe(90_000);
+  });
+
+  it('自定义超时可存取；旧配置缺字段时回落默认', () => {
+    saveLLMCredentials('https://api.x.com/v1', KEY, 'm', 90_000);
+    expect(loadLLMConfig()?.timeoutMs).toBe(90_000);
+
+    const legacy = { ...loadLLMConfig() };
+    delete (legacy as any).timeoutMs;
+    store.set('weiqi.llm.config', JSON.stringify(legacy));
+    expect(loadLLMConfig()?.timeoutMs).toBe(60_000);
     expect(loadApiKey()).toBe(KEY);
   });
 

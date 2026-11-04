@@ -217,6 +217,8 @@ export class LLMIntentProvider {
       baseUrl: config.baseUrl,
       apiKey,
       model,
+      // exactOptionalPropertyTypes: 只在有值时传，不传 undefined
+      ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
     });
 
     const rawText = await client.chat([

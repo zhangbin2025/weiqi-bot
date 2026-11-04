@@ -29,10 +29,20 @@ describe('redactCommand', () => {
       .toBe('/llm https://x.com/v1 sk-***7890');
   });
 
-  it('status / off / model 子命令不脱敏', () => {
+  it('status / off / model / timeout 子命令不脱敏', () => {
     expect(redactCommand('/llm status')).toBe('/llm status');
     expect(redactCommand('/llm off')).toBe('/llm off');
     expect(redactCommand('/llm model qwen-plus')).toBe('/llm model qwen-plus');
+    expect(redactCommand('/llm timeout 90')).toBe('/llm timeout 90');
+    expect(redactCommand('/LLM STATUS')).toBe('/LLM STATUS');
+  });
+
+  it('回归：子命令参数不能被当成 apiKey 打码', () => {
+    // 曾因只排除 model，导致 /llm timeout 90 被显示成 /llm timeout ****
+    expect(redactCommand('/llm timeout 90')).not.toContain('****');
+    expect(redactCommand('/llm status')).not.toContain('****');
+    expect(redactCommand('/llm off')).not.toContain('****');
+    expect(redactCommand('/llm model gpt-4o-mini')).not.toContain('****');
   });
 
   it('普通文本不受影响', () => {

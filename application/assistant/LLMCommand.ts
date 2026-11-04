@@ -11,6 +11,7 @@
  * 用法:
  *   /llm <baseUrl> <apiKey> <model>   配置并启用（模型必填，各家 ID 不同）
  *   /llm model <name>                 仅改模型名
+ *   /llm timeout <秒>                 调整请求超时（5~300 秒）
  *   /llm status                      查看当前配置（脱敏）
  *   /llm off                         关闭并清除凭据
  *   /llm                             显示用法
@@ -25,6 +26,10 @@ import {
   normalizeBaseUrl,
   buildChatCompletionsUrl,
   DEFAULT_LLM_MODEL,
+  DEFAULT_LLM_TIMEOUT_MS,
+  MIN_LLM_TIMEOUT_MS,
+  MAX_LLM_TIMEOUT_MS,
+  normalizeTimeoutMs,
 } from '../../infrastructure/llm/LLMCredentialStore';
 
 export interface LLMCommandDeps {
@@ -44,6 +49,7 @@ function usage(): string {
     '```',
     '/llm <baseUrl> <apiKey> <model>  配置并启用（模型必填）',
     '/llm model <name>                修改模型名',
+    '/llm timeout <秒>                调整超时（默认 60 秒，推理模型闲聊较慢）',
     '/llm status                      查看当前配置',
     '/llm off                         关闭并清除凭据',
     '/llm                             显示本帮助',
@@ -57,6 +63,8 @@ function usage(): string {
     '  填错会返回 400 `invalid model`。可用 `/llm model <name>` 随时改。',
     '',
     '- 启用后，所有**自然语言**都交给 LLM 解析；`/` 开头的命令仍然本地处理，不走 LLM',
+    '- 超时默认 60 秒。推理模型（tc-code-latest 等）闲聊要先生成思考过程，可能较慢；',
+    '  超时可用 `/llm timeout 90` 调大，或换非推理模型（如 hunyuan-turbos）',
     '- LLM 失败（超时 / 报错 / 返回非法 JSON）会提示失败并**不执行**任何意图，也不会回落本地识别',
     '',
     '⚠️ apiKey 以混淆方式存在 localStorage（密钥为本机随机生成，不硬编码）。',
@@ -64,10 +72,17 @@ function usage(): string {
   ].join('\n');
 }
 
+/** 已知子命令（这些命令的第二段是子命令名，不是 apiKey，不能脱敏） */
+const LLM_SUBCOMMANDS = new Set(['model', 'status', 'off', 'timeout']);
+
 /** 把用户输入的命令渲染成脱敏版本（主命令 + 参数名，不含 apiKey 明文） */
 export function redactCommand(raw: string): string {
-  const parts = raw.trim().split(/\s+/);
-  if (parts.length >= 3 && parts[0]?.toLowerCase() === '/llm' && parts[1]?.toLowerCase() !== 'model') {
+  const parts = raw.trim().split(/\s+/).filter(Boolean);
+  const isConfig =
+    parts.length >= 3 &&
+    parts[0]?.toLowerCase() === '/llm' &&
+    !LLM_SUBCOMMANDS.has((parts[1] ?? '').toLowerCase());
+  if (isConfig) {
     // 配置命令：/llm <baseUrl> <apiKey> <model>
     const model = parts[3];
     return `/llm ${parts[1]} ${maskApiKey(parts[2]!)}${model ? ` ${model}` : ''}`;
@@ -105,10 +120,42 @@ export async function handleLLMCommand(raw: string, deps: LLMCommandDeps): Promi
       `- baseUrl：\`${config.baseUrl}\``,
       `- 端点：\`${buildChatCompletionsUrl(config.baseUrl)}\``,
       `- 模型：\`${config.model || '（未设置，请执行 /llm model <模型名>）'}\``,
+      `- 超时：${(config.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS) / 1000} 秒`,
       `- apiKey：\`${config.keyHint || '****'}\`（已加密缓存）`,
       `- 更新时间：${new Date(config.updatedAt).toLocaleString()}`,
     ].join('\n');
     await deps.renderMessage(text);
+    return true;
+  }
+
+  // /llm timeout <秒>
+  if (sub === 'timeout') {
+    const secondsRaw = parts[2];
+    if (!secondsRaw) {
+      await deps.renderMessage(
+        `ℹ️ 当前超时 ${(loadLLMConfig()?.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS) / 1000} 秒。` +
+        `\n用法：\`/llm timeout <秒>\`（${MIN_LLM_TIMEOUT_MS / 1000}~${MAX_LLM_TIMEOUT_MS / 1000} 秒）`,
+      );
+      return true;
+    }
+    const seconds = Number(secondsRaw);
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+      await deps.renderMessage('❌ 超时必须是正数秒数，例如 `/llm timeout 90`');
+      return true;
+    }
+    const config = loadLLMConfig();
+    if (!config) {
+      await deps.renderMessage('❌ 尚未配置 LLM，请先执行 `/llm <baseUrl> <apiKey> <model>`');
+      return true;
+    }
+    const apiKey = loadApiKey();
+    if (!apiKey) {
+      await deps.renderMessage('❌ 现有凭据无法解密，请重新执行 `/llm <baseUrl> <apiKey> <model>`');
+      return true;
+    }
+    const ms = normalizeTimeoutMs(seconds * 1000);
+    saveLLMCredentials(config.baseUrl, apiKey, config.model, ms);
+    await deps.renderMessage(`✅ 请求超时已改为 ${ms / 1000} 秒`);
     return true;
   }
 
@@ -129,7 +176,8 @@ export async function handleLLMCommand(raw: string, deps: LLMCommandDeps): Promi
       await deps.renderMessage('❌ 现有凭据无法解密，请重新执行 `/llm <baseUrl> <apiKey> <model>`');
       return true;
     }
-    saveLLMCredentials(config.baseUrl, apiKey, model);
+    // 保留已有超时设置，不要被 saveLLMCredentials 的默认值覆盖
+    saveLLMCredentials(config.baseUrl, apiKey, model, config.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS);
     await deps.renderMessage(`✅ 模型已改为 \`${model.trim()}\``);
     return true;
   }
@@ -165,6 +213,7 @@ export async function handleLLMCommand(raw: string, deps: LLMCommandDeps): Promi
       `- baseUrl：\`${config.baseUrl}\``,
       `- 端点：\`${buildChatCompletionsUrl(config.baseUrl)}\``,
       `- 模型：\`${config.model}\``,
+      `- 超时：${(config.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS) / 1000} 秒`,
       `- apiKey：\`${config.keyHint}\`（已加密缓存到 localStorage）`,
       '',
       '后续自然语言将由 LLM 解析；命令（`/` 开头）仍本地处理。',

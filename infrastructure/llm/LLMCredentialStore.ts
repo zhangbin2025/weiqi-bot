@@ -25,6 +25,23 @@
  */
 export const DEFAULT_LLM_MODEL = '';
 
+/**
+ * 默认请求超时（毫秒）。
+ * 20s 对「意图分类」够用，但推理模型（如 tc-code-latest）在闲聊时要先生成
+ * 一长段 reasoning_content 再吐 content，实测常超过 20s。故默认 60s，
+ * 并允许 /llm timeout <秒> 调整（5~300s）。
+ */
+export const DEFAULT_LLM_TIMEOUT_MS = 60_000;
+export const MIN_LLM_TIMEOUT_MS = 5_000;
+export const MAX_LLM_TIMEOUT_MS = 300_000;
+
+/** 把用户输入/存储的超时值收敛到合法区间 */
+export function normalizeTimeoutMs(value: unknown): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n)) return DEFAULT_LLM_TIMEOUT_MS;
+  return Math.min(MAX_LLM_TIMEOUT_MS, Math.max(MIN_LLM_TIMEOUT_MS, Math.round(n)));
+}
+
 const STORAGE_KEY = 'weiqi.llm.config';
 const KEY_MATERIAL_KEY = 'weiqi.llm.key';
 const MAGIC = 'WQLLM2'; // 明文校验标记，用于判断解密是否成功（非秘密）
@@ -37,6 +54,8 @@ export interface LLMStoredConfig {
   encryptedApiKey: string;
   /** 仅存末尾 4 位，供 status 显示，不存完整 key */
   keyHint: string;
+  /** 请求超时（毫秒）；老配置缺此字段时按默认值处理 */
+  timeoutMs?: number;
   updatedAt: number;
 }
 
@@ -182,12 +201,14 @@ export function saveLLMCredentials(
   baseUrl: string,
   apiKey: string,
   model: string = DEFAULT_LLM_MODEL,
+  timeoutMs: number = DEFAULT_LLM_TIMEOUT_MS,
 ): LLMStoredConfig {
   const config: LLMStoredConfig = {
     baseUrl: normalizeBaseUrl(baseUrl),
     model: model.trim(),
     encryptedApiKey: encryptApiKey(apiKey),
     keyHint: maskApiKey(apiKey),
+    timeoutMs: normalizeTimeoutMs(timeoutMs),
     updatedAt: Date.now(),
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
@@ -207,6 +228,8 @@ export function loadLLMConfig(): LLMStoredConfig | null {
       model: parsed.model,
       encryptedApiKey: parsed.encryptedApiKey,
       keyHint: parsed.keyHint ?? '',
+      // 兼容旧配置（无 timeoutMs 字段）
+      timeoutMs: normalizeTimeoutMs(parsed.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS),
       updatedAt: parsed.updatedAt ?? 0,
     };
   } catch {

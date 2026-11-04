@@ -17,8 +17,10 @@ export interface OpenAICompatibleConfig {
   baseUrl: string;
   apiKey: string;
   model?: string;
-  /** 超时（毫秒），默认 20s */
+  /** 超时（毫秒），默认 60s（推理模型闲聊较慢） */
   timeoutMs?: number;
+  /** 单次回复最大 token 数，默认 512：够输出意图 JSON 或简短闲聊，避免推理模型无限展开 */
+  maxTokens?: number;
 }
 
 export class OpenAICompatibleClient {
@@ -26,12 +28,15 @@ export class OpenAICompatibleClient {
   private readonly apiKey: string;
   private readonly model: string;
   private readonly timeoutMs: number;
+  private readonly maxTokens: number;
 
   constructor(config: OpenAICompatibleConfig) {
     this.endpoint = buildChatCompletionsUrl(config.baseUrl);
     this.apiKey = config.apiKey;
-    this.model = config.model || 'gpt-4o-mini';
-    this.timeoutMs = config.timeoutMs ?? 20000;
+    // 不再兜底任何默认模型：各家 ID 不同，写死会直接 400 invalid model
+    this.model = config.model || '';
+    this.timeoutMs = config.timeoutMs ?? 60_000;
+    this.maxTokens = config.maxTokens ?? 512;
   }
 
   /**
@@ -56,6 +61,7 @@ export class OpenAICompatibleClient {
         messages,
         temperature: 0.1,
         stream: false,
+        max_tokens: this.maxTokens,
       };
       if (withJsonMode) body['response_format'] = { type: 'json_object' };
 
@@ -81,16 +87,32 @@ export class OpenAICompatibleClient {
       }
 
       const data = await response.json() as {
-        choices?: Array<{ message?: { content?: string } }>;
+        choices?: Array<{
+          message?: { content?: string; reasoning_content?: string };
+          finish_reason?: string;
+        }>;
       };
-      const content = data.choices?.[0]?.message?.content;
-      if (typeof content !== 'string' || !content.trim()) {
+      const choice = data.choices?.[0];
+      const message = choice?.message;
+      // 推理模型（如 tc-code-latest）在 token 不够时可能 content 为空、
+      // 内容全在 reasoning_content；此时明确报错而不是吞掉
+      const content = typeof message?.content === 'string' ? message.content : '';
+      if (!content.trim()) {
+        if (choice?.finish_reason === 'length') {
+          throw new Error('LLM 输出被截断（max_tokens 太小），请用 /llm timeout 或换非推理模型');
+        }
+        if (message?.reasoning_content) {
+          throw new Error('LLM 只返回了思考过程，未给出结果（建议换非推理模型）');
+        }
         throw new Error('LLM 返回内容为空');
       }
       return content;
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error(`LLM 请求超时（${this.timeoutMs / 1000}s）`);
+        throw new Error(
+          `LLM 请求超时（${this.timeoutMs / 1000}s）。推理模型闲聊较慢，` +
+          `可用 /llm timeout <秒> 调大，或 /llm model 换非推理模型`,
+        );
       }
       throw error;
     } finally {
