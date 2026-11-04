@@ -20,6 +20,8 @@ import { CommandHandler } from './CommandHandler';
 import { DEFAULT_REMOTE_BASE } from '../../infrastructure/network/core/ServerConfig';
 import { buildArchiveUrl } from '../../domain/sgf/SGFUtils';
 import { checkRequiredParamsForBackground } from '../../domain/intent/BackgroundTaskChecker';
+import { LLMIntentProvider } from './LLMIntentProvider';
+import { isLLMCommand, redactCommand } from './LLMCommand';
 /**
  * AI 助手用例配置
  */
@@ -37,6 +39,8 @@ export interface AssistantUseCaseConfig {
   storageBrowserService?: StorageBrowserService; // 存储浏览服务(可选)
   performanceBrowserService?: PerformanceBrowserService; // 性能浏览服务(可选)
   dialog?: IDialog; // 对话框(可选)
+  /** LLM 意图识别提供者（可选；不传则纯本地识别） */
+  llmIntentProvider?: LLMIntentProvider;
 }
 /**
  * AI 助手用例
@@ -51,6 +55,7 @@ export class AssistantUseCase implements IAssistantUseCase {
   private exportService: IExportService | undefined; // 导出服务(可选)
   private intentRecognizer: IntentRecognizer;
   private commandHandler: CommandHandler;
+  private llmIntentProvider: LLMIntentProvider | undefined;
   constructor(config: AssistantUseCaseConfig) {
     this.messageRenderer = config.messageRenderer;
     this.jumpDecision = config.jumpDecision;
@@ -59,6 +64,7 @@ export class AssistantUseCase implements IAssistantUseCase {
     this.sessionService = config.sessionService; // 接收 SessionService
     this.exportService = config.exportService; // 接收导出服务
     this.intentRecognizer = new IntentRecognizer();
+    this.llmIntentProvider = config.llmIntentProvider;
     this.commandHandler = new CommandHandler({
       messageRenderer: config.messageRenderer,
       chatHistoryManager: config.chatHistoryManager,
@@ -159,23 +165,60 @@ export class AssistantUseCase implements IAssistantUseCase {
       return;
     }
 
+    // ⚠️ /llm 配置命令含 apiKey：必须在通用「渲染+存历史」之前脱敏，
+    // 否则明文会进入 IndexedDB 并可能被 exportHistory 导出。
+    const isLlmCfg = isLLMCommand(text);
+    const displayText = isLlmCfg ? redactCommand(text) : text;
+
     // 添加用户消息(命令和普通消息都需要保存)
-    await this.messageRenderer.renderMessage(text, true);
+    await this.messageRenderer.renderMessage(displayText, true);
     await this.chatHistoryManager.addMessage({
       role: 'user',
-      content: text,
+      content: displayText,
     });
 
-    // 检查是否是命令(以 "/" 开头)
+    // 检查是否是命令(以 "/" 开头)。命令永远本地处理，不走 LLM。
     if (text.trim().startsWith('/')) {
-      await this.commandHandler.handleCommand(text);
+      // /llm 需要原始文本（apiKey 大小写敏感），其余命令保持原样
+      await this.commandHandler.handleCommand(isLlmCfg ? text : displayText);
       return;
     }
 
     // 显示打字状态
     this.messageRenderer.showTyping();
-    // 预测意图
-    const recognizeResult = this.predictIntent(text);
+
+    // 意图识别：配置并启用 LLM 后，自然语言交给 LLM；否则走本地识别。
+    // LLM 失败直接提示并中止，不回落本地识别（按确认的方案）。
+    let recognizeResult: IntentRecognizeResult;
+    if (this.llmIntentProvider?.isEnabled()) {
+      try {
+        const outcome = await this.llmIntentProvider.recognize(text);
+        if (outcome.kind === 'chat') {
+          // 闲聊：直接引用 LLM 回答，不进入意图执行流水线
+          this.messageRenderer.hideTyping();
+          await this.messageRenderer.renderMessage(outcome.reply, false);
+          await this.chatHistoryManager.addMessage({
+            role: 'assistant',
+            content: outcome.reply,
+          });
+          return;
+        }
+        recognizeResult = outcome.result;
+      } catch (error) {
+        this.messageRenderer.hideTyping();
+        const message = error instanceof Error ? error.message : String(error);
+        const errorText = `❌ LLM 解析失败，本次请求未执行。\n\n${message}\n\n可用 \`/llm status\` 检查配置，或 \`/llm off\` 关闭 LLM 恢复本地识别。`;
+        await this.messageRenderer.renderMessage(errorText, false);
+        await this.chatHistoryManager.addMessage({
+          role: 'assistant',
+          content: errorText,
+        });
+        return;
+      }
+    } else {
+      recognizeResult = this.predictIntent(text);
+    }
+
     const intent = recognizeResult.intent;
     const params = recognizeResult.params;
     const alternatives = recognizeResult.alternatives;

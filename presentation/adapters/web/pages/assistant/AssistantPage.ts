@@ -25,6 +25,7 @@ import { WebFileExporter } from '../../../../../infrastructure/utils/export/WebF
 import { WebDialog } from '../../components/Dialog';
 import { DEFAULT_REMOTE_BASE } from '../../../../../infrastructure/network/core/ServerConfig';
 import type { IStorageService } from '../../../../../services/storage/IStorageService';
+import { LLMIntentProvider } from '../../../../../application/assistant/LLMIntentProvider';
 
 /**
  * AI 助手页面
@@ -83,6 +84,7 @@ export class AssistantPage {
       performanceBrowserService, // 传入性能浏览服务
       exportService, // 传入导出服务
       dialog, // 传入对话框
+      llmIntentProvider: new LLMIntentProvider(),
     });
     this.uiController = new UIController({
       useCase: this.useCase,

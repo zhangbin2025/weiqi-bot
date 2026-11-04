@@ -12,6 +12,7 @@ import type { PerformanceBrowserService } from '../../services/performance/Perfo
 import type { IDialog } from '../../presentation/core/interfaces/IDialog';
 import { DEFAULT_REMOTE_BASE, buildRemoteUrl } from '../../infrastructure/network/core/ServerConfig';
 import { LocalStorageAdapter } from '../../infrastructure/storage/adapters/web/LocalStorageAdapter';
+import { isLLMCommand, handleLLMCommand } from './LLMCommand';
 
 /**
  * 命令处理器配置
@@ -68,6 +69,14 @@ export class CommandHandler {
    * @returns 是否处理了命令
    */
   async handleCommand(command: string): Promise<boolean> {
+    // /llm 必须在 toLowerCase 之前用原始字符串处理：URL 路径和 apiKey 大小写敏感。
+    // 且必须自行完成渲染+存历史（见 LLMCommand 顶部说明），不能走通用流程。
+    if (isLLMCommand(command)) {
+      return await handleLLMCommand(command, {
+        renderMessage: (content) => this.renderMessage(content),
+      });
+    }
+
     const cmd = command.trim().toLowerCase();
     
     // 检查是否是命令

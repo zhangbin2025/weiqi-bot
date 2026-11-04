@@ -159,4 +159,11 @@ export const MANAGEMENT_COMMANDS: ManagementCommand[] = [
     description: '显示可用命令',
     appOnly: false,
   },
+  {
+    command: '/llm',
+    title: '接入大模型',
+    icon: '🤖',
+    description: '配置 LLM（/llm <url> <apikey> [model]）、status 查看、off 关闭',
+    appOnly: false,
+  },
 ];
