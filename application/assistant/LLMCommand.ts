@@ -88,7 +88,7 @@ function usage(): string {
 }
 
 /** 已知子命令（这些命令的第二段是子命令名，不是 apiKey，不能脱敏） */
-const LLM_SUBCOMMANDS = new Set(['model', 'status', 'off', 'timeout', 'maxtokens', 'thinking']);
+export const LLM_SUBCOMMANDS = new Set(['model', 'status', 'off', 'timeout', 'maxtokens', 'thinking']);
 
 /** 把用户输入的命令渲染成脱敏版本（主命令 + 参数名，不含 apiKey 明文） */
 export function redactCommand(raw: string): string {

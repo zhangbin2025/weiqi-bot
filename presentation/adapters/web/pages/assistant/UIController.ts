@@ -9,6 +9,12 @@ import { ClipboardHandler } from './ClipboardHandler';
 import { QRScanner } from './QRScanner';
 import { buildArchiveUrl } from '../../../../../domain/sgf/SGFUtils';
 import { writePhotoHandoff } from '../../../../../clients/web/shared/photo-handoff';
+import {
+  maskApiKeysInText,
+  restoreApiKeys,
+  pruneRestorations,
+  type KeyRestoration,
+} from './ApiKeyInputMask';
 /**
  * UI 控制器配置
  */
@@ -30,6 +36,8 @@ export class UIController {
   private sessionService: ISessionService | undefined; // SessionService 实例（可选）
   private managementService: IManagementService; // 管理服务
   private availableCommands: ManagementCommand[] = []; // 可用命令列表
+  /** 输入框中已脱敏的 apiKey：token → 原文。仅存内存，发送时消费后清空 */
+  private keyRestorations: KeyRestoration[] = [];
   
   constructor(config: UIControllerConfig) {
     this.useCase = config.useCase;
@@ -76,6 +84,7 @@ export class UIController {
     this.toggleCommandMenu(); // 关闭菜单
     const input = document.getElementById('userInput') as HTMLTextAreaElement;
     if (input) {
+      this.resetKeyMask();
       input.value = text;
       this.autoResizeTextarea(input);
     }
@@ -89,13 +98,19 @@ export class UIController {
    */
   sendMessage(): void {
     const input = document.getElementById('userInput') as HTMLTextAreaElement;
-    const text = input?.value?.trim();
-    if (!text) return;
-    // 清空输入框
+    const displayed = input?.value?.trim();
+    if (!displayed) return;
+    // 输入框里可能是脱敏 token：发送前还原成明文，保证 /llm 配置可用。
+    // 先按当前文本裁剪映射（用户可能删掉了某个已脱敏的 key）。
+    const restorations = pruneRestorations(displayed, this.keyRestorations);
+    const text = restoreApiKeys(displayed, restorations);
+    // 清空输入框 + 映射 + 提示（明文原文不留在内存里）
     if (input) {
       input.value = '';
       this.autoResizeTextarea(input);
     }
+    this.keyRestorations = [];
+    this.setKeyMaskedHint(false);
     // 调用回调
     this.onSendMessage(text);
   }
@@ -161,6 +176,7 @@ export class UIController {
         // 将扫描结果填入消息框并发送
         const input = document.getElementById('userInput') as HTMLTextAreaElement;
         if (input) {
+          this.resetKeyMask();
           input.value = text;
           this.autoResizeTextarea(input);
         }
@@ -183,6 +199,53 @@ export class UIController {
       },
     });
     this.qrScanner.start();
+  }
+
+  /**
+   * 检测输入框里的明文 apiKey 并即时脱敏显示。
+   * 原文只记进内存映射，发送时由 sendMessage 还原；DOM 里始终是脱敏串。
+   */
+  private maskApiKeysInInput(textarea: HTMLTextAreaElement): void {
+    const caret = textarea.selectionStart ?? textarea.value.length;
+    const result = maskApiKeysInText(textarea.value, caret);
+    if (result.restorations.length > 0) {
+      textarea.value = result.display;
+      if (result.caret !== undefined) {
+        try { textarea.setSelectionRange(result.caret, result.caret); } catch { /* 忽略 */ }
+      }
+      this.keyRestorations.push(...result.restorations);
+    }
+    // 与当前显示文本对齐，丢弃已被用户删掉的 token 对应的映射
+    this.keyRestorations = pruneRestorations(textarea.value, this.keyRestorations);
+    this.setKeyMaskedHint(this.keyRestorations.length > 0);
+  }
+
+  /** 程序化回填输入框时清掉旧的脱敏映射与提示，避免串位 */
+  private resetKeyMask(): void {
+    this.keyRestorations = [];
+    this.setKeyMaskedHint(false);
+  }
+
+  /** 输入框旁的「🔒 密钥已脱敏」提示，让用户知道 key 没丢、照常发送即可 */
+  private setKeyMaskedHint(show: boolean): void {
+    let hint = document.getElementById('keyMaskedHint');
+    if (!hint) {
+      const container = document.querySelector('.input-container');
+      if (!container) return;
+      hint = document.createElement('span');
+      hint.id = 'keyMaskedHint';
+      hint.className = 'key-masked-hint';
+      hint.textContent = '🔒 密钥已脱敏';
+      // 插到 textarea 之后、发送按钮之前
+      const textarea = document.getElementById('userInput');
+      if (textarea?.parentElement === container) {
+        container.insertBefore(hint, textarea.nextSibling);
+      } else {
+        container.appendChild(hint);
+      }
+    }
+    hint.style.display = show ? 'inline-flex' : 'none';
+    hint.title = '输入框中的 API Key 已隐藏显示，发送时会自动还原为原文';
   }
 
   /**
@@ -258,6 +321,7 @@ export class UIController {
   selectCommandSuggest(command: string): void {
     const input = document.getElementById('userInput') as HTMLTextAreaElement;
     if (input) {
+      this.resetKeyMask();
       input.value = command;
       this.autoResizeTextarea(input);
       this.hideCommandSuggest();
@@ -270,6 +334,8 @@ export class UIController {
     // 监听 textarea 输入，自动调整高度 + 命令补全
     document.getElementById('userInput')?.addEventListener('input', (e) => {
       const textarea = e.target as HTMLTextAreaElement;
+      // 粘贴/输入后若含明文 apiKey，立即把显示换成脱敏 token（原文留在内存映射里）
+      this.maskApiKeysInInput(textarea);
       this.autoResizeTextarea(textarea);
       
       // 命令补全
@@ -344,6 +410,7 @@ export class UIController {
     (window as any).quickSend = (text: string) => {
       const input = document.getElementById('userInput') as HTMLTextAreaElement;
       if (input) {
+        this.resetKeyMask();
         input.value = text;
         this.autoResizeTextarea(input);
       }
