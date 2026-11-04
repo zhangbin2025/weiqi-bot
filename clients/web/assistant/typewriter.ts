@@ -6,7 +6,7 @@ export interface TypewriterOptions {
   speed?: number;
   cursor?: string;
   showCursor?: boolean;
-  maxDuration?: number; // 最大打字时长（毫秒），超过后直接渲染完整内容（默认 5000ms = 5秒）
+  maxDuration?: number; // 打字总时长预算（毫秒），默认 3000ms；超长文本自动加速而非跳过
 }
 
 export async function typewriterEffectHTML(
@@ -14,22 +14,24 @@ export async function typewriterEffectHTML(
   html: string,
   options: TypewriterOptions = {}
 ): Promise<void> {
-  const { speed = 30, cursor = '▌', showCursor = true, maxDuration = 5000 } = options;
+  const { speed = 30, cursor = '▌', showCursor = true, maxDuration = 3000 } = options;
 
   element.innerHTML = html;
   const fullText = element.innerText || '';
-  
-  // 如果文本过长，直接显示，不使用打字机效果
-  const MAX_TYPEWRITER_LENGTH = 500;
-  if (fullText.length > MAX_TYPEWRITER_LENGTH) {
-    console.log(`[typewriter] 文本过长 (${fullText.length} 字符)，跳过打字机效果`);
+
+  // 开跑前按字数预判：字数 × speed 超过预算就整段渲染。
+  // 旧实现用固定 500 字阈值、却在中途 5s 才兜底，167~500 字的消息必然
+  // 「先逐字打 5 秒 → 打超时日志 → 补渲染全文」，既慢又刷屏。
+  const estimated = fullText.length * speed;
+  const effectiveSpeed = estimated > maxDuration
+    ? Math.max(1, Math.floor(maxDuration / Math.max(1, fullText.length)))
+    : speed;
+  if (fullText.length === 0 || effectiveSpeed < 4) {
+    // 逐字间隔不足 4ms 时人眼已看不出打字效果，直接整段渲染
+    element.innerHTML = html;
     return;
   }
 
-  // 记录开始时间
-  const startTime = Date.now();
-  const maxEndTime = startTime + maxDuration;
-  
   element.innerHTML = '';
 
   const temp = document.createElement('div');
@@ -97,14 +99,6 @@ export async function typewriterEffectHTML(
   }
 
   for (let i = 1; i <= fullText.length; i++) {
-    // 检查是否超时
-    if (Date.now() > maxEndTime) {
-      console.log(`[typewriter] 打字机效果超时 (${maxDuration}ms)，直接渲染完整内容`);
-      display.innerHTML = temp.innerHTML;
-      if (cursorEl && cursorEl.parentNode) cursorEl.parentNode.removeChild(cursorEl);
-      return;
-    }
-
     const clone = temp.cloneNode(true) as HTMLElement;
     truncate(clone, { remaining: i });
     display.innerHTML = '';
@@ -122,7 +116,7 @@ export async function typewriterEffectHTML(
       scrollParent = scrollParent.parentElement;
     }
     
-    await new Promise(r => setTimeout(r, speed));
+    await new Promise(r => setTimeout(r, effectiveSpeed));
   }
 
   display.innerHTML = temp.innerHTML;

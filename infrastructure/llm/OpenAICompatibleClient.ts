@@ -13,6 +13,13 @@ export interface ChatMessage {
   content: string;
 }
 
+/** 一次补全的结果 */
+export interface ChatResult {
+  content: string;
+  /** finish_reason=length：推理模型可能只是思考过程被掐断，content 仍可能完整 */
+  truncated: boolean;
+}
+
 export interface OpenAICompatibleConfig {
   baseUrl: string;
   apiKey: string;
@@ -47,7 +54,7 @@ export class OpenAICompatibleClient {
    * 请求一次补全，返回 assistant 的文本内容。
    * 失败一律抛错，由调用方决定提示文案（不回落本地识别）。
    */
-  async chat(messages: ChatMessage[]): Promise<string> {
+  async chat(messages: ChatMessage[]): Promise<ChatResult> {
     return this.request(messages, true);
   }
 
@@ -56,7 +63,7 @@ export class OpenAICompatibleClient {
    *   某些代理）不认这个字段会直接 400，此时自动去掉该字段重试一次；
    *   JSON 仍靠 system prompt 约束 + 上层容错解析保证。
    */
-  private async request(messages: ChatMessage[], withJsonMode: boolean): Promise<string> {
+  private async request(messages: ChatMessage[], withJsonMode: boolean): Promise<ChatResult> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
@@ -101,18 +108,19 @@ export class OpenAICompatibleClient {
       // 推理模型（如 tc-code-latest）在 token 不够时可能 content 为空、
       // 内容全在 reasoning_content；此时明确报错而不是吞掉
       const content = typeof message?.content === 'string' ? message.content : '';
-      // finish_reason=length 意味着输出被预算掐断，content 即使非空也可能是半截 JSON；
-      // 直接按截断报错，避免把 V8 的 JSON.parse 错误甩给用户
-      if (choice?.finish_reason === 'length') {
-        throw new Error('LLM 输出被截断（max_tokens 太小），请用 /llm timeout 调大或换非推理模型');
-      }
+      const truncated = choice?.finish_reason === 'length';
       if (!content.trim()) {
+        if (truncated) {
+          throw new Error('LLM 输出被截断（max_tokens 太小），请用 /llm timeout 调大或换非推理模型');
+        }
         if (message?.reasoning_content) {
           throw new Error('LLM 只返回了思考过程，未给出结果（建议换非推理模型）');
         }
         throw new Error('LLM 返回内容为空');
       }
-      return content;
+      // truncated 只作为标记透传：推理模型常是 reasoning_content 被掐断而
+      // content 里的 JSON 已完整，先交给上层解析，别在这里误杀
+      return { content, truncated };
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         throw new Error(

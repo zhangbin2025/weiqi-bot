@@ -316,12 +316,23 @@ export class LLMIntentProvider {
       ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
     });
 
-    const rawText = await client.chat([
+    const chatResult = await client.chat([
       { role: 'system', content: buildSystemPrompt() },
       { role: 'user', content: text },
     ]);
 
     // 只发当前句，不带历史（按方案确认）
-    return normalizeLLMResult(extractJson(rawText));
+    let parsed: unknown;
+    try {
+      parsed = extractJson(chatResult.content);
+    } catch (error) {
+      // 只有「确实解析不了」且输出被截断，才归因为 max_tokens 太小；
+      // 否则保留 extractJson 的中文友好错误
+      if (chatResult.truncated) {
+        throw new Error('LLM 输出被截断（max_tokens 太小），请用 /llm timeout 调大或换非推理模型');
+      }
+      throw error;
+    }
+    return normalizeLLMResult(parsed);
   }
 }
