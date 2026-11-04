@@ -8,6 +8,7 @@ import { AssetServer } from './server/asset-server';
 import { BridgeRouter } from './ipc/bridge-router';
 import { AppConfig } from './config';
 import { setMainWindow } from './window-registry';
+import { shouldBypassProxy } from './utils/proxy-bypass';
 
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
@@ -224,6 +225,7 @@ function createMainWindow() {
     (details, callback) => {
       const url = details.url;
       
+      // 本地资产服务器 / 文件 / data / devtools 等一律放行
       if (url.startsWith('http://127.0.0.1:8765') || url.startsWith('http://localhost:8765')) {
         callback({});
         return;
@@ -235,6 +237,15 @@ function createMainWindow() {
       }
       
       if (url.includes('devtools') || url.startsWith('chrome-extension://')) {
+        callback({});
+        return;
+      }
+      
+      // LLM（OpenAI 兼容 /chat/completions）请求直连，跟纯 Web 一样。
+      // 不能 redirectURL 到本地代理：带 Authorization 的 POST 经 302 语义会
+      // 被降级成 GET、自定义头与 body 全丢，云端返回 401 not authorized。
+      // 其余业务 API 继续走代理绕过 CORS，行为不变。
+      if (shouldBypassProxy(url)) {
         callback({});
         return;
       }
