@@ -65,21 +65,27 @@ describe('redactCommand', () => {
 
 
 describe('/llm 帮助信息', () => {
-  it('保持简洁：不再堆协议/思考预算/存储安全等长说明', async () => {
+  it('用 markdown 表格 + 列表展示，简洁不堆长说明', async () => {
     let shown = '';
     await handleLLMCommand('/llm', { renderMessage: async (c) => { shown = c; } });
-    expect(shown.split('\n').length).toBeLessThanOrEqual(16);
+    // 表格结构（表头 + 分隔行）
+    expect(shown).toContain('| 命令 | 说明 |');
+    expect(shown).toContain('|---|---|');
+    // 列表结构
+    expect(shown).toContain('- OpenAI 兼容端点');
+    // 不再用代码块堆对齐、不再堆协议/预算/存储长说明
+    expect(shown).not.toContain('```');
     expect(shown).not.toContain('Authorization: Bearer');
     expect(shown).not.toContain('localStorage');
-    expect(shown).not.toContain('共享');
+    expect(shown.split('\n').length).toBeLessThanOrEqual(16);
   });
 
-  it('命令速查仍完整', async () => {
+  it('命令以反引号包住（防 <baseUrl> 被 markdown 吞成 HTML），速查完整', async () => {
     let shown = '';
     await handleLLMCommand('/llm', { renderMessage: async (c) => { shown = c; } });
+    expect(shown).toContain('`/llm <baseUrl> <apiKey> <model>`');
     for (const cmd of ['model', 'timeout', 'maxtokens', 'thinking', 'status', 'off']) {
-      expect(shown).toContain(`/llm ${cmd}`);
+      expect(shown).toContain('`/llm ' + cmd);
     }
-    expect(shown).toContain('/llm <baseUrl> <apiKey> <model>');
   });
 });
