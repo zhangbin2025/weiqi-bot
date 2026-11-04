@@ -3,6 +3,8 @@ import {
   buildSystemPrompt,
   normalizeLLMResult,
   sanitizeLlmText,
+  extractJson,
+  repairLooseJson,
 } from '../LLMIntentProvider';
 
 describe('buildSystemPrompt', () => {
@@ -156,5 +158,82 @@ describe('normalizeLLMResult', () => {
     });
     if (r.kind !== 'intent') throw new Error('unreachable');
     expect(r.result.alternatives?.map(a => a.intent)).toEqual(['query_player']);
+  });
+});
+
+
+describe('extractJson 容错解析（回归：术语解释里 reply 带裸引号导致 V8 错误外泄）', () => {
+  it('合法 JSON 原样解析', () => {
+    expect(extractJson('{"intent":"chat","reply":"你好"}')).toEqual({ intent: 'chat', reply: '你好' });
+  });
+
+  it('容忍 ```json 代码围栏与前后废话', () => {
+    const raw = '好的，结果如下：\n```json\n{"intent":"chat","reply":"你好"}\n```\n希望有帮助';
+    expect(extractJson(raw)).toEqual({ intent: 'chat', reply: '你好' });
+  });
+
+  it('修复 reply 里未转义的 ASCII 双引号（双打吃案例）', () => {
+    // 真实故障形态：解释术语时给词加英文引号，JSON 从 reply 处断开（position 46 附近）
+    const broken = '{"intent":"chat","confidence":0.95,"reply":""双打吃"是指一步棋同时打吃对方两块棋。"}';
+    const r = extractJson(broken) as Record<string, unknown>;
+    expect(r['intent']).toBe('chat');
+    expect(String(r['reply'])).toContain('双打吃');
+    expect(String(r['reply'])).not.toContain('"');
+  });
+
+  it('修复字符串内的裸换行 / tab / 控制字符', () => {
+    const broken = '{"intent":"chat","reply":"第一行\n第二行\t结束"}';
+    const r = extractJson(broken) as Record<string, unknown>;
+    expect(String(r['reply'])).toContain('第一行');
+    expect(String(r['reply'])).toContain('第二行');
+  });
+
+  it('修复尾随逗号', () => {
+    expect(repairLooseJson('{"a":1,}')).toBe('{"a":1}');
+    expect(extractJson('{"intent":"chat","reply":"好",}')).toEqual({ intent: 'chat', reply: '好' });
+  });
+
+  it('JSON 后面跟含 } 的废话时仍能取到正确对象', () => {
+    const raw = '{"intent":"chat","reply":"好"} 备注：{这不是 JSON}';
+    expect(extractJson(raw)).toEqual({ intent: 'chat', reply: '好' });
+  });
+
+  it('结构引号不被误改：合法 JSON 修复前后完全一致', () => {
+    const good = '{"intent":"query_player","params":{"player":"柯洁"},"reply":""}';
+    expect(repairLooseJson(good)).toBe(good);
+  });
+
+  it('彻底无法解析时抛中文友好错误，不泄漏 V8 报错', () => {
+    expect(() => extractJson('完全不是 JSON 的一段话')).toThrow(/不是合法 JSON/);
+    expect(() => extractJson('完全不是 JSON 的一段话')).not.toThrow(/position|Expected|column/i);
+  });
+
+  it('半截 JSON（无结尾 }）也给出中文错误而不是 V8 报错', () => {
+    expect(() => extractJson('{"intent":"chat","reply":"被掐断')).toThrow(/不是合法 JSON/);
+  });
+
+  it('合法转义引号 \\" 不被修复逻辑改坏', () => {
+    const good = '{"intent":"chat","reply":"他说\\"你好\\""}';
+    expect(repairLooseJson(good)).toBe(good);
+    expect(extractJson(good)).toEqual({ intent: 'chat', reply: '他说"你好"' });
+  });
+
+  it('空字符串 / 只有空白 → 中文错误', () => {
+    expect(() => extractJson('   ')).toThrow(/不是合法 JSON/);
+    expect(() => extractJson('')).toThrow(/不是合法 JSON/);
+  });
+
+  it('多个 } 候选：末尾废话含 } 时优先取正确的那个完整对象', () => {
+    const raw = '{"intent":"chat","reply":"双打吃解释"} 后面还有 {乱七八糟}';
+    const r = extractJson(raw) as Record<string, unknown>;
+    expect(r['intent']).toBe('chat');
+    expect(String(r['reply'])).toBe('双打吃解释');
+  });
+
+  it('嵌套对象里的裸引号也能修复（params 值）', () => {
+    const broken = '{"intent":"query_player","params":{"player":""柯洁"九段"},"reply":""}';
+    const r = extractJson(broken) as Record<string, any>;
+    expect(r['intent']).toBe('query_player');
+    expect(String(r['params']['player'])).toContain('柯洁');
   });
 });

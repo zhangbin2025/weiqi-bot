@@ -101,10 +101,12 @@ export class OpenAICompatibleClient {
       // 推理模型（如 tc-code-latest）在 token 不够时可能 content 为空、
       // 内容全在 reasoning_content；此时明确报错而不是吞掉
       const content = typeof message?.content === 'string' ? message.content : '';
+      // finish_reason=length 意味着输出被预算掐断，content 即使非空也可能是半截 JSON；
+      // 直接按截断报错，避免把 V8 的 JSON.parse 错误甩给用户
+      if (choice?.finish_reason === 'length') {
+        throw new Error('LLM 输出被截断（max_tokens 太小），请用 /llm timeout 调大或换非推理模型');
+      }
       if (!content.trim()) {
-        if (choice?.finish_reason === 'length') {
-          throw new Error('LLM 输出被截断（max_tokens 太小），请用 /llm timeout 或换非推理模型');
-        }
         if (message?.reasoning_content) {
           throw new Error('LLM 只返回了思考过程，未给出结果（建议换非推理模型）');
         }

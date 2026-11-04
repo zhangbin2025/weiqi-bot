@@ -77,6 +77,8 @@ export function buildSystemPrompt(): string {
     `5. 单纯打招呼（hi / 你好 / hello / 早上好 / 在吗 等，且没有附带任何具体问题或任务）一律用 ${GREETING_INTENT}，不要用 ${CHAT_INTENT}、不要用 unknown。`,
     `6. 除打招呼以外的闲聊、常识问答、与围棋功能无关的交谈，用 ${CHAT_INTENT} 并在 reply 里直接回答；不要用 unknown。`,
     '7. 严禁在 params 里放 HTML、脚本、URL 伪协议；棋手名、赛事名等用原文。',
+    `8. ${CHAT_INTENT} 的 reply 必须是单行纯文本：严禁出现未转义的 ASCII 双引号 (")、换行、制表符。`,
+    '   引用术语请用中文引号「」或全角引号，不要嵌套英文引号；解释完直接收尾，不要追加第二个 JSON。',
     '',
     '示例:',
     '用户输入: 帮我查查柯洁的等级分',
@@ -94,25 +96,100 @@ export function buildSystemPrompt(): string {
   ].join('\n');
 }
 
-/** 从 LLM 文本里抠出 JSON（容忍 ```json 包裹 / 前后废话） */
-function extractJson(raw: string): unknown {
-  const trimmed = raw.trim();
+/** 尝试解析，失败返回 undefined（绝不把 V8 错误往外抛） */
+function tryParse(text: string): unknown | undefined {
   try {
-    return JSON.parse(trimmed) as unknown;
+    return JSON.parse(text) as unknown;
   } catch {
-    // 去掉代码围栏
-    const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-    if (fenced?.[1]) {
-      try { return JSON.parse(fenced[1].trim()) as unknown; } catch { /* fall through */ }
-    }
-    // 取第一个 { 到最后一个 }
-    const start = trimmed.indexOf('{');
-    const end = trimmed.lastIndexOf('}');
-    if (start >= 0 && end > start) {
-      return JSON.parse(trimmed.slice(start, end + 1)) as unknown;
-    }
-    throw new Error('LLM 未返回合法 JSON');
+    return undefined;
   }
+}
+
+/**
+ * 保守修复 LLM 常见的 JSON 瑕疵，只动「字符串值内部」，不猜缺失结构：
+ * - 字符串内未转义的 ASCII 双引号 → 全角引号（LLM 解释术语时爱加引号，如
+ *   `"reply":""双打吃"是..."` 会把 JSON 从 reply 处打断）
+ * - 字符串内裸控制字符（换行/tab 等）→ 转义
+ * - 尾随逗号 `,}` / `,]` → 去掉
+ *
+ * 判断「结构引号 vs 内容引号」：引号后第一个非空白字符若是 , } ] : 或结尾，
+ * 视为结构引号；否则视为内容引号并替换。
+ */
+export function repairLooseJson(input: string): string {
+  let out = '';
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i]!;
+    if (!inString) {
+      out += ch;
+      if (ch === '"') inString = true;
+      continue;
+    }
+    if (escaped) { out += ch; escaped = false; continue; }
+    if (ch === '\\') { out += ch; escaped = true; continue; }
+    if (ch === '"') {
+      let j = i + 1;
+      while (j < input.length && /\s/.test(input[j]!)) j++;
+      const next = input[j];
+      if (next === undefined || next === ',' || next === '}' || next === ']' || next === ':') {
+        out += ch;
+        inString = false;
+      } else {
+        out += '＂'; // 全角引号，不破坏 JSON 结构
+      }
+      continue;
+    }
+    if (ch === '\n') { out += '\\n'; continue; }
+    if (ch === '\r') { out += '\\r'; continue; }
+    if (ch === '\t') { out += '\\t'; continue; }
+    const code = ch.charCodeAt(0);
+    if (code < 0x20) { out += '\\u' + code.toString(16).padStart(4, '0'); continue; }
+    out += ch;
+  }
+  return out.replace(/,\s*([}\]])/g, '$1');
+}
+
+/**
+ * 从 LLM 文本里抠出 JSON：直接解析 → 代码围栏 → 逐个 } 候选（原样 + 修复）
+ * → 截断尾巴修复。所有失败统一抛中文友好错误，并 console.warn 原文便于排查。
+ */
+export function extractJson(raw: string): unknown {
+  const trimmed = raw.trim();
+
+  const direct = tryParse(trimmed);
+  if (direct !== undefined) return direct;
+
+  const tryCandidate = (text: string): unknown | undefined =>
+    tryParse(text) ?? tryParse(repairLooseJson(text));
+
+  // 代码围栏
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
+  if (fenced) {
+    const r = tryCandidate(fenced.trim());
+    if (r !== undefined) return r;
+  }
+
+  // 从第一个 { 开始，倒序尝试每个 } 作为结尾（JSON 后面可能跟了含 } 的废话）
+  const start = trimmed.indexOf('{');
+  if (start >= 0) {
+    const ends: number[] = [];
+    for (let i = trimmed.length - 1; i > start; i--) {
+      if (trimmed[i] === '}') ends.push(i);
+      if (ends.length >= 40) break;
+    }
+    for (const end of ends) {
+      const r = tryCandidate(trimmed.slice(start, end + 1));
+      if (r !== undefined) return r;
+    }
+    // 没有结尾 } （输出被截断），也尝试修复一次
+    const r = tryCandidate(trimmed.slice(start));
+    if (r !== undefined) return r;
+  }
+
+  // 绝不把 V8 的 "Expected ',' or '}' ... at position N" 甩给用户
+  console.warn('[LLM] 无法解析返回内容：', trimmed.slice(0, 500));
+  throw new Error('LLM 返回的内容不是合法 JSON（已尝试容错解析）');
 }
 
 /** 字符串净化：去控制字符、转义 HTML、中和 markdown 链接/图片语法 */
