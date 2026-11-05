@@ -17,22 +17,34 @@
  *   public/photo/ 缺失时运行时自动回退到 CDN 内嵌版（见 PhotoImportService）。
  *
  * 用法: node scripts/build-photo.mjs
+ *       node scripts/build-photo.mjs --prepare-force   # 强制重编上游
+ * 前置依赖由 prepare-photo.mjs 自动补齐，缺 node_modules / dist / opencv 资产
+ * 时无需手工干预。
  */
 
 import { existsSync, mkdirSync, copyFileSync, statSync, writeFileSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { execFileSync } from 'child_process';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const OUT_DIR = join(ROOT, 'clients/web/public/photo');
 const PHOTO_DIST = join(ROOT, '..', 'weiqi-photo', 'dist');
 
 const FILES = ['opencv.stripped.js', 'opencv.wasm'];
+const FORCE_PREPARE = process.argv.includes('--prepare-force');
 
-if (!existsSync(PHOTO_DIST)) {
-  console.error('❌ 未找到 weiqi-photo 构建产物:', PHOTO_DIST);
-  console.error('   请先在 ../weiqi-photo 执行 npm run build');
-  process.exit(1);
+// 前置链：dist/ 需要 tsc 产物 + extract-wasm.mjs 剥离出的 opencv 资产。
+// 缺任一项时自动跑 prepare-photo.mjs（幂等，只补缺失），避免手工漏步骤。
+// 详见 prepare-photo.mjs 顶部注释 —— 单跑 npm run build 并不会生成这两个文件。
+if (FORCE_PREPARE || !existsSync(PHOTO_DIST) || FILES.some((f) => !existsSync(join(PHOTO_DIST, f)))) {
+  console.log('⚙️  weiqi-photo/dist 未就绪，先执行 prepare-photo.mjs …\n');
+  execFileSync(
+    process.execPath,
+    [join(ROOT, 'scripts', 'prepare-photo.mjs')],
+    { cwd: ROOT, stdio: 'inherit' },
+  );
+  console.log('');
 }
 
 // ⚠️ 不要 rmSync 整个目录再重建：vite dev server 在启动时缓存了 public/ 的
@@ -82,7 +94,7 @@ const copied = [];
 for (const f of FILES) {
   const src = join(PHOTO_DIST, f);
   if (!existsSync(src)) {
-    console.error(`❌ 缺少 ${f}（先在 ../weiqi-photo 执行 npm run build）`);
+    console.error(`❌ 缺少 ${f}（prepare-photo.mjs 未能生成，请检查上游输出）`);
     process.exit(1);
   }
   const dest = join(OUT_DIR, f);

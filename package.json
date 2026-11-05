@@ -26,7 +26,8 @@
     "build:cli": "bash scripts/build-cli.sh",
     "upgrade:katago": "bash scripts/upgrade-katago-android.sh",
     "build:ocr": "node scripts/build-ocr.mjs",
-    "build:photo": "node scripts/build-photo.mjs"
+    "build:photo": "node scripts/build-photo.mjs",
+    "build:photo:prepare": "node scripts/prepare-photo.mjs"
   },
   "keywords": [
     "weiqi",

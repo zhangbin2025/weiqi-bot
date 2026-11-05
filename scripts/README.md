@@ -8,6 +8,25 @@
 
 构建后资源拷贝和版本文件生成。将 shared 组件、TF.js WASM、模型文件、棋盘图片、KataGo 配置等拷贝到 dist-web/，并生成 version.json。
 
+### prepare-photo.mjs
+
+准备拍照摆子引擎的上游产物（`../weiqi-photo/dist`）。`build-photo.mjs` 依赖的
+`opencv.wasm` / `opencv.stripped.js` 不是 `tsc` 产物，而是由
+`weiqi-photo/tools/extract-wasm.mjs` 从 opencv.js 里剥离出来的；只跑
+`npm run build` 会漏掉这一步。本脚本把整条链固化，且幂等（只补缺失）：
+
+1. `weiqi-photo` 缺 `node_modules` → `npm ci`
+2. 缺 `dist/index.js` → `npm run build`
+3. 缺两个 opencv 资产 → `extract-wasm.mjs`（优先用本仓库本地 opencv.js，不走 CDN）
+4. 校验 wasm 魔数与 `__WASM_URL__` 占位符
+
+通常由 `build-photo.mjs` 在发现资产缺失时自动调用，无需手动跑。
+
+Usage:
+
+  npm run build:photo:prepare
+  node scripts/prepare-photo.mjs --force   # 强制重编译 + 重新剥离
+
 ### build-cli.sh
 
 CLI 打包为单一可执行文件（Node.js SEA）。通过 esbuild bundle → SEA blob → 注入 Node 二进制，产出无需安装 Node.js 的独立可执行文件。
