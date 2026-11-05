@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>围棋 AI 对话</title>
+
+    <!-- 与功能助手共用同一份样式，规则零改动 -->
+    <link rel="stylesheet" href="../shared/assistant.css">
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon-180x180.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#667eea">
+
+    <!-- 本页独有：未配置提示、会话列表卡片、打字指示器 -->
+    <style>
+        #notReady {
+            margin: 8px 12px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            background: #fff8e1;
+            color: #8a6d00;
+            font-size: 13px;
+            line-height: 1.5;
+            border: 1px solid #ffe082;
+        }
+        #notReady a { color: #667eea; text-decoration: underline; }
+
+        .session-list {
+            max-height: 55vh;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .session-card {
+            border: 1px solid #e8e8e8;
+            border-radius: 10px;
+            padding: 10px 12px;
+            cursor: pointer;
+            background: #fff;
+            transition: border-color .15s, background .15s;
+        }
+        .session-card:hover { border-color: #667eea; background: #f7f7ff; }
+        .session-card--active { border-color: #667eea; background: #f3f2ff; }
+        .session-card__time { font-size: 12px; color: #999; margin-bottom: 4px; }
+        .session-card__summary { font-size: 14px; color: #333; line-height: 1.4; word-break: break-word; }
+        .session-empty { color: #999; font-size: 14px; text-align: center; padding: 20px 0; }
+
+        /* 复用渲染器 showTyping 需要的类名（功能页 CSS 里未定义） */
+        .typing-indicator { display: flex; align-items: center; gap: 8px; padding: 0 12px; margin-bottom: 12px; }
+        .message-avatar { font-size: 20px; }
+        .typing-dots { display: flex; gap: 4px; background: #fff; padding: 10px 14px; border-radius: 12px; }
+        .typing-dot { width: 6px; height: 6px; border-radius: 50%; background: #999; animation: chatDot 1.2s infinite; }
+        .typing-dot:nth-child(2) { animation-delay: .2s; }
+        .typing-dot:nth-child(3) { animation-delay: .4s; }
+        @keyframes chatDot { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
+    </style>
+</head>
+<body>
+    <div class="page-container">
+        <div class="wechat-header">
+            <h1 class="wechat-title" id="chatTitle">AI 对话</h1>
+            <button class="toolbar-btn" id="menuBtn" title="会话操作">⋮</button>
+        </div>
+
+        <div class="chat-container" id="chatContainer">
+            <div class="status">
+                <span>💬</span>
+                <span>正在准备对话…</span>
+            </div>
+            <div id="notReady" style="display: none;">
+                尚未配置 LLM。请回到<a href="./index.html">功能助手</a>执行 /llm 配置后再来对话。
+            </div>
+        </div>
+
+        <div class="input-container">
+            <textarea class="input-textarea" id="userInput" placeholder="继续对话…" rows="1" disabled></textarea>
+            <button class="toolbar-btn send-btn" id="sendBtn" title="发送" disabled>➤</button>
+        </div>
+
+        <!-- 右上角菜单：仅会话相关四项 -->
+        <div class="command-menu" id="commandMenu">
+            <div class="command-item" id="miNew">
+                <div class="command-icon">➕</div>
+                <div class="command-title">新建会话</div>
+            </div>
+            <div class="command-item" id="miHistory">
+                <div class="command-icon">📋</div>
+                <div class="command-title">历史会话</div>
+            </div>
+            <div class="command-item" id="miExport">
+                <div class="command-icon">📤</div>
+                <div class="command-title">导出会话</div>
+            </div>
+            <div class="command-item" id="miClear">
+                <div class="command-icon">🗑️</div>
+                <div class="command-title">清空会话</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="command-menu-overlay" id="menuOverlay"></div>
+
+    <script src="../shared/error-catch.js"></script>
+    <script type="module" src="./chat.ts"></script>
+</body>
+</html>

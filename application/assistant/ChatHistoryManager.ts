@@ -53,11 +53,16 @@ export interface ChatSession {
  */
 export class ChatHistoryManager {
   private readonly favoriteService: IFavoriteService;
-  private readonly category = 'chat-session';
+  private readonly category: string;
   private currentSessionId: string | null = null;
   private currentMessages: ChatMessage[] = [];
-  constructor(favoriteService: IFavoriteService) {
+  /**
+   * @param category 会话存储分类。功能助手用默认 'chat-session'；
+   *   独立对话页传 'chat-conversation'，两套会话互不干扰，导出/清空天然隔离。
+   */
+  constructor(favoriteService: IFavoriteService, category: string = 'chat-session') {
     this.favoriteService = favoriteService;
+    this.category = category;
   }
   /**
    * 创建新会话
@@ -246,6 +251,47 @@ export class ChatHistoryManager {
     }
     return '新对话';
   }
+  /**
+   * 设置当前会话标题（对话页在写入首条消息后用「第一条 user 消息截断」更新）。
+   * 保留 createdAt，避免改变会话排序。
+   */
+  async setCurrentSessionTitle(title: string): Promise<void> {
+    if (!this.currentSessionId) return;
+    const existing = await this.favoriteService.getFavorite(this.category, this.currentSessionId);
+    const existingData = existing?.data ? (existing.data as unknown as ChatSessionData) : undefined;
+    await this.favoriteService.addFavorite(
+      this.category,
+      this.currentSessionId,
+      {
+        title,
+        messages: this.currentMessages,
+        createdAt: existingData?.createdAt || Date.now(),
+        updatedAt: Date.now(),
+      },
+    );
+  }
+
+  /**
+   * 清空「当前会话」的消息，保留会话本身（空会话）。
+   * 与功能助手的 clearAll()（清空全部会话）区分，供对话页菜单使用。
+   */
+  async clearCurrentSession(): Promise<void> {
+    if (!this.currentSessionId) return;
+    const existing = await this.favoriteService.getFavorite(this.category, this.currentSessionId);
+    const existingData = existing?.data ? (existing.data as unknown as ChatSessionData) : undefined;
+    this.currentMessages = [];
+    await this.favoriteService.addFavorite(
+      this.category,
+      this.currentSessionId,
+      {
+        title: '新对话',
+        messages: [],
+        createdAt: existingData?.createdAt || Date.now(),
+        updatedAt: Date.now(),
+      },
+    );
+  }
+
   /**
    * 删除会话
    */

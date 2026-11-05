@@ -202,20 +202,11 @@ export class AssistantUseCase implements IAssistantUseCase {
       try {
         const outcome = await this.llmIntentProvider.recognize(text);
         if (outcome.kind === 'chat') {
-          // 闲聊：直接引用 LLM 回答，不进入意图执行流水线。
-          // 消息块用普通样式；variant='chat' 仅让渲染层加一个「聊天」意图标识，
-          // 不改变分类结果、不写 intent 到历史、不动任何意图规则。
+          // 功能助手不承担聊天：LLM 识别到 chat 后统一发功能引导（help），
+          // 末尾追加「进入模型对话」链接，用户由此跳转到独立对话页。
+          // LLM 的 reply 不引用、不落盘，避免功能助手历史里混入闲聊内容。
           this.messageRenderer.hideTyping();
-          // 打字机根因已修（长文本自动加速、超长直接整段渲染），恢复逐字效果
-          await this.messageRenderer.renderMessage(
-            outcome.reply, false, null, null, undefined, undefined, true,
-            undefined, undefined, 'chat',
-          );
-          await this.chatHistoryManager.addMessage({
-            role: 'assistant',
-            content: outcome.reply,
-            variant: 'chat',
-          });
+          await this.handleHelp();
           return;
         }
         if (outcome.kind === 'greeting') {
@@ -370,7 +361,9 @@ ${linksHtml}`;
     } else if (intent === 'help') {
       await this.handleHelp();
     } else {
-      await this.handleUnknown();
+      // 未接入 LLM 时本地识别器没有 chat 类型，无法判断的闲聊会落到 unknown。
+      // 统一改为功能引导，和已接入 LLM 时的 chat 分支行为一致。
+      await this.handleHelp();
     }
   }
 
@@ -612,6 +605,14 @@ ${linksHtml}`;
    * 处理帮助意图
    */
   private async handleHelp(): Promise<void> {
+    // 已接入 LLM 才提示「模型对话」入口；未接入时保持原有功能引导不变。
+    const llmEntry = this.llmIntentProvider?.isEnabled()
+      ? `
+
+---
+
+💡 现已接入 LLM，需要和我自由聊天吗？[进入模型对话](./chat.html)`
+      : '';
     const helpText = `我是围棋 AI 助手,可以帮您:
 
 - 👤 **[查询棋手](../player/index.html)**
@@ -656,7 +657,7 @@ ${linksHtml}`;
 
 ---
 
-💡 直接用自然语言告诉我您想做什么,我会自动识别您的意图!`;
+💡 直接用自然语言告诉我您想做什么,我会自动识别您的意图!${llmEntry}`;
     await this.messageRenderer.renderMessage(helpText, false);
     await this.chatHistoryManager.addMessage({
       role: 'assistant',

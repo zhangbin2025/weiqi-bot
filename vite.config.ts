@@ -148,6 +148,7 @@ export default defineConfig({
         'play/mm': path.resolve(__dirname, 'clients/web/play/mm.html'),
         'play/index': path.resolve(__dirname, 'clients/web/play/index.html'),
         'assistant/index': path.resolve(__dirname, 'clients/web/assistant/index.html'),
+        'assistant/chat': path.resolve(__dirname, 'clients/web/assistant/chat.html'),
         'joseki/index': path.resolve(__dirname, 'clients/web/joseki/index.html'),
         'joseki/list': path.resolve(__dirname, 'clients/web/joseki/list.html'),
         'joseki/explore': path.resolve(__dirname, 'clients/web/joseki/explore.html'),

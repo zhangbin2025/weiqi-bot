@@ -57,9 +57,12 @@ export class OpenAICompatibleClient {
   /**
    * 请求一次补全，返回 assistant 的文本内容。
    * 失败一律抛错，由调用方决定提示文案（不回落本地识别）。
+   *
+   * @param jsonMode 是否要求严格 JSON 输出。意图解析需要（默认 true，保持
+   *   功能助手原有行为不变）；对话模式传 false，否则模型会被逼着吐 JSON。
    */
-  async chat(messages: ChatMessage[]): Promise<ChatResult> {
-    return this.request(messages, true, this.disableThinking);
+  async chat(messages: ChatMessage[], options?: { jsonMode?: boolean }): Promise<ChatResult> {
+    return this.request(messages, options?.jsonMode ?? true, this.disableThinking);
   }
 
   /**

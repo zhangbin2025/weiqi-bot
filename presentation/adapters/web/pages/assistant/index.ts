@@ -4,5 +4,6 @@
  */
 export { AssistantPage } from './AssistantPage';
 export { AssistantRenderer } from './AssistantRenderer';
+export { ChatPage } from './ChatPage';
 export { UIController } from './UIController';
 export { ClipboardHandler } from './ClipboardHandler';
