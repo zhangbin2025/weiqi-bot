@@ -87,17 +87,24 @@ export function buildSystemPrompt(): string {
   const lines = Object.entries(INTENT_CONFIG).map(([intent, config]) => {
     const desc = descriptions.get(intent) || config.name;
     const params = config.params.length > 0 ? config.params.join(', ') : '（无）';
-    return `- ${intent} | ${config.name} | ${desc} | 允许参数: ${params}`;
+    // 把本地识别器用的核心词/变体词一并交给模型。旧 prompt 只有意图名与描述，
+    // 模型不知道「比赛」就是 search_event 的入口词，容易按规则 6 判成 chat，
+    // 上层随即回显功能引导——而引导里正好写着「输入比赛可跳转赛事」。
+    const kw = INTENT_KEYWORDS.find(k => k.intent === intent);
+    const triggers = kw
+      ? [...kw.coreKeywords, ...(kw.variantKeywords ?? [])].join('、')
+      : '（无）';
+    return `- ${intent} | ${config.name} | ${desc} | 触发词: ${triggers} | 允许参数: ${params}`;
   });
-  lines.push(`- help | 帮助 | 用户询问能做什么 | 允许参数: （无）`);
-  lines.push(`- unknown | 无法判断 | 仅限乱码、无意义字符串或完全无法理解的输入；任何能读懂的提问都不要用 unknown | 允许参数: （无）`);
-  lines.push(`- ${CHAT_INTENT} | 闲聊与知识问答 | 不要求打开/执行某个功能页面的自然语言提问与闲谈：包含围棋知识、棋手交战历史与趣闻、规则常识、赛事背景，以及任何与围棋无关的日常聊天（不含单纯打招呼） | 允许参数: （无）`);
-  lines.push(`- ${GREETING_INTENT} | 打招呼 | 用户只是单纯问候/打招呼（如 hi、你好、hello、早上好、在吗），没有提出任何具体问题或任务 | 允许参数: （无）`);
+  lines.push(`- help | 帮助 | 用户询问能做什么 | 触发词: （无） | 允许参数: （无）`);
+  lines.push(`- unknown | 无法判断 | 仅限乱码、无意义字符串或完全无法理解的输入；任何能读懂的提问都不要用 unknown | 触发词: （无） | 允许参数: （无）`);
+  lines.push(`- ${CHAT_INTENT} | 闲聊与知识问答 | 不要求打开/执行某个功能页面的自然语言提问与闲谈：包含围棋知识、棋手交战历史与趣闻、规则常识、赛事背景，以及任何与围棋无关的日常聊天（不含单纯打招呼） | 触发词: （无） | 允许参数: （无）`);
+  lines.push(`- ${GREETING_INTENT} | 打招呼 | 用户只是单纯问候/打招呼（如 hi、你好、hello、早上好、在吗），没有提出任何具体问题或任务 | 触发词: （无） | 允许参数: （无）`);
 
   return [
     '你是「围棋 AI 助手」的意图解析器。把用户这句话解析成一个 JSON 对象，不要输出任何其它文字、不要包 markdown 代码块。',
     '',
-    '可用意图（intent | 名称 | 说明 | 允许参数）:',
+    '可用意图（intent | 名称 | 说明 | 触发词 | 允许参数）:',
     ...lines,
     '',
     '输出 JSON 结构:',
@@ -117,6 +124,10 @@ export function buildSystemPrompt(): string {
     '   明确要使用工具/打开页面（如「查查柯洁的等级分」「分析对手」「复盘这盘棋」「下棋」）→ 对应功能意图，不要判 chat。',
     `10. start_puzzle 的 keyword 是题库筛选表达式，只能由题型（${puzzleTypes}）、难度（如 2D、15K）、and/or/括号组成；`,
     '   严禁把用户输入的围棋术语或概念原词（如「双打吃」「双活」）直接当 keyword；这类概念题归到「棋理」或最贴近的题型，不确定就填「棋理」，否则题库会筛出 0 道题。',
+    '11. 触发词优先级（规则 6 的例外）：上表「触发词」列里的功能入口词（如「比赛」「赛事」「定式」「复盘」）',
+    '   单独出现、或只带「查查/看看/最近」等轻量修饰且未构成完整提问时，一律判成对应功能意图，',
+    '   不要判 chat / greeting / unknown；功能入口的孤词或短短语不是知识问答。',
+    '   明确的背景/历史提问（如「某届赛事的背景」「LG杯的历史」）仍按规则 6 归 chat。',
     '',
     '示例:',
     '用户输入: 帮我查查柯洁的等级分',
@@ -135,6 +146,10 @@ export function buildSystemPrompt(): string {
     '输出: {"intent":"analyze_opponent","confidence":0.9,"params":{"player":"申真谞"},"responseType":"periodic","alternatives":[],"reply":""}',
     '用户输入: 来几道双打吃的题',
     '输出: {"intent":"start_puzzle","confidence":0.9,"params":{"keyword":"棋理"},"responseType":"foreground","alternatives":[],"reply":""}',
+    '用户输入: 比赛',
+    '输出: {"intent":"search_event","confidence":0.95,"params":{},"responseType":"foreground","alternatives":[],"reply":""}',
+    '用户输入: 查查最近的比赛',
+    '输出: {"intent":"search_event","confidence":0.92,"params":{},"responseType":"foreground","alternatives":[],"reply":""}',
   ].join('\n');
 }
 

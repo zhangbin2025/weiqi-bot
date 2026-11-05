@@ -52,11 +52,18 @@ export class IntentRecognizer {
    * 直接采用本地结果、跳过 LLM，以保持与「未接入 LLM」时完全一致的行为。
    */
   matchSpecialRulesOnly(text: string): RecognizeResult | null {
-    const ruleResult = this.matchByRules(text.trim());
-    if (!ruleResult) return null;
+    const trimmed = text.trim();
+    const ruleResult = this.matchByRules(trimmed);
+    // 功能入口孤词（「比赛」「复盘」「定式」…）在未接 LLM 时由 matchByScore
+    // 的精确关键词匹配定性；本方法只跑特殊规则，若放行给 LLM，模型的
+    // system prompt 里没有 INTENT_KEYWORDS，会把孤词判成 chat/greeting，
+    // 上层随即回显功能引导——而引导里正好写着「输入比赛可跳转赛事」，
+    // 前后矛盾。这里复用同一套精确匹配，保证接/未接 LLM 口径一致。
+    const result = ruleResult ?? this.matchExactKeyword(trimmed);
+    if (!result) return null;
     // 补上响应类型识别，与 recognize() 保持一致
-    ruleResult.responseType = this.recognizeResponseType(text.trim());
-    return ruleResult;
+    result.responseType = this.recognizeResponseType(trimmed);
+    return result;
   }
 
   /**
@@ -148,34 +155,35 @@ export class IntentRecognizer {
   }
 
   /**
+   * 精确关键词匹配：整句完全等于某个 core/variant 关键词时直接定性。
+   *
+   * 由 matchByScore（本地识别）与 matchSpecialRulesOnly（LLM 前置短路）共用，
+   * 避免 LLM 路径绕开这层后与本地行为漂移。只认「整句相等」，不做 contains，
+   * 因此不会劫持「柯洁和申真谞的交战历史」这类普通自然语言。
+   */
+  private matchExactKeyword(text: string): RecognizeResult | null {
+    for (const config of INTENT_KEYWORDS) {
+      const isCore = config.coreKeywords.includes(text);
+      const isVariant = !!config.variantKeywords?.includes(text);
+      if (!isCore && !isVariant) continue;
+      const params = this.extractor.toParams(this.extractor.extract(text));
+      return {
+        intent: config.intent,
+        confidence: isCore ? 0.9 : 0.85,
+        params,
+        matchedKeywords: [text],
+      };
+    }
+    return null;
+  }
+
+  /**
    * 第二层：多维度评分匹配
    */
   private matchByScore(text: string): RecognizeResult | null {
     // 优先检测精确匹配（文本完全等于某个 coreKeyword 或 variantKeyword）
-    for (const config of INTENT_KEYWORDS) {
-      // 检查 coreKeywords
-      if (config.coreKeywords.includes(text)) {
-        const entities = this.extractor.extract(text);
-        const params = this.extractor.toParams(entities);
-        return {
-          intent: config.intent,
-          confidence: 0.9,
-          params,
-          matchedKeywords: [text],
-        };
-      }
-      // 检查 variantKeywords
-      if (config.variantKeywords && config.variantKeywords.includes(text)) {
-        const entities = this.extractor.extract(text);
-        const params = this.extractor.toParams(entities);
-        return {
-          intent: config.intent,
-          confidence: 0.85,
-          params,
-          matchedKeywords: [text],
-        };
-      }
-    }
+    const exact = this.matchExactKeyword(text);
+    if (exact) return exact;
 
     const allScores = calculateAllScores(text, INTENT_KEYWORDS);
 

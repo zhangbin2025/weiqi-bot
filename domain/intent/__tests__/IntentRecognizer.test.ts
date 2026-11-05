@@ -208,6 +208,28 @@ describe('matchSpecialRulesOnly（LLM 前置的确定性路由）', () => {
     expect(recognizer.matchSpecialRulesOnly('死活')?.matchedRule).toBe('tsumego_puzzle');
   });
 
+  it('回归：「比赛」等功能入口孤词精确短路为 search_event，不再交给 LLM 回显帮助', () => {
+    // 接 LLM 后「比赛」被判 chat → 上层 handleHelp() 回显功能引导，
+    // 而引导里恰好写着「示例：比赛 → 查询赛事」，前后矛盾。
+    const r = recognizer.matchSpecialRulesOnly('比赛');
+    expect(r).not.toBeNull();
+    expect(r!.intent).toBe('search_event');
+    expect(r!.matchedKeywords).toEqual(['比赛']);
+    expect(r!.confidence).toBe(0.9);
+    expect(r!.responseType).toBeDefined();
+    // 与未接 LLM 时的本地识别口径一致
+    expect(recognizer.recognize('比赛').intent).toBe('search_event');
+    expect(recognizer.matchSpecialRulesOnly('赛事')?.intent).toBe('search_event');
+    expect(recognizer.matchSpecialRulesOnly('复盘')?.intent).toBe('start_review');
+  });
+
+  it('精确短路只认整句等于关键词，不劫持自然语言', () => {
+    expect(recognizer.matchSpecialRulesOnly('柯洁和申真谞的交战历史')).toBeNull();
+    expect(recognizer.matchSpecialRulesOnly('今天天气真不错，聊聊')).toBeNull();
+    expect(recognizer.matchSpecialRulesOnly('什么叫比赛规则')).toBeNull();
+    expect(recognizer.matchSpecialRulesOnly('hi')).toBeNull();
+  });
+
   it('关键：普通自然语言返回 null，交给 LLM 处理', () => {
     // 不能把什么都劫持到本地，否则 LLM 等于没接
     expect(recognizer.matchSpecialRulesOnly('什么叫倒脱靴')).toBeNull();

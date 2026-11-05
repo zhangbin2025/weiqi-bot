@@ -46,6 +46,22 @@ describe('buildSystemPrompt', () => {
     expect(p.slice(qIdx, qIdx + 120)).toContain('"intent":"query_player"');
   });
 
+  // 回归：2026-11-05 用户实测「比赛」被 LLM 判 chat → 功能助手 handleHelp()
+  // 回显功能引导，而引导里恰好写着「示例：比赛 → 查询赛事」，前后矛盾。
+  // prompt 必须把本地识别器的触发词交给模型，并明确孤词优先级。
+  it('prompt 注入触发词，并明确「比赛」→ search_event 而非 chat', () => {
+    const p = buildSystemPrompt();
+    expect(p).toContain('触发词:');
+    expect(p).toContain('赛事、比赛、大赛');
+    expect(p).toContain('触发词优先级');
+    expect(p).toContain('不要判 chat / greeting / unknown');
+    expect(p).toContain('用户输入: 比赛');
+    const idx = p.indexOf('用户输入: 比赛');
+    expect(p.slice(idx, idx + 160)).toContain('"intent":"search_event"');
+    // 背景/历史知识问答仍归 chat，不能被新规则吞掉
+    expect(p).toContain('仍按规则 6 归 chat');
+  });
+
   // 回归：「双打吃」被 LLM 判 start_puzzle 且编造 keyword='双打吃'，
   // 题库筛出 0 道题。prompt 必须把 keyword 限定为合法题型/难度，概念题归「棋理」。
   it('prompt 明确 start_puzzle.keyword 只能是题库合法题型（概念题归棋理）', () => {
