@@ -17,6 +17,7 @@ import type {
   RepairFeedback,
   AgentResponse,
   PluginTraceStep,
+  PluginTraceSink,
 } from '@domain/plugin/types';
 import { RANKING_SPEC } from '@domain/plugin/types';
 
@@ -72,6 +73,8 @@ export interface CodegenRequest {
   spec?: PluginSpec;
   /** 注入 system prompt 的插件清单快照 */
   snapshot?: unknown[];
+  /** 实时过程推送：每产生一步立刻回调一次（不等待整轮结束） */
+  onTrace?: PluginTraceSink;
 }
 
 export interface CodegenResult {
@@ -109,6 +112,8 @@ export class PluginCodegenUseCase {
       const step: PluginTraceStep = { source: 'codegen', attempt: stepAttempt, phase, ok, detail };
       if (stepCode !== undefined) step.code = stepCode;
       trace.push(step);
+      // 实时推送：单步失败不影响代码生成主流程（纯展示通道）
+      try { req.onTrace?.(step); } catch { /* ignore */ }
     };
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {

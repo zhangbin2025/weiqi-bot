@@ -23,6 +23,7 @@ export const NOT_READY_HINT = '尚未配置 LLM，请回到功能助手执行 /l
 
 /** 智能体端口：与 PluginAgentUseCase.turn 对齐，避免 application/chat 依赖具体实现 */
 export interface IPluginAgent {
+  /** onTrace 通过 AgentTurnRequest.onTrace 传入（单参接口，兼容旧实现） */
   turn(req: AgentTurnRequest): Promise<AgentTurnResult>;
   /** 渲染前安全处理 LLM 文本（转义 + 截断） */
   safeReply(text: string): string;
@@ -74,21 +75,36 @@ export class ChatUseCase {
     }
 
     this.renderer.showTyping();
+    // 实时过程日志：懒开启（收到第一步才建块，纯闲聊不会留空块）、逐步追加、finally 收尾。
+    // 渲染器不支持实时模式时，回退到「结束后一次性全量渲染」。
+    let realtime = false;
+    let started = false;
+    let lastStepOk = true;
+    const onTrace = this.renderer.beginPluginTrace && this.renderer.appendPluginTraceStep
+      ? (step: import('@domain/plugin/types').PluginTraceStep): void => {
+          // 纯展示：任何渲染异常都吞掉，绝不能把主回复弄丢
+          try {
+            if (!started) {
+              realtime = this.renderer.beginPluginTrace!() === true;
+              started = true;
+            }
+            if (realtime) {
+              this.renderer.appendPluginTraceStep!(step);
+              lastStepOk = step.ok;
+            }
+          } catch { /* ignore */ }
+        }
+      : undefined;
+
     try {
-      const result = this.agent ? await this.runAgent(text) : undefined;
+      const result = this.agent ? await this.runAgent(text, onTrace) : undefined;
       const reply = result ? result.reply : await this.runPlainChat();
       this.renderer.hideTyping();
 
-      // 插件调试过程：只渲染、绝不写历史（否则过程日志会污染下一轮上下文）。
-      // 渲染器可选实现，放在主回复之前 —— 过程在上、结论在下。
-      // 纯展示功能：渲染失败只吞掉，绝不能把主回复弄丢。
-      const trace = result?.trace;
-      if (trace && trace.length > 0 && this.renderer.renderPluginTrace) {
-        try {
-          await this.renderer.renderPluginTrace(trace);
-        } catch {
-          /* 过程日志渲染失败不影响对话，静默跳过 */
-        }
+      // 兜底：渲染器不支持实时、或 agent 没走实时通道 → 结束后一次性全量渲染。
+      // 实时模式的收尾统一放在 finally，正常/异常都只做一次。
+      if (!realtime && result?.trace && result.trace.length > 0 && this.renderer.renderPluginTrace) {
+        try { await this.renderer.renderPluginTrace(result.trace); } catch { /* ignore */ }
       }
 
       const safe = this.agent ? this.agent.safeReply(reply) : reply;
@@ -103,8 +119,14 @@ export class ChatUseCase {
       await this.history.addMessage({ role: 'assistant', content: safe });
     } catch (error) {
       this.renderer.hideTyping();
+      lastStepOk = false;
       const message = error instanceof Error ? error.message : String(error);
       await this.renderHint(`❌ 对话失败：${message}`);
+    } finally {
+      // 实时块统一收尾：标题定稿、折叠回去；异常路径也不会一直挂「进行中…」
+      if (realtime && started && this.renderer.finishPluginTrace) {
+        try { this.renderer.finishPluginTrace(lastStepOk); } catch { /* ignore */ }
+      }
     }
   }
 
@@ -120,7 +142,10 @@ export class ChatUseCase {
   }
 
   /** 智能体路径：会话历史只作聊天上下文，插件能力完全来自工件 */
-  private async runAgent(text: string): Promise<AgentTurnResult> {
+  private async runAgent(
+    text: string,
+    onTrace?: (step: import('@domain/plugin/types').PluginTraceStep) => void,
+  ): Promise<AgentTurnResult> {
     const agent = this.agent!;
     const history = buildConversationMessages(this.history.getMessages())
       .filter((m) => m.role !== 'system')
@@ -138,6 +163,7 @@ export class ChatUseCase {
       text,
       history,
       ...(sessionId ? { conversationRef: sessionId } : {}),
+      ...(onTrace ? { onTrace } : {}),
     });
     return result;
   }

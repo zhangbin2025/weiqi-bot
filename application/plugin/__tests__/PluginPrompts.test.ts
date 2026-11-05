@@ -44,6 +44,13 @@ describe('buildAgentSystemPrompt', () => {
     expect(s).toContain('不要凭记忆编造代码');
   });
 
+  it('命名规则：只有用户明确起名才给 name，否则系统自动排号', () => {
+    const s = buildAgentSystemPrompt(snapshot, 3);
+    expect(s).toContain('仅当用户明确为规则起了名字');
+    expect(s).toContain('规则1');
+    expect(s).toContain('不要自己编造花哨名称');
+  });
+
   it('强调 create/revise 必须给完整 code、不要 diff', () => {
     const s = buildAgentSystemPrompt(snapshot, 3);
     expect(s).toContain('完整源码');

@@ -117,6 +117,38 @@ describe('PluginCodegenUseCase', () => {
     expect(result.trace[0]!.detail).toContain('网络超时');
   });
 
+  it('onTrace 实时推送：每步产生时立刻回调，顺序与 result.trace 一致', async () => {
+    const h = harness();
+    const seen: Array<{ phase: string; ok: boolean }> = [];
+    const onTrace = vi.fn((s) => { seen.push({ phase: s.phase, ok: s.ok }); });
+    const result = await new PluginCodegenUseCase(h.options).run({ ...baseReq, onTrace });
+    expect(onTrace).toHaveBeenCalledTimes(result.trace.length);
+    expect(seen).toEqual(result.trace.map((s) => ({ phase: s.phase, ok: s.ok })));
+    expect(seen.length).toBeGreaterThan(0);
+  });
+
+  it('onTrace 逐轮实时：首轮失败时回调已发生，不等整轮结束', async () => {
+    const h = harness();
+    h.runtime.run
+      .mockResolvedValueOnce({ ok: false, phase: 'runtime', error: { name: 'E', message: 'bad' }, logs: [], elapsedMs: 1 } satisfies PluginRunResult)
+      .mockResolvedValueOnce({ ok: true, output: [2], logs: [], elapsedMs: 1 } satisfies PluginRunResult);
+    const phases: string[] = [];
+    await new PluginCodegenUseCase(h.options).run({
+      ...baseReq,
+      onTrace: (s) => phases.push(`${s.attempt}:${s.phase}`),
+    });
+    expect(phases.some((p) => p.startsWith('1:'))).toBe(true);
+    expect(phases.some((p) => p.startsWith('2:'))).toBe(true);
+  });
+
+  it('onTrace 抛异常不影响代码生成主流程（纯展示隔离）', async () => {
+    const h = harness();
+    const onTrace = vi.fn(() => { throw new Error('渲染炸了'); });
+    const result = await new PluginCodegenUseCase(h.options).run({ ...baseReq, onTrace });
+    expect(result.ok).toBe(true);
+    expect(onTrace).toHaveBeenCalled();
+  });
+
   it('system prompt 带插件清单，且 messages 不含任何会话历史', async () => {
     const h = harness();
     const snapshot = [{ id: 'p1', name: '旧规则', enabled: true }];

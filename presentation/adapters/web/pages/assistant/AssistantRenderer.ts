@@ -726,84 +726,147 @@ export class AssistantRenderer implements IMessageRenderer {
     return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日 ${timeStr}`;
   }
 
+  /** 实时过程块状态；一次 Agent turn 一个实例，clearMessages 时清空 */
+  private pluginTraceView: {
+    wrapper: HTMLElement;
+    summary: HTMLElement;
+    list: HTMLElement;
+    count: number;
+    failed: number;
+  } | null = null;
+
+  /** 生成一行步骤 DOM（实时与全量两种模式共用） */
+  private buildTraceStepRow(step: PluginTraceStep): HTMLElement {
+    const row = document.createElement('div');
+    row.className = `plugin-trace__step${step.ok ? '' : ' plugin-trace__step--fail'}`;
+
+    const head = document.createElement('div');
+    head.className = 'plugin-trace__head';
+    const tag = document.createElement('span');
+    tag.className = 'plugin-trace__tag';
+    tag.textContent = `[${step.source === 'agent' ? '决策' : '代码'} · 第 ${step.attempt} 轮 · ${step.phase}]`;
+    const flag = document.createElement('span');
+    flag.className = 'plugin-trace__flag';
+    flag.textContent = step.ok ? '✓' : '✗';
+    head.appendChild(tag);
+    head.appendChild(flag);
+    row.appendChild(head);
+
+    const detail = document.createElement('div');
+    detail.className = 'plugin-trace__detail';
+    detail.textContent = step.detail;
+    row.appendChild(detail);
+
+    if (step.code !== undefined && step.code.trim()) {
+      const codeDetails = document.createElement('details');
+      codeDetails.className = 'plugin-trace__code';
+      const codeSummary = document.createElement('summary');
+      codeSummary.textContent = '查看本轮代码';
+      codeDetails.appendChild(codeSummary);
+
+      const tools = document.createElement('div');
+      tools.className = 'plugin-trace__tools';
+      const copyBtn = document.createElement('button');
+      copyBtn.type = 'button';
+      copyBtn.className = 'copy-btn';
+      copyBtn.textContent = '复制本轮代码';
+      copyBtn.setAttribute('data-copy', step.code);
+      tools.appendChild(copyBtn);
+      codeDetails.appendChild(tools);
+
+      const pre = document.createElement('pre');
+      pre.className = 'plugin-trace__pre';
+      pre.textContent = step.code; // 完整源码，textContent 防注入
+      codeDetails.appendChild(pre);
+      row.appendChild(codeDetails);
+    }
+    return row;
+  }
+
+  private setTraceSummary(view: { summary: HTMLElement; count: number; failed: number }, running: boolean): void {
+    const failedPart = view.failed ? `，${view.failed} 步失败` : '';
+    const state = running ? ' · 进行中…' : (view.failed ? '' : ' · 完成');
+    view.summary.textContent = `🔧 插件调试过程（${view.count} 步${failedPart}${state}）`;
+  }
+
   /**
-   * 渲染「插件调试过程」的可折叠日志（IMessageRenderer 可选实现）。
+   * 开启实时过程块：立即在对话流里插入一个可展开的占位块，
+   * 之后每产生一步就 append 一行 —— 用户能看到过程逐条出现，而非全部干完才列出。
    *
-   * 契约：
-   * - 纯展示，不写入会话历史（ChatUseCase 负责不落盘）；
-   * - 全程 textContent / createElement 构造，绝不把 LLM 产出的步骤文本交给 marked 或 innerHTML；
-   * - <details> 默认折叠（用户拍板 B）；每轮源码单独一个可展开块 + 复制按钮。
+   * 契约：纯展示、不写会话历史；全程 textContent/createElement，绝不把 LLM 文本交给 innerHTML。
    */
-  async renderPluginTrace(steps: PluginTraceStep[]): Promise<void> {
+  beginPluginTrace(): boolean {
     const chatContainer = document.getElementById('chatContainer');
-    if (!chatContainer || !steps || steps.length === 0) return;
+    if (!chatContainer) return false;
+    // 上一轮遗留的块先收尾，避免同页出现两个进行中状态
+    if (this.pluginTraceView) this.finishPluginTrace(true);
 
     const wrapper = document.createElement('div');
     wrapper.className = 'plugin-trace';
-
     const details = document.createElement('details');
     details.className = 'plugin-trace__details';
+    // 实时进行中默认展开，让用户不用手动点就能看到逐条进度；收尾后仍可手动折叠
+    details.open = true;
     const summary = document.createElement('summary');
     summary.className = 'plugin-trace__summary';
-    const failed = steps.filter((s) => !s.ok).length;
-    summary.textContent = `🔧 插件调试过程（${steps.length} 步${failed ? `，${failed} 步失败` : ''}）`;
     details.appendChild(summary);
-
     const list = document.createElement('div');
     list.className = 'plugin-trace__list';
-    for (const step of steps) {
-      const row = document.createElement('div');
-      row.className = `plugin-trace__step${step.ok ? '' : ' plugin-trace__step--fail'}`;
-
-      const head = document.createElement('div');
-      head.className = 'plugin-trace__head';
-      const tag = document.createElement('span');
-      tag.className = 'plugin-trace__tag';
-      tag.textContent = `[${step.source === 'agent' ? '决策' : '代码'} · 第 ${step.attempt} 轮 · ${step.phase}]`;
-      const flag = document.createElement('span');
-      flag.className = 'plugin-trace__flag';
-      flag.textContent = step.ok ? '✓' : '✗';
-      head.appendChild(tag);
-      head.appendChild(flag);
-      row.appendChild(head);
-
-      const detail = document.createElement('div');
-      detail.className = 'plugin-trace__detail';
-      detail.textContent = step.detail;
-      row.appendChild(detail);
-
-      if (step.code !== undefined && step.code.trim()) {
-        const codeDetails = document.createElement('details');
-        codeDetails.className = 'plugin-trace__code';
-        const codeSummary = document.createElement('summary');
-        codeSummary.textContent = '查看本轮代码';
-        codeDetails.appendChild(codeSummary);
-
-        const tools = document.createElement('div');
-        tools.className = 'plugin-trace__tools';
-        const copyBtn = document.createElement('button');
-        copyBtn.type = 'button';
-        copyBtn.className = 'copy-btn';
-        copyBtn.textContent = '复制本轮代码';
-        copyBtn.setAttribute('data-copy', step.code);
-        tools.appendChild(copyBtn);
-        codeDetails.appendChild(tools);
-
-        const pre = document.createElement('pre');
-        pre.className = 'plugin-trace__pre';
-        pre.textContent = step.code;
-        codeDetails.appendChild(pre);
-        row.appendChild(codeDetails);
-      }
-
-      list.appendChild(row);
-    }
     details.appendChild(list);
     wrapper.appendChild(details);
-    chatContainer.appendChild(wrapper);
-    // 复制按钮复用渲染器既有的 clipboard / execCommand 兜底逻辑
-    this.bindCopyButtons(wrapper);
-    wrapper.scrollIntoView({ behavior: 'smooth', block: 'end' });
+
+    // 插到 typing 指示器之前（若有），保证「过程 → 打字中 → 主回复」顺序自然
+    const typing = document.getElementById('typingIndicator');
+    if (typing && typing.parentElement === chatContainer) {
+      chatContainer.insertBefore(wrapper, typing);
+    } else {
+      chatContainer.appendChild(wrapper);
+    }
+
+    this.pluginTraceView = { wrapper, summary, list, count: 0, failed: 0 };
+    this.setTraceSummary(this.pluginTraceView, true);
+    return true;
+  }
+
+  /** 实时追加一步；没有开启过程块时静默忽略（纯展示，不抛错） */
+  appendPluginTraceStep(step: PluginTraceStep): void {
+    const view = this.pluginTraceView;
+    if (!view || !view.wrapper.isConnected) return;
+    const row = this.buildTraceStepRow(step);
+    view.list.appendChild(row);
+    // 复制按钮复用既有 clipboard / execCommand 兜底逻辑（只绑定新行）
+    this.bindCopyButtons(row);
+    view.count++;
+    if (!step.ok) view.failed++;
+    this.setTraceSummary(view, true);
+    // 只在用户没有手动折叠时自动滚动，避免打断查看历史步骤
+    const details = view.wrapper.querySelector('details');
+    if (details?.open) row.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }
+
+  /** 收尾：标题定稿、默认折叠回去（保留可展开）、进行中标记清除 */
+  finishPluginTrace(ok: boolean): void {
+    const view = this.pluginTraceView;
+    if (!view) return;
+    const details = view.wrapper.querySelector('details');
+    if (details) details.open = false;
+    this.setTraceSummary(view, false);
+    if (!ok) {
+      view.wrapper.classList.add('plugin-trace--failed');
+    }
+    this.pluginTraceView = null;
+  }
+
+  /**
+   * 全量渲染（可选实现，兼容旧行为 / 无实时能力时兜底）：
+   * 一次性把已有步骤列进一个默认折叠的块。
+   */
+  async renderPluginTrace(steps: PluginTraceStep[]): Promise<void> {
+    if (!steps || steps.length === 0) return;
+    if (!this.beginPluginTrace()) return;
+    for (const step of steps) this.appendPluginTraceStep(step);
+    const failed = steps.filter((s) => !s.ok).length;
+    this.finishPluginTrace(failed === 0);
   }
 
   showTyping(): void {

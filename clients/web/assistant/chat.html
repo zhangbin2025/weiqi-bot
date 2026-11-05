@@ -65,6 +65,14 @@
             border: 1px solid #e3e0f3; border-radius: 10px;
             background: #faf9ff; overflow: hidden;
         }
+        .plugin-trace--failed .plugin-trace__details { border-color: #f0d4d4; background: #fffafa; }
+        /* 进行中：左侧呼吸条，用户不点开也能看出过程还在跑 */
+        .plugin-trace__details[open] .plugin-trace__summary::before {
+            content: ''; display: inline-block; width: 6px; height: 6px;
+            margin-right: 6px; border-radius: 50%; background: #667eea;
+            animation: tracePulse 1.2s ease-in-out infinite;
+        }
+        @keyframes tracePulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
         .plugin-trace__summary {
             padding: 8px 12px; font-size: 13px; color: #5b4b9e;
             cursor: pointer; user-select: none; font-weight: 600;

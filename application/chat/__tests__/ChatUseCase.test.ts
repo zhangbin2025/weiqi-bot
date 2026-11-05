@@ -12,9 +12,15 @@ function makeRenderer() {
     hideTyping: vi.fn(),
     showCountdownJump: vi.fn(),
     renderPluginTrace: vi.fn().mockResolvedValue(undefined),
+    beginPluginTrace: vi.fn().mockReturnValue(true),
+    appendPluginTraceStep: vi.fn(),
+    finishPluginTrace: vi.fn(),
   } as unknown as IMessageRenderer & {
     renderMessage: ReturnType<typeof vi.fn>;
     renderPluginTrace: ReturnType<typeof vi.fn>;
+    beginPluginTrace: ReturnType<typeof vi.fn>;
+    appendPluginTraceStep: ReturnType<typeof vi.fn>;
+    finishPluginTrace: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -99,6 +105,133 @@ describe('ChatUseCase.send', () => {
     expect(contents).toContain('柯洁和申真谞谁厉害');
     expect(contents).toContain('两人互有胜负');
     expect(contents[contents.length - 1]).toBe('那他跟李世石呢');
+  });
+
+  it('实时链路：agent 逐步推 trace → 逐步 append，不再等全部干完才列', async () => {
+    const renderer = makeRenderer();
+    const history = makeHistory();
+    const steps = [
+      { source: 'agent' as const, attempt: 1, phase: 'decision', ok: true, detail: '第 1 次决策' },
+      { source: 'codegen' as const, attempt: 1, phase: 'llm', ok: true, detail: '模型已返回', code: 'function rank(p){return p}' },
+      { source: 'codegen' as const, attempt: 1, phase: 'sandbox', ok: true, detail: '试算通过' },
+    ];
+    const agent = {
+      // 模拟真实 Agent：在 turn 执行过程中同步调用第二参数 sink
+      turn: vi.fn(async (req: { onTrace?: (s: typeof steps[number]) => void }) => {
+        const onTrace = req.onTrace;
+        for (const s of steps) onTrace?.(s);
+        return { reply: '已生成插件候选', acted: true, attempts: 1, trace: steps };
+      }),
+      safeReply: vi.fn((t: string) => t),
+    };
+    await new ChatUseCase(makeGateway(), history, renderer, agent).send('写个规则');
+
+    // turn 通过 req.onTrace 收到 sink
+    expect(agent.turn.mock.calls[0]![0].onTrace).toBeTypeOf('function');
+    // 懒开启：收到第一步才 begin
+    expect(renderer.beginPluginTrace).toHaveBeenCalledTimes(1);
+    // 逐步 append，共 3 步
+    expect(renderer.appendPluginTraceStep).toHaveBeenCalledTimes(3);
+    expect(renderer.appendPluginTraceStep).toHaveBeenNthCalledWith(1, steps[0]);
+    expect(renderer.appendPluginTraceStep).toHaveBeenNthCalledWith(3, steps[2]);
+    // 收尾一次；实时模式下不再全量重渲染（避免重复）
+    expect(renderer.finishPluginTrace).toHaveBeenCalledTimes(1);
+    expect(renderer.finishPluginTrace).toHaveBeenCalledWith(true);
+    expect(renderer.renderPluginTrace).not.toHaveBeenCalled();
+    // 过程日志绝不写历史
+    expect(history.addMessage).toHaveBeenNthCalledWith(2, { role: 'assistant', content: '已生成插件候选' });
+    expect(JSON.stringify(history.addMessage.mock.calls)).not.toContain('试算通过');
+  });
+
+  it('实时链路：纯闲聊不发任何步骤 → 不开过程块、不 append、不收尾', async () => {
+    const renderer = makeRenderer();
+    const history = makeHistory();
+    const agent = {
+      turn: vi.fn().mockResolvedValue({ reply: '好的', acted: false, attempts: 0 }),
+      safeReply: vi.fn((t: string) => t),
+    };
+    await new ChatUseCase(makeGateway(), history, renderer, agent).send('你好');
+    expect(renderer.beginPluginTrace).not.toHaveBeenCalled();
+    expect(renderer.appendPluginTraceStep).not.toHaveBeenCalled();
+    expect(renderer.finishPluginTrace).not.toHaveBeenCalled();
+    expect(renderer.renderPluginTrace).not.toHaveBeenCalled();
+  });
+
+  it('实时链路：末步失败 → finishPluginTrace(false)', async () => {
+    const renderer = makeRenderer();
+    const history = makeHistory();
+    const agent = {
+      turn: vi.fn(async (req: { onTrace?: (s: { source: 'agent'; attempt: number; phase: string; ok: boolean; detail: string }) => void }) => {
+        req.onTrace?.({ source: 'agent', attempt: 1, phase: 'decision', ok: false, detail: '模型调用失败' });
+        return { reply: '模型调用失败', acted: false, attempts: 0, trace: [] };
+      }),
+      safeReply: vi.fn((t: string) => t),
+    };
+    await new ChatUseCase(makeGateway(), history, renderer, agent).send('你好');
+    expect(renderer.finishPluginTrace).toHaveBeenCalledWith(false);
+  });
+
+  it('实时链路：Agent 抛错也收尾，过程块不挂「进行中」', async () => {
+    const renderer = makeRenderer();
+    const history = makeHistory();
+    const agent = {
+      turn: vi.fn(async (req: { onTrace?: (s: { source: 'agent'; attempt: number; phase: string; ok: boolean; detail: string }) => void }) => {
+        req.onTrace?.({ source: 'agent', attempt: 1, phase: 'decision', ok: true, detail: '调用模型' });
+        throw new Error('Agent 炸了');
+      }),
+      safeReply: vi.fn((t: string) => t),
+    };
+    await new ChatUseCase(makeGateway(), history, renderer, agent).send('你好');
+    expect(renderer.appendPluginTraceStep).toHaveBeenCalledTimes(1);
+    expect(renderer.finishPluginTrace).toHaveBeenCalledTimes(1);
+    expect(renderer.finishPluginTrace).toHaveBeenCalledWith(false);
+  });
+
+  it('beginPluginTrace 返回 false（渲染器不支持实时）→ 回退全量渲染', async () => {
+    const renderer = makeRenderer();
+    renderer.beginPluginTrace.mockReturnValue(false);
+    const history = makeHistory();
+    const trace = [{ source: 'agent' as const, attempt: 1, phase: 'decision', ok: true, detail: '调用模型' }];
+    const agent = {
+      turn: vi.fn().mockResolvedValue({ reply: '好', acted: false, attempts: 0, trace }),
+      safeReply: vi.fn((t: string) => t),
+    };
+    await new ChatUseCase(makeGateway(), history, renderer, agent).send('你好');
+    expect(renderer.appendPluginTraceStep).not.toHaveBeenCalled();
+    expect(renderer.finishPluginTrace).not.toHaveBeenCalled();
+    expect(renderer.renderPluginTrace).toHaveBeenCalledWith(trace);
+  });
+
+  it('渲染器没有实时方法（旧实现）→ 全量渲染兜底', async () => {
+    const renderer = {
+      renderMessage: vi.fn().mockResolvedValue(undefined),
+      clearMessages: vi.fn(), showTyping: vi.fn(), hideTyping: vi.fn(), showCountdownJump: vi.fn(),
+      renderPluginTrace: vi.fn().mockResolvedValue(undefined),
+    } as unknown as IMessageRenderer & { renderPluginTrace: ReturnType<typeof vi.fn> };
+    const history = makeHistory();
+    const trace = [{ source: 'agent' as const, attempt: 1, phase: 'decision', ok: true, detail: '调用模型' }];
+    const agent = {
+      turn: vi.fn().mockResolvedValue({ reply: '好', acted: false, attempts: 0, trace }),
+      safeReply: vi.fn((t: string) => t),
+    };
+    await new ChatUseCase(makeGateway(), history, renderer, agent).send('你好');
+    expect(renderer.renderPluginTrace).toHaveBeenCalledWith(trace);
+  });
+
+  it('实时过程渲染抛异常不影响主回复', async () => {
+    const renderer = makeRenderer();
+    renderer.appendPluginTraceStep.mockImplementation(() => { throw new Error('DOM 炸了'); });
+    const history = makeHistory();
+    const agent = {
+      turn: vi.fn(async (req: { onTrace?: (s: { source: 'agent'; attempt: number; phase: string; ok: boolean; detail: string }) => void }) => {
+        req.onTrace?.({ source: 'agent', attempt: 1, phase: 'decision', ok: true, detail: '调用模型' });
+        return { reply: '主回复', acted: false, attempts: 0, trace: [] };
+      }),
+      safeReply: vi.fn((t: string) => t),
+    };
+    await new ChatUseCase(makeGateway(), history, renderer, agent).send('你好');
+    expect(history.addMessage).toHaveBeenNthCalledWith(2, { role: 'assistant', content: '主回复' });
+    expect(renderer.finishPluginTrace).toHaveBeenCalled();
   });
 
   it('Agent 路径把 trace 交给渲染器，且过程日志绝不写进历史', async () => {

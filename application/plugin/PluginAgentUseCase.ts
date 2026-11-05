@@ -20,8 +20,10 @@ import type {
   RepairFeedback,
   PluginContextEntry,
   PluginTraceStep,
+  PluginTraceSink,
 } from '@domain/plugin/types';
 import { RANKING_SPEC } from '@domain/plugin/types';
+import { resolvePluginName } from './PluginNaming';
 
 export interface IAgentPrompts {
   agentSystemPrompt(snapshot: PluginContextEntry[], maxAttempts: number): string;
@@ -63,6 +65,7 @@ export interface IPluginCodegen {
     sampleInput: unknown;
     spec?: PluginSpec;
     snapshot?: PluginContextEntry[];
+    onTrace?: PluginTraceSink;
   }): Promise<{
     ok: boolean; code: string; output?: unknown; attempts: number;
     lastFeedback?: RepairFeedback; reply: string; trace: PluginTraceStep[];
@@ -90,6 +93,8 @@ export interface AgentTurnRequest {
   sampleInput?: unknown;
   /** 当前会话 id，仅作为工件上的可选引用 */
   conversationRef?: string;
+  /** 实时过程推送：每产生一步立刻回调，供对话页逐条展示 */
+  onTrace?: PluginTraceSink;
 }
 
 /** 把执行观测转成回喂文本，供 LLM 决定下一步 */
@@ -101,6 +106,8 @@ export class PluginAgentUseCase {
   constructor(private readonly options: PluginAgentOptions) {}
 
   async turn(req: AgentTurnRequest): Promise<AgentTurnResult> {
+    // 实时过程推送：从 req 上取（保持单参 turn 接口不变，兼容旧调用方）
+    const sink = req.onTrace;
     const snapshot = await this.options.snapshot.snapshot();
     const system = this.options.prompts.agentSystemPrompt(snapshot, this.options.maxAttempts);
     const messages: ModelMessage[] = [
@@ -113,7 +120,10 @@ export class PluginAgentUseCase {
     let pendingObservation = '';
     const trace: PluginTraceStep[] = [];
     const push = (stepAttempt: number, phase: string, ok: boolean, detail: string): void => {
-      trace.push({ source: 'agent', attempt: stepAttempt, phase, ok, detail });
+      const step: PluginTraceStep = { source: 'agent', attempt: stepAttempt, phase, ok, detail };
+      trace.push(step);
+      // 实时推送：单步失败不影响 Agent 主流程（纯展示通道）
+      try { sink?.(step); } catch { /* ignore */ }
     };
 
     // Agent Loop：最多 maxAttempts+1 次决策，防止模型反复要动作却不收敛
@@ -220,9 +230,14 @@ export class PluginAgentUseCase {
             sampleInput: req.sampleInput ?? [],
             spec,
             snapshot,
+            // 实时透传：codegen 的每一步在产生时就推给对话页，不等整轮结束
+            ...(sink ? { onTrace: sink } : {}),
           });
-          // 把「LLM 写/改代码」的逐轮过程并入总 trace，这才是用户想看到的调试过程。
-          for (const step of codegen.trace ?? []) trace.push(step);
+          // 把「LLM 写/改代码」的逐轮过程并入总 trace（供结果里保留完整过程）。
+          // 注意：实时推送由 onTrace 完成，这里只补「没走实时通道」的历史实现。
+          for (const step of codegen.trace ?? []) {
+            trace.push(step);
+          }
 
           if (!codegen.ok) {
             push(turn + 1, 'observe', false, `代码生成未通过（${codegen.attempts} 轮）`);
@@ -244,7 +259,8 @@ export class PluginAgentUseCase {
           let artifactId: string;
           if (isCreate || !action.artifactId || !existing) {
             const created = await this.options.artifacts.create({
-              name: action.name ?? '自定义排名规则',
+              // 用户/LLM 明确起名就用之；否则按「规则1/规则2」自动排号（不重名）
+              name: resolvePluginName(action.name, snapshot),
               intent,
               code: codegen.code,
               pointId: spec.pointId,

@@ -141,3 +141,99 @@ describe('AssistantRenderer.renderPluginTrace（过程日志，纯展示）', ()
     expect(document.querySelectorAll('#chatContainer .plugin-trace')).toHaveLength(1);
   });
 });
+
+describe('AssistantRenderer 实时过程日志（逐步输出）', () => {
+  let renderer: AssistantRenderer;
+
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="chatContainer"></div>';
+    Element.prototype.scrollIntoView = vi.fn();
+    renderer = new AssistantRenderer();
+  });
+
+  const step = (over: Partial<{ attempt: number; phase: string; ok: boolean; detail: string; code: string }> = {}) => ({
+    source: 'agent' as const, attempt: 1, phase: 'decision', ok: true, detail: '调用模型', ...over,
+  });
+
+  it('begin 立即插入过程块且进行中默认展开，标题带「进行中」', () => {
+    expect(renderer.beginPluginTrace()).toBe(true);
+    const details = document.querySelector('details.plugin-trace__details') as HTMLDetailsElement;
+    expect(details).not.toBeNull();
+    expect(details.open).toBe(true);
+    expect(details.querySelector('summary')?.textContent).toContain('进行中');
+    expect(document.querySelectorAll('.plugin-trace__step')).toHaveLength(0);
+  });
+
+  it('append 逐步增加行、标题实时更新步数，无需等结束', () => {
+    renderer.beginPluginTrace();
+    renderer.appendPluginTraceStep(step({ detail: '第 1 步' }));
+    expect(document.querySelectorAll('.plugin-trace__step')).toHaveLength(1);
+    expect(document.querySelector('.plugin-trace__summary')?.textContent).toContain('1 步');
+    renderer.appendPluginTraceStep(step({ attempt: 2, phase: 'sandbox', ok: false, detail: '试算失败' }));
+    expect(document.querySelectorAll('.plugin-trace__step')).toHaveLength(2);
+    expect(document.querySelector('.plugin-trace__summary')?.textContent).toContain('2 步');
+    expect(document.querySelector('.plugin-trace__summary')?.textContent).toContain('1 步失败');
+    expect(document.querySelectorAll('.plugin-trace__step--fail')).toHaveLength(1);
+  });
+
+  it('实时追加的代码步骤也带完整源码与复制按钮', () => {
+    renderer.beginPluginTrace();
+    renderer.appendPluginTraceStep(step({ phase: 'llm', code: 'function rank(p){return p}' }));
+    expect(document.querySelector('.plugin-trace__pre')?.textContent).toBe('function rank(p){return p}');
+    expect(document.querySelector('.plugin-trace__code button.copy-btn')?.getAttribute('data-copy'))
+      .toBe('function rank(p){return p}');
+    expect(document.querySelector('.plugin-trace__code button.copy-btn')?.getAttribute('data-bound'))
+      .toBe('true');
+  });
+
+  it('finish 后折叠、去掉「进行中」、标记完成', () => {
+    renderer.beginPluginTrace();
+    renderer.appendPluginTraceStep(step());
+    renderer.finishPluginTrace(true);
+    const details = document.querySelector('details.plugin-trace__details') as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    const title = document.querySelector('.plugin-trace__summary')?.textContent ?? '';
+    expect(title).toContain('完成');
+    expect(title).not.toContain('进行中');
+    expect(document.querySelector('.plugin-trace')?.className).not.toContain('plugin-trace--failed');
+  });
+
+  it('finish(false) 标失败态；纯闲聊未 begin 时 append/finish 都安全', () => {
+    renderer.beginPluginTrace();
+    renderer.finishPluginTrace(false);
+    expect(document.querySelector('.plugin-trace')?.className).toContain('plugin-trace--failed');
+    // 没开过程块时静默忽略，不抛错
+    expect(() => renderer.appendPluginTraceStep(step())).not.toThrow();
+    expect(() => renderer.finishPluginTrace(true)).not.toThrow();
+  });
+
+  it('过程块插在 typing 指示器之前，主回复仍在过程块之后', () => {
+    renderer.showTyping();
+    renderer.beginPluginTrace();
+    const children = [...document.getElementById('chatContainer')!.children];
+    const traceIdx = children.findIndex((c) => c.className === 'plugin-trace');
+    const typingIdx = children.findIndex((c) => c.id === 'typingIndicator');
+    expect(traceIdx).toBeGreaterThanOrEqual(0);
+    expect(typingIdx).toBeGreaterThanOrEqual(0);
+    expect(traceIdx).toBeLessThan(typingIdx);
+  });
+
+  it('连续两轮：第二次 begin 会先收尾上一轮，不残留「进行中」', () => {
+    renderer.beginPluginTrace();
+    renderer.appendPluginTraceStep(step());
+    renderer.beginPluginTrace();
+    const titles = [...document.querySelectorAll('.plugin-trace__summary')].map((s) => s.textContent ?? '');
+    expect(titles[0]).toContain('完成');
+    expect(titles[0]).not.toContain('进行中');
+    expect(titles[1]).toContain('进行中');
+    expect(document.querySelectorAll('.plugin-trace')).toHaveLength(2);
+  });
+
+  it('实时步骤里的 HTML/脚本注入仍只作文本', () => {
+    renderer.beginPluginTrace();
+    renderer.appendPluginTraceStep(step({ detail: '<img src=x onerror=alert(1)>', code: '<script>alert(2)</script>' }));
+    expect(document.querySelector('.plugin-trace img')).toBeNull();
+    expect(document.querySelector('.plugin-trace script')).toBeNull();
+    expect(document.querySelector('.plugin-trace__detail')?.textContent).toBe('<img src=x onerror=alert(1)>');
+  });
+});

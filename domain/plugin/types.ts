@@ -202,6 +202,12 @@ export interface PluginTraceStep {
   code?: string;
 }
 
+/**
+ * 调试过程的实时推送回调。每一步产生时立刻调用（不等待整轮结束）。
+ * 纯展示通道：接收方负责渲染，绝不能把步骤写进会话历史。
+ */
+export type PluginTraceSink = (step: PluginTraceStep) => void;
+
 /** 一次 Agent Turn 的结果 */
 export interface AgentTurnResult {
   reply: string;

@@ -174,6 +174,42 @@ describe('PluginAgentUseCase', () => {
     expect(h.artifacts.setEnabled).not.toHaveBeenCalled();
   });
 
+  it('plugin.create 用户明确起名 → 用用户指定的名字', async () => {
+    const h = harness();
+    setResponses(h, [ok('写', { kind: 'plugin.create', name: '同分比胜局', intent: 'x', code: 'x' })]);
+    await new PluginAgentUseCase(h.options).turn({ text: '写个规则' });
+    expect(h.artifacts.create).toHaveBeenCalledWith(expect.objectContaining({ name: '同分比胜局' }));
+  });
+
+  it('plugin.create 未起名 → 自动「规则N」，基于当前清单防重名', async () => {
+    const h = harness();
+    // 现有快照里只有「旧规则」，不占编号 → 规则1
+    setResponses(h, [ok('写', { kind: 'plugin.create', intent: 'x', code: 'x' })]);
+    await new PluginAgentUseCase(h.options).turn({ text: '写个规则' });
+    expect(h.artifacts.create).toHaveBeenCalledWith(expect.objectContaining({ name: '规则1' }));
+  });
+
+  it('plugin.create 未起名且「规则1」已存在 → 顺延到规则2', async () => {
+    const h = harness();
+    h.snapshot.snapshot.mockResolvedValue([
+      { id: 'plugin:a', name: '规则1', pointId: 'ranking.tiebreak', enabled: false, version: 1, intent: 'x' },
+    ]);
+    setResponses(h, [ok('写', { kind: 'plugin.create', intent: 'x', code: 'x' })]);
+    await new PluginAgentUseCase(h.options).turn({ text: '写个规则' });
+    expect(h.artifacts.create).toHaveBeenCalledWith(expect.objectContaining({ name: '规则2' }));
+  });
+
+  it('plugin.create 把 onTrace 实时透传给 codegen', async () => {
+    const h = harness();
+    setResponses(h, [ok('写', { kind: 'plugin.create', intent: 'x', code: 'x' })]);
+    const onTrace = vi.fn();
+    await new PluginAgentUseCase(h.options).turn({ text: '写个规则', onTrace });
+    expect(h.codegen.run).toHaveBeenCalledWith(expect.objectContaining({ onTrace }));
+    // 外层 agent 自身的步骤也走同一个 sink 实时推送
+    expect(onTrace).toHaveBeenCalled();
+    expect(onTrace.mock.calls.some((c) => c[0].source === 'agent')).toBe(true);
+  });
+
   it('plugin.revise 从工件读 code/intent，不依赖会话（会话丢失场景）', async () => {
     const h = harness();
     h.artifacts.get.mockResolvedValue({
@@ -262,6 +298,26 @@ describe('PluginAgentUseCase', () => {
     const result = await new PluginAgentUseCase(h.options).turn({ text: '删掉' });
     expect(result.reply).toBe('好的');
     expect(h.artifacts.remove).not.toHaveBeenCalled();
+  });
+
+  it('onTrace 覆盖所有 return 分支（决策/协议/观测/最终）', async () => {
+    const h = harness();
+    setResponses(h, [ok('列一下', { kind: 'plugin.list' }), ok('好的', { kind: 'none' })]);
+    const onTrace = vi.fn();
+    await new PluginAgentUseCase(h.options).turn({ text: '列一下', onTrace });
+    expect(onTrace.mock.calls.length).toBeGreaterThanOrEqual(4);
+    const phases = onTrace.mock.calls.map((c) => c[0].phase);
+    expect(phases).toContain('decision');
+    expect(phases).toContain('observe');
+    expect(phases).toContain('final');
+  });
+
+  it('onTrace 抛异常不影响 Agent 主流程（纯展示隔离）', async () => {
+    const h = harness();
+    const onTrace = vi.fn(() => { throw new Error('渲染炸了'); });
+    const result = await new PluginAgentUseCase(h.options).turn({ text: '你好', onTrace });
+    expect(result.reply).toBe('好的');
+    expect(onTrace).toHaveBeenCalled();
   });
 
   it('决策次数上限后收敛，不会无限循环，且带完整 trace', async () => {

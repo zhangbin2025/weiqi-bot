@@ -28,7 +28,7 @@ export interface EventDetailRendererCallbacks {
   onPlayerClick: (playerName: string) => void;
   onShowOpponents: (playerName: string) => void;
   onRankingModeChange: (mode: RankingMode) => void;
-  /** 选中某个排名插件（叠加在当前内置口径之上）；undefined = 回到无插件排序 */
+  /** 选中某个排名插件（叠加在当前内置口径之上）；undefined = 回到内置排序 */
   onRankingPluginChange: (artifactId: string | undefined) => void;
   onRefresh?: () => Promise<void>;
 }
@@ -528,7 +528,7 @@ export class EventDetailRenderer {
       menu.appendChild(divider);
       menu.appendChild(sectionTitle('插件排序'));
 
-      const pluginItem = (id: string | undefined, label: string, desc: string): HTMLElement => {
+      const pluginItem = (id: string, label: string, desc: string): HTMLElement => {
         const item = document.createElement('div');
         const isActive = this.activeRankingPluginId === id;
         item.style.cssText = `padding:10px 14px;cursor:pointer;transition:background 0.15s;${isActive ? 'background:rgba(59,130,246,0.1);' : ''}`;
@@ -545,8 +545,8 @@ export class EventDetailRenderer {
         return item;
       };
 
-      // 显式「无插件排序」入口：始终存在，便于从插件排序切回默认
-      menu.appendChild(pluginItem(undefined, '无插件排序', '恢复内置排序口径'));
+      // 不单列「回到内置」项：上面的内置排序三项就是切回默认的入口
+      // （点任一项都会把 activeRankingPluginId 置回 undefined），不必重复列一个。
       for (const p of this.rankingPlugins) {
         menu.appendChild(pluginItem(p.id, `🧩 ${p.name}`, '使用此插件的排名规则'));
       }

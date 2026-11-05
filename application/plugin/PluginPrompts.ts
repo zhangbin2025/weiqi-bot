@@ -12,7 +12,7 @@ const ACTION_KINDS = [
   'none：纯聊天/解释，不执行动作',
   'plugin.list：查看当前插件清单（结果会作为观测回喂给你）',
   'plugin.show：读取某个插件的完整源码，必须给 artifactId（结果会作为观测回喂给你）',
-  'plugin.create：新建插件，必须给 name/intent/code',
+  'plugin.create：新建插件，必须给 intent/code；name 仅当用户明确为规则起了名字时才给',
   'plugin.revise：修订已有插件，必须给 artifactId/code，可带 feedback',
   'plugin.toggle：启停插件，必须给 artifactId',
   'plugin.delete：删除插件，必须给 artifactId',
@@ -48,6 +48,8 @@ export function buildAgentSystemPrompt(snapshot: PluginContextEntry[], maxAttemp
     'action.kind 取值：',
     '- ' + ACTION_KINDS,
     'plugin.create / plugin.revise 的 code 必须是完整源码（字符串），不要给 diff、不要只给解释。',
+    '【命名】只有用户在描述里明确给规则起了名字（如「做个叫同分比胜局的规则」）时，才把那个名字原样填进 action.name；',
+    '用户没起名就省略 name，系统会自动命名为「规则1」「规则2」这类简短名字，不要自己编造花哨名称。',
     '用户要看某个插件的源码时用 plugin.show，不要凭记忆编造代码；插件清单默认不含源码。',
     '多余字段会被忽略；不需要的字段可省略。',
   ].join('\n');
