@@ -26,7 +26,7 @@ interface Harness {
     remove: ReturnType<typeof vi.fn>;
     get: ReturnType<typeof vi.fn>;
   };
-  snapshot: { snapshot: ReturnType<typeof vi.fn> };
+  snapshot: { snapshot: ReturnType<typeof vi.fn>; withCode: ReturnType<typeof vi.fn> };
   codegen: { run: ReturnType<typeof vi.fn> };
 }
 
@@ -51,9 +51,17 @@ function harness(): Harness {
   const snapshot: PluginContextEntry[] = [
     { id: 'plugin:old', name: '旧规则', pointId: 'ranking.tiebreak', enabled: true, version: 2, intent: '同分比胜局' },
   ];
-  const snapshotProvider = { snapshot: vi.fn().mockResolvedValue(snapshot) };
+  const snapshotProvider = {
+    snapshot: vi.fn().mockResolvedValue(snapshot),
+    withCode: vi.fn().mockResolvedValue({
+      ...snapshot[0]!, code,
+    }),
+  };
   const codegen = {
-    run: vi.fn().mockResolvedValue({ ok: true, code, output: [], attempts: 1, reply: '已生成' }),
+    run: vi.fn().mockResolvedValue({
+      ok: true, code, output: [], attempts: 1, reply: '已生成',
+      trace: [{ source: 'codegen' as const, attempt: 1, phase: 'sandbox', ok: true, detail: '试算通过' }],
+    }),
   };
   const options: PluginAgentOptions = {
     gateway: gateway as unknown as PluginAgentOptions['gateway'],
@@ -87,6 +95,10 @@ describe('PluginAgentUseCase', () => {
     const result = await new PluginAgentUseCase(h.options).turn({ text: '你好' });
     expect(result.acted).toBe(false);
     expect(result.reply).toBe('好的');
+    // 所有 return 都带 trace（过程日志可见性）
+    expect(result.trace).toBeDefined();
+    expect(result.trace!.some((s) => s.source === 'agent' && s.phase === 'decision')).toBe(true);
+    expect(result.trace!.some((s) => s.phase === 'final')).toBe(true);
     expect(h.prompts.agentSystemPrompt).toHaveBeenCalledTimes(1);
     expect(h.snapshot.snapshot).toHaveBeenCalledTimes(1);
     const req = h.gateway.execute.mock.calls[0]![0] as { messages: Array<{ role: string; content: string }>; task: string };
@@ -105,6 +117,37 @@ describe('PluginAgentUseCase', () => {
     expect(req.messages[1].content).toBe('之前说过');
   });
 
+  it('plugin.show 走 withCode 取全量源码回喂，不凭记忆编造', async () => {
+    const h = harness();
+    setResponses(h, [ok('看源码', { kind: 'plugin.show', artifactId: 'plugin:old' }), ok('这是源码', { kind: 'none' })]);
+    const result = await new PluginAgentUseCase(h.options).turn({ text: '把旧规则源码给我' });
+    expect(result.reply).toBe('这是源码');
+    expect(h.snapshot.withCode).toHaveBeenCalledWith('plugin:old');
+    const second = h.gateway.execute.mock.calls[1]![0] as { messages: Array<{ content: string }> };
+    const observation = second.messages.at(-1)!.content;
+    expect(observation).toContain(code);
+    expect(observation).toContain('完整源码');
+    expect(observation).toContain('原样放进 reply');
+  });
+
+  it('plugin.show 缺 artifactId / 找不到插件时给观测而非崩溃', async () => {
+    const h = harness();
+    setResponses(h, [ok('看', { kind: 'plugin.show' }), ok('好的', { kind: 'none' })]);
+    await new PluginAgentUseCase(h.options).turn({ text: '看' });
+    expect(h.snapshot.withCode).not.toHaveBeenCalled();
+    expect(h.gateway.execute).toHaveBeenCalledTimes(2);
+  });
+
+  it('plugin.show 找不到插件时回喂明确观测', async () => {
+    const h = harness();
+    h.snapshot.withCode.mockResolvedValue(null);
+    setResponses(h, [ok('看', { kind: 'plugin.show', artifactId: 'plugin:missing' }), ok('好的', { kind: 'none' })]);
+    const result = await new PluginAgentUseCase(h.options).turn({ text: '看' });
+    expect(result.reply).toBe('好的');
+    const second = h.gateway.execute.mock.calls[1]![0] as { messages: Array<{ content: string }> };
+    expect(second.messages.at(-1)!.content).toContain('找不到插件');
+  });
+
   it('plugin.list 动作把清单作为观测回喂，再给出最终回复', async () => {
     const h = harness();
     setResponses(h, [ok('查一下', { kind: 'plugin.list' }), ok('这是插件清单', { kind: 'none' })]);
@@ -121,6 +164,9 @@ describe('PluginAgentUseCase', () => {
     const result = await new PluginAgentUseCase(h.options).turn({ text: '写个排名规则' });
     expect(result.acted).toBe(true);
     expect(result.artifactId).toBe('plugin:new');
+    // codegen 的逐轮 trace 并入总 trace（用户要看到 LLM 调试过程）
+    expect(result.trace!.some((s) => s.source === 'codegen' && s.phase === 'sandbox')).toBe(true);
+    expect(result.trace!.some((s) => s.source === 'agent')).toBe(true);
     expect(h.artifacts.create).toHaveBeenCalledWith(expect.objectContaining({
       intent: '同分先比胜局', origin: 'llm', pointId: 'ranking.tiebreak',
     }));
@@ -174,14 +220,25 @@ describe('PluginAgentUseCase', () => {
     const result = await new PluginAgentUseCase(h.options).turn({ text: '你好' });
     expect(result.acted).toBe(false);
     expect(result.reply).toBe('随便聊聊');
+    expect(result.trace!.some((s) => s.phase === 'protocol' && !s.ok)).toBe(true);
   });
 
-  it('模型调用失败安全返回', async () => {
+  it('模型调用失败安全返回，且带失败 trace', async () => {
     const h = harness();
     h.gateway.execute.mockRejectedValue(new Error('超时'));
     const result = await new PluginAgentUseCase(h.options).turn({ text: '你好' });
     expect(result.reply).toContain('超时');
     expect(result.acted).toBe(false);
+    expect(result.trace!.some((s) => !s.ok && s.detail.includes('超时'))).toBe(true);
+  });
+
+  it('codegen 不带 trace 时优雅降级（兼容旧实现）', async () => {
+    const h = harness();
+    h.codegen.run.mockResolvedValue({ ok: true, code, output: [], attempts: 1, reply: '已生成' });
+    setResponses(h, [ok('写', { kind: 'plugin.create', code: 'x' })]);
+    const result = await new PluginAgentUseCase(h.options).turn({ text: '写个规则' });
+    expect(result.acted).toBe(true);
+    expect(result.trace!.every((s) => s.source === 'agent')).toBe(true);
   });
 
   it('plugin.toggle 按当前快照切换状态', async () => {
@@ -207,11 +264,13 @@ describe('PluginAgentUseCase', () => {
     expect(h.artifacts.remove).not.toHaveBeenCalled();
   });
 
-  it('决策次数上限后收敛，不会无限循环', async () => {
+  it('决策次数上限后收敛，不会无限循环，且带完整 trace', async () => {
     const h = harness();
     setResponses(h, [ok('列一下', { kind: 'plugin.list' })]);
     const result = await new PluginAgentUseCase(h.options).turn({ text: '反复列' });
     expect(h.gateway.execute).toHaveBeenCalledTimes(4); // maxAttempts 3 + 1
     expect(result.reply).toContain('次数已用尽');
+    expect(result.trace!.length).toBeGreaterThan(4);
+    expect(result.trace!.every((s) => s.source === 'agent')).toBe(true);
   });
 });

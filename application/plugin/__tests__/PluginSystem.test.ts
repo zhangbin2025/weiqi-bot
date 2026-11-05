@@ -4,7 +4,8 @@
  * 验证：
  * - 内存存储 + mock 运行时可完整装配
  * - **会话清空后工件仍可读可改**（工件中心最核心的验收点）
- * - 排名插件启用时覆盖内置结果，失败/未启用时回落
+ * - 排名插件「已启用」只是可用性闸门：只有显式传 selectedArtifactId 才覆盖内置结果，
+ *   未选 / 选错 / 失败 / 未启用一律回落原内置引用（用户拍板 A 的默认口径）
  * - 可配置修复轮数被正确传递给各层
  * - safeReply 防注入
  */
@@ -114,18 +115,7 @@ describe('createPluginSystem', () => {
     await s.dispose();
   });
 
-  it('没有启用插件时排名回落内置结果', async () => {
-    const s = await sys();
-    await s.artifacts.create({
-      name: '停用', intent: 'x', code: 'function rank(p){ return p }',
-      pointId: 'ranking.tiebreak', origin: 'llm', spec: RANKING_SPEC,
-    });
-    const b = builtin();
-    await expect(s.applyRanking(b)).resolves.toEqual(b);
-    await s.dispose();
-  });
-
-  it('启用插件后按插件结果覆盖排名', async () => {
+  it('默认不传 selectedArtifactId：即使有已启用插件也回落内置（原对象引用）', async () => {
     const s = await sys({
       runtime: runtime(ok([{ id: 2, rank: 1 }, { id: 1, rank: 2 }])),
     });
@@ -134,12 +124,56 @@ describe('createPluginSystem', () => {
       pointId: 'ranking.tiebreak', origin: 'llm', spec: RANKING_SPEC,
     });
     await s.artifacts.setEnabled(a.id, true);
-    const result = await s.applyRanking(builtin());
+    const b = builtin();
+    const result = await s.applyRanking(b);
+    expect(result).toBe(b); // 必须是原引用，不是等值副本
+    expect(s.runtime.run).not.toHaveBeenCalled(); // 轻量：不加载 wasm/Worker
+    await s.dispose();
+  });
+
+  it('显式选中已启用插件时才覆盖排名', async () => {
+    const s = await sys({
+      runtime: runtime(ok([{ id: 2, rank: 1 }, { id: 1, rank: 2 }])),
+    });
+    const a = await s.artifacts.create({
+      name: '规则', intent: 'x', code: 'function rank(p){ return p }',
+      pointId: 'ranking.tiebreak', origin: 'llm', spec: RANKING_SPEC,
+    });
+    await s.artifacts.setEnabled(a.id, true);
+    const result = await s.applyRanking(builtin(), a.id);
     expect(result.rankings.map((p) => p.id)).toEqual([2, 1]);
     await s.dispose();
   });
 
-  it('插件执行失败时回落内置结果，不抛错', async () => {
+  it('选中未启用的插件：回落内置（人工闸门不可绕过）', async () => {
+    const s = await sys({
+      runtime: runtime(ok([{ id: 2, rank: 1 }, { id: 1, rank: 2 }])),
+    });
+    const a = await s.artifacts.create({
+      name: '停用', intent: 'x', code: 'function rank(p){ return p }',
+      pointId: 'ranking.tiebreak', origin: 'llm', spec: RANKING_SPEC,
+    });
+    const b = builtin();
+    const result = await s.applyRanking(b, a.id);
+    expect(result).toBe(b);
+    expect(s.runtime.run).not.toHaveBeenCalled();
+    await s.dispose();
+  });
+
+  it('选中不存在的 id / 扩展点不匹配的插件：回落内置', async () => {
+    const s = await sys();
+    const b = builtin();
+    await expect(s.applyRanking(b, 'plugin:missing')).resolves.toBe(b);
+    const wrong = await s.artifacts.create({
+      name: '别的扩展点', intent: 'x', code: 'function rank(p){ return p }',
+      pointId: 'other.point', origin: 'llm', spec: { ...RANKING_SPEC, pointId: 'other.point' },
+    });
+    await s.artifacts.setEnabled(wrong.id, true);
+    await expect(s.applyRanking(b, wrong.id)).resolves.toBe(b);
+    await s.dispose();
+  });
+
+  it('显式选中后插件执行失败：回落内置结果，不抛错', async () => {
     const s = await sys({
       runtime: runtime({ ok: false, phase: 'runtime', error: { name: 'E', message: 'x' }, logs: [], elapsedMs: 1 }),
     });
@@ -149,7 +183,7 @@ describe('createPluginSystem', () => {
     });
     await s.artifacts.setEnabled(a.id, true);
     const b = builtin();
-    await expect(s.applyRanking(b)).resolves.toEqual(b);
+    await expect(s.applyRanking(b, a.id)).resolves.toBe(b);
     await s.dispose();
   });
 

@@ -125,8 +125,12 @@ export interface PluginSystem {
   codegen: PluginCodegenUseCase;
   agent: PluginAgentUseCase;
   maxAttempts: number;
-  /** 给排名页用：有启用插件则覆盖内置结果，否则回落 */
-  applyRanking(builtin: RankingResult): Promise<RankingResult>;
+  /**
+   * 给排名页用：**只有显式传入选中的插件 id 时才应用插件**，否则一律回落内置结果。
+   * 插件「已启用」只是可用性闸门，不等于「当前正在使用」——是否使用由页面菜单决定，
+   * 避免任何启用插件静默接管默认排序（用户明确要求默认维持无插件时的排序）。
+   */
+  applyRanking(builtin: RankingResult, selectedArtifactId?: string): Promise<RankingResult>;
   /** 渲染前安全处理 LLM 文本 */
   safeReply(text: string): string;
   dispose(): Promise<void>;
@@ -179,9 +183,12 @@ export async function createPluginSystem(options: PluginSystemOptions = {}): Pro
     codegen,
     agent,
     maxAttempts,
-    applyRanking: async (builtin: RankingResult) => {
+    applyRanking: async (builtin: RankingResult, selectedArtifactId?: string) => {
+      if (!selectedArtifactId) return builtin;
       const all = await artifacts.list();
-      const active = all.find((a) => a.enabled && a.pointId === RANKING_SPEC.pointId);
+      const active = all.find((a) =>
+        a.id === selectedArtifactId && a.enabled && a.pointId === RANKING_SPEC.pointId,
+      );
       if (!active) return builtin;
       const applied = await applyRankingPlugin(active.code, builtin, { runtime });
       return applied ?? builtin;

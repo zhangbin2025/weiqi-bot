@@ -58,6 +58,74 @@
         .typing-dot:nth-child(2) { animation-delay: .2s; }
         .typing-dot:nth-child(3) { animation-delay: .4s; }
         @keyframes chatDot { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
+
+        /* 插件调试过程：默认折叠，纯展示、不写历史 */
+        .plugin-trace { margin: 8px 12px 14px; }
+        .plugin-trace__details {
+            border: 1px solid #e3e0f3; border-radius: 10px;
+            background: #faf9ff; overflow: hidden;
+        }
+        .plugin-trace__summary {
+            padding: 8px 12px; font-size: 13px; color: #5b4b9e;
+            cursor: pointer; user-select: none; font-weight: 600;
+        }
+        .plugin-trace__list {
+            max-height: 45vh; overflow-y: auto; padding: 4px 12px 10px;
+            border-top: 1px solid #e3e0f3;
+        }
+        .plugin-trace__step {
+            padding: 6px 0; border-bottom: 0.5px dashed #e8e6f5; font-size: 12px;
+        }
+        .plugin-trace__step:last-child { border-bottom: none; }
+        .plugin-trace__head { display: flex; align-items: center; gap: 8px; }
+        .plugin-trace__tag { color: #8a86a8; font-family: monospace; }
+        .plugin-trace__flag { margin-left: auto; color: #07a35a; font-weight: 700; }
+        .plugin-trace__step--fail .plugin-trace__flag { color: #d34a4a; }
+        .plugin-trace__detail { color: #4a465e; line-height: 1.5; word-break: break-word; margin-top: 2px; }
+        .plugin-trace__code { margin-top: 6px; }
+        .plugin-trace__code > summary { font-size: 12px; color: #667eea; cursor: pointer; }
+        .plugin-trace__tools { margin: 4px 0; }
+        .plugin-trace__tools .copy-btn {
+            background: #667eea; color: #fff; border: none; border-radius: 4px;
+            padding: 3px 8px; font-size: 12px; cursor: pointer;
+        }
+        .plugin-trace__tools .copy-btn.copied { background: #07C160; }
+        .plugin-trace__pre {
+            margin: 0; padding: 8px 10px; max-height: 260px; overflow: auto;
+            background: #f4f2fb; border-radius: 6px; font-family: monospace;
+            font-size: 11px; line-height: 1.45; color: #3a3550; white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        /* 插件管理面板（WebDialog 内容，class 挂在 dialog 内的容器上） */
+        .plugin-panel { max-height: 60vh; overflow-y: auto; font-size: 13px; }
+        .plugin-panel__empty { color: #999; text-align: center; padding: 20px 0; }
+        .plugin-panel__card {
+            border: 1px solid #e8e8e8; border-radius: 10px;
+            padding: 10px 12px; margin-bottom: 10px; background: #fff;
+        }
+        .plugin-panel__head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .plugin-panel__name { font-weight: 600; color: #333; word-break: break-all; }
+        .plugin-panel__state {
+            font-size: 11px; padding: 1px 7px; border-radius: 10px;
+            background: #eee; color: #777;
+        }
+        .plugin-panel__state--on { background: #e6f7ed; color: #07a35a; }
+        .plugin-panel__meta { color: #999; font-size: 11px; margin: 4px 0; word-break: break-all; }
+        .plugin-panel__intent { color: #555; line-height: 1.4; margin: 4px 0; }
+        .plugin-panel__actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+        .plugin-panel__actions button {
+            border: 1px solid #dcdcf0; background: #f7f6ff; color: #5546a8;
+            border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+        }
+        .plugin-panel__actions button:hover { background: #ece9ff; }
+        .plugin-panel__actions .plugin-panel__danger { color: #c23b3b; border-color: #f0d4d4; background: #fff6f6; }
+        .plugin-panel__code {
+            margin: 8px 0 0; padding: 8px 10px; max-height: 260px; overflow: auto;
+            background: #f6f6fa; border-radius: 6px; font-family: monospace;
+            font-size: 11px; line-height: 1.45; color: #333; white-space: pre-wrap;
+            word-break: break-all;
+        }
     </style>
 </head>
 <body>
@@ -82,7 +150,7 @@
             <button class="toolbar-btn send-btn" id="sendBtn" title="发送" disabled>➤</button>
         </div>
 
-        <!-- 右上角菜单：仅会话相关四项 -->
+        <!-- 右上角菜单：会话四项 + 插件管理（用户拍板 C 允许第 5 项） -->
         <div class="command-menu" id="commandMenu">
             <div class="command-item" id="miNew">
                 <div class="command-icon">➕</div>
@@ -99,6 +167,10 @@
             <div class="command-item" id="miClear">
                 <div class="command-icon">🗑️</div>
                 <div class="command-title">清空会话</div>
+            </div>
+            <div class="command-item" id="miPlugin">
+                <div class="command-icon">🧩</div>
+                <div class="command-title">插件</div>
             </div>
         </div>
     </div>

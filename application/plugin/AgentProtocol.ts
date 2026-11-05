@@ -9,7 +9,7 @@
 import type { AgentActionKind, AgentResponse } from '@domain/plugin/types';
 
 const KINDS: ReadonlySet<string> = new Set([
-  'none', 'plugin.list', 'plugin.create', 'plugin.revise', 'plugin.toggle', 'plugin.delete',
+  'none', 'plugin.list', 'plugin.show', 'plugin.create', 'plugin.revise', 'plugin.toggle', 'plugin.delete',
 ]);
 
 /** 尝试解析一段文本为对象；失败返回 undefined */
@@ -109,7 +109,7 @@ export function parseAgentResponse(raw: string): { ok: true; response: AgentResp
   if (typedKind === 'plugin.revise' && !artifactId) {
     return { ok: false, reason: 'plugin.revise 必须提供 artifactId' };
   }
-  if ((typedKind === 'plugin.toggle' || typedKind === 'plugin.delete') && !artifactId) {
+  if ((typedKind === 'plugin.show' || typedKind === 'plugin.toggle' || typedKind === 'plugin.delete') && !artifactId) {
     return { ok: false, reason: `${typedKind} 必须提供 artifactId` };
   }
 

@@ -93,11 +93,20 @@ describe('parseAgentResponse', () => {
     expect(good.response.action.feedback).toBe('排反了');
   });
 
-  it('plugin.toggle / plugin.delete 必须有 artifactId', () => {
-    for (const k of ['plugin.toggle', 'plugin.delete']) {
+  it('plugin.show / plugin.toggle / plugin.delete 必须有 artifactId', () => {
+    for (const k of ['plugin.show', 'plugin.toggle', 'plugin.delete']) {
       expect(parseAgentResponse(ok('x', k)).reason).toContain('artifactId');
       expect(parseAgentResponse(ok('x', k, { artifactId: 'plugin:1' })).ok).toBe(true);
     }
+  });
+
+  it('plugin.show 解析通过且不需要 code', () => {
+    const r = parseAgentResponse(ok('给你看源码', 'plugin.show', { artifactId: 'plugin:1' }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.response.action.kind).toBe('plugin.show');
+    expect(r.response.action.artifactId).toBe('plugin:1');
+    expect(r.response.action.code).toBeUndefined();
   });
 
   it('plugin.list / none 不需要额外字段', () => {

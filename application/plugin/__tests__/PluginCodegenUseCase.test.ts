@@ -82,6 +82,41 @@ describe('PluginCodegenUseCase', () => {
     expect(h.runtime.run).toHaveBeenCalledTimes(1);
   });
 
+  it('trace 逐轮记录 llm / 校验 / 沙箱，且带完整源码', async () => {
+    const h = harness();
+    const result = await new PluginCodegenUseCase(h.options).run(baseReq);
+    expect(result.trace.length).toBeGreaterThan(0);
+    expect(result.trace.every((s) => s.source === 'codegen')).toBe(true);
+    expect(result.trace.some((s) => s.phase === 'llm' && s.code === goodCode)).toBe(true);
+    expect(result.trace.some((s) => s.phase === 'sandbox' && s.ok)).toBe(true);
+    expect(result.trace.every((s) => s.attempt >= 1 && typeof s.detail === 'string')).toBe(true);
+  });
+
+  it('失败轮也写进 trace，并把失败原因暴露给用户', async () => {
+    const h = harness();
+    h.runtime.run
+      .mockResolvedValueOnce({ ok: false, phase: 'runtime', error: { name: 'TypeError', message: 'bad' }, logs: [], elapsedMs: 1 } satisfies PluginRunResult)
+      .mockResolvedValueOnce({ ok: true, output: [2], logs: [], elapsedMs: 1 } satisfies PluginRunResult);
+    const result = await new PluginCodegenUseCase(h.options).run(baseReq);
+    expect(result.ok).toBe(true);
+    expect(result.attempts).toBe(2);
+    const failed = result.trace.filter((s) => !s.ok);
+    expect(failed.length).toBeGreaterThan(0);
+    expect(failed.some((s) => s.detail.includes('bad'))).toBe(true);
+    expect(result.trace.some((s) => s.phase === 'sandbox' && s.ok)).toBe(true);
+  });
+
+  it('模型调用失败也带 trace（不丢过程）', async () => {
+    const h = harness();
+    h.gateway.execute.mockRejectedValue(new Error('网络超时'));
+    const result = await new PluginCodegenUseCase(h.options).run(baseReq);
+    expect(result.ok).toBe(false);
+    expect(result.trace).toHaveLength(1);
+    expect(result.trace[0]!.ok).toBe(false);
+    expect(result.trace[0]!.phase).toBe('llm');
+    expect(result.trace[0]!.detail).toContain('网络超时');
+  });
+
   it('system prompt 带插件清单，且 messages 不含任何会话历史', async () => {
     const h = harness();
     const snapshot = [{ id: 'p1', name: '旧规则', enabled: true }];

@@ -30,11 +30,18 @@ describe('buildAgentSystemPrompt', () => {
 
   it('解释所有 action.kind 并要求严格 JSON', () => {
     const s = buildAgentSystemPrompt(snapshot, 3);
-    for (const k of ['none', 'plugin.list', 'plugin.create', 'plugin.revise', 'plugin.toggle', 'plugin.delete']) {
+    for (const k of ['none', 'plugin.list', 'plugin.show', 'plugin.create', 'plugin.revise', 'plugin.toggle', 'plugin.delete']) {
       expect(s).toContain(k);
     }
     expect(s).toContain('"reply"');
     expect(s).toContain('"action"');
+  });
+
+  it('明确告知清单默认不含源码、要看源码用 plugin.show', () => {
+    const s = buildAgentSystemPrompt(snapshot, 3);
+    expect(s).toContain('plugin.show');
+    expect(s).toContain('默认不含源码');
+    expect(s).toContain('不要凭记忆编造代码');
   });
 
   it('强调 create/revise 必须给完整 code、不要 diff', () => {

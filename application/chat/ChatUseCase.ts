@@ -75,10 +75,21 @@ export class ChatUseCase {
 
     this.renderer.showTyping();
     try {
-      const reply = this.agent
-        ? await this.runAgent(text)
-        : await this.runPlainChat();
+      const result = this.agent ? await this.runAgent(text) : undefined;
+      const reply = result ? result.reply : await this.runPlainChat();
       this.renderer.hideTyping();
+
+      // 插件调试过程：只渲染、绝不写历史（否则过程日志会污染下一轮上下文）。
+      // 渲染器可选实现，放在主回复之前 —— 过程在上、结论在下。
+      // 纯展示功能：渲染失败只吞掉，绝不能把主回复弄丢。
+      const trace = result?.trace;
+      if (trace && trace.length > 0 && this.renderer.renderPluginTrace) {
+        try {
+          await this.renderer.renderPluginTrace(trace);
+        } catch {
+          /* 过程日志渲染失败不影响对话，静默跳过 */
+        }
+      }
 
       const safe = this.agent ? this.agent.safeReply(reply) : reply;
       if (!safe.trim()) {
@@ -88,6 +99,7 @@ export class ChatUseCase {
       await this.renderer.renderMessage(
         safe, false, null, null, undefined, undefined, true,
       );
+      // 历史里只有干净的 user/assistant 文本，trace 永远不进来
       await this.history.addMessage({ role: 'assistant', content: safe });
     } catch (error) {
       this.renderer.hideTyping();
@@ -108,7 +120,7 @@ export class ChatUseCase {
   }
 
   /** 智能体路径：会话历史只作聊天上下文，插件能力完全来自工件 */
-  private async runAgent(text: string): Promise<string> {
+  private async runAgent(text: string): Promise<AgentTurnResult> {
     const agent = this.agent!;
     const history = buildConversationMessages(this.history.getMessages())
       .filter((m) => m.role !== 'system')
@@ -127,7 +139,7 @@ export class ChatUseCase {
       history,
       ...(sessionId ? { conversationRef: sessionId } : {}),
     });
-    return result.reply;
+    return result;
   }
 
   /** 提示类消息：只渲染，绝不写历史 */

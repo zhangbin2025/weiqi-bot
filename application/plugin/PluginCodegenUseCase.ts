@@ -16,6 +16,7 @@ import type {
   PluginRunResult,
   RepairFeedback,
   AgentResponse,
+  PluginTraceStep,
 } from '@domain/plugin/types';
 import { RANKING_SPEC } from '@domain/plugin/types';
 
@@ -81,6 +82,8 @@ export interface CodegenResult {
   lastFeedback?: RepairFeedback;
   /** LLM 给出的回复文本（成功时可用于渲染） */
   reply: string;
+  /** 逐轮调试过程（供对话页折叠展示，不写进会话历史） */
+  trace: PluginTraceStep[];
 }
 
 /** 从 LLM 文本里稳健提取代码：优先解析 {reply,action}，再兜底剥代码围栏 */
@@ -101,6 +104,12 @@ export class PluginCodegenUseCase {
     let code: string | undefined = req.currentCode;
     let lastFeedback: RepairFeedback | undefined;
     let reply = '';
+    const trace: PluginTraceStep[] = [];
+    const push = (stepAttempt: number, phase: string, ok: boolean, detail: string, stepCode?: string): void => {
+      const step: PluginTraceStep = { source: 'codegen', attempt: stepAttempt, phase, ok, detail };
+      if (stepCode !== undefined) step.code = stepCode;
+      trace.push(step);
+    };
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const messages = this.options.prompts.buildRepairMessages(
@@ -127,12 +136,15 @@ export class PluginCodegenUseCase {
           options: { jsonMode: true },
         });
         raw = result.text;
+        push(attempt, 'llm', true, `第 ${attempt}/${maxAttempts} 轮：模型已返回（${raw.length} 字符）`);
       } catch (error) {
+        push(attempt, 'llm', false, `第 ${attempt}/${maxAttempts} 轮：模型调用失败 ${error instanceof Error ? error.message : String(error)}`);
         return {
           ok: false,
           code: code ?? '',
           attempts: attempt,
           reply: `模型调用失败：${error instanceof Error ? error.message : String(error)}`,
+          trace,
         };
       }
 
@@ -140,6 +152,7 @@ export class PluginCodegenUseCase {
       const nextCode = extractCode(parsed.ok ? parsed.response : undefined, raw);
       if (parsed.ok) reply = parsed.response.reply;
       if (!nextCode) {
+        push(attempt, 'protocol', false, `第 ${attempt}/${maxAttempts} 轮：未拿到完整代码 — ${parsed.ok ? '未提供完整代码' : parsed.reason}`);
         lastFeedback = {
           phase: 'contract',
           ok: false,
@@ -151,10 +164,12 @@ export class PluginCodegenUseCase {
         continue;
       }
       code = nextCode;
+      push(attempt, 'llm', true, `第 ${attempt}/${maxAttempts} 轮：提取到完整源码（${code.length} 字符）`, code);
 
       // 每轮都全量校验（LLM 在修复时可能试探越权 API）
       const check = this.options.validator.validate(code, spec);
       if (!check.ok) {
+        push(attempt, 'validate', false, `第 ${attempt}/${maxAttempts} 轮：代码校验未通过 — ${check.reason ?? '代码校验失败'}`);
         lastFeedback = {
           phase: 'contract',
           ok: false,
@@ -171,6 +186,7 @@ export class PluginCodegenUseCase {
       try {
         runResult = await this.options.runtime.run(code, req.sampleInput, spec);
       } catch (error) {
+        push(attempt, 'sandbox', false, `第 ${attempt}/${maxAttempts} 轮：沙箱异常 ${error instanceof Error ? error.message : String(error)}`);
         runResult = {
           ok: false,
           phase: 'crash',
@@ -181,8 +197,10 @@ export class PluginCodegenUseCase {
       }
 
       if (runResult.ok) {
-        return { ok: true, code, output: runResult.output, attempts: attempt, reply };
+        push(attempt, 'sandbox', true, `第 ${attempt}/${maxAttempts} 轮：沙箱试算通过（${runResult.elapsedMs}ms）`);
+        return { ok: true, code, output: runResult.output, attempts: attempt, reply, trace };
       }
+      push(attempt, 'sandbox', false, `第 ${attempt}/${maxAttempts} 轮：试算失败 [${runResult.phase}] ${runResult.error?.message ?? runResult.hint ?? '未知'}`, code);
       lastFeedback = this.options.feedback.toFeedback(runResult, attempt, maxAttempts);
     }
 
@@ -192,6 +210,7 @@ export class PluginCodegenUseCase {
       attempts: maxAttempts,
       ...(lastFeedback ? { lastFeedback } : {}),
       reply: `已尝试 ${maxAttempts} 轮仍未得到可用插件，请调整描述或手动修改代码。`,
+      trace,
     };
   }
 }

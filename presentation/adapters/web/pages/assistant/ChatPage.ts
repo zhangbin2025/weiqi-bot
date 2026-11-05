@@ -9,7 +9,8 @@
  * 插件数据来自独立工件存储，不来自会话历史 —— 新会话、老会话、会话清空后
  * LLM 都能看到并修改插件。装配失败时自动降级为纯聊天，页面始终可用。
  *
- * 右上角菜单仅四项：新建会话 / 历史会话 / 导出会话 / 清空会话。
+ * 右上角菜单五项：新建会话 / 历史会话 / 导出会话 / 清空会话 / 插件。
+ * 「插件」是人工确认闸门：查看完整源码、复制、启停、删除都由用户显式操作。
  */
 
 import { AssistantRenderer } from './AssistantRenderer';
@@ -21,6 +22,7 @@ import { WebDialog } from '../../components/Dialog';
 import { ChatUseCase } from '../../../../../application/chat/ChatUseCase';
 import { OpenAIModelGateway } from '../../../../../infrastructure/llm/OpenAIModelGateway';
 import { createPluginSystem, type PluginSystem } from '../../../../../application/plugin/PluginSystem';
+import type { PluginArtifact } from '../../../../../domain/plugin/types';
 
 /** 与功能助手 'chat-session' 隔离，导出/清空天然只覆盖对话页会话 */
 const CHAT_CATEGORY = 'chat-conversation';
@@ -35,6 +37,8 @@ export class ChatPage {
   private history!: ChatHistoryManager;
   private useCase!: ChatUseCase;
   private plugin: PluginSystem | undefined;
+  /** 面板刷新序号：异步 list() 期间用户可能关掉/重开面板，旧结果必须丢弃 */
+  private pluginPanelSeq = 0;
 
   async init(): Promise<void> {
     const storage = new IndexedDBAdapter<{ id: string; category: string; key: string; createdAt: number }>(
@@ -92,13 +96,14 @@ export class ChatPage {
     input?.addEventListener('input', () => this.autoResize(input));
     sendBtn?.addEventListener('click', () => void this.handleSend());
 
-    // 菜单四项 + 遮罩关闭
+    // 菜单五项 + 遮罩关闭
     document.getElementById('menuBtn')?.addEventListener('click', () => this.toggleMenu());
     document.getElementById('menuOverlay')?.addEventListener('click', () => this.toggleMenu(false));
     document.getElementById('miNew')?.addEventListener('click', () => void this.newSession());
     document.getElementById('miHistory')?.addEventListener('click', () => void this.showHistory());
     document.getElementById('miExport')?.addEventListener('click', () => void this.exportCurrent());
     document.getElementById('miClear')?.addEventListener('click', () => void this.clearCurrent());
+    document.getElementById('miPlugin')?.addEventListener('click', () => void this.showPluginPanel());
   }
 
   private autoResize(input: HTMLTextAreaElement): void {
@@ -292,6 +297,195 @@ export class ChatPage {
     this.updateTitle();
     this.syncReadyState();
     await this.renderer.renderMessage('当前会话已清空。', false, null, null, undefined, undefined, false);
+  }
+
+  // ---------- 插件管理面板（人工确认闸门） ----------
+
+  /**
+   * 列出全部工件，提供「查看完整源码 / 复制 / 启停 / 删除」。
+   * 动态文本一律 textContent 构造 —— 插件名、id、源码都来自用户/LLM，绝不能拼进 innerHTML。
+   */
+  private async showPluginPanel(): Promise<void> {
+    this.toggleMenu(false);
+    // show() 是阻塞式 Promise（点关闭才 resolve），DOM 同步插入；
+    // 先发起显示再填充内容，与 showHistory 同一套路。
+    void this.dialog.show({
+      type: 'custom',
+      title: '插件管理',
+      content: '<div class="plugin-panel" id="pluginPanelRoot"></div>',
+      buttons: [{ id: 'close', text: '关闭' }],
+    });
+    await this.refreshPluginPanel();
+  }
+
+  private async refreshPluginPanel(): Promise<void> {
+    const seq = ++this.pluginPanelSeq;
+    const root = document.getElementById('pluginPanelRoot');
+    if (!root) return;
+    root.replaceChildren();
+
+    const plugin = this.plugin;
+    if (!plugin) {
+      root.appendChild(this.pluginPanelMessage('插件系统未就绪（当前为纯聊天模式）。'));
+      return;
+    }
+
+    let artifacts: PluginArtifact[];
+    try {
+      artifacts = await plugin.artifacts.list();
+    } catch (error) {
+      if (seq !== this.pluginPanelSeq || !root.isConnected) return;
+      root.appendChild(this.pluginPanelMessage(
+        `读取插件失败：${error instanceof Error ? error.message : String(error)}`,
+      ));
+      return;
+    }
+    // await 期间面板可能被关掉/重开：确认 root 仍挂载且是最新一次刷新
+    if (seq !== this.pluginPanelSeq || !root.isConnected) return;
+    if (document.getElementById('pluginPanelRoot') !== root) return;
+
+    if (artifacts.length === 0) {
+      root.appendChild(this.pluginPanelMessage(
+        '当前没有插件。可以在对话里让模型编写，生成候选后在这里确认启用。',
+      ));
+      return;
+    }
+    for (const artifact of artifacts) {
+      root.appendChild(this.buildPluginCard(artifact, plugin));
+    }
+  }
+
+  private pluginPanelMessage(text: string): HTMLElement {
+    const div = document.createElement('div');
+    div.className = 'plugin-panel__empty';
+    div.textContent = text;
+    return div;
+  }
+
+  private pluginAction(label: string, onClick: () => void, extraClass = ''): HTMLButtonElement {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = label;
+    if (extraClass) btn.className = extraClass;
+    btn.addEventListener('click', onClick);
+    return btn;
+  }
+
+  private buildPluginCard(artifact: PluginArtifact, plugin: PluginSystem): HTMLElement {
+    const card = document.createElement('div');
+    card.className = 'plugin-panel__card';
+
+    const head = document.createElement('div');
+    head.className = 'plugin-panel__head';
+    const name = document.createElement('span');
+    name.className = 'plugin-panel__name';
+    name.textContent = artifact.name;
+    const state = document.createElement('span');
+    state.className = `plugin-panel__state${artifact.enabled ? ' plugin-panel__state--on' : ''}`;
+    state.textContent = artifact.enabled ? '已启用' : '停用';
+    head.appendChild(name);
+    head.appendChild(state);
+    card.appendChild(head);
+
+    const meta = document.createElement('div');
+    meta.className = 'plugin-panel__meta';
+    meta.textContent = `${artifact.id} · ${artifact.pointId} · v${artifact.version} · ${this.formatTime(artifact.updatedAt)}`;
+    card.appendChild(meta);
+
+    const intent = document.createElement('div');
+    intent.className = 'plugin-panel__intent';
+    intent.textContent = artifact.intent;
+    card.appendChild(intent);
+
+    const actions = document.createElement('div');
+    actions.className = 'plugin-panel__actions';
+
+    const viewBtn = this.pluginAction('查看源码', () => {
+      const existing = card.querySelector('.plugin-panel__code');
+      if (existing) {
+        existing.remove();
+        viewBtn.textContent = '查看源码';
+        return;
+      }
+      const pre = document.createElement('pre');
+      pre.className = 'plugin-panel__code';
+      pre.textContent = artifact.code; // 完整源码，textContent 防注入
+      card.appendChild(pre);
+      viewBtn.textContent = '收起源码';
+    });
+    actions.appendChild(viewBtn);
+
+    const copyBtn = this.pluginAction('复制源码', () => void this.copyPluginText(artifact.code, copyBtn));
+    actions.appendChild(copyBtn);
+
+    const toggleBtn = this.pluginAction(artifact.enabled ? '停用' : '启用', () => {
+      void (async () => {
+        try {
+          await plugin.artifacts.setEnabled(artifact.id, !artifact.enabled);
+          await this.refreshPluginPanel();
+        } catch (error) {
+          this.showPluginError(`操作失败：${error instanceof Error ? error.message : String(error)}`);
+        }
+      })();
+    });
+    actions.appendChild(toggleBtn);
+
+    // 删除走内联二次确认：不嵌套 dialog（WebDialog 是单例）、不依赖 window.confirm
+    actions.appendChild(this.pluginAction('删除', () => {
+      actions.replaceChildren();
+      const tip = document.createElement('span');
+      tip.textContent = '确认删除该插件？';
+      tip.style.cssText = 'color:#c23b3b;font-size:12px;align-self:center;';
+      actions.appendChild(tip);
+      actions.appendChild(this.pluginAction('确认删除', () => {
+        void (async () => {
+          try {
+            await plugin.artifacts.remove(artifact.id);
+            await this.refreshPluginPanel();
+          } catch (error) {
+            this.showPluginError(`删除失败：${error instanceof Error ? error.message : String(error)}`);
+          }
+        })();
+      }, 'plugin-panel__danger'));
+      actions.appendChild(this.pluginAction('取消', () => void this.refreshPluginPanel()));
+    }, 'plugin-panel__danger'));
+
+    card.appendChild(actions);
+    return card;
+  }
+
+  private async copyPluginText(text: string, btn: HTMLButtonElement): Promise<void> {
+    const original = btn.textContent ?? '复制源码';
+    const done = (): void => {
+      btn.textContent = '已复制';
+      setTimeout(() => { btn.textContent = original; }, 2000);
+    };
+    try {
+      await navigator.clipboard.writeText(text);
+      done();
+    } catch {
+      // 非安全上下文 / WebView 兑底：textarea + execCommand
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      try { document.execCommand('copy'); } catch { /* 克隆失败也给出反馈 */ }
+      textarea.remove();
+      done();
+    }
+  }
+
+  private showPluginError(message: string): void {
+    const root = document.getElementById('pluginPanelRoot');
+    if (!root) return;
+    const tip = document.createElement('div');
+    tip.className = 'plugin-panel__empty';
+    tip.style.color = '#c23b3b';
+    tip.textContent = message;
+    root.prepend(tip);
+    setTimeout(() => tip.remove(), 3000);
   }
 
   // ---------- 工具 ----------

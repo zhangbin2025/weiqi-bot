@@ -3,6 +3,7 @@
  * @module application/assistant/IMessageRenderer
  */
 import type { IntentConfig } from '../../domain/intent/intent-config';
+import type { PluginTraceStep } from '../../domain/plugin/types';
 /**
  * 消息渲染器接口
  * 由表现层实现，用于渲染消息到 UI
@@ -53,4 +54,11 @@ export interface IMessageRenderer {
    * @param onCancel 取消回调
    */
   showCountdownJump(jumpUrl: string, countdown: number, onCancel: () => void): void;
+  /**
+   * 渲染「插件调试过程」的可折叠日志（可选实现）。
+   *
+   * 纯展示、不写入会话历史；由 ChatUseCase 在智能体返回 trace 后调用。
+   * 表现层必须全程用 textContent 构造，禁止把步骤文本交给 marked/innerHTML。
+   */
+  renderPluginTrace?(steps: PluginTraceStep[]): Promise<void>;
 }

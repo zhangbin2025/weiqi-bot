@@ -164,6 +164,7 @@ export interface RepairFeedback {
 export type AgentActionKind =
   | 'none'
   | 'plugin.list'
+  | 'plugin.show'
   | 'plugin.create'
   | 'plugin.revise'
   | 'plugin.toggle'
@@ -184,6 +185,23 @@ export interface AgentResponse {
   action: AgentAction;
 }
 
+/**
+ * 调试过程的一步（供对话页「过程日志」折叠展示，不写进会话历史）。
+ * source=codegen 是「LLM 写/改代码」的自动修复循环，source=agent 是外层决策循环。
+ */
+export interface PluginTraceStep {
+  source: 'agent' | 'codegen';
+  /** 轮次：codegen 为修复轮，agent 为决策轮 */
+  attempt: number;
+  /** 阶段短标签（llm / protocol / validate / sandbox / crash / decision / observe / final） */
+  phase: string;
+  ok: boolean;
+  /** 一行人话摘要，已含轮次与结果描述 */
+  detail: string;
+  /** 该轮 LLM 产出的完整源码（可选，供「查看本轮代码」） */
+  code?: string;
+}
+
 /** 一次 Agent Turn 的结果 */
 export interface AgentTurnResult {
   reply: string;
@@ -192,6 +210,8 @@ export interface AgentTurnResult {
   acted: boolean;
   /** 自动修复轮数 */
   attempts: number;
+  /** 调试过程（可选）：对话页据此渲染可折叠的过程日志 */
+  trace?: PluginTraceStep[];
 }
 
 // ---------- 端口（六边形架构：application 依赖端口，infrastructure 实现） ----------

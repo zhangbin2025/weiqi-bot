@@ -12,6 +12,17 @@ import { RankingCalculator } from '../../../../../domain/ranking/RankingCalculat
 import { PdfEventService } from '../../../../../services/event/PdfEventService';
 import { EventDetailRenderer } from './EventDetailRenderer';
 import { SessionStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/SessionStorageAdapter';
+import { LocalStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/LocalStorageAdapter';
+
+/** ⚙️ 菜单里「当前选中的排名插件」持久化键；没有/失效时一律回落内置排序 */
+const RANKING_PLUGIN_KEY = 'event-ranking-plugin';
+
+/** 读取持久化的插件选择；裸字符串或 JSON 字符串都兼容（LocalStorageAdapter 有 namespace 时会 JSON 序列化） */
+function readRankingPluginSelection(store: LocalStorageAdapter): string | undefined {
+  const raw = store.readSync<string>(RANKING_PLUGIN_KEY);
+  if (typeof raw !== 'string' || !raw.trim()) return undefined;
+  return raw.trim();
+}
 
 export interface EventDetailPageConfig {
   eventQuerier: EventQuerier;
@@ -25,7 +36,10 @@ interface Cache {
   groups: Group[]; selectedGroupId?: number | undefined; currentRound: number;
   totalRounds: number; currentTab: 'ranking' | 'matches' | 'players'; rankingData: RankingResult | null;
   matchData: AgainstPlanResult | null; playerData: PlayerListResult | null;
-  playersTabAvailable: boolean; timestamp: number;
+  playersTabAvailable: boolean;
+  /** 生成该缓存时选中的排名插件口径（undefined=内置）；恢复时据此判断是否需重算 */
+  rankingPluginId?: string;
+  timestamp: number;
 }
 
 const CACHE_TTL = 5 * 60 * 1000;
@@ -50,6 +64,9 @@ export class EventDetailPage implements IPage {
   private rankingMode: RankingMode = 'default';
   private pdfService = new PdfEventService();
   private readonly sessionStore = new SessionStorageAdapter('weiqi-bot');
+  private readonly localStore = new LocalStorageAdapter('weiqi-bot');
+  /** 当前选中的排名插件 id；undefined = 使用无插件的内置排序（默认） */
+  private selectedRankingPluginId: string | undefined;
 
   /** PDF 模式：pdfGroupId → 数字 id 映射 */
   private pdfGroupMap = new Map<number, string>();
@@ -69,6 +86,7 @@ export class EventDetailPage implements IPage {
       onPlayerClick: (n) => { if (this.pcFn) this.pcFn(n); },
       onShowOpponents: (n) => this.showOpp(n),
       onRankingModeChange: (mode) => { this.rankingMode = mode; if (this.selGid) this.selectGroup(String(this.selGid), true); },
+      onRankingPluginChange: (id) => void this.setRankingPlugin(id),
       onRefresh: () => this.refresh(),
     }, c.adapterFactory, c.formatter);
   }
@@ -77,10 +95,47 @@ export class EventDetailPage implements IPage {
     if (this.init) return;
     await this.renderer.initialize(); this.renderer.bindActions();
     await this.pdfService.init();
+    // 恢复上次选中的排名插件（用户明确要求：只要上次选了插件，下次默认仍用它排序）。
+    // 清单加载完会校验该 id 是否仍存在/启用；失效时自动清除并回落内置。
+    try {
+      await this.localStore.initialize();
+      this.selectedRankingPluginId = readRankingPluginSelection(this.localStore);
+    } catch { this.selectedRankingPluginId = undefined; }
+    await this.refreshRankingPluginMenu();
     this.init = true;
   }
 
+  /** 拉取已启用的排名插件，喂给 ⚙️ 菜单；同时校验当前选择是否仍有效 */
+  private async refreshRankingPluginMenu(): Promise<void> {
+    try {
+      const sys = await this.ensurePluginSystem();
+      if (!sys) return;
+      const items = (await sys.artifacts.list())
+        .filter((a) => a.enabled && a.pointId === 'ranking.tiebreak')
+        .map((a) => ({ id: a.id, name: a.name }));
+      this.renderer.setRankingPlugins(items, this.selectedRankingPluginId);
+    } catch {
+      this.renderer.setRankingPlugins([]);
+    }
+  }
+
+  /** 选择/取消某个排名插件：持久化 + 立刻重算当前分组排名 */
+  private async setRankingPlugin(id: string | undefined): Promise<void> {
+    this.selectedRankingPluginId = id;
+    try {
+      if (id) await this.localStore.write(RANKING_PLUGIN_KEY, id);
+      else await this.localStore.delete(RANKING_PLUGIN_KEY);
+    } catch { /* 存储不可用时不阻塞排序切换 */ }
+    if (this.selGid) {
+      if (this.source === 'pdf') await this.loadPdfGroup(this.selGid);
+      else await this.selectGroup(String(this.selGid), true);
+    }
+  }
+
   handleParams(p: PageParams): void {
+    // 页面实例在 SPA 内复用：每次重新进入都刷新一次插件清单
+    // （用户可能在对话页新建/启用/删除了插件），不阻塞主流程。
+    void this.refreshRankingPluginMenu();
     if (p['source'] === 'pdf') {
       this.source = 'pdf';
       this.rankingMode = 'directWin';
@@ -212,26 +267,35 @@ export class EventDetailPage implements IPage {
   }
 
   /**
-   * 把启用的排名插件应用到内置结果上。
-   * 惰性装配：没有启用插件时完全不加载 QuickJS/wasm；任何失败都静默回落内置结果，
-   * 保证赛事详情页永远不因插件而白屏。
+   * 装配（复用）插件系统。构造本身不加载 wasm/Worker，只有真正 run() 才创建。
+   * 失败返回 undefined，页面静默回落内置能力。
    *
    * 生命周期：赛事页是 SPA 内页面，pluginSystem 在页面实例上复用，路由切走时实例销毁、
    * Worker 随之被 GC；单页内不为每次排名计算新建 runtime，避免反复加载 wasm。
    */
-  private async applyRankingPlugins(rankData: RankingResult): Promise<RankingResult> {
+  private async ensurePluginSystem(): Promise<import('../../../../../application/plugin/PluginSystem').PluginSystem | undefined> {
+    if (this.pluginSystem) return this.pluginSystem;
     try {
-      let sys = this.pluginSystem;
-      if (!sys) {
-        const mod = await import('../../../../../application/plugin/PluginSystem');
-        sys = await mod.createPluginSystem();
-        this.pluginSystem = sys;
-      }
-      const active = (await sys.artifacts.list()).find(
-        (a) => a.enabled && a.pointId === 'ranking.tiebreak',
-      );
-      if (!active) return rankData;
-      return await sys.applyRanking(rankData);
+      const mod = await import('../../../../../application/plugin/PluginSystem');
+      const sys = await mod.createPluginSystem();
+      this.pluginSystem = sys;
+      return sys;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * 只有当用户通过 ⚙️ 菜单显式选择了某个插件时才应用插件排序；
+   * 未选择（默认）一律返回内置结果，插件「已启用」不再等于「正在使用」。
+   * 任何失败都静默回落内置结果，保证赛事详情页永远不因插件而白屏。
+   */
+  private async applyRankingPlugins(rankData: RankingResult): Promise<RankingResult> {
+    if (!this.selectedRankingPluginId) return rankData;
+    try {
+      const sys = await this.ensurePluginSystem();
+      if (!sys) return rankData;
+      return await sys.applyRanking(rankData, this.selectedRankingPluginId);
     } catch {
       return rankData;
     }
@@ -245,7 +309,9 @@ export class EventDetailPage implements IPage {
       groups: this.groups, selectedGroupId: this.selGid, currentRound: this.curRound,
       totalRounds: this.totRounds, currentTab: this.curTab, rankingData: this.rankData,
       matchData: this.matchData, playerData: this.playerData,
-      playersTabAvailable: this.playersTabAvailable, timestamp: Date.now(),
+      playersTabAvailable: this.playersTabAvailable,
+      ...(this.selectedRankingPluginId ? { rankingPluginId: this.selectedRankingPluginId } : {}),
+      timestamp: Date.now(),
     } as Cache));
   }
 
@@ -267,17 +333,25 @@ export class EventDetailPage implements IPage {
       this.renderer.renderGroupSelect(this.groups, this.selGid);
       this.renderContent();
       this.renderer.showContainer();
-      // 缓存里是内置排名，插件可能已启用：异步补应用，仅在结果变化时重绘。
-      // 失败静默回落，不影响缓存秒开的体验。
-      if (c.rankingData) {
-        void this.applyRankingPlugins(c.rankingData).then((applied) => {
-          if (applied === this.rankData) return;
-          this.rankData = applied;
-          this.renderContent();
-        });
+      // 缓存是「当时选中口径」下的结果。若当前选择的插件口径与缓存不一致
+      // （跨版本旧缓存，或插件被停用/删除导致选择被清），异步按当前口径重新加载；
+      // 一致时直接显示缓存，秒开且口径正确，不会二次应用插件。
+      if (c.rankingPluginId !== this.selectedRankingPluginId) {
+        void this.recomputeForCurrentRankingPlugin();
       }
       return true;
     } catch { return false; }
+  }
+
+  /** 缓存口径与当前插件选择不一致时，按当前口径重新生成当前分组数据并刷新缓存 */
+  private async recomputeForCurrentRankingPlugin(): Promise<void> {
+    if (!this.selGid) return;
+    if (this.source === 'pdf') {
+      await this.loadPdfGroup(this.selGid);
+    } else {
+      await this.selectGroup(String(this.selGid), true);
+    }
+    this.saveCache();
   }
 
   private async loadEvent(): Promise<void> {

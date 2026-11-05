@@ -19,6 +19,7 @@ import type {
   AgentTurnResult,
   RepairFeedback,
   PluginContextEntry,
+  PluginTraceStep,
 } from '@domain/plugin/types';
 import { RANKING_SPEC } from '@domain/plugin/types';
 
@@ -50,6 +51,8 @@ export interface IPluginArtifactService {
 
 export interface IPluginSnapshot {
   snapshot(): Promise<PluginContextEntry[]>;
+  /** 带完整源码的条目（plugin.show 用它取源码） */
+  withCode(id: string): Promise<PluginContextEntry | null>;
 }
 
 export interface IPluginCodegen {
@@ -62,7 +65,7 @@ export interface IPluginCodegen {
     snapshot?: PluginContextEntry[];
   }): Promise<{
     ok: boolean; code: string; output?: unknown; attempts: number;
-    lastFeedback?: RepairFeedback; reply: string;
+    lastFeedback?: RepairFeedback; reply: string; trace: PluginTraceStep[];
   }>;
 }
 
@@ -108,10 +111,15 @@ export class PluginAgentUseCase {
 
     let attempts = 0;
     let pendingObservation = '';
+    const trace: PluginTraceStep[] = [];
+    const push = (stepAttempt: number, phase: string, ok: boolean, detail: string): void => {
+      trace.push({ source: 'agent', attempt: stepAttempt, phase, ok, detail });
+    };
 
     // Agent Loop：最多 maxAttempts+1 次决策，防止模型反复要动作却不收敛
     const maxTurns = Math.max(1, this.options.maxAttempts) + 1;
     for (let turn = 0; turn < maxTurns; turn++) {
+      push(turn + 1, 'decision', true, `第 ${turn + 1}/${maxTurns} 次决策：调用模型`);
       const callMessages: ModelMessage[] = pendingObservation
         ? [...messages, { role: 'user', content: pendingObservation }]
         : messages;
@@ -124,47 +132,74 @@ export class PluginAgentUseCase {
         });
         raw = result.text;
       } catch (error) {
+        push(turn + 1, 'decision', false, `第 ${turn + 1}/${maxTurns} 次决策：模型调用失败 ${error instanceof Error ? error.message : String(error)}`);
         return {
           reply: `模型调用失败：${error instanceof Error ? error.message : String(error)}`,
           acted: false,
           attempts,
+          trace,
         };
       }
 
       const parsed = this.options.protocol.parse(raw);
       if (!parsed.ok) {
         // 协议失败：当作纯聊天回复，保证对话页永远可用
-        return { reply: raw.trim().slice(0, 2000) || '模型没有返回内容', acted: false, attempts };
+        push(turn + 1, 'protocol', false, `第 ${turn + 1}/${maxTurns} 次决策：协议解析失败，降级为纯文本 — ${parsed.reason}`);
+        return { reply: raw.trim().slice(0, 2000) || '模型没有返回内容', acted: false, attempts, trace };
       }
       const { reply, action } = parsed.response;
+      push(turn + 1, 'decision', true, `第 ${turn + 1}/${maxTurns} 次决策：动作 ${action.kind}`);
 
       switch (action.kind) {
         case 'none':
-          return { reply, acted: false, attempts };
+          push(turn + 1, 'final', true, '纯聊天回复，未执行插件动作');
+          return { reply, acted: false, attempts, trace };
 
         case 'plugin.list': {
           const lines = snapshot.length
             ? snapshot.map((p) => `- ${p.id} ${p.name} [${p.pointId}] ${p.enabled ? '启用' : '停用'} v${p.version}：${p.intent}`).join('\n')
             : '（当前没有插件）';
           pendingObservation = observe(`当前插件清单：\n${lines}`);
+          push(turn + 1, 'observe', true, `清单回喂（${snapshot.length} 个插件）`);
+          continue;
+        }
+
+        case 'plugin.show': {
+          const id = action.artifactId;
+          if (!id) { pendingObservation = observe('show 缺少 artifactId'); push(turn + 1, 'observe', false, 'show 缺少 artifactId'); continue; }
+          const entry = await this.options.snapshot.withCode(id);
+          if (!entry) {
+            pendingObservation = observe(`找不到插件 ${id}`);
+            push(turn + 1, 'observe', false, `找不到插件 ${id}`);
+            continue;
+          }
+          // 源码作为观测回喂给模型：模型据此可以原样展示、解释或修订，不需要凭记忆编造。
+          pendingObservation = observe(
+            `插件 ${id}（${entry.name}，${entry.pointId}，v${entry.version}）的完整源码：\n` +
+            '```js\n' + (entry.code ?? '（无源码）') + '\n```\n' +
+            '注意：这是工件的真实源码。用户要求查看时请把源码原样放进 reply，不要改写或摘要。',
+          );
+          push(turn + 1, 'observe', true, `已读取插件 ${id} 源码（${(entry.code ?? '').length} 字符）并回喂`);
           continue;
         }
 
         case 'plugin.toggle': {
           const id = action.artifactId;
-          if (!id) { pendingObservation = observe('toggle 缺少 artifactId'); continue; }
+          if (!id) { pendingObservation = observe('toggle 缺少 artifactId'); push(turn + 1, 'observe', false, 'toggle 缺少 artifactId'); continue; }
           const artifact = await this.options.artifacts.get(id);
-          if (!artifact) { pendingObservation = observe(`找不到插件 ${id}`); continue; }
+          if (!artifact) { pendingObservation = observe(`找不到插件 ${id}`); push(turn + 1, 'observe', false, `找不到插件 ${id}`); continue; }
           await this.options.artifacts.setEnabled(id, !snapshot.find((p) => p.id === id)?.enabled);
           pendingObservation = observe(`插件 ${id} 状态已切换`);
+          push(turn + 1, 'observe', true, `插件 ${id} 状态已切换`);
           continue;
         }
 
         case 'plugin.delete': {
           const id = action.artifactId;
-          if (!id) { pendingObservation = observe('delete 缺少 artifactId'); continue; }
+          if (!id) { pendingObservation = observe('delete 缺少 artifactId'); push(turn + 1, 'observe', false, 'delete 缺少 artifactId'); continue; }
           await this.options.artifacts.remove(id);
           pendingObservation = observe(`插件 ${id} 已删除`);
+          push(turn + 1, 'observe', true, `插件 ${id} 已删除`);
           continue;
         }
 
@@ -186,8 +221,11 @@ export class PluginAgentUseCase {
             spec,
             snapshot,
           });
+          // 把「LLM 写/改代码」的逐轮过程并入总 trace，这才是用户想看到的调试过程。
+          for (const step of codegen.trace ?? []) trace.push(step);
 
           if (!codegen.ok) {
+            push(turn + 1, 'observe', false, `代码生成未通过（${codegen.attempts} 轮）`);
             pendingObservation = observe(
               `代码生成未通过（${codegen.attempts} 轮）：` +
               (codegen.lastFeedback?.error?.message ?? codegen.reply),
@@ -197,6 +235,7 @@ export class PluginAgentUseCase {
 
           const check = this.options.validator.validate(codegen.code, spec);
           if (!check.ok) {
+            push(turn + 1, 'validate', false, `候选代码二次校验失败：${check.reason ?? '未知原因'}`);
             pendingObservation = observe(`代码校验失败：${check.reason ?? '未知原因'}`);
             continue;
           }
@@ -228,11 +267,12 @@ export class PluginAgentUseCase {
             ...(artifactId ? { artifactId } : {}),
             acted: true,
             attempts,
+            trace,
           };
         }
 
         default:
-          return { reply, acted: false, attempts };
+          return { reply, acted: false, attempts, trace };
       }
     }
 
@@ -240,6 +280,7 @@ export class PluginAgentUseCase {
       reply: '本轮决策次数已用尽，请简化需求后重试。',
       acted: false,
       attempts,
+      trace,
     };
   }
 }

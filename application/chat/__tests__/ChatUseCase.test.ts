@@ -11,7 +11,11 @@ function makeRenderer() {
     showTyping: vi.fn(),
     hideTyping: vi.fn(),
     showCountdownJump: vi.fn(),
-  } as unknown as IMessageRenderer & { renderMessage: ReturnType<typeof vi.fn> };
+    renderPluginTrace: vi.fn().mockResolvedValue(undefined),
+  } as unknown as IMessageRenderer & {
+    renderMessage: ReturnType<typeof vi.fn>;
+    renderPluginTrace: ReturnType<typeof vi.fn>;
+  };
 }
 
 function makeHistory(messages: Array<{ role: 'user' | 'assistant'; content: string }> = []) {
@@ -95,6 +99,89 @@ describe('ChatUseCase.send', () => {
     expect(contents).toContain('柯洁和申真谞谁厉害');
     expect(contents).toContain('两人互有胜负');
     expect(contents[contents.length - 1]).toBe('那他跟李世石呢');
+  });
+
+  it('Agent 路径把 trace 交给渲染器，且过程日志绝不写进历史', async () => {
+    const renderer = makeRenderer();
+    const history = makeHistory();
+    const trace = [
+      { source: 'agent' as const, attempt: 1, phase: 'decision', ok: true, detail: '第 1 次决策' },
+      { source: 'codegen' as const, attempt: 1, phase: 'sandbox', ok: true, detail: '试算通过', code: 'function rank(p){return p}' },
+    ];
+    const agent = {
+      turn: vi.fn().mockResolvedValue({ reply: '已生成插件候选', acted: true, attempts: 1, trace }),
+      safeReply: vi.fn((t: string) => t),
+    };
+    await new ChatUseCase(makeGateway(), history, renderer, agent).send('写个规则');
+
+    expect(renderer.renderPluginTrace).toHaveBeenCalledTimes(1);
+    expect(renderer.renderPluginTrace).toHaveBeenCalledWith(trace);
+    // 历史里只有干净的 user/assistant 文本
+    expect(history.addMessage).toHaveBeenCalledTimes(2);
+    expect(history.addMessage).toHaveBeenNthCalledWith(1, { role: 'user', content: '写个规则' });
+    expect(history.addMessage).toHaveBeenNthCalledWith(2, { role: 'assistant', content: '已生成插件候选' });
+    expect(JSON.stringify(history.addMessage.mock.calls)).not.toContain('试算通过');
+    // 过程日志在主回复之前渲染
+    const traceOrder = renderer.renderPluginTrace.mock.invocationCallOrder[0];
+    const replyCall = renderer.renderMessage.mock.calls.findIndex(
+      (c: unknown[]) => c[0] === '已生成插件候选',
+    );
+    expect(replyCall).toBeGreaterThanOrEqual(0);
+    expect(traceOrder).toBeLessThan(renderer.renderMessage.mock.invocationCallOrder[replyCall]!);
+  });
+
+  it('Agent 返回空/无 trace 时不调用渲染器（可选方法兼容）', async () => {
+    const renderer = makeRenderer();
+    const history = makeHistory();
+    const agent = {
+      turn: vi.fn().mockResolvedValue({ reply: '好的', acted: false, attempts: 0 }),
+      safeReply: vi.fn((t: string) => t),
+    };
+    await new ChatUseCase(makeGateway(), history, renderer, agent).send('你好');
+    expect(renderer.renderPluginTrace).not.toHaveBeenCalled();
+    expect(history.addMessage).toHaveBeenNthCalledWith(2, { role: 'assistant', content: '好的' });
+  });
+
+  it('渲染器未实现 renderPluginTrace 时纯聊天/智能体都不报错', async () => {
+    const bare = {
+      renderMessage: vi.fn().mockResolvedValue(undefined),
+      clearMessages: vi.fn(), showTyping: vi.fn(), hideTyping: vi.fn(), showCountdownJump: vi.fn(),
+    } as unknown as IMessageRenderer;
+    const history = makeHistory();
+    const agent = {
+      turn: vi.fn().mockResolvedValue({
+        reply: '好', acted: false, attempts: 0,
+        trace: [{ source: 'agent' as const, attempt: 1, phase: 'decision', ok: true, detail: '调用模型' }],
+      }),
+      safeReply: vi.fn((t: string) => t),
+    };
+    await expect(new ChatUseCase(makeGateway(), history, bare, agent).send('你好')).resolves.toBeUndefined();
+    expect(history.addMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it('过程日志渲染失败不影响主回复（纯展示功能隔离）', async () => {
+    const renderer = makeRenderer();
+    renderer.renderPluginTrace.mockRejectedValue(new Error('DOM 炸了'));
+    const history = makeHistory();
+    const agent = {
+      turn: vi.fn().mockResolvedValue({
+        reply: '主回复', acted: true, attempts: 1,
+        trace: [{ source: 'agent' as const, attempt: 1, phase: 'decision', ok: true, detail: '调用模型' }],
+      }),
+      safeReply: vi.fn((t: string) => t),
+    };
+    await new ChatUseCase(makeGateway(), history, renderer, agent).send('写个规则');
+    expect(history.addMessage).toHaveBeenNthCalledWith(2, { role: 'assistant', content: '主回复' });
+    expect(renderer.renderMessage).toHaveBeenLastCalledWith(
+      '主回复', false, null, null, undefined, undefined, true,
+    );
+  });
+
+  it('未装配 Agent 的纯聊天路径不渲染过程日志', async () => {
+    const renderer = makeRenderer();
+    const history = makeHistory();
+    await new ChatUseCase(makeGateway(), history, renderer).send('你好');
+    expect(renderer.renderPluginTrace).not.toHaveBeenCalled();
   });
 
   it('装配 Agent 后走智能体路径，回复经 safeReply 处理', async () => {

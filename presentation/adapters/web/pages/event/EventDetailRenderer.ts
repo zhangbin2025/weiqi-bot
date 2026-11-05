@@ -28,7 +28,15 @@ export interface EventDetailRendererCallbacks {
   onPlayerClick: (playerName: string) => void;
   onShowOpponents: (playerName: string) => void;
   onRankingModeChange: (mode: RankingMode) => void;
+  /** 选中某个排名插件（叠加在当前内置口径之上）；undefined = 回到无插件排序 */
+  onRankingPluginChange: (artifactId: string | undefined) => void;
   onRefresh?: () => Promise<void>;
+}
+
+/** ⚙️ 菜单里的插件条目（只含展示所需的精简字段，不含源码） */
+export interface RankingPluginMenuItem {
+  id: string;
+  name: string;
 }
 export class EventDetailRenderer {
   readonly overlay: IOverlay;
@@ -47,6 +55,9 @@ export class EventDetailRenderer {
   private activeGroupId: string = '';
   private highlightedPlayerName: string = '';
   private rankingMode: RankingMode = 'default';
+  /** ⚙️ 菜单里可选择的排名插件清单 + 当前选中的插件 id（undefined = 内置排序） */
+  private rankingPlugins: RankingPluginMenuItem[] = [];
+  private activeRankingPluginId: string | undefined;
   /** 待恢复的弹窗状态：棋手名（原始名）+ 上次查看的对手名（干净名） */
   private pendingOpponent: { host: string; opponent: string } | null = null;
   /** 内容渲染完成的一次性回调（供弹窗恢复等待数据就绪） */
@@ -479,11 +490,20 @@ export class EventDetailRenderer {
 
     const menu = document.createElement('div');
     menu.id = 'ranking-mode-menu';
-    menu.style.cssText = 'position:absolute;top:100%;right:0;background:white;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,0.15);z-index:100;min-width:220px;padding:4px 0;margin-top:4px;';
+    menu.style.cssText = 'position:absolute;top:100%;right:0;background:white;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,0.15);z-index:100;min-width:220px;max-height:70vh;overflow-y:auto;padding:4px 0;margin-top:4px;';
+
+    const sectionTitle = (text: string): HTMLElement => {
+      const el = document.createElement('div');
+      el.textContent = text;
+      el.style.cssText = 'padding:6px 14px 2px;font-size:0.72em;color:#999;letter-spacing:0.5px;';
+      return el;
+    };
+    menu.appendChild(sectionTitle('内置排序'));
 
     MODES.forEach(m => {
       const item = document.createElement('div');
-      const isActive = m.value === this.rankingMode;
+      // 只有在「未选择插件」时，内置模式才高亮为当前生效口径
+      const isActive = this.activeRankingPluginId === undefined && m.value === this.rankingMode;
       item.style.cssText = `padding:10px 14px;cursor:pointer;transition:background 0.15s;${isActive ? 'background:rgba(59,130,246,0.1);' : ''}`;
       item.innerHTML = `<div style="font-weight:${isActive ? '600' : '400'};color:${isActive ? '#3b82f6' : '#333'};font-size:0.9em;">${m.label}${isActive ? ' ✓' : ''}</div><div style="font-size:0.75em;color:#999;margin-top:2px;">${m.desc}</div>`;
       item.addEventListener('click', (e) => {
@@ -491,13 +511,46 @@ export class EventDetailRenderer {
         menu.remove();
         document.removeEventListener('click', closeHandler);
         this.rankingMode = m.value;
+        this.activeRankingPluginId = undefined;
         this.localStore.write('event-ranking-mode', m.value).catch(() => { /* ignore */ });
+        this.cb.onRankingPluginChange(undefined);
         this.cb.onRankingModeChange(m.value);
       });
       item.addEventListener('mouseenter', () => { item.style.background = 'rgba(59,130,246,0.08)'; });
       item.addEventListener('mouseleave', () => { item.style.background = isActive ? 'rgba(59,130,246,0.1)' : ''; });
       menu.appendChild(item);
     });
+
+    // 插件组：仅在有可用（已启用）的排名插件时展示，避免无插件用户看到空分组
+    if (this.rankingPlugins.length > 0) {
+      const divider = document.createElement('div');
+      divider.style.cssText = 'height:1px;background:#eee;margin:4px 0;';
+      menu.appendChild(divider);
+      menu.appendChild(sectionTitle('插件排序'));
+
+      const pluginItem = (id: string | undefined, label: string, desc: string): HTMLElement => {
+        const item = document.createElement('div');
+        const isActive = this.activeRankingPluginId === id;
+        item.style.cssText = `padding:10px 14px;cursor:pointer;transition:background 0.15s;${isActive ? 'background:rgba(59,130,246,0.1);' : ''}`;
+        item.innerHTML = `<div style="font-weight:${isActive ? '600' : '400'};color:${isActive ? '#3b82f6' : '#333'};font-size:0.9em;">${this.escapeMenuText(label)}${isActive ? ' ✓' : ''}</div><div style="font-size:0.75em;color:#999;margin-top:2px;">${desc}</div>`;
+        item.addEventListener('click', (e) => {
+          e.stopPropagation();
+          menu.remove();
+          document.removeEventListener('click', closeHandler);
+          this.activeRankingPluginId = id;
+          this.cb.onRankingPluginChange(id);
+        });
+        item.addEventListener('mouseenter', () => { item.style.background = 'rgba(59,130,246,0.08)'; });
+        item.addEventListener('mouseleave', () => { item.style.background = isActive ? 'rgba(59,130,246,0.1)' : ''; });
+        return item;
+      };
+
+      // 显式「无插件排序」入口：始终存在，便于从插件排序切回默认
+      menu.appendChild(pluginItem(undefined, '无插件排序', '恢复内置排序口径'));
+      for (const p of this.rankingPlugins) {
+        menu.appendChild(pluginItem(p.id, `🧩 ${p.name}`, '使用此插件的排名规则'));
+      }
+    }
 
     anchor.style.position = 'relative';
     anchor.appendChild(menu);
@@ -512,6 +565,31 @@ export class EventDetailRenderer {
   /** 获取当前排名模式 */
   getRankingMode(): RankingMode {
     return this.rankingMode;
+  }
+
+  /**
+   * 设置 ⚙️ 菜单里可选的排名插件清单。
+   * 若当前选中的插件已不在清单里（被删/停用），自动回到内置排序。
+   */
+  setRankingPlugins(items: RankingPluginMenuItem[], selectedId?: string): void {
+    this.rankingPlugins = items;
+    const valid = selectedId && items.some((p) => p.id === selectedId) ? selectedId : undefined;
+    this.activeRankingPluginId = valid;
+    if (valid === undefined && selectedId !== undefined) {
+      // 让页面同步清掉持久化里已失效的选择
+      this.cb.onRankingPluginChange(undefined);
+    }
+  }
+
+  getActiveRankingPluginId(): string | undefined {
+    return this.activeRankingPluginId;
+  }
+
+  /** 菜单项用 innerHTML 拼接，插件名来自用户/LLM，必须转义 */
+  private escapeMenuText(raw: string): string {
+    return raw
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
   /** 设置排名模式 */
