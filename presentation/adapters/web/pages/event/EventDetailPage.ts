@@ -55,6 +55,8 @@ export class EventDetailPage implements IPage {
   private pdfGroupMap = new Map<number, string>();
   /** PDF 模式：当前加载的 PdfEvent */
   private pdfEvent: PdfEvent | null = null;
+  /** 惰性装配的插件系统（只在启用插件时才会真正加载 Worker/wasm） */
+  private pluginSystem: import('../../../../../application/plugin/PluginSystem').PluginSystem | undefined;
 
   constructor(c: EventDetailPageConfig) {
     this.q = c.eventQuerier;
@@ -189,7 +191,8 @@ export class EventDetailPage implements IPage {
     // 计算排名
     const allMatches = group.rounds.flatMap(r => r.matches);
     const calculator = new RankingCalculator();
-    this.rankData = calculator.calculate(allMatches, this.rankingMode);
+    const baseRank = calculator.calculate(allMatches, this.rankingMode);
+    this.rankData = await this.applyRankingPlugins(baseRank);
     this.totRounds = this.rankData.totalRounds;
     this.curRound = this.rankData.completedRounds || this.rankData.totalRounds;
 
@@ -206,6 +209,32 @@ export class EventDetailPage implements IPage {
     this.renderer.setPlayersTabAvailable(false);
 
     this.renderContent();
+  }
+
+  /**
+   * 把启用的排名插件应用到内置结果上。
+   * 惰性装配：没有启用插件时完全不加载 QuickJS/wasm；任何失败都静默回落内置结果，
+   * 保证赛事详情页永远不因插件而白屏。
+   *
+   * 生命周期：赛事页是 SPA 内页面，pluginSystem 在页面实例上复用，路由切走时实例销毁、
+   * Worker 随之被 GC；单页内不为每次排名计算新建 runtime，避免反复加载 wasm。
+   */
+  private async applyRankingPlugins(rankData: RankingResult): Promise<RankingResult> {
+    try {
+      let sys = this.pluginSystem;
+      if (!sys) {
+        const mod = await import('../../../../../application/plugin/PluginSystem');
+        sys = await mod.createPluginSystem();
+        this.pluginSystem = sys;
+      }
+      const active = (await sys.artifacts.list()).find(
+        (a) => a.enabled && a.pointId === 'ranking.tiebreak',
+      );
+      if (!active) return rankData;
+      return await sys.applyRanking(rankData);
+    } catch {
+      return rankData;
+    }
   }
 
   private ckey(): string { return this.eid ? `event-detail-${this.eid}` : ''; }
@@ -238,6 +267,15 @@ export class EventDetailPage implements IPage {
       this.renderer.renderGroupSelect(this.groups, this.selGid);
       this.renderContent();
       this.renderer.showContainer();
+      // 缓存里是内置排名，插件可能已启用：异步补应用，仅在结果变化时重绘。
+      // 失败静默回落，不影响缓存秒开的体验。
+      if (c.rankingData) {
+        void this.applyRankingPlugins(c.rankingData).then((applied) => {
+          if (applied === this.rankData) return;
+          this.rankData = applied;
+          this.renderContent();
+        });
+      }
       return true;
     } catch { return false; }
   }
@@ -275,7 +313,8 @@ export class EventDetailPage implements IPage {
     try {
       const rr = await this.q.getGroupRanking(this.eid, g.id, this.rankingMode,
         (msg, pct) => this.renderer.showProgress(20 + pct * 0.6, msg), forceRefresh);
-      this.rankData = rr; this.totRounds = rr.totalRounds; this.curRound = rr.totalRounds;
+      this.rankData = await this.applyRankingPlugins(rr);
+      this.totRounds = rr.totalRounds; this.curRound = rr.totalRounds;
       this.renderer.showProgress(90, '正在加载对阵数据...');
       this.matchData = await this.q.getGroupMatches(g.id, this.curRound);
       // 只要存在任意一轮对阵表，就不再展示参赛名单（名单仅用于填补无对阵表的空窗期）

@@ -46,7 +46,9 @@ export class OpenAIModelGateway implements IModelGateway {
   }
 
   async execute(req: ModelRequest): Promise<ModelResult> {
-    if (req.task !== 'chat.reply') {
+    // chat.reply：对话页主链路；plugin.generate：插件代码生成/修复循环。
+    // 两者都走同一套纯文本 chat completions，只是调用方给的消息与 jsonMode 不同。
+    if (req.task !== 'chat.reply' && req.task !== 'plugin.generate') {
       throw new Error(`模型能力「${req.task}」尚未实现`);
     }
 

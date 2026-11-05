@@ -14,6 +14,7 @@
  *   /llm timeout <秒>                 调整请求超时（5~300 秒）
  *   /llm maxtokens <数>               调整 token 预算（512~16384，默认 4096）
  *   /llm thinking on|off              开启/关闭推理模型的思考过程（默认关闭）
+ *   /llm repairs <1-10>              插件自动修复轮数（默认 3）
  *   /llm status                      查看当前配置（脱敏）
  *   /llm off                         关闭并清除凭据
  *   /llm                             显示用法
@@ -39,6 +40,14 @@ import {
   DEFAULT_LLM_DISABLE_THINKING,
   normalizeDisableThinking,
 } from '../../infrastructure/llm/LLMCredentialStore';
+import {
+  DEFAULT_PLUGIN_MAX_ATTEMPTS,
+  MIN_PLUGIN_MAX_ATTEMPTS,
+  MAX_PLUGIN_MAX_ATTEMPTS,
+  loadPluginMaxAttempts,
+  savePluginMaxAttempts,
+  normalizePluginMaxAttempts,
+} from '../plugin/PluginConfig';
 
 export interface LLMCommandDeps {
   /** 渲染并保存到历史（复用 CommandHandler 的既有行为） */
@@ -61,6 +70,7 @@ function usage(): string {
     '| `/llm timeout <秒>` | 请求超时（默认 60s） |',
     '| `/llm maxtokens <数>` | token 预算（默认 4096） |',
     '| `/llm thinking on\\|off` | 思考开关（默认 off） |',
+    '| `/llm repairs <1-10>` | 插件自动修复轮数（默认 3） |',
     '| `/llm status` | 查看配置 |',
     '| `/llm off` | 关闭并清除凭据 |',
     '',
@@ -71,7 +81,7 @@ function usage(): string {
 }
 
 /** 已知子命令（这些命令的第二段是子命令名，不是 apiKey，不能脱敏） */
-export const LLM_SUBCOMMANDS = new Set(['model', 'status', 'off', 'timeout', 'maxtokens', 'thinking']);
+export const LLM_SUBCOMMANDS = new Set(['model', 'status', 'off', 'timeout', 'maxtokens', 'thinking', 'repairs']);
 
 /** 把用户输入的命令渲染成脱敏版本（主命令 + 参数名，不含 apiKey 明文） */
 export function redactCommand(raw: string): string {
@@ -121,10 +131,36 @@ export async function handleLLMCommand(raw: string, deps: LLMCommandDeps): Promi
       `- 超时：${(config.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS) / 1000} 秒`,
       `- token 预算：${config.maxTokens ?? DEFAULT_LLM_MAX_TOKENS}（/llm maxtokens <数> 可调）`,
       `- 思考过程：${normalizeDisableThinking(config.disableThinking) ? '已关闭 ✅' : '已开启'}（/llm thinking on|off）`,
+      `- 插件自动修复轮数：${loadPluginMaxAttempts()}（默认 ${DEFAULT_PLUGIN_MAX_ATTEMPTS}，/llm repairs <数> 可调）`,
       `- apiKey：\`${config.keyHint || '****'}\`（已加密缓存）`,
       `- 更新时间：${new Date(config.updatedAt).toLocaleString()}`,
     ].join('\n');
     await deps.renderMessage(text);
+    return true;
+  }
+
+  // /llm repairs <1-10>：插件自动修复轮数（独立于 LLM 凭据，随时可调）
+  if (sub === 'repairs') {
+    const raw = parts[2];
+    if (!raw) {
+      await deps.renderMessage(
+        `ℹ️ 当前插件自动修复轮数 ${loadPluginMaxAttempts()}（默认 ${DEFAULT_PLUGIN_MAX_ATTEMPTS}）。` +
+        `\n用法：\`/llm repairs <数>\`（${MIN_PLUGIN_MAX_ATTEMPTS}~${MAX_PLUGIN_MAX_ATTEMPTS}）`,
+      );
+      return true;
+    }
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) {
+      await deps.renderMessage('❌ 必须是正数，例如 `/llm repairs 5`');
+      return true;
+    }
+    const normalized = normalizePluginMaxAttempts(n);
+    savePluginMaxAttempts(normalized);
+    await deps.renderMessage(
+      `✅ 插件自动修复轮数已改为 ${normalized}` +
+      (normalized !== n ? `（已收敛到 ${MIN_PLUGIN_MAX_ATTEMPTS}~${MAX_PLUGIN_MAX_ATTEMPTS}）` : '') +
+      '\n下次进入对话页生效。',
+    );
     return true;
   }
 

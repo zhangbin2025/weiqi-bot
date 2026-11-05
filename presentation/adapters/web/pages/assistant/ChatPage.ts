@@ -2,11 +2,14 @@
  * AI 对话页面编排
  * @module presentation/adapters/web/pages/assistant/ChatPage
  *
- * 独立页面 assistant/chat.html 的控制器。复用功能助手的渲染器、会话存储、
- * 凭据、文件导出器与共享 CSS，但不引入意图识别、命令体系、任务桥接。
+ * 独立页面 assistant/chat.html 的控制器，也是「智能体主控台」：
+ * 复用功能助手的渲染器、会话存储、凭据与共享 CSS，不引入旧意图/命令体系；
+ * 可编程（编写/修改插件）是一等能力，由 PluginSystem 装配进 ChatUseCase。
  *
- * 右上角菜单仅四项：新建会话 / 历史会话 / 导出会话 / 清空会话，
- * 全部作用于「当前会话」或 chat 页自己的会话集合（独立 category 隔离）。
+ * 插件数据来自独立工件存储，不来自会话历史 —— 新会话、老会话、会话清空后
+ * LLM 都能看到并修改插件。装配失败时自动降级为纯聊天，页面始终可用。
+ *
+ * 右上角菜单仅四项：新建会话 / 历史会话 / 导出会话 / 清空会话。
  */
 
 import { AssistantRenderer } from './AssistantRenderer';
@@ -15,8 +18,9 @@ import { FavoriteService } from '../../../../../services/favorite/FavoriteServic
 import { IndexedDBAdapter } from '../../../../../infrastructure/storage/adapters/web/IndexedDBAdapter';
 import { WebFileExporter } from '../../../../../infrastructure/utils/export/WebFileExporter';
 import { WebDialog } from '../../components/Dialog';
-import { OpenAIModelGateway } from '../../../../../infrastructure/llm/OpenAIModelGateway';
 import { ChatUseCase } from '../../../../../application/chat/ChatUseCase';
+import { OpenAIModelGateway } from '../../../../../infrastructure/llm/OpenAIModelGateway';
+import { createPluginSystem, type PluginSystem } from '../../../../../application/plugin/PluginSystem';
 
 /** 与功能助手 'chat-session' 隔离，导出/清空天然只覆盖对话页会话 */
 const CHAT_CATEGORY = 'chat-conversation';
@@ -30,6 +34,7 @@ export class ChatPage {
   private readonly exporter = new WebFileExporter();
   private history!: ChatHistoryManager;
   private useCase!: ChatUseCase;
+  private plugin: PluginSystem | undefined;
 
   async init(): Promise<void> {
     const storage = new IndexedDBAdapter<{ id: string; category: string; key: string; createdAt: number }>(
@@ -37,11 +42,39 @@ export class ChatPage {
     );
     await storage.initialize();
     this.history = new ChatHistoryManager(new FavoriteService(storage), CHAT_CATEGORY);
-    this.useCase = new ChatUseCase(new OpenAIModelGateway(), this.history, this.renderer);
+
+    // 先装配插件系统，再决定 ChatUseCase 是「智能体」还是「纯聊天」。
+    // 任何装配异常都不阻塞对话页：降级为纯聊天是设计内的兜底，不是错误吞掉。
+    try {
+      this.plugin = await createPluginSystem();
+    } catch {
+      this.plugin = undefined;
+    }
+    this.useCase = new ChatUseCase(
+      this.plugin?.gateway ?? new OpenAIModelGateway(),
+      this.history,
+      this.renderer,
+      this.plugin
+        ? { turn: (req) => this.plugin!.agent.turn(req), safeReply: (t) => this.plugin!.safeReply(t) }
+        : undefined,
+    );
 
     this.bindUI();
+    this.bindLifecycle();
     this.syncReadyState();
     await this.restoreLastSession();
+  }
+
+  /**
+   * 对话页是独立多页应用，页面真正卸载时显式终止插件的 QuickJS Worker。
+   * 进入 bfcache（event.persisted）时不 dispose —— 返回页面还要继续用同一套插件系统。
+   */
+  private bindLifecycle(): void {
+    window.addEventListener('pagehide', (event) => {
+      if (event.persisted) return;
+      // dispose() 是异步的；卸载阶段无法 await，显式吞掉 rejection 避免 floating promise。
+      void this.plugin?.dispose().catch(() => { /* 卸载阶段不抛 */ });
+    });
   }
 
   // ---------- UI 绑定 ----------

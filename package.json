@@ -48,6 +48,7 @@
     "jszip": "^3.10.1",
     "marked": "^18.0.4",
     "pako": "^2.1.0",
+    "quickjs-emscripten": "^0.32.0",
     "seek-bzip": "^2.0.0",
     "socket.io-client": "^4.8.3",
     "werift": "^0.24.4"

@@ -97,6 +97,65 @@ describe('ChatUseCase.send', () => {
     expect(contents[contents.length - 1]).toBe('那他跟李世石呢');
   });
 
+  it('装配 Agent 后走智能体路径，回复经 safeReply 处理', async () => {
+    const renderer = makeRenderer();
+    const history = makeHistory();
+    const gateway = makeGateway();
+    const agent = {
+      turn: vi.fn().mockResolvedValue({ reply: '已生成插件候选', acted: true, attempts: 1 }),
+      safeReply: vi.fn((t: string) => t.replace(/</g, '&lt;')),
+    };
+    await new ChatUseCase(gateway, history, renderer, agent).send('写个排名规则');
+    expect(agent.turn).toHaveBeenCalledTimes(1);
+    expect(gateway.execute).not.toHaveBeenCalled(); // 由 Agent 内部调网关
+    expect(agent.safeReply).toHaveBeenCalledWith('已生成插件候选');
+    expect(history.addMessage).toHaveBeenNthCalledWith(2, { role: 'assistant', content: '已生成插件候选' });
+  });
+
+  it('Agent 路径把会话历史作为聊天上下文传入，但当前句由 text 单独给', async () => {
+    const renderer = makeRenderer();
+    const history = makeHistory([
+      { role: 'user', content: '之前说过' },
+      { role: 'assistant', content: '嗯' },
+    ]);
+    const agent = {
+      turn: vi.fn().mockResolvedValue({ reply: '好的', acted: false, attempts: 0 }),
+      safeReply: vi.fn((t: string) => t),
+    };
+    await new ChatUseCase(makeGateway(), history, renderer, agent).send('继续');
+    const req = agent.turn.mock.calls[0]![0];
+    expect(req.text).toBe('继续');
+    expect(req.history.map((m: { content: string }) => m.content)).toContain('之前说过');
+    // 当前句不在 history 里重复
+    expect(req.history.map((m: { content: string }) => m.content)).not.toContain('继续');
+  });
+
+  it('Agent 抛错时只渲染错误，不把错误写进历史', async () => {
+    const renderer = makeRenderer();
+    const history = makeHistory();
+    const agent = {
+      turn: vi.fn().mockRejectedValue(new Error('Agent 炸了')),
+      safeReply: vi.fn((t: string) => t),
+    };
+    await new ChatUseCase(makeGateway(), history, renderer, agent).send('你好');
+    expect(renderer.hideTyping).toHaveBeenCalled();
+    expect(history.addMessage).toHaveBeenCalledTimes(1);
+    expect(renderer.renderMessage).toHaveBeenLastCalledWith(
+      '❌ 对话失败：Agent 炸了', false, null, null, undefined, undefined, false,
+    );
+  });
+
+  it('未装配 Agent 时保持纯聊天（既有行为不回归）', async () => {
+    const renderer = makeRenderer();
+    const history = makeHistory();
+    const gateway = makeGateway(true, '两人互有胜负');
+    await new ChatUseCase(gateway, history, renderer).send('柯洁和申真谞谁厉害');
+    const req = gateway.execute.mock.calls[0]![0];
+    expect(req.task).toBe('chat.reply');
+    expect(req.options.jsonMode).toBe(false);
+    expect(history.addMessage).toHaveBeenNthCalledWith(2, { role: 'assistant', content: '两人互有胜负' });
+  });
+
   it('模型失败：只渲染错误，不把错误文案写进历史', async () => {
     const renderer = makeRenderer();
     const history = makeHistory();

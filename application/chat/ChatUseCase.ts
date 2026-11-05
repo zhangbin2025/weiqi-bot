@@ -2,19 +2,31 @@
  * 对话用例
  * @module application/chat/ChatUseCase
  *
- * 职责单一：处理一条用户消息 —— 渲染、写历史、拼上下文、调模型网关、渲染回复。
- * 不碰意图识别、跳转、命令体系、凭据配置。
- * 会话管理与 UI 装配由表现层 ChatPage 负责。
+ * 职责：处理一条用户消息 —— 渲染、写历史、拼上下文、调模型网关、渲染回复。
+ *
+ * 对话页是「智能体主控台」，可编程（编写/修改插件）是一等能力：
+ * 装配了 PluginAgent 时走 Agent Loop（模型产出动作 → 执行 → 观测 → 再决策）；
+ * 未装配或装配失败时自动降级为纯聊天，保证对话页永远可用。
+ * 插件能力的数据来源是工件存储，不是会话历史，因此会话清空/新建都不影响。
  */
 
 import type { IModelGateway } from '../model/IModelGateway';
 import type { ChatHistoryManager } from '../assistant/ChatHistoryManager';
 import type { IMessageRenderer } from '../assistant/IMessageRenderer';
 import { buildConversationMessages, summarizeSession } from './ConversationPrompt';
+import type { AgentTurnRequest } from '../plugin/PluginAgentUseCase';
+import type { AgentTurnResult } from '@domain/plugin/types';
 
 /** 拦截「/」开头：chat 页零命令体系，配置请回功能助手 */
 export const SLASH_COMMAND_HINT = '对话页不支持命令，模型配置请回到功能助手操作。';
 export const NOT_READY_HINT = '尚未配置 LLM，请回到功能助手执行 /llm 配置后再来对话。';
+
+/** 智能体端口：与 PluginAgentUseCase.turn 对齐，避免 application/chat 依赖具体实现 */
+export interface IPluginAgent {
+  turn(req: AgentTurnRequest): Promise<AgentTurnResult>;
+  /** 渲染前安全处理 LLM 文本（转义 + 截断） */
+  safeReply(text: string): string;
+}
 
 export function isSlashCommand(text: string): boolean {
   return text.trim().startsWith('/');
@@ -25,6 +37,8 @@ export class ChatUseCase {
     private readonly gateway: IModelGateway,
     private readonly history: ChatHistoryManager,
     private readonly renderer: IMessageRenderer,
+    /** 可选：装配后对话页获得插件编程能力；未装配则保持纯聊天 */
+    private readonly agent?: IPluginAgent,
   ) {}
 
   isReady(): boolean {
@@ -39,6 +53,7 @@ export class ChatUseCase {
    *   apiKey 明文落进 IndexedDB 并出现在导出文件里。
    * - 模型失败时只渲染错误提示、**不写进历史**，否则错误文案会在下一轮
    *   被当上下文带进去污染对话。用户消息本身仍保留（用户确实发了）。
+   * - Agent 回复经 safeReply 转义后再交给渲染器（渲染器用 marked 解析 HTML）。
    */
   async send(text: string): Promise<void> {
     if (isSlashCommand(text)) {
@@ -60,27 +75,59 @@ export class ChatUseCase {
 
     this.renderer.showTyping();
     try {
-      // getMessages() 已含当前句，不再额外追加 user 消息
-      const messages = buildConversationMessages(this.history.getMessages());
-      const result = await this.gateway.execute({
-        task: 'chat.reply',
-        messages,
-        options: { jsonMode: false },
-      });
+      const reply = this.agent
+        ? await this.runAgent(text)
+        : await this.runPlainChat();
       this.renderer.hideTyping();
-      if (!result.text.trim()) {
+
+      const safe = this.agent ? this.agent.safeReply(reply) : reply;
+      if (!safe.trim()) {
         await this.renderHint('模型没有返回内容，请稍后重试或更换模型。');
         return;
       }
       await this.renderer.renderMessage(
-        result.text, false, null, null, undefined, undefined, true,
+        safe, false, null, null, undefined, undefined, true,
       );
-      await this.history.addMessage({ role: 'assistant', content: result.text });
+      await this.history.addMessage({ role: 'assistant', content: safe });
     } catch (error) {
       this.renderer.hideTyping();
       const message = error instanceof Error ? error.message : String(error);
       await this.renderHint(`❌ 对话失败：${message}`);
     }
+  }
+
+  /** 纯聊天路径（无插件系统时的既有行为，保持不变） */
+  private async runPlainChat(): Promise<string> {
+    const messages = buildConversationMessages(this.history.getMessages());
+    const result = await this.gateway.execute({
+      task: 'chat.reply',
+      messages,
+      options: { jsonMode: false },
+    });
+    return result.text;
+  }
+
+  /** 智能体路径：会话历史只作聊天上下文，插件能力完全来自工件 */
+  private async runAgent(text: string): Promise<string> {
+    const agent = this.agent!;
+    const history = buildConversationMessages(this.history.getMessages())
+      .filter((m) => m.role !== 'system')
+      .slice(0, -1) // 去掉当前句（由 turn 的 text 传入）
+      .map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        content: typeof m.content === 'string' ? m.content : '',
+      }));
+    // conversationRef 只是可选引用，取不到不影响任何插件能力（工件中心）
+    const getCurrent = (this.history as { getCurrentSession?: () => { sessionId: string } | null }).getCurrentSession;
+    const sessionId = typeof getCurrent === 'function'
+      ? getCurrent.call(this.history)?.sessionId
+      : undefined;
+    const result = await agent.turn({
+      text,
+      history,
+      ...(sessionId ? { conversationRef: sessionId } : {}),
+    });
+    return result.reply;
   }
 
   /** 提示类消息：只渲染，绝不写历史 */

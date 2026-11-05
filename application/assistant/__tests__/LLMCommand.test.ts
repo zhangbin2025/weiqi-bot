@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { isLLMCommand, redactCommand, handleLLMCommand } from '../LLMCommand';
+import { loadPluginMaxAttempts, resetPluginMaxAttemptsForTest } from '../../plugin/PluginConfig';
 
 describe('isLLMCommand', () => {
   it('匹配主命令，大小写不敏感', () => {
@@ -48,6 +49,8 @@ describe('redactCommand', () => {
     expect(redactCommand('/llm thinking off')).not.toContain('****');
     expect(redactCommand('/llm thinking off')).toBe('/llm thinking off');
     expect(redactCommand('/llm thinking on')).toBe('/llm thinking on');
+    expect(redactCommand('/llm repairs 5')).toBe('/llm repairs 5');
+    expect(redactCommand('/llm repairs 5')).not.toContain('****');
   });
 
   it('maxtokens 用法文案不再让用户调 timeout', () => {
@@ -84,8 +87,45 @@ describe('/llm 帮助信息', () => {
     let shown = '';
     await handleLLMCommand('/llm', { renderMessage: async (c) => { shown = c; } });
     expect(shown).toContain('`/llm <baseUrl> <apiKey> <model>`');
-    for (const cmd of ['model', 'timeout', 'maxtokens', 'thinking', 'status', 'off']) {
+    for (const cmd of ['model', 'timeout', 'maxtokens', 'thinking', 'repairs', 'status', 'off']) {
       expect(shown).toContain('`/llm ' + cmd);
     }
+  });
+});
+
+describe('/llm repairs（插件自动修复轮数可配置）', () => {
+  it('无参数显示当前值', async () => {
+    let shown = '';
+    await handleLLMCommand('/llm repairs', { renderMessage: async (c) => { shown = c; } });
+    expect(shown).toContain('当前插件自动修复轮数');
+    expect(shown).toContain('/llm repairs');
+  });
+
+  it('合法值保存并提示', async () => {
+    resetPluginMaxAttemptsForTest();
+    let shown = '';
+    await handleLLMCommand('/llm repairs 5', { renderMessage: async (c) => { shown = c; } });
+    expect(shown).toContain('已改为 5');
+    expect(loadPluginMaxAttempts()).toBe(5);
+    resetPluginMaxAttemptsForTest();
+  });
+
+  it('越界收敛到 1~10', async () => {
+    resetPluginMaxAttemptsForTest();
+    await handleLLMCommand('/llm repairs 99', { renderMessage: async () => {} });
+    expect(loadPluginMaxAttempts()).toBe(10);
+    await handleLLMCommand('/llm repairs 1', { renderMessage: async () => {} });
+    expect(loadPluginMaxAttempts()).toBe(1);
+    // 0 / 负数由命令层直接拒绝，不覆盖已有值
+    await handleLLMCommand('/llm repairs 0', { renderMessage: async () => {} });
+    expect(loadPluginMaxAttempts()).toBe(1);
+    await handleLLMCommand('/llm repairs 3', { renderMessage: async () => {} });
+    resetPluginMaxAttemptsForTest();
+  });
+
+  it('非正数 / 非数字给出错误提示', async () => {
+    let shown = '';
+    await handleLLMCommand('/llm repairs abc', { renderMessage: async (c) => { shown = c; } });
+    expect(shown).toContain('❌');
   });
 });
