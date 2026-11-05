@@ -455,34 +455,6 @@
         .markdown-content a:hover {
             text-decoration: underline;
         }
-
-        /* LLM 模型对话入口徽章：紧跟功能引导末句，紫色渐变高亮、白字醒目。
-           链接在深底上需要覆盖 .markdown-content a 的紫色（提高 specificity）。 */
-        .markdown-content .llm-entry {
-            display: inline-block;
-            margin: 0 0 0 6px;
-            padding: 8px 14px;
-            border-radius: 10px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: #fff;
-            font-size: 15px;
-            font-weight: 600;
-            line-height: 1.5;
-            box-shadow: 0 3px 10px rgba(102, 126, 234, 0.35);
-            vertical-align: middle;
-        }
-
-        .markdown-content .llm-entry a {
-            color: #fff;
-            font-weight: 700;
-            text-decoration: underline;
-            text-underline-offset: 2px;
-        }
-
-        .markdown-content .llm-entry a:hover {
-            color: #fff;
-            text-decoration: underline;
-        }
         
         .markdown-content table {
             border-collapse: collapse;

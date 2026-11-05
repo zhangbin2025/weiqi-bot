@@ -606,9 +606,9 @@ ${linksHtml}`;
    */
   private async handleHelp(): Promise<void> {
     // 已接入 LLM 才提示「模型对话」入口；未接入时保持原有功能引导不变。
-    // 紧跟在「直接用自然语言…」末句之后，用 .llm-entry 徽章高亮，不再另起分隔线。
+    // 普通文字直接追加到「直接用自然语言…」末句之后，不额外高亮。
     const llmEntry = this.llmIntentProvider?.isEnabled()
-      ? ` <span class="llm-entry">💡 现已接入 LLM，需要和我自由聊天吗？<a href="./chat.html">进入模型对话</a></span>`
+      ? ` 现已接入 LLM，需要和我自由聊天吗？[进入模型对话](./chat.html)`
       : '';
     const helpText = `我是围棋 AI 助手,可以帮您:
 
