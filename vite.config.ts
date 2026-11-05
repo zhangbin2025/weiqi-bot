@@ -110,7 +110,15 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 3000,
     fs: {
-      allow: ['..'],  // 允许访问父目录（weiqi-worker）
+      // '..' 相对 root('clients/web') 只解析到 clients/；普通源码 import 走模块图能过，
+      // 但插件沙箱 Worker 用 new Worker(new URL(..., import.meta.url)) 生成的是浏览器
+      // 直接发起的 /@fs/<项目根>/infrastructure/plugin-vm/sandbox.worker.ts?worker_file 请求，
+      // 落在 infrastructure/ 下会被 403 拒绝（Worker 建不起来 → 每次 run 失败重试刷屏）。
+      // 显式放行项目根，覆盖 application/、domain/、infrastructure/ 等 /@fs/ 直连。
+      allow: [
+        '..',                      // clients/（保留原有：weiqi-worker 等引用）
+        path.resolve(__dirname),   // 项目根（插件沙箱 Worker 及其依赖）
+      ],
     },
     headers: {
       // Required for SharedArrayBuffer (enables threaded WASM backend)
