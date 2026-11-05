@@ -610,51 +610,51 @@ ${linksHtml}`;
     const llmEntry = this.llmIntentProvider?.isEnabled()
       ? ` 现已接入 LLM，需要和我自由聊天吗？[进入模型对话](./chat.html)`
       : '';
-    const helpText = `我是围棋 AI 助手,可以帮您:
+    const helpText = `我是围棋 AI 助手，可以帮您：
 
 - 👤 **[查询棋手](../player/index.html)**
   - 查询业余棋手信息
-  - 示例: <a href="#" onclick="quickSend('马天放'); return false;">马天放</a>
+  - 示例：<a href="#" onclick="quickSend('马天放'); return false;">马天放</a>
 
 - 🎯 **[开始对弈](../play/index.html)**
   - 人机/真人/AI自对弈
-  - 示例: <a href="#" onclick="quickSend('下棋'); return false;">下棋</a>
+  - 示例：<a href="#" onclick="quickSend('下棋'); return false;">下棋</a>
 
 - 📊 **[分析对手](../opponent/index.html)**
   - 分析棋手棋谱和定式
-  - 示例: <a href="#" onclick="quickSend('分析对手天启'); return false;">天启</a> <a href="#" onclick="quickSend('分析对手段誉'); return false;">段誉</a>
+  - 示例：<a href="#" onclick="quickSend('分析对手天启'); return false;">天启</a> <a href="#" onclick="quickSend('分析对手段誉'); return false;">段誉</a>
 
 - 🔍 **[复盘分析](../review/index.html)**
   - AI复盘棋局
-  - 示例: <a href="#" onclick="quickSend('复盘'); return false;">复盘</a>
+  - 示例：<a href="#" onclick="quickSend('复盘'); return false;">复盘</a>
 
 - 📝 **[学习定式](../joseki/index.html)**
   - 探索/发现/挑战定式
-  - 示例: <a href="#" onclick="quickSend('定式'); return false;">定式</a>
+  - 示例：<a href="#" onclick="quickSend('定式'); return false;">定式</a>
 
 - 🧩 **[做题练习](../puzzle/index.html)**
   - 训练死活/手筋/官子等题型
-  - 示例: <a href="#" onclick="quickSend('死活'); return false;">死活</a> <a href="#" onclick="quickSend('手筋'); return false;">手筋</a> <a href="#" onclick="quickSend('官子'); return false;">官子</a>
+  - 示例：<a href="#" onclick="quickSend('死活'); return false;">死活</a> <a href="#" onclick="quickSend('手筋'); return false;">手筋</a> <a href="#" onclick="quickSend('官子'); return false;">官子</a>
 
 - 🎯 **[实战选点](../decision/index.html)**
-  - 决策训练,形势判断
-  - 示例: <a href="#" onclick="quickSend('选点'); return false;">选点</a>
+  - 决策训练，形势判断
+  - 示例：<a href="#" onclick="quickSend('选点'); return false;">选点</a>
 
 - 📋 **[记录棋谱](../recorder/index.html)**
-  - 记录对局,摆子出题
-  - 示例: <a href="#" onclick="quickSend('记谱'); return false;">记谱</a>
+  - 记录对局，摆子出题
+  - 示例：<a href="#" onclick="quickSend('记谱'); return false;">记谱</a>
 
 - 🏆 **[查询赛事](../event/index.html)**
-  - 云比赛查询,实时排行
-  - 示例: <a href="#" onclick="quickSend('比赛'); return false;">比赛</a>
+  - 云比赛查询，实时排行
+  - 示例：<a href="#" onclick="quickSend('比赛'); return false;">比赛</a>
 
 - 📥 **[抓取棋谱](../fetcher/index.html)**
-  - 从分享链接抓谱,直播
-  - 示例: <a href="../fetcher/index.html">抓谱</a> <a href="#" onclick="quickSend('直播'); return false;">直播</a>
+  - 从分享链接抓谱，直播
+  - 示例：<a href="../fetcher/index.html">抓谱</a> <a href="#" onclick="quickSend('直播'); return false;">直播</a>
 
 ---
 
-💡 直接用自然语言告诉我您想做什么,我会自动识别您的意图!${llmEntry}`;
+💡 直接用自然语言告诉我您想做什么，我会自动识别您的意图！${llmEntry}`;
     await this.messageRenderer.renderMessage(helpText, false);
     await this.chatHistoryManager.addMessage({
       role: 'assistant',
