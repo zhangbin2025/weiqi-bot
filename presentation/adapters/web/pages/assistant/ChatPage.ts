@@ -2,12 +2,19 @@
  * AI 对话页面编排
  * @module presentation/adapters/web/pages/assistant/ChatPage
  *
- * 独立页面 assistant/chat.html 的控制器，也是「智能体主控台」：
- * 复用功能助手的渲染器、会话存储、凭据与共享 CSS，不引入旧意图/命令体系；
- * 可编程（编写/修改插件）是一等能力，由 PluginSystem 装配进 ChatUseCase。
+ * 独立页面 assistant/chat.html 的控制器：
+ * 复用功能助手的渲染器、会话存储、凭据与共享 CSS，不引入旧意图/命令体系。
  *
+ * 页面由「模型角色」驱动（见 ChatRole）：默认闲聊，用户可在标题栏切换到
+ * 插件开发。角色确定后才加载不同的 system prompt 与背景知识 —— 闲聊角色
+ * 完全不接触插件系统，插件角色才装配智能体、注入插件快照与动作协议。
+ * 不再按每句话猜意图。
+ *
+ * 角色固化在会话数据里（ChatSessionData.role），历史会话列表显示角色标识，
+ * 打开历史会话会恢复它自己的角色。**已有聊天记录的会话角色锁定，不能切换**
+ * —— 中途换角色会让同一段历史被两套知识体系解释，上下文会乱套。
  * 插件数据来自独立工件存储，不来自会话历史 —— 新会话、老会话、会话清空后
- * LLM 都能看到并修改插件。装配失败时自动降级为纯聊天，页面始终可用。
+ * LLM 都能看到并修改插件。装配失败时降级为「闲聊可用、插件角色给提示」。
  *
  * 右上角菜单五项：新建会话 / 历史会话 / 导出会话 / 清空会话 / 插件。
  * 「插件」是人工确认闸门：查看完整源码、复制、启停、删除都由用户显式操作。
@@ -23,6 +30,10 @@ import { ChatUseCase } from '../../../../../application/chat/ChatUseCase';
 import { OpenAIModelGateway } from '../../../../../infrastructure/llm/OpenAIModelGateway';
 import { createPluginSystem, type PluginSystem } from '../../../../../application/plugin/PluginSystem';
 import type { PluginArtifact } from '../../../../../domain/plugin/types';
+import {
+  CHAT_ROLES, DEFAULT_ROLE_ID, ROLE_STORAGE_KEY,
+  getRole, parseRoleId, type ChatRoleId,
+} from '../../../../../application/chat/ChatRole';
 
 /** 与功能助手 'chat-session' 隔离，导出/清空天然只覆盖对话页会话 */
 const CHAT_CATEGORY = 'chat-conversation';
@@ -39,6 +50,8 @@ export class ChatPage {
   private plugin: PluginSystem | undefined;
   /** 面板刷新序号：异步 list() 期间用户可能关掉/重开面板，旧结果必须丢弃 */
   private pluginPanelSeq = 0;
+  /** 当前会话的模型角色。角色绑定会话，切换角色会新建会话。 */
+  private currentRole: ChatRoleId = DEFAULT_ROLE_ID;
 
   async init(): Promise<void> {
     const storage = new IndexedDBAdapter<{ id: string; category: string; key: string; createdAt: number }>(
@@ -47,7 +60,7 @@ export class ChatPage {
     await storage.initialize();
     this.history = new ChatHistoryManager(new FavoriteService(storage), CHAT_CATEGORY);
 
-    // 先装配插件系统，再决定 ChatUseCase 是「智能体」还是「纯聊天」。
+    // 插件系统作为「可选能力」装配：装上了也只在 plugin 角色下启用。
     // 任何装配异常都不阻塞对话页：降级为纯聊天是设计内的兜底，不是错误吞掉。
     try {
       this.plugin = await createPluginSystem();
@@ -61,12 +74,16 @@ export class ChatPage {
       this.plugin
         ? { turn: (req) => this.plugin!.agent.turn(req), safeReply: (t) => this.plugin!.safeReply(t) }
         : undefined,
+      // 角色由页面持有，用例只读取、不猜测、不持久化
+      () => this.currentRole,
     );
 
     this.bindUI();
     this.bindLifecycle();
-    this.syncReadyState();
+    // 先恢复上次会话（它会顺带定下该会话的角色），再刷新角色 UI 与输入状态
     await this.restoreLastSession();
+    this.syncRoleUI();
+    this.syncReadyState();
   }
 
   /**
@@ -104,6 +121,19 @@ export class ChatPage {
     document.getElementById('miExport')?.addEventListener('click', () => void this.exportCurrent());
     document.getElementById('miClear')?.addEventListener('click', () => void this.clearCurrent());
     document.getElementById('miPlugin')?.addEventListener('click', () => void this.showPluginPanel());
+
+    // 标题栏角色选择器
+    document.getElementById('roleBtn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggleRoleMenu();
+    });
+    // 点页面别处收起角色下拉
+    document.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement | null;
+      if (target && !target.closest('#roleBtn') && !target.closest('#roleMenu')) {
+        this.toggleRoleMenu(false);
+      }
+    });
   }
 
   private autoResize(input: HTMLTextAreaElement): void {
@@ -127,7 +157,8 @@ export class ChatPage {
     const banner = document.getElementById('notReady');
     if (input) {
       input.disabled = !ready;
-      input.placeholder = ready ? '继续对话…' : '请先到功能助手配置 LLM';
+      // placeholder 跟着角色走（不能用写死的「继续对话…」把角色专属提示冲掉）
+      input.placeholder = ready ? getRole(this.currentRole).placeholder : '请先到功能助手配置 LLM';
     }
     if (sendBtn) sendBtn.disabled = !ready;
     if (banner) banner.style.display = ready ? 'none' : 'block';
@@ -141,6 +172,131 @@ export class ChatPage {
     input.value = '';
     this.autoResize(input);
     await this.useCase.send(text);
+    // Agent 可能在本轮里启停/新建/删除插件。若面板正开着，立即重列，
+    // 避免用户看到的是发送前的旧状态（「模型说已启用，面板仍禁用」的一半成因）。
+    // 面板没打开时 refreshPluginPanel 会因找不到 root 直接返回，成本为零。
+    if (this.plugin && document.getElementById('pluginPanelRoot')) {
+      await this.refreshPluginPanel();
+    }
+  }
+
+  // ---------- 模型角色 ----------
+
+  /**
+   * 从会话数据里读角色。角色归属会话本身（ChatSessionData.role），
+   * 不依赖页面侧 localStorage —— 换设备 / 清缓存 / 从历史列表打开都不会弄错。
+   * 老会话没有 role 字段时回退默认（闲聊），向后兼容。
+   */
+  private async readSessionRole(sessionId: string): Promise<ChatRoleId> {
+    const sessions = await this.history.getAllSessions();
+    const data = sessions.find((s) => s.sessionId === sessionId)?.data;
+    return parseRoleId(data?.role) ?? DEFAULT_ROLE_ID;
+  }
+
+  /** 把角色固化进当前会话数据（一旦写入，后续保存都会保留） */
+  private async writeSessionRole(role: ChatRoleId): Promise<void> {
+    await this.history.setCurrentSessionRole(role);
+    localStorage.setItem(ROLE_STORAGE_KEY, role); // 只用于「全新用户默认角色」
+  }
+
+  /** 当前会话是否已有聊天记录（有则角色锁定，不允许切换） */
+  private currentSessionHasMessages(): boolean {
+    return (this.history.getCurrentSession()?.messages.length ?? 0) > 0;
+  }
+
+  /**
+   * 切换角色 = 新建会话。但**已有聊天记录的会话不能切换** ——
+   * 角色决定 system prompt 与背景知识，中途换角色会让同一段历史被
+   * 两套不同的知识体系解释，上下文彻底乱套。用户须先新建会话。
+   */
+  private async switchRole(roleId: ChatRoleId): Promise<void> {
+    const role = getRole(roleId);
+    this.toggleRoleMenu(false);
+
+    if (role.id === this.currentRole) return; // 点当前角色，什么都不做
+
+    if (this.currentSessionHasMessages()) {
+      await this.renderer.renderMessage(
+        `当前会话已有聊天记录，角色已固定为「${getRole(this.currentRole).label}」，不能切换。`
+        + '请点右上角「新建会话」后再选择角色。',
+        false, null, null, undefined, undefined, false,
+      );
+      return;
+    }
+
+    // 空会话允许直接换角色：没有历史需要保持一致的解释口径。
+    // 直接改写这个空会话的角色，不另建会话 —— 避免留下一堆空会话垃圾。
+    this.currentRole = role.id;
+    await this.writeSessionRole(role.id);
+    await this.renderer.renderMessage(
+      `已切换到「${role.label}」角色：${role.description}。`,
+      false, null, null, undefined, undefined, false,
+    );
+    this.syncRoleUI();
+    this.syncReadyState();
+  }
+
+  /** 角色是否被当前会话锁定（供 UI 显示「已固定」提示） */
+  private isRoleLocked(): boolean {
+    return this.currentSessionHasMessages();
+  }
+
+  /** 标题栏角色按钮 + 下拉：常驻可见，一眼知道当前是什么角色、是否已锁定 */
+  private syncRoleUI(): void {
+    const role = getRole(this.currentRole);
+    const locked = this.isRoleLocked();
+    const btn = document.getElementById('roleBtn');
+    if (btn) {
+      // 动态文本一律 textContent，绝不拼进 innerHTML
+      btn.textContent = locked
+        ? `${role.icon} ${role.label} 🔒`
+        : `${role.icon} ${role.label} ▾`;
+      btn.setAttribute('aria-label', locked
+        ? `当前角色：${role.label}，本会话已固定`
+        : `当前角色：${role.label}，点击切换`);
+      btn.classList.toggle('role-btn--locked', locked);
+    }
+    const input = document.getElementById('userInput') as HTMLTextAreaElement | null;
+    if (input && !input.disabled) input.placeholder = role.placeholder;
+
+    const menu = document.getElementById('roleMenu');
+    if (menu) {
+      menu.textContent = '';
+      if (locked) {
+        const hint = document.createElement('div');
+        hint.className = 'role-menu__hint';
+        hint.textContent = '本会话已有聊天记录，角色已固定。新建会话后可重新选择。';
+        menu.append(hint);
+      }
+      for (const item of CHAT_ROLES) {
+        const row = document.createElement('button');
+        row.type = 'button';
+        const isCurrent = item.id === this.currentRole;
+        const disabled = locked && !isCurrent;
+        row.className = 'role-option'
+          + (isCurrent ? ' is-active' : '')
+          + (disabled ? ' is-disabled' : '');
+        row.disabled = disabled;
+        const title = document.createElement('span');
+        title.className = 'role-option__title';
+        title.textContent = `${item.icon} ${item.label}`;
+        const desc = document.createElement('span');
+        desc.className = 'role-option__desc';
+        desc.textContent = disabled ? '当前会话已锁定，新建会话后可切换' : item.description;
+        row.append(title, desc);
+        if (!disabled) row.addEventListener('click', () => void this.switchRole(item.id));
+        menu.append(row);
+      }
+    }
+  }
+
+  private toggleRoleMenu(force?: boolean): void {
+    const menu = document.getElementById('roleMenu');
+    if (!menu) return;
+    const show = force ?? (menu.style.display !== 'block');
+    menu.style.display = show ? 'block' : 'none';
+    // 切换角色菜单时顺手关掉右上角菜单，避免两层浮层叠着
+    if (show) this.toggleMenu(false);
   }
 
   // ---------- 会话管理 ----------
@@ -150,6 +306,8 @@ export class ChatPage {
     if (lastId) {
       const messages = await this.history.loadSession(lastId);
       if (messages) {
+        // 角色从会话数据本身恢复，不靠页面侧映射
+        this.currentRole = await this.readSessionRole(lastId);
         await this.renderSession(messages);
         return;
       }
@@ -162,10 +320,13 @@ export class ChatPage {
       const messages = await this.history.loadSession(recent.sessionId);
       if (messages) {
         localStorage.setItem(LAST_SESSION_KEY, recent.sessionId);
+        this.currentRole = await this.readSessionRole(recent.sessionId);
         await this.renderSession(messages);
         return;
       }
     }
+    // 全新用户：沿用上次选的角色（默认闲聊）
+    this.currentRole = parseRoleId(localStorage.getItem(ROLE_STORAGE_KEY)) ?? DEFAULT_ROLE_ID;
     await this.newSession(false);
   }
 
@@ -186,11 +347,15 @@ export class ChatPage {
   private async newSession(clearUI = true): Promise<void> {
     const id = await this.history.createSession('新对话');
     localStorage.setItem(LAST_SESSION_KEY, id);
+    // 角色固化进会话数据：新建的会话沿用当前角色
+    // （切换角色时会先改 currentRole 再调这里）
+    await this.writeSessionRole(this.currentRole);
     if (clearUI) {
       this.renderer.clearMessages();
       this.updateTitle();
     }
     this.toggleMenu(false);
+    this.syncRoleUI();
     this.syncReadyState();
   }
 
@@ -229,8 +394,14 @@ export class ChatPage {
         const active = s.sessionId === currentId ? ' session-card--active' : '';
         const time = this.formatTime(s.data.updatedAt);
         const summary = this.escapeHtml(this.sessionTitleFromSession(s));
+        // 角色标识：从会话数据本身读取。老会话（角色字段落地前创建的）
+        // 没有 role，按默认闲聊回退，并标「旧」提示这是回退值而非确证。
+        const stored = parseRoleId(s.data.role);
+        const role = getRole(stored ?? DEFAULT_ROLE_ID);
+        const roleLabel = stored ? `${role.icon} ${role.label}` : `${role.icon} ${role.label}（旧）`;
+        const roleBadge = `<span class="session-card__role">${this.escapeHtml(roleLabel)}</span>`;
         return `<div class="session-card${active}" data-session-id="${this.escapeHtml(s.sessionId)}">
-          <div class="session-card__time">${time}</div>
+          <div class="session-card__time">${time}${roleBadge}</div>
           <div class="session-card__summary">${summary}</div>
         </div>`;
       }).join('');
@@ -256,7 +427,11 @@ export class ChatPage {
         const messages = await this.history.loadSession(id);
         if (!messages) return;
         localStorage.setItem(LAST_SESSION_KEY, id);
+        // 关键：打开历史会话必须恢复它自己的角色，否则会用上一个会话的角色
+        // 去解释这段历史（system prompt / 插件能力全错）。
+        this.currentRole = await this.readSessionRole(id);
         await this.renderSession(messages);
+        this.syncRoleUI();
         this.syncReadyState();
       });
     });
@@ -280,6 +455,8 @@ export class ChatPage {
       {
         sessionId: meta.sessionId,
         title: this.sessionTitle(meta),
+        // 角色是会话固有属性，导出一并带上，避免回灌后角色丢失
+        role: this.currentRole,
         messages: meta.messages,
       },
       filename,
@@ -295,6 +472,8 @@ export class ChatPage {
     await this.history.clearCurrentSession();
     this.renderer.clearMessages();
     this.updateTitle();
+    // 清空后没有聊天记录了，角色解锁（按钮由 🔒 变回 ▾）
+    this.syncRoleUI();
     this.syncReadyState();
     await this.renderer.renderMessage('当前会话已清空。', false, null, null, undefined, undefined, false);
   }
@@ -326,7 +505,7 @@ export class ChatPage {
 
     const plugin = this.plugin;
     if (!plugin) {
-      root.appendChild(this.pluginPanelMessage('插件系统未就绪（当前为纯聊天模式）。'));
+      root.appendChild(this.pluginPanelMessage('插件系统未就绪（当前只能自由聊天）。'));
       return;
     }
 
@@ -346,7 +525,7 @@ export class ChatPage {
 
     if (artifacts.length === 0) {
       root.appendChild(this.pluginPanelMessage(
-        '当前没有插件。可以在对话里让模型编写，生成候选后在这里确认启用。',
+        '当前没有插件。切到「插件开发」角色即可让智能体编写 / 启停插件；生成候选后在这里确认启用。',
       ));
       return;
     }

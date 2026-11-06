@@ -36,6 +36,13 @@ export interface ChatSessionData {
   createdAt: number;
   /** 更新时间 */
   updatedAt: number;
+  /**
+   * 会话绑定的模型角色 id（见 application/chat/ChatRole）。
+   * 可选：老会话没有此字段时按默认角色（闲聊）处理，向后兼容。
+   * 角色归属会话数据本身，不放在页面侧 localStorage —— 否则换设备、
+   * 清缓存或从历史列表打开时可能弄错角色。
+   */
+  role?: string;
 }
 /** 会话项 */
 export interface ChatSession {
@@ -234,6 +241,8 @@ export class ChatHistoryManager {
         messages: this.currentMessages,
         createdAt: existingData?.createdAt || Date.now(),
         updatedAt: Date.now(),
+        // 角色是会话固有属性，重建 data 时必须保留，否则发一条消息就丢了
+        ...(existingData?.role ? { role: existingData.role } : {}),
       }
     );
   }
@@ -267,6 +276,28 @@ export class ChatHistoryManager {
         messages: this.currentMessages,
         createdAt: existingData?.createdAt || Date.now(),
         updatedAt: Date.now(),
+        ...(existingData?.role ? { role: existingData.role } : {}),
+      },
+    );
+  }
+
+  /**
+   * 设置当前会话的模型角色。角色一旦确定就写入会话数据，
+   * 后续 addMessage / 改标题 / 清空消息都会保留它。
+   */
+  async setCurrentSessionRole(role: string): Promise<void> {
+    if (!this.currentSessionId) return;
+    const existing = await this.favoriteService.getFavorite(this.category, this.currentSessionId);
+    const existingData = existing?.data ? (existing.data as unknown as ChatSessionData) : undefined;
+    await this.favoriteService.addFavorite(
+      this.category,
+      this.currentSessionId,
+      {
+        title: existingData?.title || this.generateTitle(),
+        messages: this.currentMessages,
+        createdAt: existingData?.createdAt || Date.now(),
+        updatedAt: Date.now(),
+        role,
       },
     );
   }
@@ -288,6 +319,8 @@ export class ChatHistoryManager {
         messages: [],
         createdAt: existingData?.createdAt || Date.now(),
         updatedAt: Date.now(),
+        // 清空消息不改角色：会话的角色归属是固定的
+        ...(existingData?.role ? { role: existingData.role } : {}),
       },
     );
   }

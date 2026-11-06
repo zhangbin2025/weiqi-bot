@@ -178,6 +178,12 @@ export interface AgentAction {
   feedback?: string;
   pointId?: string;
   intent?: string;
+  /**
+   * plugin.toggle 的目标状态：true=启用，false=停用。
+   * 省略时按存储中的当前状态翻转。显式给出可避免「用户说启用，
+   * 模型却因快照过期翻回停用」这类方向错误。
+   */
+  enabled?: boolean;
 }
 
 export interface AgentResponse {

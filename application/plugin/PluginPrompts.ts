@@ -14,11 +14,16 @@ const ACTION_KINDS = [
   'plugin.show：读取某个插件的完整源码，必须给 artifactId（结果会作为观测回喂给你）',
   'plugin.create：新建插件，必须给 intent/code；name 仅当用户明确为规则起了名字时才给',
   'plugin.revise：修订已有插件，必须给 artifactId/code，可带 feedback',
-  'plugin.toggle：启停插件，必须给 artifactId',
+  'plugin.toggle：启停插件，必须给 artifactId；用户说「启用」就给 enabled:true，「停用/禁用」就给 enabled:false。省略 enabled 则按当前状态翻转',
   'plugin.delete：删除插件，必须给 artifactId',
 ].join('\n- ');
 
-/** 构造注入每次请求的 system prompt（插件系统对 LLM 始终可见） */
+/**
+ * 构造智能体路径的 system prompt。
+ * 只在用户选定「插件开发」角色时注入（见 ChatRole）；「闲聊」角色使用
+ * ConversationPrompt，模型完全看不到插件系统。角色确定后才加载对应
+ * 背景知识，不再按每句话猜措辞。
+ */
 export function buildAgentSystemPrompt(snapshot: PluginContextEntry[], maxAttempts: number): string {
   const list = snapshot.length
     ? snapshot
@@ -43,8 +48,21 @@ export function buildAgentSystemPrompt(snapshot: PluginContextEntry[], maxAttemp
     '- 每次只能输出完整源码，禁止输出 diff 或片段；自动修复最多 ' + maxAttempts + ' 轮。',
     '- 新建/修订的插件默认停用，须用户确认后才启用。',
     '',
+    '【状态变更铁律】查看/启停/删除/新建都必须真的发出对应 action，不能只在 reply 里声称完成。',
+    '- 用户说「启用 / 开启 / 打开」→ 必须 action.kind=plugin.toggle + enabled:true；',
+    '  说「停用 / 禁用 / 关闭」→ plugin.toggle + enabled:false。',
+    '- 禁止用 action.kind=none 回复「已经启用/已关闭」这类话；系统不会替你执行，说了等于骗人。',
+    '- 只有真的收到观测回执（【插件系统观测】）后，才能在最终回复里确认状态。',
+    '- 不知道 artifactId 时先 plugin.list 查清单，不要凭记忆编造 id。',
+    '【承接上文的省略指令】用户刚开发完插件后常只说「启用」「停用」「删掉」「是的，启用吧」，不点名是哪个：',
+    '  → 必须先 plugin.list 拿当前清单（刚新建的候选可能还没出现在开头的清单里），',
+    '    从回执里选出要操作的那一个 id，再发 plugin.toggle / plugin.delete。',
+    '  → 严禁凭开头清单或记忆猜 id，更严禁跳过动作直接回「已启用」。',
+    '  → 若有多个候选且无法判断指哪个，用 action.kind=none 反问用户，别乱选。',
+    '- 新建/修订产生的候选默认停用；用户说「启用」就是指这个刚做好的候选。',
+    '',
     '【回复协议】严格 JSON，不要包裹解释文字：',
-    '{"reply":"给用户的自然语言回复","action":{"kind":"...","artifactId":"...","name":"...","intent":"...","code":"...","feedback":"..."}}',
+    '{"reply":"给用户的自然语言回复","action":{"kind":"...","artifactId":"...","enabled":true,"name":"...","intent":"...","code":"...","feedback":"..."}}',
     'action.kind 取值：',
     '- ' + ACTION_KINDS,
     'plugin.create / plugin.revise 的 code 必须是完整源码（字符串），不要给 diff、不要只给解释。',

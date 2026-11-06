@@ -94,12 +94,15 @@ export function parseAgentResponse(raw: string): { ok: true; response: AgentResp
   const feedback = optionalString(rawAction, 'feedback');
   const pointId = optionalString(rawAction, 'pointId');
   const intent = optionalString(rawAction, 'intent');
+  // toggle 的目标状态只接受布尔，避免模型用字符串 "true" 蒙混过关
+  const enabled = rawAction['enabled'];
   if (artifactId !== undefined) action.artifactId = artifactId;
   if (name !== undefined) action.name = name;
   if (code !== undefined) action.code = code;
   if (feedback !== undefined) action.feedback = feedback;
   if (pointId !== undefined) action.pointId = pointId;
   if (intent !== undefined) action.intent = intent;
+  if (typeof enabled === 'boolean') action.enabled = enabled;
 
   if (typedKind === 'plugin.create' || typedKind === 'plugin.revise') {
     if (!code || !code.trim()) {

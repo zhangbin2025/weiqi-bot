@@ -30,7 +30,7 @@ describe('parseAgentResponse', () => {
   it('多余字段一律忽略（防伪造权限/字段）', () => {
     const raw = JSON.stringify({
       reply: 'x',
-      action: { kind: 'plugin.list', artifactId: 'fake', admin: true, enabled: true, raw: 'whatever' },
+      action: { kind: 'plugin.list', artifactId: 'fake', admin: true, raw: 'whatever' },
       conversationHistory: [{ role: 'user', content: '私密内容' }],
     });
     const r = parseAgentResponse(raw);
@@ -39,6 +39,26 @@ describe('parseAgentResponse', () => {
     expect(Object.keys(r.response.action).sort()).toEqual(['artifactId', 'kind']);
     expect('admin' in r.response.action).toBe(false);
     expect(JSON.stringify(r.response)).not.toContain('私密内容');
+  });
+
+  it('plugin.toggle 的 enabled 只接受布尔，字符串会被丢弃（按当前状态翻转）', () => {
+    const okTrue = parseAgentResponse(JSON.stringify({
+      reply: 'x', action: { kind: 'plugin.toggle', artifactId: 'plugin:1', enabled: true },
+    }));
+    expect(okTrue.ok).toBe(true);
+    if (okTrue.ok) expect(okTrue.response.action.enabled).toBe(true);
+
+    const okFalse = parseAgentResponse(JSON.stringify({
+      reply: 'x', action: { kind: 'plugin.toggle', artifactId: 'plugin:1', enabled: false },
+    }));
+    expect(okFalse.ok).toBe(true);
+    if (okFalse.ok) expect(okFalse.response.action.enabled).toBe(false);
+
+    const stringValued = parseAgentResponse(JSON.stringify({
+      reply: 'x', action: { kind: 'plugin.toggle', artifactId: 'plugin:1', enabled: 'true' },
+    }));
+    expect(stringValued.ok).toBe(true);
+    if (stringValued.ok) expect(stringValued.response.action.enabled).toBeUndefined();
   });
 
   it('空输出 / 非字符串 / 纯文本 → 明确 reason', () => {

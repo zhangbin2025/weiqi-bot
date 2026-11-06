@@ -135,6 +135,9 @@ export class PluginCodegenUseCase {
 
       let raw: string;
       try {
+        // 先推「开始」再 await：模型调用可能耗时几十秒，过程块必须在这期间
+        // 就已经点亮并逐步更新，否则用户会觉得「开发完了才突然冒出过程」。
+        push(attempt, 'llm', true, `第 ${attempt}/${maxAttempts} 轮：正在调用模型生成/修订代码…`);
         const result = await this.options.gateway.execute({
           task: 'plugin.generate',
           messages: modelMessages,

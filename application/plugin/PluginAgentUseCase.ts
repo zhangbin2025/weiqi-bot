@@ -1,8 +1,8 @@
 /**
- * 插件智能体用例（对话页主控台）
+ * 插件智能体用例（仅在明确插件意图时启用）
  * @module application/plugin/PluginAgentUseCase
  *
- * 对话页不再是「纯聊天」，而是智能体的主控台：
+ * 只在用户明确表达插件意图时由 ChatUseCase 调用；自由聊天不经过这里。
  *   每次请求都把插件系统快照注入 system prompt（插件随时可见）；
  *   LLM 产出 { reply, action }；客户端执行动作、观察结果、再决策。
  *
@@ -85,7 +85,7 @@ export interface PluginAgentOptions {
 }
 
 export interface AgentTurnRequest {
-  /** 用户本轮输入（自然语言，可能是聊天也可能是插件需求） */
+  /** 用户本轮输入（已通过插件意图闸门，是明确的插件需求） */
   text: string;
   /** 会话历史（仅用于聊天上下文，插件能力不依赖它） */
   history?: Array<{ role: 'user' | 'assistant'; content: string }>;
@@ -118,6 +118,8 @@ export class PluginAgentUseCase {
 
     let attempts = 0;
     let pendingObservation = '';
+    /** 本轮是否真的改过插件状态（toggle/delete/create/revise），用于拦截「只在嘴上说已启用」 */
+    let stateChanged = false;
     const trace: PluginTraceStep[] = [];
     const push = (stepAttempt: number, phase: string, ok: boolean, detail: string): void => {
       const step: PluginTraceStep = { source: 'agent', attempt: stepAttempt, phase, ok, detail };
@@ -161,16 +163,37 @@ export class PluginAgentUseCase {
       push(turn + 1, 'decision', true, `第 ${turn + 1}/${maxTurns} 次决策：动作 ${action.kind}`);
 
       switch (action.kind) {
-        case 'none':
+        case 'none': {
           push(turn + 1, 'final', true, '纯聊天回复，未执行插件动作');
+          // 防线：模型可能只在 reply 里声称「已启用/已停用」，却没发 toggle。
+          // 此时系统什么都没做，绝不能把这句假话原样交给用户。
+          const claimedStateChange = /已经?(启用|停用|禁用)|已(启用|停用|禁用)|启用成功|停用成功|禁用成功|切换成功/.test(reply);
+          if (claimedStateChange && !stateChanged) {
+            const current = await this.options.snapshot.snapshot();
+            const lines = current.length
+              ? current.map((p) => `- ${p.id} ${p.name}：${p.enabled ? '已启用' : '停用'}`).join('\n')
+              : '（当前没有插件）';
+            push(turn + 1, 'final', false, '拦截：模型声称状态变更但未执行动作');
+            return {
+              reply: `我没有执行任何启停操作，插件状态未改变。当前真实状态：\n${lines}\n\n请在插件管理面板里手动启用/停用，或明确告诉我插件 id 与要设为的状态。`,
+              acted: false,
+              attempts,
+              trace,
+            };
+          }
           return { reply, acted: false, attempts, trace };
+        }
 
         case 'plugin.list': {
-          const lines = snapshot.length
-            ? snapshot.map((p) => `- ${p.id} ${p.name} [${p.pointId}] ${p.enabled ? '启用' : '停用'} v${p.version}：${p.intent}`).join('\n')
+          // 同轮可能刚 toggle/delete 过，本轮开始的 snapshot 已经过期；
+          // 重新读一次，否则「启用后查看清单」会回喂旧的停用状态，
+          // 模型据此会以为没生效，用户也会看到自相矛盾的答案。
+          const fresh = await this.options.snapshot.snapshot();
+          const lines = fresh.length
+            ? fresh.map((p) => `- ${p.id} ${p.name} [${p.pointId}] ${p.enabled ? '启用' : '停用'} v${p.version}：${p.intent}`).join('\n')
             : '（当前没有插件）';
           pendingObservation = observe(`当前插件清单：\n${lines}`);
-          push(turn + 1, 'observe', true, `清单回喂（${snapshot.length} 个插件）`);
+          push(turn + 1, 'observe', true, `清单回喂（${fresh.length} 个插件）`);
           continue;
         }
 
@@ -198,9 +221,17 @@ export class PluginAgentUseCase {
           if (!id) { pendingObservation = observe('toggle 缺少 artifactId'); push(turn + 1, 'observe', false, 'toggle 缺少 artifactId'); continue; }
           const artifact = await this.options.artifacts.get(id);
           if (!artifact) { pendingObservation = observe(`找不到插件 ${id}`); push(turn + 1, 'observe', false, `找不到插件 ${id}`); continue; }
-          await this.options.artifacts.setEnabled(id, !snapshot.find((p) => p.id === id)?.enabled);
-          pendingObservation = observe(`插件 ${id} 状态已切换`);
-          push(turn + 1, 'observe', true, `插件 ${id} 状态已切换`);
+          // 不要用本轮开始时的 snapshot 判断当前状态：同一轮里可能刚 create
+          // 过新插件、或连发两次 toggle，旧快照会翻错方向甚至原地打转。
+          // 以存储的当前 enabled 为准，并明确支持「设为启用 / 设为停用」。
+          const current = await this.options.snapshot.snapshot();
+          const currentEnabled = current.find((p) => p.id === id)?.enabled ?? false;
+          const nextEnabled = action.enabled ?? !currentEnabled;
+          await this.options.artifacts.setEnabled(id, nextEnabled);
+          stateChanged = true;
+          const stateText = nextEnabled ? '已启用' : '已停用';
+          pendingObservation = observe(`插件 ${id} ${stateText}（已写入存储）`);
+          push(turn + 1, 'observe', true, `插件 ${id} ${stateText}（已写入存储）`);
           continue;
         }
 
@@ -208,6 +239,7 @@ export class PluginAgentUseCase {
           const id = action.artifactId;
           if (!id) { pendingObservation = observe('delete 缺少 artifactId'); push(turn + 1, 'observe', false, 'delete 缺少 artifactId'); continue; }
           await this.options.artifacts.remove(id);
+          stateChanged = true;
           pendingObservation = observe(`插件 ${id} 已删除`);
           push(turn + 1, 'observe', true, `插件 ${id} 已删除`);
           continue;
@@ -277,6 +309,7 @@ export class PluginAgentUseCase {
             });
             artifactId = action.artifactId;
           }
+          stateChanged = true;
 
           return {
             reply: `${reply}\n\n✅ 已生成插件候选（${codegen.attempts} 轮，试算通过），需你确认后启用。`,

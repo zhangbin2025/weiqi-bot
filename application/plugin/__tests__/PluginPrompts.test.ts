@@ -57,6 +57,14 @@ describe('buildAgentSystemPrompt', () => {
     expect(s).toContain('diff');
   });
 
+  it('承接上文的省略指令：要求先 plugin.list 拿 id、禁止凭记忆猜', () => {
+    const s = buildAgentSystemPrompt(snapshot, 3);
+    expect(s).toContain('承接上文的省略指令');
+    expect(s).toContain('必须先 plugin.list');
+    expect(s).toContain('严禁凭开头清单或记忆猜 id');
+    expect(s).toContain('新建/修订产生的候选默认停用');
+  });
+
   it('修复轮数上限体现在 prompt 里', () => {
     expect(buildAgentSystemPrompt([], 5)).toContain('5');
     expect(buildAgentSystemPrompt([], 1)).toContain('1');

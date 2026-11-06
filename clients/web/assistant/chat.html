@@ -134,12 +134,57 @@
             font-size: 11px; line-height: 1.45; color: #333; white-space: pre-wrap;
             word-break: break-all;
         }
+        /* 模型角色选择器（标题栏常驻） */
+        .role-picker { position: relative; flex: 0 0 auto; }
+        .role-btn {
+            border: 1px solid #dcdcf0; border-radius: 16px;
+            background: #f4f3ff; color: #4b43a8;
+            font-size: 12px; line-height: 1; padding: 6px 10px;
+            cursor: pointer; white-space: nowrap; font-family: inherit;
+        }
+        .role-btn:hover { background: #eae8ff; }
+        .role-menu {
+            display: none; position: absolute; right: 0; top: calc(100% + 8px);
+            z-index: 60; min-width: 210px;
+            background: #fff; border: 1px solid #e4e4ee; border-radius: 10px;
+            box-shadow: 0 8px 24px rgba(30, 30, 60, .14);
+            padding: 6px;
+        }
+        .role-option {
+            display: flex; flex-direction: column; gap: 3px;
+            width: 100%; text-align: left; border: 0; border-radius: 7px;
+            background: transparent; padding: 9px 10px; cursor: pointer;
+            font-family: inherit; color: #222;
+        }
+        .role-option:hover { background: #f6f5ff; }
+        .role-option.is-active { background: #efedff; }
+        .role-option.is-disabled { opacity: .45; cursor: not-allowed; }
+        .role-option.is-disabled:hover { background: transparent; }
+        .role-option__title { font-size: 13px; font-weight: 600; }
+        .role-option__desc { font-size: 11px; color: #777; line-height: 1.4; }
+        .role-btn--locked { background: #eef0f2; color: #666; border-color: #d8dade; cursor: default; }
+        .role-btn--locked:hover { background: #eef0f2; }
+        .role-menu__hint {
+            font-size: 11px; color: #8a6d00; line-height: 1.45;
+            background: #fff8e1; border: 1px solid #ffe082; border-radius: 7px;
+            padding: 8px 10px; margin: 2px 2px 6px;
+        }
+        .session-card__role {
+            display: inline-block; margin-left: 8px; padding: 1px 7px;
+            border-radius: 8px; font-size: 10px; font-weight: 600;
+            background: #f0efff; color: #4b43a8; vertical-align: middle;
+        }
     </style>
 </head>
 <body>
     <div class="page-container">
         <div class="wechat-header">
             <h1 class="wechat-title" id="chatTitle">AI 对话</h1>
+            <!-- 模型角色选择器：默认闲聊，用户显式选定后才加载对应提示词/背景知识 -->
+            <div class="role-picker">
+                <button class="role-btn" id="roleBtn" type="button">💬 闲聊 ▾</button>
+                <div class="role-menu" id="roleMenu"></div>
+            </div>
             <button class="toolbar-btn" id="menuBtn" title="会话操作">⋮</button>
         </div>
 

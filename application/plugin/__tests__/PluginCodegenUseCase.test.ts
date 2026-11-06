@@ -111,10 +111,30 @@ describe('PluginCodegenUseCase', () => {
     h.gateway.execute.mockRejectedValue(new Error('网络超时'));
     const result = await new PluginCodegenUseCase(h.options).run(baseReq);
     expect(result.ok).toBe(false);
-    expect(result.trace).toHaveLength(1);
-    expect(result.trace[0]!.ok).toBe(false);
-    expect(result.trace[0]!.phase).toBe('llm');
-    expect(result.trace[0]!.detail).toContain('网络超时');
+    // 第一步是「正在调用模型」（await 之前推），第二步才是失败
+    expect(result.trace).toHaveLength(2);
+    expect(result.trace[0]!.ok).toBe(true);
+    expect(result.trace[0]!.detail).toContain('正在调用模型');
+    expect(result.trace[1]!.ok).toBe(false);
+    expect(result.trace[1]!.phase).toBe('llm');
+    expect(result.trace[1]!.detail).toContain('网络超时');
+  });
+
+  it('过程块在模型返回之前就点亮：onTrace 先于 gateway.execute 完成', async () => {
+    const h = harness();
+    let resolveGateway: ((v: { text: string; truncated: boolean }) => void) | undefined;
+    const pending = new Promise<{ text: string; truncated: boolean }>((r) => { resolveGateway = r; });
+    h.gateway.execute.mockReturnValue(pending);
+    const seen: string[] = [];
+    const runPromise = new PluginCodegenUseCase(h.options).run({
+      ...baseReq,
+      onTrace: (s) => seen.push(s.detail),
+    });
+    // 模型还「在思考」时，就应该已经收到开始信号
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen[0]).toContain('正在调用模型');
+    resolveGateway!({ text: 'raw', truncated: false });
+    await runPromise;
   });
 
   it('onTrace 实时推送：每步产生时立刻回调，顺序与 result.trace 一致', async () => {

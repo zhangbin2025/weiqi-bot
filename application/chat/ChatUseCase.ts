@@ -4,22 +4,36 @@
  *
  * 职责：处理一条用户消息 —— 渲染、写历史、拼上下文、调模型网关、渲染回复。
  *
- * 对话页是「智能体主控台」，可编程（编写/修改插件）是一等能力：
- * 装配了 PluginAgent 时走 Agent Loop（模型产出动作 → 执行 → 观测 → 再决策）；
- * 未装配或装配失败时自动降级为纯聊天，保证对话页永远可用。
- * 插件能力的数据来源是工件存储，不是会话历史，因此会话清空/新建都不影响。
+ * 分流依据不再是「猜这句话属于哪个意图」，而是**用户显式选定的模型角色**
+ * （见 ChatRole）：
+ * - chat 角色：纯聊天对象，ConversationPrompt + 普通模型调用，模型完全看不到
+ *   插件系统、没有 JSON 协议、没有任何写权限。
+ * - plugin 角色：可编程智能体，插件快照 + 沙箱契约 + JSON 动作协议 + Agent Loop，
+ *   能真实执行查看/新建/启停/删除；此角色下所有消息都进 Agent。
+ *
+ * 角色由页面注入（roleProvider），用例本身不持久化、不猜测。插件能力的数据
+ * 来源是工件存储，不是会话历史，因此会话清空/新建都不影响。
+ *
+ * 「插件调试过程」只在 plugin 角色下展示，且**发送瞬间就点亮**：模型调用前
+ * 那段几十秒的等待期也有可见的实时进度。
  */
 
 import type { IModelGateway } from '../model/IModelGateway';
 import type { ChatHistoryManager } from '../assistant/ChatHistoryManager';
 import type { IMessageRenderer } from '../assistant/IMessageRenderer';
 import { buildConversationMessages, summarizeSession } from './ConversationPrompt';
+import { isDebugTraceStep, visibleDebugSteps } from './PluginTraceVisibility';
+import { getRole, type ChatRoleId } from './ChatRole';
 import type { AgentTurnRequest } from '../plugin/PluginAgentUseCase';
-import type { AgentTurnResult } from '@domain/plugin/types';
+import type { AgentTurnResult, PluginTraceStep } from '@domain/plugin/types';
 
 /** 拦截「/」开头：chat 页零命令体系，配置请回功能助手 */
 export const SLASH_COMMAND_HINT = '对话页不支持命令，模型配置请回到功能助手操作。';
 export const NOT_READY_HINT = '尚未配置 LLM，请回到功能助手执行 /llm 配置后再来对话。';
+
+/** 选了插件角色但插件系统装配失败时的提示（页面始终可用，不抛错） */
+export const AGENT_UNAVAILABLE_HINT =
+  '插件系统未能加载，当前无法使用「插件开发」角色。请刷新重试，或切回「闲聊」角色继续对话。';
 
 /** 智能体端口：与 PluginAgentUseCase.turn 对齐，避免 application/chat 依赖具体实现 */
 export interface IPluginAgent {
@@ -38,8 +52,10 @@ export class ChatUseCase {
     private readonly gateway: IModelGateway,
     private readonly history: ChatHistoryManager,
     private readonly renderer: IMessageRenderer,
-    /** 可选：装配后对话页获得插件编程能力；未装配则保持纯聊天 */
+    /** 可选：装配后，仅 plugin 角色的消息才获得插件编程能力 */
     private readonly agent?: IPluginAgent,
+    /** 当前角色由页面提供（角色绑定会话）。不传则默认闲聊。 */
+    private readonly roleProvider?: () => ChatRoleId,
   ) {}
 
   isReady(): boolean {
@@ -66,6 +82,9 @@ export class ChatUseCase {
       return;
     }
 
+    // 角色在发送这一刻确定，整条消息只走这一条路径。
+    const role = getRole(this.roleProvider?.() ?? 'chat');
+
     // 用户气泡 + 落盘
     await this.renderer.renderMessage(text, true, null, null, undefined, undefined, false);
     await this.history.addMessage({ role: 'user', content: text });
@@ -74,39 +93,72 @@ export class ChatUseCase {
       await this.history.setCurrentSessionTitle(summarizeSession(this.history.getMessages()));
     }
 
+    // 选了插件角色但插件系统没装上：给明确提示，不静默降级成闲聊
+    // （静默降级正是「说已启用却没执行」那类假成功的温床）
+    if (role.agent && !this.agent) {
+      this.renderer.hideTyping();
+      await this.renderHint(AGENT_UNAVAILABLE_HINT);
+      return;
+    }
+
+    const useAgent = role.agent;
+    // 过程块是否允许出现，由角色决定；但**是否真的出现，由本轮实际产生的
+    // 步骤决定** —— 懒建：只有第一个实质调试步骤到达时才 beginPluginTrace。
+    //
+    // 为什么不能「发送瞬间就建」：plugin 角色下「启用」「看一下插件列表」
+    // 也走 Agent，但它们只产生 decision/observe/final，没有任何代码调试。
+    // 无条件预建会让每句话都挂一个「插件调试过程」空壳，正是本次要修的。
+    // 区分依据是 Agent 真的干了什么（有没有走 codegen），不是逐句猜措辞，
+    // 也不退回按消息文本判意图。
+    const showTrace = role.trace && useAgent;
     this.renderer.showTyping();
-    // 实时过程日志：懒开启（收到第一步才建块，纯闲聊不会留空块）、逐步追加、finally 收尾。
-    // 渲染器不支持实时模式时，回退到「结束后一次性全量渲染」。
+
     let realtime = false;
     let started = false;
+    let beginAttempted = false; // begin 只试一次，失败就交给全量兜底，不逐步重试
     let lastStepOk = true;
-    const onTrace = this.renderer.beginPluginTrace && this.renderer.appendPluginTraceStep
-      ? (step: import('@domain/plugin/types').PluginTraceStep): void => {
-          // 纯展示：任何渲染异常都吞掉，绝不能把主回复弄丢
+    const hasRealtimeRenderer = Boolean(
+      this.renderer.beginPluginTrace && this.renderer.appendPluginTraceStep,
+    );
+    /** 懒建：收到第一个值得展示的步骤时才点亮过程块，返回是否已建好 */
+    const ensureStarted = (): boolean => {
+      if (!showTrace || !hasRealtimeRenderer || started || beginAttempted) return started;
+      beginAttempted = true;
+      try {
+        realtime = this.renderer.beginPluginTrace!() === true;
+        started = realtime;
+      } catch { /* 纯展示，吞掉 */ }
+      return started;
+    };
+    const onTrace = hasRealtimeRenderer
+      ? (step: PluginTraceStep): void => {
+          // 只放行实质调试步骤（代码/校验/试算）；decision/observe/final
+          // 一概不触发建块，也不追加 —— 与全量兜底同一套口径。
+          if (!showTrace || !isDebugTraceStep(step)) return;
+          if (!ensureStarted()) return;
           try {
-            if (!started) {
-              realtime = this.renderer.beginPluginTrace!() === true;
-              started = true;
-            }
-            if (realtime) {
-              this.renderer.appendPluginTraceStep!(step);
-              lastStepOk = step.ok;
-            }
-          } catch { /* ignore */ }
+            this.renderer.appendPluginTraceStep!(step);
+            lastStepOk = step.ok;
+          } catch { /* 纯展示，吞掉 */ }
         }
       : undefined;
 
     try {
-      const result = this.agent ? await this.runAgent(text, onTrace) : undefined;
+      const result = useAgent ? await this.runAgent(text, onTrace) : undefined;
       const reply = result ? result.reply : await this.runPlainChat();
       this.renderer.hideTyping();
 
-      // 兜底：渲染器不支持实时、或 agent 没走实时通道 → 结束后一次性全量渲染。
+      // 兜底：渲染器不支持实时、或 begin 返回 false → 结束后一次性全量渲染。
+      // 同样只在 plugin 角色下，且只渲染实质调试步骤。
       // 实时模式的收尾统一放在 finally，正常/异常都只做一次。
-      if (!realtime && result?.trace && result.trace.length > 0 && this.renderer.renderPluginTrace) {
-        try { await this.renderer.renderPluginTrace(result.trace); } catch { /* ignore */ }
+      const visible = showTrace ? visibleDebugSteps(result?.trace) : [];
+      if (!realtime && visible.length > 0 && this.renderer.renderPluginTrace) {
+        try { await this.renderer.renderPluginTrace(visible); } catch { /* ignore */ }
       }
 
+      // 安全边界保持不变：装配了插件系统时，所有回复（含闲聊角色）都经
+      // safeReply 转义+截断。渲染器用 innerHTML 解析 markdown，这里是唯一的
+      // HTML 转义防线，不能因为分流而绕过。
       const safe = this.agent ? this.agent.safeReply(reply) : reply;
       if (!safe.trim()) {
         await this.renderHint('模型没有返回内容，请稍后重试或更换模型。');
@@ -130,7 +182,7 @@ export class ChatUseCase {
     }
   }
 
-  /** 纯聊天路径（无插件系统时的既有行为，保持不变） */
+  /** 闲聊角色：会话 system prompt + 普通模型调用，模型看不到插件系统 */
   private async runPlainChat(): Promise<string> {
     const messages = buildConversationMessages(this.history.getMessages());
     const result = await this.gateway.execute({
@@ -141,7 +193,7 @@ export class ChatUseCase {
     return result.text;
   }
 
-  /** 智能体路径：会话历史只作聊天上下文，插件能力完全来自工件 */
+  /** 插件角色：会话历史只作聊天上下文，插件能力来自工件 */
   private async runAgent(
     text: string,
     onTrace?: (step: import('@domain/plugin/types').PluginTraceStep) => void,

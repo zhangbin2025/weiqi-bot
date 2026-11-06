@@ -285,6 +285,45 @@ describe('PluginAgentUseCase', () => {
     expect(h.artifacts.setEnabled).toHaveBeenCalledWith('plugin:old', false);
   });
 
+  it('plugin.toggle 显式 enabled:true → 设为启用，不依赖快照翻转', async () => {
+    const h = harness();
+    h.artifacts.get.mockResolvedValue({ id: 'plugin:old', code: 'x', intent: 'y', spec: RANKING_SPEC });
+    setResponses(h, [ok('切', { kind: 'plugin.toggle', artifactId: 'plugin:old', enabled: true }), ok('已启用', { kind: 'none' })]);
+    await new PluginAgentUseCase(h.options).turn({ text: '启用旧规则' });
+    expect(h.artifacts.setEnabled).toHaveBeenCalledWith('plugin:old', true);
+  });
+
+  it('plugin.toggle 显式 enabled:false → 设为停用', async () => {
+    const h = harness();
+    h.artifacts.get.mockResolvedValue({ id: 'plugin:old', code: 'x', intent: 'y', spec: RANKING_SPEC });
+    setResponses(h, [ok('切', { kind: 'plugin.toggle', artifactId: 'plugin:old', enabled: false }), ok('已停用', { kind: 'none' })]);
+    await new PluginAgentUseCase(h.options).turn({ text: '停用旧规则' });
+    expect(h.artifacts.setEnabled).toHaveBeenCalledWith('plugin:old', false);
+  });
+
+  it('模型只在 reply 里声称「已启用」却没发 toggle → 拦截，不返回假成功', async () => {
+    const h = harness();
+    setResponses(h, [ok('已经启用好了，可以直接用了', { kind: 'none' })]);
+    const result = await new PluginAgentUseCase(h.options).turn({ text: '启用插件' });
+    expect(h.artifacts.setEnabled).not.toHaveBeenCalled();
+    expect(result.reply).toContain('插件状态未改变');
+    expect(result.reply).toContain('真实状态');
+    expect(result.reply).not.toContain('已经启用好了');
+  });
+
+  it('本轮已执行 toggle 后再回「已启用」→ 不拦截（stateChanged 生效）', async () => {
+    const h = harness();
+    h.artifacts.get.mockResolvedValue({ id: 'plugin:old', code: 'x', intent: 'y', spec: RANKING_SPEC });
+    setResponses(h, [
+      ok('切', { kind: 'plugin.toggle', artifactId: 'plugin:old', enabled: true }),
+      ok('已启用，可以生效了', { kind: 'none' }),
+    ]);
+    const result = await new PluginAgentUseCase(h.options).turn({ text: '启用旧规则' });
+    expect(h.artifacts.setEnabled).toHaveBeenCalledWith('plugin:old', true);
+    expect(result.reply).toContain('已启用');
+    expect(result.reply).not.toContain('插件状态未改变');
+  });
+
   it('plugin.delete 删除工件', async () => {
     const h = harness();
     setResponses(h, [ok('删', { kind: 'plugin.delete', artifactId: 'plugin:old' }), ok('已删除', { kind: 'none' })]);
