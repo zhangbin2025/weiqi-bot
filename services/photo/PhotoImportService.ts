@@ -107,27 +107,15 @@ export function ensureOnnxModel(onProgress?: (p: PhotoProgress) => void): Promis
   return onnxPromise;
 }
 
-/** 加载图片。⚠️ 必须 `() => resolve(im)`：直接 resolve 当 onload 回调拿到的是 Event。 */
-function loadImage(file: Blob): Promise<HTMLImageElement> {
-  const url = URL.createObjectURL(file);
-  const im = new Image();
-  return new Promise<HTMLImageElement>((resolve, reject) => {
-    im.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve(im);
-    };
-    im.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error('图片读取失败'));
-    };
-    im.src = url;
-  });
+/** 加载图片。使用 createImageBitmap 保持与 demo 一致的解码路径。 */
+function loadImage(file: Blob): Promise<ImageBitmap> {
+  return createImageBitmap(file);
 }
 
 /** 把图片等比缩到最长边 maxSide，画进离屏 canvas */
-function drawToCanvas(im: HTMLImageElement, maxSide: number): HTMLCanvasElement {
-  const W = im.naturalWidth;
-  const H = im.naturalHeight;
+function drawToCanvas(im: ImageBitmap, maxSide: number): HTMLCanvasElement {
+  const W = im.width;
+  const H = im.height;
   if (!W || !H) throw new Error(`图片尺寸为 0（未加载成功？）${W}x${H}`);
   const s = Math.min(1, maxSide / Math.max(W, H));
   const c = document.createElement('canvas');
@@ -172,10 +160,13 @@ export async function recognizeRegion(
 
   const onnxModel = await ensureOnnxModel(onProgress);
 
-  // 从 canvas 取 ImageData
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('无法创建 canvas 上下文');
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  // 用 OffscreenCanvas 取 imageData — 与 8899 demo 的 decodeFile 完全一致
+  const off = new OffscreenCanvas(canvas.width, canvas.height);
+  const octx = off.getContext('2d', { willReadFrequently: true });
+  if (!octx) throw new Error('无法创建 OffscreenCanvas 上下文');
+  octx.drawImage(canvas, 0, 0);
+  const imgData = octx.getImageData(0, 0, canvas.width, canvas.height);
+  const imageData = { data: imgData.data, width: imgData.width, height: imgData.height };
 
   onProgress?.({ stage: 'recognizing', percent: null, message: '正在识别棋局…' });
   // 让浏览器画出进度再进同步计算
@@ -183,6 +174,7 @@ export async function recognizeRegion(
 
   const t0 = performance.now();
   const r = await transcribe(imageData, quad, PHOTO_BOARD_SIZE, onnxModel);
+
 
   if (!r.ok) {
     throw new Error('识别失败，请重新框选或重拍');

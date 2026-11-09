@@ -68,6 +68,10 @@ const CSS = `
 .pc-poly {
   position: absolute;
   pointer-events: none;
+  width: 100%;
+  height: 100%;
+  left: 0;
+  top: 0;
 }
 
 .pc-handle {
