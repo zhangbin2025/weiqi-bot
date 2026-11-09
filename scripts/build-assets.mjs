@@ -63,7 +63,7 @@ const RESOURCES = [
 // ocr：OCR 引擎 + ORT 运行时 + worker 共约 50MB，属可选功能，
 // photo：cnn.onnx 约 0.5MB，只有用户点了「拍照摆子」才需要。
 // 二者与 models / tfjs 同策略——不进预加载 zip，由 FileServer 按需下载。
-const PRELOAD_EXCLUDE_DIRS = ['models', 'tfjs', 'ocr', 'photo'];
+const PRELOAD_EXCLUDE_DIRS = ['models', 'tfjs', 'ocr', 'photo', 'vendor'];
 const PRELOAD_EXCLUDE_FILES = ['web-resources.zip'];
 
 /**
