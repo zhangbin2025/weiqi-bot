@@ -62,8 +62,20 @@ const RESOURCES = [
  */
 // ocr：OCR 引擎 + ORT 运行时 + worker 共约 50MB，属可选功能，
 // photo：cnn.onnx 约 0.5MB，只有用户点了「拍照摆子」才需要。
-// 二者与 models / tfjs 同策略——不进预加载 zip，由 FileServer 按需下载。
-const PRELOAD_EXCLUDE_DIRS = ['models', 'tfjs', 'ocr', 'photo', 'vendor'];
+// vendor：ORT 1.19.2 运行时三件套约 11MB，仅拍照识别用（253f2c8 起排除）。
+// 定式库 / 题库：整包约 14MB，本就是分块按需加载（见 generate-sgf-library.mjs），
+//   塞进预加载 zip 等于把「按需」变成「全部预下载」。
+//
+// ⚠️ 这里只是「不预加载」，dist-web/ 里的文件本身保留：deploy-cloudflare.mjs 会把
+// 整个 dist-web 部署到 Worker；本地 FileServer / desktop AssetServer 缓存未命中时
+// 按相对路径回源 remoteBase，首次用到才下载，即「按需下载」。
+const PRELOAD_EXCLUDE_DIRS = [
+  'models', 'tfjs', 'ocr', 'photo', 'vendor',
+  // 定式库：trie-*.json.gz + quiz-*.json.gz，约 5MB
+  'shared/assets/data/joseki',
+  // 题库：死活题 life-and-death 分块 + meta，约 8.7MB
+  'shared/assets/data/games/life-and-death',
+];
 const PRELOAD_EXCLUDE_FILES = ['web-resources.zip'];
 
 /**
@@ -214,8 +226,9 @@ function listFilesRecursively(dir, baseDir = dir) {
 /**
  * 生成 web-resources.zip
  * 
- * 将 dist-web/ 下需要预下载的文件（排除 models/、tfjs/ 等）打包为 zip
+ * 将 dist-web/ 下需要预下载的文件（排除 models/、tfjs/、定式库、题库等）打包为 zip
  * 客户端启动时下载此压缩包并解压，替代之前逐文件下载的方式
+ * 被排除的资源仍在 Worker 上，由客户端按需回源下载
  */
 function generateWebResourcesZip() {
   console.log('\n📦 生成 web-resources.zip...\n');
@@ -226,13 +239,16 @@ function generateWebResourcesZip() {
   // 过滤掉排除目录和文件
   const includedFiles = [];
   let excludedCount = 0;
+  let excludedBytes = 0;
 
   for (const file of allFiles) {
-    const isExcludedDir = PRELOAD_EXCLUDE_DIRS.some(dir => file.path.startsWith(dir + '/'));
+    const isExcludedDir = PRELOAD_EXCLUDE_DIRS.some(dir =>
+      file.path === dir || file.path.startsWith(dir + '/'));
     const isExcludedFile = PRELOAD_EXCLUDE_FILES.includes(file.path);
 
     if (isExcludedDir || isExcludedFile) {
       excludedCount++;
+      excludedBytes += file.size;
       continue;
     }
 
@@ -268,10 +284,12 @@ function generateWebResourcesZip() {
   const zipSize = statSync(zipPath).size;
   const zipSizeMB = (zipSize / 1024 / 1024).toFixed(1);
   const totalOrigMB = (includedFiles.reduce((sum, f) => sum + f.size, 0) / 1024 / 1024).toFixed(1);
+  const excludedMB = (excludedBytes / 1024 / 1024).toFixed(1);
 
   console.log(`✅ web-resources.zip 已生成`);
   console.log(`   包含文件: ${includedFiles.length} 个 (${totalOrigMB} MB)`);
-  console.log(`   排除文件: ${excludedCount} 个 (models/, tfjs/)`);
+  console.log(`   排除文件: ${excludedCount} 个 (${excludedMB} MB)`);
+  console.log(`   排除目录: ${PRELOAD_EXCLUDE_DIRS.join(', ')}`);
   console.log(`   压缩后大小: ${zipSizeMB} MB`);
 }
 
