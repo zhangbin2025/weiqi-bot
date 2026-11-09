@@ -675,7 +675,13 @@
   <input type="file" id="photoFileInput" accept="image/*" style="display:none;">
 
   <script src="/vendor/ort19/ort.min.js"></script>
-  <script>if (typeof ort !== "undefined") { ort.env.wasm.wasmPaths = "/vendor/ort19/"; ort.env.wasm.numThreads = 1; }</script>
+  <script>
+    if (typeof ort !== "undefined") {
+      ort.env.wasm.wasmPaths = "/vendor/ort19/";
+      ort.env.wasm.numThreads = 1;
+      ort.env.backend = "wasm";
+    }
+  </script>
   <script type="module" src="./index.ts"></script>
 </body>
 </html>

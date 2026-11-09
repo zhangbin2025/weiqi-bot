@@ -160,12 +160,10 @@ export async function recognizeRegion(
 
   const onnxModel = await ensureOnnxModel(onProgress);
 
-  // 用 OffscreenCanvas 取 imageData — 与 8899 demo 的 decodeFile 完全一致
-  const off = new OffscreenCanvas(canvas.width, canvas.height);
-  const octx = off.getContext('2d', { willReadFrequently: true });
-  if (!octx) throw new Error('无法创建 OffscreenCanvas 上下文');
-  octx.drawImage(canvas, 0, 0);
-  const imgData = octx.getImageData(0, 0, canvas.width, canvas.height);
+  // 直接从 canvas 取 imageData
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('无法创建 canvas 上下文');
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const imageData = { data: imgData.data, width: imgData.width, height: imgData.height };
 
   onProgress?.({ stage: 'recognizing', percent: null, message: '正在识别棋局…' });
