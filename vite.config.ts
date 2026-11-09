@@ -118,6 +118,7 @@ export default defineConfig({
       allow: [
         '..',                      // clients/（保留原有：weiqi-worker 等引用）
         path.resolve(__dirname),   // 项目根（插件沙箱 Worker 及其依赖）
+        path.resolve(__dirname, '../weiqi-photo'),  // weiqi-photo 库（@weiqi/photo alias 目标，兄弟目录）
       ],
     },
     headers: {
@@ -193,7 +194,8 @@ export default defineConfig({
       '@infrastructure': path.resolve(__dirname, 'infrastructure'),
       '@domain': path.resolve(__dirname, 'domain'),
       '@weiqi/worker': path.resolve(__dirname, '../weiqi-worker/src'),
-      '@weiqi/photo': path.resolve(__dirname, '../weiqi-photo/src'),
+      // weiqi-photo main 不再是 npm 包；直接 alias 到库入口（ES module）
+      '@weiqi/photo': path.resolve(__dirname, '../weiqi-photo/inference/src/index.mjs'),
       '@ui': path.resolve(__dirname, 'clients/web/shared/ui'),
     },
   },
