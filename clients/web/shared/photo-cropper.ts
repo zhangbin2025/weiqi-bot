@@ -88,12 +88,24 @@ const CSS = `
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: 18px;
-  height: 18px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
-  background: #fff;
+  background: transparent;
   border: 3px solid #667eea;
   box-shadow: 0 1px 6px rgba(0,0,0,0.6);
+}
+
+.pc-handle::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #fff;
 }
 
 .pc-handle[data-h="0"]::before { border-color: #FF8A1F; } /* TL 橙 */
@@ -136,6 +148,56 @@ const CSS = `
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: #fff;
   font-weight: 600;
+}
+
+.pc-loupe {
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  border: 3px solid rgba(255,255,255,0.8);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.6);
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 10;
+  display: none;
+}
+
+.pc-loupe canvas {
+  display: block;
+}
+
+.pc-loupe-cross {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 20px;
+  height: 20px;
+  pointer-events: none;
+}
+
+.pc-loupe-cross::before,
+.pc-loupe-cross::after {
+  content: '';
+  position: absolute;
+  background: rgba(255,255,0,0.9);
+}
+
+.pc-loupe-cross::before {
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  width: 1.5px;
+  height: 100%;
+}
+
+.pc-loupe-cross::after {
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+  width: 100%;
+  height: 1.5px;
 }
 `;
 
@@ -238,6 +300,50 @@ export function openPhotoCropper(
     stage.appendChild(svg);
     for (const hd of handles) stage.appendChild(hd);
 
+    // ---- 放大镜 ----
+    const LOUPE_SIZE = 120;
+    const LOUPE_ZOOM = 4;
+    const loupe = document.createElement('div');
+    loupe.className = 'pc-loupe';
+    const loupeCanvas = document.createElement('canvas');
+    loupeCanvas.width = LOUPE_SIZE;
+    loupeCanvas.height = LOUPE_SIZE;
+    loupe.appendChild(loupeCanvas);
+    const loupeCross = document.createElement('div');
+    loupeCross.className = 'pc-loupe-cross';
+    loupe.appendChild(loupeCross);
+    stage.appendChild(loupe);
+
+    const lctx = loupeCanvas.getContext('2d');
+    if (lctx) lctx.imageSmoothingEnabled = false;
+
+    function updateLoupe(idx: number): void {
+      if (!lctx) return;
+      const px = Q[idx].x;
+      const py = Q[idx].y;
+      const halfSrc = LOUPE_SIZE / (2 * LOUPE_ZOOM);
+      const sx = clamp(px - halfSrc, 0, CW);
+      const sy = clamp(py - halfSrc, 0, CH);
+      const sw = Math.min(halfSrc * 2, CW - sx);
+      const sh = Math.min(halfSrc * 2, CH - sy);
+      lctx.clearRect(0, 0, LOUPE_SIZE, LOUPE_SIZE);
+      lctx.drawImage(canvas, sx, sy, sw, sh, 0, 0, sw * LOUPE_ZOOM, sh * LOUPE_ZOOM);
+
+      // 定位放大镜：在拖动点上方偏右
+      const f = frame();
+      if (f) {
+        const cssX = f.left + px * (f.w / CW);
+        const cssY = f.top + py * (f.h / CH);
+        const sr = stage.getBoundingClientRect();
+        let lx = cssX + 40;
+        let ly = cssY - LOUPE_SIZE - 10;
+        if (lx + LOUPE_SIZE > sr.width) lx = cssX - LOUPE_SIZE - 40;
+        if (ly < 0) ly = cssY + 40;
+        loupe.style.left = lx + 'px';
+        loupe.style.top = ly + 'px';
+      }
+    }
+
     const bar = document.createElement('div');
     bar.className = 'pc-bar';
 
@@ -314,6 +420,8 @@ export function openPhotoCropper(
       startX = e.clientX;
       startY = e.clientY;
       Q0 = Q.map((p) => ({ ...p })) as unknown as Quad;
+      loupe.style.display = 'block';
+      updateLoupe(idx);
       e.preventDefault();
     }
 
@@ -326,10 +434,12 @@ export function openPhotoCropper(
       const np = { x: clamp(Q0[dragIdx].x + dx, 0, CW), y: clamp(Q0[dragIdx].y + dy, 0, CH) };
       Q = Q.map((p, i) => i === dragIdx ? np : p) as unknown as Quad;
       applyQuad();
+      updateLoupe(dragIdx);
     }
 
     function onUp(): void {
       dragIdx = null;
+      loupe.style.display = 'none';
     }
 
     // Attach drag listeners to stage (handles are children of stage)

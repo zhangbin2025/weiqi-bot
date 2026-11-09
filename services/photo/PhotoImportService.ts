@@ -166,13 +166,13 @@ export async function recognizeRegion(
   const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const imageData = { data: imgData.data, width: imgData.width, height: imgData.height };
 
+
   onProgress?.({ stage: 'recognizing', percent: null, message: '正在识别棋局…' });
   // 让浏览器画出进度再进同步计算
   await new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 50)));
 
   const t0 = performance.now();
   const r = await transcribe(imageData, quad, PHOTO_BOARD_SIZE, onnxModel);
-
 
   if (!r.ok) {
     throw new Error('识别失败，请重新框选或重拍');
@@ -185,6 +185,7 @@ export async function recognizeRegion(
     if (v === 1) black++;
     else if (v === 2) white++;
   }
+
 
   return {
     size: r.size,
