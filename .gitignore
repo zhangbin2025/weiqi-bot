@@ -43,5 +43,5 @@ clients/web/public/ocr/
 
 # 拍照摆子引擎构建产物（scripts/build-photo.mjs 拷贝的 cnn.onnx，不入仓库）
 clients/web/public/photo/
-clients/web/public/vendor/ort/*.wasm
-clients/web/public/vendor/ort/ort.min.js
+clients/web/public/vendor/ort19/*.wasm
+clients/web/public/vendor/ort19/ort.min.js
