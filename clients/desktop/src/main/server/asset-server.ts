@@ -27,6 +27,8 @@ const MIME_TYPES: Record<string, string> = {
   'htm': 'text/html',
   'css': 'text/css',
   'js': 'application/javascript',
+  // .mjs 走严格 MIME 校验（ORT wasm 动态 import），不能用 octet-stream 兜底
+  'mjs': 'text/javascript',
   'json': 'application/json',
   'png': 'image/png',
   'jpg': 'image/jpeg',

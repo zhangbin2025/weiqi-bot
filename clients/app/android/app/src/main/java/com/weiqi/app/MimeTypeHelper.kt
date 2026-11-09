@@ -11,6 +11,8 @@ object MimeTypeHelper {
         "htm" to "text/html",
         "css" to "text/css",
         "js" to "application/javascript",
+        // .mjs 是 ES module，浏览器严格校验 MIME；回落 octet-stream 会拒掉动态 import
+        "mjs" to "text/javascript",
         "json" to "application/json",
         "png" to "image/png",
         "jpg" to "image/jpeg",
