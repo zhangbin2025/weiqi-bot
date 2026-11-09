@@ -3,11 +3,11 @@
  * @module services/photo
  *
  * 用 weiqi-photo 从照片还原棋盘矩阵，供记谱页「拍照摆子」使用。
- * 纯前端计算，照片不上传服务器；opencv.js 懒加载，不进主 bundle。
+ * 纯前端计算，照片不上传服务器；ONNX Runtime Web 走 CDN，模型懒加载。
  */
 
 export {
-  ensureCv,
+  ensureOnnxModel,
   loadPhotoCanvas,
   recognizeRegion,
   recognizePhoto,

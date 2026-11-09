@@ -1,58 +1,36 @@
 /**
- * 拍照摆子：棋盘范围框选器
+ * 拍照摆子：棋盘四角点选器
  * @module clients/web/shared/photo-cropper
  *
- * 为什么需要这一步：整图直接识别时，weiqi-photo 的粗定位（黑帽 + 连通域 +
- * 凸包 + 最大四边形）会把桌面纹理、书本边、棋盒一起并进凸包，四角外扩，
- * 后面的消失点与周期估计全跟着歪 —— 这是「棋盘边界识别不准」的主因。
- * 先让用户框住棋盘，画面里只剩棋盘 + 少量背景，粗定位基本不会跑偏。
+ * 新方案（Plan C）：用户手动点棋盘四个角 → 透视校正 → CNN 识别。
+ * 不再用矩形框裁剪，而是直接选四角 [TL,TR,BR,BL]，
+ * 与 weiqi-photo `unitFromQuad` 的契约一致。
  *
  * 设计要点：
- *  - **只做矩形** —— 四角梯形微调留作后续迭代，矩形的拖拽手感已经能覆盖
- *    「棋盘被拍斜 / 背景太杂」的绝大多数情况。
- *  - **只用单指** —— 页面注入的 no-zoom.js 会在 document 捕获阶段吞掉所有
- *    多指触摸（`e.touches.length > 1` 直接 preventDefault），双指捏合缩放框
- *    会被它吃掉。单指不受影响，所以手柄要做得足够大（44px 热区）。
- *  - **默认框取短边的 95%** —— 拍照习惯是让棋盘撑满画面短边，但撑满意味着
- *    框边正好压在网格线上、把外侧一圈木纹背景也框进来（见下条）。取 95% 让
- *    默认框落在网格线内侧，用户通常只需沿长边方向挪一下，不必拉拽。
- *
- * ⚠️ **框要收在网格线内侧，别框到棋盘木纹边框**
- *    木质棋盘在 19 路网格线之外还有一圈约一格宽的木纹背景。把这圈木纹框进来，
- *    底层粗定位会把它当成棋盘内容的一部分 —— 周期估计**多出一格**，表现为
- *    结果整体平移一格（「底侧/左侧线及交叉点棋子没纳入」）。
- *    用户实测：框内不含木纹边框时识别正常。
- *
- *    （旧注释写的是「贴边裁会把线切短、交点飘」，与实测相反 —— 贴边裁到网格线
- *     内侧恰恰是正确的做法，问题出在框**太大**把木纹包进来，不是太小。）
- *  - **内部状态用 canvas 像素** —— CSS 像素只用于渲染，这样最小尺寸限制
- *    （MIN_CROP_SIDE）才是针对真实分辨率的，窗口 resize 也不会让框变形。
+ *  - **四角可拖拽** —— 默认在画布四角附近放初始四角，用户拖到棋盘角。
+ *  - **只用单指** —— 页面注入的 no-zoom.js 在捕获阶段吞掉多指触摸。
+ *  - **四角顺序 [TL,TR,BR,BL]** —— cyclic，与库一致。
+ *  - **内部状态用 canvas 像素** —— CSS 像素只用于渲染。
  */
 
 import { MIN_CROP_SIDE, type CropRect } from '../../../services/photo';
+import type { Quad } from '@weiqi/photo';
 
 /** 注入的样式表 id（幂等，多次打开只注入一次） */
 const STYLE_ID = 'photo-cropper-style';
 
-/** 手柄热区边长（CSS px）：手指点得中的最小尺寸 */
-const HANDLE_HIT = 44;
+/** 手柄热区边长（CSS px） */
+const HANDLE_HIT = 48;
 
-/**
- * 默认框边长 = 画布短边 × 该比例。
- *
- * 取 0.95 而非 1.0：拍竖屏照时棋盘撑满画面宽度，撑满的框边正好压在最外侧
- * 网格线上，会把网格线外那一圈约一格宽的木纹背景一并框进来 —— 木纹被粗定位
- * 当作棋盘内容，周期估计多出一格，结果是整体平移一格。收 5% 让默认框落在
- * 网格线内侧。
- */
-const DEFAULT_SHORT_SIDE_RATIO = 0.95;
+/** 默认四角内缩比例（不做 0/0 → 角太靠边不好拖） */
+const INSET_RATIO = 0.08;
 
 export interface PhotoCropperOptions {
   /**
-   * 初始框（canvas 像素坐标系）；null 表示用默认居中方框。
-   * 「重新框选」时传入上一次的框，用户从原位微调，不用从头拖。
+   * 初始四角（canvas 像素坐标系）；null 表示用默认内缩四角。
+   * 「重新框选」时传入上一次的四角，用户从原位微调。
    */
-  initial: CropRect | null;
+  initial: Quad | null;
 }
 
 const CSS = `
@@ -78,26 +56,18 @@ const CSS = `
   display: flex;
   align-items: center;
   justify-content: center;
-  /* 拖动框时不要触发页面滚动/缩放 */
   touch-action: none;
 }
 
-/* canvas 直接当 <img> 用：replaced element 的 max-width/max-height 会
-   等比缩放，省掉一次 toDataURL / toBlob 的重编码（2000px 图，肉眼可见的卡顿） */
 .pc-img {
   display: block;
   max-width: 100%;
   max-height: 100%;
 }
 
-.pc-box {
+.pc-poly {
   position: absolute;
-  box-sizing: border-box;
-  border: 2px solid #fff;
-  /* 框外的压暗：用超大扩散的 box-shadow 铺满，被 .pc-stage 的 overflow 裁掉。
-     比再放四个遮罩 div 简单，也不会挡住指针事件 */
-  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
-  touch-action: none;
+  pointer-events: none;
 }
 
 .pc-handle {
@@ -105,6 +75,7 @@ const CSS = `
   width: ${HANDLE_HIT}px;
   height: ${HANDLE_HIT}px;
   touch-action: none;
+  pointer-events: auto;
 }
 
 .pc-handle::before {
@@ -113,13 +84,18 @@ const CSS = `
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   background: #fff;
-  border: 2px solid #667eea;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+  border: 3px solid #667eea;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.6);
 }
+
+.pc-handle[data-h="0"]::before { border-color: #FF8A1F; } /* TL 橙 */
+.pc-handle[data-h="1"]::before { border-color: #4ecdc4; } /* TR 青 */
+.pc-handle[data-h="2"]::before { border-color: #ff6b6b; } /* BR 红 */
+.pc-handle[data-h="3"]::before { border-color: #51cf66; } /* BL 绿 */
 
 .pc-bar {
   flex-shrink: 0;
@@ -172,63 +148,51 @@ function clamp(v: number, lo: number, hi: number): number {
 }
 
 /**
- * 默认框：内接于画布的正方形（边长 = 短边 × DEFAULT_SHORT_SIDE_RATIO），居中。
- *
- * 为什么是 95% 而不是撑满：拍竖屏照时人会本能地让棋盘撑满画面宽度，于是
- * 「撑满短边」的框边正好压在最外侧网格线上 —— 而木质棋盘在网格线之外还有
- * 一圈约一格宽的木纹背景（DEFAULT_SHORT_SIDE_RATIO 相关的根因见文件头）。
- * 把那圈木纹框进来，底层粗定位会把它当作棋盘内容，周期估计多出一格。
- * 收到 95% 让默认框落在网格线内侧，用户拉一下就能贴线，而不是一上来就框错。
- *
- * ⚠️ 95% 是经验值，不是实测最优：木纹边框约占一格（19 路棋盘的 1/18 ≈ 5.6%），
- *    两侧合计约 11%，取一半即 ~5%。若实测木纹更宽需再收。
- *
- * 具体到两种画幅：
- *  - 竖屏（w < h）：棋盘撑满画面宽度 → 边长 ≈ 0.95w，用户只需上下移动；
- *  - 横屏（w > h）：棋盘撑满画面高度 → 边长 ≈ 0.95h，用户只需左右移动。
- * 长边方向剩下的空间正是要裁掉的桌面/背景，留着反而会干扰粗定位。
- *
- * 棋盘是正方形，所以默认框也必须是正方形 —— 用内接正方形而非「w×w」，
- * 后者在横屏下会被 sanitize 钳成 w×h（等于没裁）。
+ * 默认四角：画布四角内缩 INSET_RATIO。
+ * 不贴 0/0 → 角点好拖。
  */
-function defaultRect(w: number, h: number): CropRect {
-  const side = Math.round(Math.min(w, h) * DEFAULT_SHORT_SIDE_RATIO);
-  return {
-    x: Math.round((w - side) / 2),
-    y: Math.round((h - side) / 2),
-    w: side,
-    h: side,
-  };
+function defaultQuad(w: number, h: number): Quad {
+  const dx = w * INSET_RATIO;
+  const dy = h * INSET_RATIO;
+  return [
+    { x: dx, y: dy },             // TL
+    { x: w - dx, y: dy },        // TR
+    { x: w - dx, y: h - dy },    // BR
+    { x: dx, y: h - dy },        // BL
+  ];
 }
 
-/** 把任意框钳到画布内且不小于 MIN_CROP_SIDE */
-function sanitize(r: CropRect, w: number, h: number): CropRect {
-  const minW = Math.min(MIN_CROP_SIDE, w);
-  const minH = Math.min(MIN_CROP_SIDE, h);
-  const rw = clamp(Math.round(r.w), minW, w);
-  const rh = clamp(Math.round(r.h), minH, h);
-  return {
-    x: clamp(Math.round(r.x), 0, w - rw),
-    y: clamp(Math.round(r.y), 0, h - rh),
-    w: rw,
-    h: rh,
-  };
+/** 把四角钳到画布内 */
+function sanitize(q: Quad, w: number, h: number): Quad {
+  return q.map((p) => ({
+    x: clamp(Math.round(p.x), 0, w),
+    y: clamp(Math.round(p.y), 0, h),
+  })) as unknown as Quad;
+}
+
+/** 检查四角围成的区域是否足够大 */
+function isLargeEnough(q: Quad): boolean {
+  const xs = q.map((p) => p.x);
+  const ys = q.map((p) => p.y);
+  const w = Math.max(...xs) - Math.min(...xs);
+  const h = Math.max(...ys) - Math.min(...ys);
+  return Math.min(w, h) >= MIN_CROP_SIDE;
 }
 
 /**
- * 打开框选浮层。
+ * 打开四角点选浮层。
  *
  * @param canvas 整图（loadPhotoCanvas 的产物）；结束后会原样归还，不修改内容
  * @param opts 选项
- * @returns 用户确认的框（canvas 像素坐标系）；取消/关闭返回 null
+ * @returns 用户确认的四角（canvas 像素坐标系，[TL,TR,BR,BL]）；取消/关闭返回 null
  */
 export function openPhotoCropper(
   canvas: HTMLCanvasElement,
   opts: PhotoCropperOptions,
-): Promise<CropRect | null> {
+): Promise<Quad | null> {
   ensureStyle();
 
-  return new Promise<CropRect | null>((resolve) => {
+  return new Promise<Quad | null>((resolve) => {
     const CW = canvas.width;
     const CH = canvas.height;
 
@@ -238,45 +202,44 @@ export function openPhotoCropper(
     const stage = document.createElement('div');
     stage.className = 'pc-stage';
 
-    const box = document.createElement('div');
-    box.className = 'pc-box';
+    // SVG for the polygon outline
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.classList.add('pc-poly');
+    svg.style.overflow = 'visible';
 
-    // 手柄：先放边中点，再放四角 —— 四角在后，DOM 顺序决定命中优先级，
-    // 小框上 44px 热区必然重叠，此时四角优先更符合直觉
-    const EDGES: Array<[string, string, string]> = [
-      ['n', '50%', '0'],
-      ['s', '50%', '100%'],
-      ['w', '0', '50%'],
-      ['e', '100%', '50%'],
-    ];
-    const CORNERS: Array<[string, string, string]> = [
-      ['nw', '0', '0'],
-      ['ne', '100%', '0'],
-      ['sw', '0', '100%'],
-      ['se', '100%', '100%'],
-    ];
-    for (const [id, l, t] of [...EDGES, ...CORNERS]) {
+    const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+    poly.setAttribute('fill', 'rgba(0,0,0,0.45)');
+    poly.setAttribute('stroke', '#fff');
+    poly.setAttribute('stroke-width', '2');
+    poly.setAttribute('stroke-dasharray', '6 4');
+    poly.setAttribute('stroke-linejoin', 'round');
+    svg.appendChild(poly);
+    stage.appendChild(svg);
+
+    // Handles (children of stage)
+    const handles: HTMLElement[] = [];
+    const LABELS = ['左上', '右上', '右下', '左下'];
+    for (let i = 0; i < 4; i++) {
       const hd = document.createElement('div');
       hd.className = 'pc-handle';
-      hd.dataset.h = id;
-      hd.style.left = l;
-      hd.style.top = t;
-      hd.style.transform = 'translate(-50%, -50%)';
-      box.appendChild(hd);
+      hd.dataset.h = String(i);
+      hd.title = LABELS[i];
+      stage.appendChild(hd);
+      handles.push(hd);
     }
 
-    // ⚠️ 顺序：canvas 先入 DOM，box 后入 —— box 靠 9999px 扩散的 box-shadow
-    //    做框外压暗，若 canvas 压在 box 上面，这层暗化就被盖住了
+    // ⚠️ canvas 先入 DOM，svg/handles 后入
     canvas.classList.add('pc-img');
     stage.appendChild(canvas);
-    stage.appendChild(box);
+    stage.appendChild(svg);
+    for (const hd of handles) stage.appendChild(hd);
 
     const bar = document.createElement('div');
     bar.className = 'pc-bar';
 
     const hint = document.createElement('div');
     hint.className = 'pc-hint';
-    hint.textContent = '上下移动或拖四角，框住整个棋盘，别切到边线';
+    hint.textContent = '拖动四个圆点到棋盘四角（橙=左上 青=右上 红=右下 绿=左下）';
 
     const resetBtn = document.createElement('button');
     resetBtn.className = 'pc-btn';
@@ -298,115 +261,85 @@ export function openPhotoCropper(
     document.body.appendChild(root);
 
     // ---- 状态 ----
-    let R: CropRect = sanitize(opts.initial ?? defaultRect(CW, CH), CW, CH);
+    let Q: Quad = sanitize(opts.initial ?? defaultQuad(CW, CH), CW, CH);
     let settled = false;
 
-    /** 图片实际渲染矩形（相对 stage），是 CSS px ↔ canvas px 的换算基准 */
+    /** 图片实际渲染矩形（相对 stage） */
     function frame(): { left: number; top: number; w: number; h: number } | null {
       const sr = stage.getBoundingClientRect();
       const ir = canvas.getBoundingClientRect();
-      if (ir.width <= 0 || ir.height <= 0) return null; // 还没布局完
+      if (ir.width <= 0 || ir.height <= 0) return null;
       return { left: ir.left - sr.left, top: ir.top - sr.top, w: ir.width, h: ir.height };
     }
 
-    function applyRect(): void {
+    function applyQuad(): void {
       const f = frame();
       if (!f) {
-        // 首帧还没量到尺寸（画布刚插入），下一帧再来
-        requestAnimationFrame(applyRect);
+        requestAnimationFrame(applyQuad);
         return;
       }
       const sx = f.w / CW;
       const sy = f.h / CH;
-      box.style.left = f.left + R.x * sx + 'px';
-      box.style.top = f.top + R.y * sy + 'px';
-      box.style.width = R.w * sx + 'px';
-      box.style.height = R.h * sy + 'px';
+
+      // Update polygon points
+      const pts = Q.map((p) => `${f.left + p.x * sx},${f.top + p.y * sy}`).join(' ');
+      poly.setAttribute('points', pts);
+
+      // Update handle positions
+      for (let i = 0; i < 4; i++) {
+        const hd = handles[i];
+        if (!hd) continue;
+        hd.style.left = (f.left + Q[i].x * sx) + 'px';
+        hd.style.top = (f.top + Q[i].y * sy) + 'px';
+        hd.style.transform = 'translate(-50%, -50%)';
+      }
     }
 
     // ---- 拖动 ----
-    let mode: string | null = null;
+    let dragIdx: number | null = null;
     let startX = 0;
     let startY = 0;
-    let R0: CropRect = R;
+    let Q0: Quad = Q;
 
     function onDown(e: PointerEvent): void {
-      if (e.button !== 0) return; // 只响应主键（左键/单指）
+      if (e.button !== 0) return;
       const t = e.target as HTMLElement | null;
-      mode = t?.dataset.h ?? 'move';
+      const idx = t?.dataset.h ? Number(t.dataset.h) : null;
+      if (idx === null || isNaN(idx)) return;
+      dragIdx = idx;
       startX = e.clientX;
       startY = e.clientY;
-      R0 = R;
-      // 阻止默认：不拦的话浏览器可能启动原生图片拖影（canvas 上方是图片区域），
-      // 抢走指针并发 pointercancel，拖动只走一两帧就停
+      Q0 = Q.map((p) => ({ ...p })) as unknown as Quad;
       e.preventDefault();
     }
 
     function onMove(e: PointerEvent): void {
-      if (!mode) return;
+      if (dragIdx === null) return;
       const f = frame();
       if (!f) return;
-      // CSS px → canvas px
       const dx = (e.clientX - startX) * (CW / f.w);
       const dy = (e.clientY - startY) * (CH / f.h);
-      R = resized(mode, R0, dx, dy);
-      applyRect();
+      const np = { x: clamp(Q0[dragIdx].x + dx, 0, CW), y: clamp(Q0[dragIdx].y + dy, 0, CH) };
+      Q = Q.map((p, i) => i === dragIdx ? np : p) as unknown as Quad;
+      applyQuad();
     }
 
     function onUp(): void {
-      mode = null;
+      dragIdx = null;
     }
 
-    const minW = Math.min(MIN_CROP_SIDE, CW);
-    const minH = Math.min(MIN_CROP_SIDE, CH);
-
-    /** 按手柄方向重算框；'move' 是整体平移 */
-    function resized(m: string, r0: CropRect, dx: number, dy: number): CropRect {
-      if (m === 'move') {
-        return {
-          x: Math.round(clamp(r0.x + dx, 0, CW - r0.w)),
-          y: Math.round(clamp(r0.y + dy, 0, CH - r0.h)),
-          w: r0.w,
-          h: r0.h,
-        };
-      }
-      let { x, y, w, h } = r0;
-      // ⚠️ 'nw'.includes('w') 为真 —— 靠子串匹配同时覆盖角与边，
-      //    但每条边只写一次：w/e 改 x 或 w，n/s 改 y 或 h，不会互相打架
-      if (m.includes('w')) {
-        x = clamp(r0.x + dx, 0, r0.x + r0.w - minW);
-        w = r0.x + r0.w - x;
-      }
-      if (m.includes('e')) {
-        w = clamp(r0.w + dx, minW, CW - r0.x);
-      }
-      if (m.includes('n')) {
-        y = clamp(r0.y + dy, 0, r0.y + r0.h - minH);
-        h = r0.y + r0.h - y;
-      }
-      if (m.includes('s')) {
-        h = clamp(r0.h + dy, minH, CH - r0.y);
-      }
-      return { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) };
-    }
-
-    // 按下挂在 box 上而不是 window：只有按在框/手柄上才开始拖，
-    // 点框外空白不该动框 —— 框外是压暗区，用户可能是想点「取消」
-    box.addEventListener('pointerdown', onDown);
-    // ⚠️ move/up 挂 window：手指滑出手柄范围时事件不能断
-    //    （setPointerCapture 在部分浏览器会被主动释放，只走一两帧就停）
+    // Attach drag listeners to stage (handles are children of stage)
+    stage.addEventListener('pointerdown', onDown);
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onUp);
 
-    function onResize(): void {
-      applyRect();
-    }
+    function onResize(): void { applyQuad(); }
     window.addEventListener('resize', onResize);
     window.addEventListener('orientationchange', onResize);
 
     // ---- 关闭 ----
-    function close(result: CropRect | null): void {
+    function close(result: Quad | null): void {
       if (settled) return;
       settled = true;
       window.removeEventListener('pointermove', onMove);
@@ -415,7 +348,6 @@ export function openPhotoCropper(
       window.removeEventListener('resize', onResize);
       window.removeEventListener('orientationchange', onResize);
       window.removeEventListener('keydown', onKey);
-      // canvas 是调用方的，原样摘出来还回去（只摘 DOM，不动像素）
       canvas.classList.remove('pc-img');
       root.remove();
       resolve(result);
@@ -427,12 +359,19 @@ export function openPhotoCropper(
     window.addEventListener('keydown', onKey);
 
     resetBtn.addEventListener('click', () => {
-      R = sanitize(defaultRect(CW, CH), CW, CH);
-      applyRect();
+      Q = sanitize(defaultQuad(CW, CH), CW, CH);
+      applyQuad();
     });
     cancelBtn.addEventListener('click', () => close(null));
-    okBtn.addEventListener('click', () => close(R));
+    okBtn.addEventListener('click', () => {
+      if (!isLargeEnough(Q)) {
+        hint.style.color = '#ff6b6b';
+        hint.textContent = '范围太小，请把四角拉开到棋盘四角';
+        return;
+      }
+      close(Q);
+    });
 
-    requestAnimationFrame(applyRect);
+    requestAnimationFrame(applyQuad);
   });
 }

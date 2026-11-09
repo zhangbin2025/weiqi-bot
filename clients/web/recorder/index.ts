@@ -9,7 +9,7 @@ import { RecorderPage } from '../../../presentation/adapters/web/pages/recorder'
 import { takePhotoHandoff, dataUrlToBlob } from '../shared/photo-handoff';
 import { openPhotoCropper } from '../shared/photo-cropper';
 import { loadPhotoCanvas } from '../../../services/photo';
-import type { CropRect } from '../../../services/photo';
+import type { Quad } from '@weiqi/photo';
 import { Dialog } from '../shared/ui/Dialog';
 
 async function main() {
@@ -56,14 +56,14 @@ async function main() {
     // 解码 + 缩放是纯 2D 操作，碰不到 opencv（10MB），所以选完图是秒开的
     const canvas = await loadPhotoCanvas(file);
     // 记住上一次的框：识别失败回来重框时从原位微调，比从头拖省事
-    let region: CropRect | null = null;
+    let quad: Quad | null = null;
     for (;;) {
-      const r = await openPhotoCropper(canvas, { initial: region });
+      const r = await openPhotoCropper(canvas, { initial: quad });
       if (!r) return; // 取消
       const ok = await page.applyPhotoRegion(canvas, r);
       if (ok) return;
-      // 识别失败（多半是框错了）：回到裁剪浮层，调完再来
-      region = r;
+      // 识别失败（多半是角点选错了）：回到点选浮层，调完再来
+      quad = r;
     }
   }
 

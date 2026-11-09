@@ -9,7 +9,8 @@ import type { IPage, PageParams } from '../../../../core/interfaces';
 import type { BoardSize } from '../../../../core/types';
 import type { RecorderApp } from '../../../../../application/recorder';
 import { recognizeRegion } from '../../../../../services/photo';
-import type { PhotoBoardResult, PhotoProgress, CropRect } from '../../../../../services/photo';
+import type { PhotoBoardResult, PhotoProgress } from '../../../../../services/photo';
+import type { Quad } from '@weiqi/photo';
 import type { ISessionService } from '../../../../../services/session/ISessionService';
 
 export interface RecorderPageConfig {
@@ -325,10 +326,10 @@ export class RecorderPage implements IPage {
    *
    * @returns 是否识别成功；false 表示失败（多半是框错了），调用方可让用户重框
    */
-  async applyPhotoRegion(canvas: HTMLCanvasElement, region: CropRect): Promise<boolean> {
+  async applyPhotoRegion(canvas: HTMLCanvasElement, quad: Quad): Promise<boolean> {
     this.showPhotoProgress({ stage: 'loading-cv', percent: null, message: '准备识别…' });
     try {
-      const result = await recognizeRegion(canvas, region, (p) => this.showPhotoProgress(p));
+      const result = await recognizeRegion(canvas, quad, (p) => this.showPhotoProgress(p));
       this.applyResult(result);
       return true;
     } catch (e) {
@@ -456,18 +457,15 @@ export class RecorderPage implements IPage {
     ctx.strokeStyle = '#FF8A1F';
     ctx.lineWidth = Math.max(2, R * 0.3);
     ctx.beginPath();
-    const order = [0, 1, 3, 2, 0];
-    for (let k = 0; k < order.length; k++) {
-      const idx = order[k];
-      if (idx === undefined) continue;
+    for (let k = 0; k <= 4; k++) {
+      const idx = k % 4;
       const p = r.corners[idx];
       if (!p) continue;
-      const x = p[0] * s;
-      const y = p[1] * s;
+      const x = p.x * s;
+      const y = p.y * s;
       if (k === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
-    ctx.closePath();
     ctx.stroke();
     return c.toDataURL('image/jpeg', 0.85);
   }
