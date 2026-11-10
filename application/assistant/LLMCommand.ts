@@ -330,7 +330,7 @@ export async function handleLLMCommand(raw: string, deps: LLMCommandDeps): Promi
       `- apiKey：\`${config.keyHint}\`（已加密缓存到 localStorage）`,
       '',
       '后续自然语言将由 LLM 解析；命令（`/` 开头）仍本地处理。',
-      '可用 `/llm status` 查看、`/llm off` 关闭。',
+      '现已接入 LLM，需要和我自由聊天吗？[进入模型对话](./chat.html)',
     ].join('\n');
     await deps.renderMessage(text);
   } catch (error) {
