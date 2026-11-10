@@ -366,6 +366,10 @@
 
     .photo-ref.enlarged img {
       height: auto;
+      /* 手机端别让参考图顶满屏幕：斜框切出的外接矩形可能仍是竖长条。
+         只在 img 上限制（容器 height:auto 自然跟随），配合 contain 保证
+         棋盘完整、不被 overflow:hidden 裁掉。 */
+      max-height: 72vh;
       object-fit: contain;
     }
 

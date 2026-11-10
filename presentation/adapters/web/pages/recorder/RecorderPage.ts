@@ -413,56 +413,56 @@ export class RecorderPage implements IPage {
       return;
     }
     img.src = dataUrl;
-    img.style.height = 'auto';
     wrap.removeAttribute('hidden');
   }
 
   /**
-   * 生成带框选范围 + 四角标注的照片缩略图。
+   * 生成参考缩略图：只保留用户框选的棋盘范围。
    *
-   * 画三样东西，用户对一次就能定位问题：
-   *  - 白色虚线框：用户自己选的范围（框错了是用户的锅，一眼能看出来）
-   *  - 橙色四边形：机器以为棋盘在哪（画歪了说明识别不可信，重框或重拍）
-   *  - 框外的画面压暗：强调「只有框里被识别了」
+   * 整张照片放大后在手机上又高又占屏，棋盘被挤成一小块，框外的桌面/棋盒
+   * 也没有对照价值。这里按框选四角取外接矩形切片，让有限的浮层面积全部
+   * 用在棋盘上；顺带让缩略图态（40×40 正方形）也能看到棋盘全貌。
    *
-   * 缩到 600px 再转 JPEG：识别用的 canvas 有 2000px，直接 toDataURL 出来的
-   * dataURL 太大，塞进 <img> 会明显卡顿。
-   *
-   * ⚠️ 坐标系：r.corners 已在 recognizeRegion 里加回裁剪偏移，和 r.region
-   *    同为整图坐标系，所以这里能直接乘同一个缩放比。
-   */
-  /**
-   * 生成参考缩略图。
-   *
-   * ⚠️ 缩略图画的就是 r.canvas —— 也就是实际送进识别的那张裁剪图，不是整张照片。
-   * 用户看到什么，算法就是看什么。早期版本画整图再叠加「白虚线用户框 + 橙四角」，
-   * 结果缩略图和识别输入不是同一张：发现边界识别不准时，根本分不清是框错了
-   * 还是算法判错了。现在两者一致，对照才有意义。
+   * ⚠️ r.corners 是 recognizeRegion 原样返回的用户点选四角 [TL,TR,BR,BL]，
+   *    与 r.canvas（整图）同坐标系。四角可以是斜的，所以取外接矩形，
+   *    再留一点边距，别贴着最外圈棋子把边缘切掉。
    */
   private makePhotoThumb(r: PhotoBoardResult): string {
     const src = r.canvas;
+    const xs = r.corners.map((q) => q.x);
+    const ys = r.corners.map((q) => q.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const pad = Math.max(8, Math.round(Math.max(maxX - minX, maxY - minY) * 0.02));
+    const x0 = Math.max(0, Math.floor(minX - pad));
+    const y0 = Math.max(0, Math.floor(minY - pad));
+    const x1 = Math.min(src.width, Math.ceil(maxX + pad));
+    const y1 = Math.min(src.height, Math.ceil(maxY + pad));
+    const cropW = Math.max(1, x1 - x0);
+    const cropH = Math.max(1, y1 - y0);
+
     const maxSide = 600;
-    const s = Math.min(1, maxSide / Math.max(src.width, src.height));
+    const sc = Math.min(1, maxSide / Math.max(cropW, cropH));
     const c = document.createElement('canvas');
-    c.width = Math.max(1, Math.round(src.width * s));
-    c.height = Math.max(1, Math.round(src.height * s));
+    c.width = Math.max(1, Math.round(cropW * sc));
+    c.height = Math.max(1, Math.round(cropH * sc));
     const ctx = c.getContext('2d');
     if (!ctx) return '';
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(src, 0, 0, c.width, c.height);
+    ctx.drawImage(src, x0, y0, cropW, cropH, 0, 0, c.width, c.height);
 
+    // 四角标注跟着切片平移（斜框时能看出透视倾斜）
     const R = Math.max(c.width, c.height) * 0.02;
-
-    // 机器判定的棋盘四角：橙色实线（与 r.canvas 同坐标系，直接画）
     ctx.strokeStyle = '#FF8A1F';
     ctx.lineWidth = Math.max(2, R * 0.3);
     ctx.beginPath();
     for (let k = 0; k <= 4; k++) {
-      const idx = k % 4;
-      const p = r.corners[idx];
-      if (!p) continue;
-      const x = p.x * s;
-      const y = p.y * s;
+      const q = r.corners[k % 4];
+      if (!q) continue;
+      const x = (q.x - x0) * sc;
+      const y = (q.y - y0) * sc;
       if (k === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
