@@ -178,7 +178,7 @@ const ACTION_META: Record<GameAction, { icon: string; label: string; emphasize?:
   review: { icon: '🔍', label: '复盘' },
   decision: { icon: '🎯', label: '实战选点', emphasize: true },
   joseki: { icon: '📐', label: '发现定式' },
-  viewUrl: { icon: '🔗', label: '查看链接' },
+  viewUrl: { icon: '🌐', label: '查看链接' },
   more: { icon: '⋯', label: '更多' },
 };
 
