@@ -63,7 +63,8 @@ const RESOURCES = [
 // ocr：OCR 引擎 + ORT 运行时 + worker 共约 50MB，属可选功能，
 // photo：cnn.onnx 约 0.5MB，只有用户点了「拍照摆子」才需要。
 // vendor：ORT 1.19.2 运行时三件套约 11MB，仅拍照识别用（253f2c8 起排除）。
-// 定式库 / 题库：整包约 14MB，本就是分块按需加载（见 generate-sgf-library.mjs），
+// 定式库 / 题库 / AI 复盘棋谱：整包约 20MB，本就是分块按需加载
+//   （见 generate-sgf-library.mjs、BuiltinLibraryArchiveProvider），
 //   塞进预加载 zip 等于把「按需」变成「全部预下载」。
 //
 // ⚠️ 这里只是「不预加载」，dist-web/ 里的文件本身保留：deploy-cloudflare.mjs 会把
@@ -75,6 +76,30 @@ const PRELOAD_EXCLUDE_DIRS = [
   'shared/assets/data/joseki',
   // 题库：死活题 life-and-death 分块 + meta，约 8.7MB
   'shared/assets/data/games/life-and-death',
+  // AI 复盘棋谱：index/meta + 29 个 .tar.bz2 分块，约 5.5MB（zip 内 5.46MB）。
+  // 与 life-and-death 同一套分块加载器，只先取 index.json.gz 与 <date>.meta.json.gz，
+  // 用户翻到哪一页才拉对应块；全量预下载等于废掉分块设计。
+  'shared/assets/data/games/ai-review',
+  // 月度榜单：3 份 .json.gz，约 0.6MB。YichafenClient.loadPlayers() 用到才 fetch，
+  // 且自身带 CACHE_TTL 内存缓存，没有预下载的理由。
+  'shared/assets/data/rankings',
+  // 插件沙箱 QuickJS wasm：仅执行用户插件脚本时才由
+  // PluginSystem.defaultWasmBinary() fetch，属边缘功能。
+  'plugin',
+];
+
+/**
+ * 按路径模式排除（相对 dist-web/）。
+ * Vite 把 quickjs-emscripten 4 个 variant 的 wasm 都当 asset 输出到
+ * assets/emscripten-module-<hash>.wasm，但本项目只用 release-sync
+ * （infrastructure/plugin-vm/QuickJsExecutor.ts）；且 wasm 字节是主线程
+ * fetch /plugin/quickjs-release-sync.wasm 后 postMessage 注入 Worker 的，
+ * 不走 Worker 内的 new URL(...) 回退路径。4 份里 3 份无人引用，另 1 份与
+ * plugin/ 下那份字节完全相同。hash 每次构建都变，故用模式而非硬编码文件名。
+ * 文件仍留在 dist-web/，真走到回退路径时客户端照样能按需回源下载。
+ */
+const PRELOAD_EXCLUDE_PATTERNS = [
+  /^assets\/emscripten-module-[A-Za-z0-9_-]+\.wasm$/,
 ];
 const PRELOAD_EXCLUDE_FILES = ['web-resources.zip'];
 
@@ -226,7 +251,8 @@ function listFilesRecursively(dir, baseDir = dir) {
 /**
  * 生成 web-resources.zip
  * 
- * 将 dist-web/ 下需要预下载的文件（排除 models/、tfjs/、定式库、题库等）打包为 zip
+ * 将 dist-web/ 下需要预下载的文件（排除 models/、tfjs/、定式库、题库、
+ * AI 复盘棋谱、榜单、插件 wasm 等）打包为 zip
  * 客户端启动时下载此压缩包并解压，替代之前逐文件下载的方式
  * 被排除的资源仍在 Worker 上，由客户端按需回源下载
  */
@@ -245,8 +271,9 @@ function generateWebResourcesZip() {
     const isExcludedDir = PRELOAD_EXCLUDE_DIRS.some(dir =>
       file.path === dir || file.path.startsWith(dir + '/'));
     const isExcludedFile = PRELOAD_EXCLUDE_FILES.includes(file.path);
+    const isExcludedPattern = PRELOAD_EXCLUDE_PATTERNS.some(re => re.test(file.path));
 
-    if (isExcludedDir || isExcludedFile) {
+    if (isExcludedDir || isExcludedFile || isExcludedPattern) {
       excludedCount++;
       excludedBytes += file.size;
       continue;
@@ -290,6 +317,7 @@ function generateWebResourcesZip() {
   console.log(`   包含文件: ${includedFiles.length} 个 (${totalOrigMB} MB)`);
   console.log(`   排除文件: ${excludedCount} 个 (${excludedMB} MB)`);
   console.log(`   排除目录: ${PRELOAD_EXCLUDE_DIRS.join(', ')}`);
+  console.log(`   排除模式: ${PRELOAD_EXCLUDE_PATTERNS.map(re => String(re)).join(', ')}`);
   console.log(`   压缩后大小: ${zipSizeMB} MB`);
 }
 
