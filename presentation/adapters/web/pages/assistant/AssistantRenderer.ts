@@ -15,6 +15,57 @@ import {
  * （不进跳转/白名单/prompt），只在消息块上显示一个徽章。
  */
 const CHAT_INTENT_LABEL = '聊天';
+
+/**
+ * 按 URL 把消息文本切成 [{text},{url},...] 片段，供用户消息气泡生成「复制」卡片。
+ *
+ * 为什么不用旧的 /(?:https?|lib|katago):\/\/[^\s]+/ 单一正则：
+ * 旧规则以「空白」为唯一边界。中文用户常把问句直接贴在链接后面、中间没有空格
+ * （如 https://example.com/这个网页讲了什么），整段汉字会被当成 URL 的一部分，
+ * 复制按钮于是把问句一起复制走。
+ *
+ * 依据（非经验值）：RFC 3986 §2 规定 URI 字符必须是 ASCII 的 unreserved /
+ * reserved 子集，非 ASCII 字符只有 percent-encode 后才能出现在合法 http(s)
+ * URL 里。因此把 http(s) 的边界定为「第一个不属于该 ASCII 集合的字符」：
+ * 汉字、中文标点自动成为边界，且不会误切含 %E4%B8%AD 这类编码的路径/查询。
+ *
+ * lib:// / katago:// 是本项目自定义的纯 ASCII 伪协议（category/id 均为字母、
+ * 数字、连字符、hex），不存在中文粘连场景，沿用「到空白为止」保持原行为，
+ * 复制的仍是完整伪协议串。
+ *
+ * 不做「尾部英文标点剥离」：? ! , ) 等本身是合法的 URI sub-delims / query
+ * 字符，靠规则无法区分「URL 内」与「句末标点」，强行剥会误伤合法链接；
+ * 中文场景的标点已由非 ASCII 边界正确处理。
+ */
+/** RFC 3986 unreserved + reserved + '%'；http(s) URL 的合法 ASCII 主体 */
+const HTTP_URL_BODY = /[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+/;
+/** 自定义伪协议主体：沿用旧的「到空白为止」 */
+const PSEUDO_URL_BODY = /[^\s]+/;
+const URL_HEAD = /(?:https?|lib|katago):\/\//gi;
+
+interface UrlTextPart { type: 'text' | 'url'; value: string }
+
+function splitMessageByUrls(text: string): UrlTextPart[] {
+  const parts: UrlTextPart[] = [];
+  let cursor = 0;
+  const head = new RegExp(URL_HEAD.source, 'gi');
+  let match: RegExpExecArray | null;
+  while ((match = head.exec(text)) !== null) {
+    const start = match.index;
+    const isHttp = match[0].toLowerCase().startsWith('http');
+    const rest = text.slice(start + match[0].length);
+    const body = (isHttp ? HTTP_URL_BODY : PSEUDO_URL_BODY).exec(rest);
+    if (!body) continue; // 只有 "https://" 没有主体，不当 URL
+    const url = match[0] + body[0];
+    if (start > cursor) parts.push({ type: 'text', value: text.slice(cursor, start) });
+    parts.push({ type: 'url', value: url });
+    cursor = start + url.length;
+    head.lastIndex = cursor;
+  }
+  if (cursor < text.length) parts.push({ type: 'text', value: text.slice(cursor) });
+  return parts;
+}
+
 /**
  * 消息渲染器
  * 实现 IMessageRenderer 接口，渲染消息到 UI
@@ -295,25 +346,14 @@ export class AssistantRenderer implements IMessageRenderer {
     }
     
     // 2. 检测是否包含 URL（在线 http/https + 内置棋谱库 lib:// / katago://）
-    const urlPattern = /(?:https?|lib|katago):\/\/[^\s]+/g;
-    const urls = text.match(urlPattern);
+    //
+    // 切分规则（splitMessageByUrls）见文件底部工具函数：http(s) 按 RFC 3986
+    // 允许的 ASCII 字符切，中文问句/中文标点因非 URI 合法字符自动成为边界 ——
+    // 修复「先贴链接再紧跟中文提问」时整段文字被吞进 URL 的问题。
+    const parts = splitMessageByUrls(text);
+    const hasUrl = parts.some((part) => part.type === 'url');
     
-    if (urls && urls.length > 0) {
-      const parts: Array<{type: 'text' | 'url', value: string}> = [];
-      let lastIndex = 0;
-      urlPattern.lastIndex = 0;
-      const matches = text.matchAll(urlPattern);
-      
-      for (const match of matches) {
-        if (match.index !== undefined && match.index > lastIndex) {
-          parts.push({ type: 'text', value: text.slice(lastIndex, match.index) });
-        }
-        parts.push({ type: 'url', value: match[0] });
-        lastIndex = match.index !== undefined ? match.index + match[0].length : lastIndex;
-      }
-      if (lastIndex < text.length) {
-        parts.push({ type: 'text', value: text.slice(lastIndex) });
-      }
+    if (hasUrl) {
       
       for (const part of parts) {
         if (part.type === 'url') {

@@ -237,3 +237,81 @@ describe('AssistantRenderer 实时过程日志（逐步输出）', () => {
     expect(document.querySelector('.plugin-trace__detail')?.textContent).toBe('<img src=x onerror=alert(1)>');
   });
 });
+
+
+/**
+ * 用户消息气泡里「复制 URL」卡片的边界回归
+ *
+ * 场景：用户先贴一个链接，紧接着用中文问问题（中间没有空格）。
+ * 旧正则 /(?:https?|lib|katago):\/\/[^\s]+/ 以空白为唯一边界，会把整段
+ * 中文问句吞进 URL，复制按钮的 data-copy 于是带上问句。
+ *
+ * 新规则：http(s) 按 RFC 3986 允许的 ASCII 字符切，非 ASCII（汉字/中文标点）
+ * 自动成为边界；lib:// / katago:// 伪协议沿用原行为。
+ */
+describe('AssistantRenderer 用户消息 URL 复制边界', () => {
+  let renderer: AssistantRenderer;
+
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="chatContainer"></div>';
+    Element.prototype.scrollIntoView = vi.fn();
+    renderer = new AssistantRenderer();
+  });
+
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  /** 取用户消息里第一张 URL 卡片的「复制」按钮 data-copy。
+   *  每次断言独立渲染：先清空容器，避免同 it 内多次调用累积旧消息。 */
+  const copiedUrl = async (text: string): Promise<string | null> => {
+    document.getElementById('chatContainer')!.innerHTML = '';
+    await renderer.renderMessage(text, true, null, null, undefined, undefined, false);
+    const btn = document.querySelector('#chatContainer .url-card button.copy-btn');
+    return btn?.getAttribute('data-copy') ?? null;
+  };
+
+  it('复现：链接后紧跟中文问句（无空格）→ 只复制 URL，不带问句', async () => {
+    const url = 'https://example.com/article';
+    expect(await copiedUrl(`${url}这个网页讲了什么`)).toBe(url);
+    expect(await copiedUrl(`${url}，请归纳一下`)).toBe(url);
+    expect(await copiedUrl(`${url}。谢谢`)).toBe(url);
+  });
+
+  it('链接后有空格的普通写法仍正常', async () => {
+    const url = 'https://example.com/article';
+    expect(await copiedUrl(`${url} 这个网页讲了什么`)).toBe(url);
+  });
+
+  it('合法 URL 的 path / query / fragment / percent-encode 不被切断', async () => {
+    // 全部是 RFC 3986 合法 ASCII（中文已 percent-encode），应完整复制
+    const cases = [
+      'https://example.com/a/b?x=1&y=2#frag',
+      'https://example.com/%E4%B8%AD%E6%96%87?q=%E6%9F%AF%E6%B4%81',
+      'https://example.com/a_b-c~d/e.f',
+    ];
+    for (const url of cases) {
+      expect(await copiedUrl(url)).toBe(url);
+    }
+  });
+
+  it('一句话里多个链接 + 中文提问，各自成卡片且都不带问句', async () => {
+    await renderer.renderMessage(
+      '对比 https://a.com/1 和 https://b.com/2 这两个哪个好',
+      true, null, null, undefined, undefined, false,
+    );
+    const copies = Array.from(
+      document.querySelectorAll('#chatContainer .url-card button.copy-btn'),
+    ).map((b) => b.getAttribute('data-copy'));
+    expect(copies).toEqual(['https://a.com/1', 'https://b.com/2']);
+  });
+
+  it('lib:// / katago:// 伪协议沿用原行为，复制完整串', async () => {
+    expect(await copiedUrl('lib://life-and-death/abcdef0123456789abcdef0123456789 这题怎么做'))
+      .toBe('lib://life-and-death/abcdef0123456789abcdef0123456789');
+    expect(await copiedUrl('katago://date/2026-11-12 讲讲这盘'))
+      .toBe('katago://date/2026-11-12');
+  });
+
+  it('只有协议头没有主体时不生成 URL 卡片', async () => {
+    expect(await copiedUrl('https:// 这个不完整')).toBeNull();
+  });
+});
