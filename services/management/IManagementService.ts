@@ -128,7 +128,7 @@ export const MANAGEMENT_COMMANDS: ManagementCommand[] = [
     command: '/debug',
     title: '调试日志',
     icon: '🐛',
-    description: '打开调试日志页面，支持 on/off 开关',
+    description: '打开调试日志页面',
     appOnly: false,
   },
   {

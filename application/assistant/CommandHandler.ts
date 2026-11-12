@@ -11,7 +11,6 @@ import type { StorageBrowserService } from '../../services/storage/StorageBrowse
 import type { PerformanceBrowserService } from '../../services/performance/PerformanceBrowserService';
 import type { IDialog } from '../../presentation/core/interfaces/IDialog';
 import { DEFAULT_REMOTE_BASE, buildRemoteUrl } from '../../infrastructure/network/core/ServerConfig';
-import { LocalStorageAdapter } from '../../infrastructure/storage/adapters/web/LocalStorageAdapter';
 import { isLLMCommand, handleLLMCommand } from './LLMCommand';
 
 /**
@@ -48,8 +47,6 @@ export class CommandHandler {
   private storageBrowserService: StorageBrowserService | undefined;
   private performanceBrowserService: PerformanceBrowserService | undefined;
   private dialog: IDialog | undefined;
-  // 不指定 namespace：KATAGO_DEBUG 需写入裸键，供 weiqi-worker 直接读取
-  private katagoDebugStorage = new LocalStorageAdapter();
 
   constructor(config: CommandHandlerConfig) {
     this.messageRenderer = config.messageRenderer;
@@ -106,7 +103,7 @@ export class CommandHandler {
         await this.handlePerf();
         break;
       case '/debug':
-        await this.handleDebug(args);
+        await this.handleDebug();
         break;
       case '/remote':
         await this.handleRemote();
@@ -806,31 +803,18 @@ export class CommandHandler {
   }
 
   /**
-   * 处理调试命令
-   * 
-   * - /debug: 打开调试日志页面（3秒倒计时跳转）
-   * - /debug on: 开启 katago 调试
-   * - /debug off: 关闭 katago 调试
+   * 打开调试日志页面（3 秒倒计时跳转）。
+   * 旧版 /debug on|off 用于开关 KataGo Worker 调试日志，该接口已随
+   * weiqi-worker 上游对接彻底移除，故不再保留开关分支。
    */
-  private async handleDebug(args: string[]): Promise<void> {
-    const action = args[0]?.toLowerCase();
-    
-    if (action === 'on') {
-      await this.katagoDebugStorage.initialize(); await this.katagoDebugStorage.write('KATAGO_DEBUG', 'true');
-      await this.renderMessage('🐛 调试模式已开启\n\nKatago Worker 日志将被记录，可在调试页面查看');
-    } else if (action === 'off') {
-      await this.katagoDebugStorage.initialize(); await this.katagoDebugStorage.write('KATAGO_DEBUG', 'false');
-      await this.renderMessage('🐛 调试模式已关闭');
-    } else {
-      // 默认：显示消息并倒计时跳转
-      const actionUrl = '../debug/index.html';
-      const actionText = '前往 调试日志';
-      await this.renderMessage('🐛 即将打开调试日志页面', actionUrl, actionText);
-      this.messageRenderer.showCountdownJump(actionUrl, 3, () => {
-        // 用户取消跳转
-        console.log('[CommandHandler] 用户取消了调试页面跳转');
-      });
-    }
+  private async handleDebug(): Promise<void> {
+    const actionUrl = '../debug/index.html';
+    const actionText = '前往 调试日志';
+    await this.renderMessage('🐛 即将打开调试日志页面', actionUrl, actionText);
+    this.messageRenderer.showCountdownJump(actionUrl, 3, () => {
+      // 用户取消跳转
+      console.log('[CommandHandler] 用户取消了调试页面跳转');
+    });
   }
 
   /**

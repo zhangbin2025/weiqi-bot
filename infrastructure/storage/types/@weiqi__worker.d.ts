@@ -117,7 +117,4 @@ declare module '@weiqi/worker' {
 
   // Utilities
   export function getOpponent(player: Player): Player;
-
-  // Debug
-  export function setDebugEnabled(enabled: boolean): void;
 }

@@ -102,5 +102,3 @@ export const isKataGoCanceledError = vi.fn((error: unknown) =>
 export const getOpponent = vi.fn((player: string) => 
   player === 'black' ? 'white' : 'black'
 );
-
-export const setDebugEnabled = vi.fn();
