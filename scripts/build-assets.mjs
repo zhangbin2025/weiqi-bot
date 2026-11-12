@@ -60,7 +60,6 @@ const RESOURCES = [
  * 预下载排除项
  * 这些资源不纳入 web-resources.zip，客户端已有特殊处理逻辑
  */
-// ocr：OCR 引擎 + ORT 运行时 + worker 共约 50MB，属可选功能，
 // photo：cnn.onnx 约 0.5MB，只有用户点了「拍照摆子」才需要。
 // vendor：ORT 1.19.2 运行时三件套约 11MB，仅拍照识别用（253f2c8 起排除）。
 // 定式库 / 题库 / AI 复盘棋谱：整包约 20MB，本就是分块按需加载
@@ -71,7 +70,7 @@ const RESOURCES = [
 // 整个 dist-web 部署到 Worker；本地 FileServer / desktop AssetServer 缓存未命中时
 // 按相对路径回源 remoteBase，首次用到才下载，即「按需下载」。
 const PRELOAD_EXCLUDE_DIRS = [
-  'models', 'tfjs', 'ocr', 'photo', 'vendor',
+  'models', 'tfjs', 'photo', 'vendor',
   // 定式库：trie-*.json.gz + quiz-*.json.gz，约 5MB
   'shared/assets/data/joseki',
   // 题库：死活题 life-and-death 分块 + meta，约 8.7MB
