@@ -55,19 +55,24 @@ export interface IMessageRenderer {
    */
   showCountdownJump(jumpUrl: string, countdown: number, onCancel: () => void): void;
   /**
-   * 全量渲染「插件调试过程」的可折叠日志（可选实现，兼容旧行为）。
+   * 全量渲染「过程」的可折叠日志（可选实现，兼容旧行为）。
    *
    * 纯展示、不写入会话历史；表现层必须全程用 textContent 构造，
    * 禁止把步骤文本交给 marked/innerHTML。
+   *
+   * @param title 过程块标题。不传则用默认的「插件调试过程」；
+   *              网络智能体传「🌐 访问过程」。
    */
-  renderPluginTrace?(steps: PluginTraceStep[]): Promise<void>;
+  renderPluginTrace?(steps: PluginTraceStep[], title?: string): Promise<void>;
 
   // ---------- 实时过程日志（可选实现，优先于全量渲染） ----------
   /**
    * 开启一个实时过程块。必须在任何 append 之前调用；重复调用视为开启新一轮。
    * 返回 false 表示渲染器不支持实时模式，调用方应回退到全量 renderPluginTrace。
+   *
+   * @param title 过程块标题。不传则用默认的「插件调试过程」。
    */
-  beginPluginTrace?(): boolean;
+  beginPluginTrace?(title?: string): boolean;
   /** 实时追加一步（步骤产生时立刻调用），逐步出现在折叠块里 */
   appendPluginTraceStep?(step: PluginTraceStep): void;
   /** 收尾：更新标题为最终状态、停止进行中动画 */

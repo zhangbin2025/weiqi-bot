@@ -6,8 +6,8 @@
  * 复用功能助手的渲染器、会话存储、凭据与共享 CSS，不引入旧意图/命令体系。
  *
  * 页面由「模型角色」驱动（见 ChatRole）：默认闲聊，用户可在标题栏切换到
- * 插件开发。角色确定后才加载不同的 system prompt 与背景知识 —— 闲聊角色
- * 完全不接触插件系统，插件角色才装配智能体、注入插件快照与动作协议。
+ * 插件开发。闲聊角色是标准 tool-calling 智能体，模型自主决定要不要访问
+ * 网页；插件角色走自定义 JSON 动作协议，能真实启停插件。两者互不干扰。
  * 不再按每句话猜意图。
  *
  * 角色固化在会话数据里（ChatSessionData.role），历史会话列表显示角色标识，
@@ -28,6 +28,7 @@ import { WebFileExporter } from '../../../../../infrastructure/utils/export/WebF
 import { WebDialog } from '../../components/Dialog';
 import { ChatUseCase } from '../../../../../application/chat/ChatUseCase';
 import { OpenAIModelGateway } from '../../../../../infrastructure/llm/OpenAIModelGateway';
+import { loadLLMConfig, DEFAULT_LLM_TIMEOUT_MS } from '../../../../../infrastructure/llm/LLMCredentialStore';
 import { createPluginSystem, type PluginSystem } from '../../../../../application/plugin/PluginSystem';
 import type { PluginArtifact } from '../../../../../domain/plugin/types';
 import {
@@ -53,7 +54,8 @@ export class ChatPage {
   /** 当前会话的模型角色。角色绑定会话，切换角色会新建会话。 */
   private currentRole: ChatRoleId = DEFAULT_ROLE_ID;
 
-  async init(): Promise<void> {
+  /** 入口注入：proxyUrl 由 vite 域的 chat.ts 算好（三端分流），此处只接收 */
+  async init(options?: { proxyUrl?: string }): Promise<void> {
     const storage = new IndexedDBAdapter<{ id: string; category: string; key: string; createdAt: number }>(
       DB_NAME, DB_STORE,
     );
@@ -67,8 +69,17 @@ export class ChatPage {
     } catch {
       this.plugin = undefined;
     }
+    // 网络工具依赖：代理地址由入口注入（三端分流，线上只给纯 Web），超时
+    // 沿用已配置的 LLM timeoutMs —— 不引入任何新数值。chat 角色才用得到。
+    const gateway = this.plugin?.gateway ?? new OpenAIModelGateway();
+    const proxyUrl = options?.proxyUrl ?? 'https://api.weiqi.lol';
+    const config = loadLLMConfig();
+    const webTools = {
+      proxyUrl,
+      timeoutMs: config?.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS,
+    };
     this.useCase = new ChatUseCase(
-      this.plugin?.gateway ?? new OpenAIModelGateway(),
+      gateway,
       this.history,
       this.renderer,
       this.plugin
@@ -76,6 +87,7 @@ export class ChatPage {
         : undefined,
       // 角色由页面持有，用例只读取、不猜测、不持久化
       () => this.currentRole,
+      webTools,
     );
 
     this.bindUI();

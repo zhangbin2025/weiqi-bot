@@ -3,6 +3,8 @@
  * @description 一次性初始化所有通用基础设施（NetworkManager、Providers、ConfigProvider、AdapterFactory）
  */
 
+import { resolveProxyUrl } from './resolveProxyUrl';
+
 import { NetworkManager } from '../../../infrastructure/network/core/NetworkManager';
 import { UserType } from '../../../infrastructure/network/interfaces/UserType';
 import { DirectProvider } from '../../../infrastructure/network/adapters/web/DirectProvider';
@@ -109,23 +111,8 @@ export class WebBootstrap {
    */
   static async init(options: WebBootstrapOptions): Promise<WebShellContext> {
     const containerId = options.containerId;
-    let proxyUrl = options.proxyUrl;
-    if (!proxyUrl) {
-      if (typeof navigator !== 'undefined' && navigator.userAgent.includes('WeiqiApp')) {
-        // 通过 Bridge 获取配置
-        try {
-          const configResponse = await window.prompt('config:get');
-          const config = JSON.parse(configResponse!);
-          proxyUrl = `${config.localServerUrl}/proxy`;
-        } catch (e) {
-          // Bridge 调用失败，使用默认值
-          console.warn('Failed to get config from bridge, using default:', e);
-          proxyUrl = 'http://localhost:8088/proxy';
-        }
-      } else {
-        proxyUrl = import.meta.env.VITE_PROXY_URL || 'https://api.weiqi.lol';
-      }
-    }
+    // 三端代理分流抽到 resolveProxyUrl，chat 页与此处共用同一口径
+    const proxyUrl = await resolveProxyUrl(options.proxyUrl);
 
     // 1. AdapterFactory + rootContainer
     const adapterFactory = new WebAdapterFactory();

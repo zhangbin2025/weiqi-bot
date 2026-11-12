@@ -7,9 +7,12 @@
  */
 
 import { ChatPage } from '../../../presentation/adapters/web/pages/assistant/ChatPage';
+import { resolveProxyUrl } from '../shared/resolveProxyUrl';
 
 const page = new ChatPage();
-page.init().catch((error) => {
+// 三端代理分流在 vite 域的入口算好，注入页面；ChatPage 在 tsc 依赖图内，
+// 不直接引用 import.meta.env，避免类型缺失也避免破坏 vite 的字面替换。
+resolveProxyUrl().then((proxyUrl) => page.init({ proxyUrl })).catch((error) => {
   console.error('[ChatPage] 初始化失败:', error);
   const banner = document.getElementById('notReady');
   if (banner) {

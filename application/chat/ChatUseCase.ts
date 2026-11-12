@@ -6,8 +6,8 @@
  *
  * 分流依据不再是「猜这句话属于哪个意图」，而是**用户显式选定的模型角色**
  * （见 ChatRole）：
- * - chat 角色：纯聊天对象，ConversationPrompt + 普通模型调用，模型完全看不到
- *   插件系统、没有 JSON 协议、没有任何写权限。
+ * - chat 角色：标准 tool-calling 智能体。ConversationPrompt + WebToolLoop，
+ *   模型自主决定要不要访问网页；网络工具的过程在「访问过程」块里实时展示。
  * - plugin 角色：可编程智能体，插件快照 + 沙箱契约 + JSON 动作协议 + Agent Loop，
  *   能真实执行查看/新建/启停/删除；此角色下所有消息都进 Agent。
  *
@@ -15,10 +15,11 @@
  * 来源是工件存储，不是会话历史，因此会话清空/新建都不影响。
  *
  * 「插件调试过程」只在 plugin 角色下展示，且**发送瞬间就点亮**：模型调用前
- * 那段几十秒的等待期也有可见的实时进度。
+ * 那段几十秒的等待期也有可见的实时进度。chat 角色的网络访问走另一套过程块，
+ * 标题与可见性规则独立，不复用插件调试那套过滤。
  */
 
-import type { IModelGateway } from '../model/IModelGateway';
+import type { IModelGateway, ModelMessage } from '../model/IModelGateway';
 import type { ChatHistoryManager } from '../assistant/ChatHistoryManager';
 import type { IMessageRenderer } from '../assistant/IMessageRenderer';
 import { buildConversationMessages, summarizeSession } from './ConversationPrompt';
@@ -26,6 +27,8 @@ import { isDebugTraceStep, visibleDebugSteps } from './PluginTraceVisibility';
 import { getRole, type ChatRoleId } from './ChatRole';
 import type { AgentTurnRequest } from '../plugin/PluginAgentUseCase';
 import type { AgentTurnResult, PluginTraceStep } from '@domain/plugin/types';
+import { runWebToolLoop, type WebTraceStep } from './WebToolLoop';
+import type { WebFetchToolDeps } from './WebFetchTool';
 
 /** 拦截「/」开头：chat 页零命令体系，配置请回功能助手 */
 export const SLASH_COMMAND_HINT = '对话页不支持命令，模型配置请回到功能助手操作。';
@@ -47,6 +50,9 @@ export function isSlashCommand(text: string): boolean {
   return text.trim().startsWith('/');
 }
 
+/** 网络智能体过程块的标题；与插件调试过程区分 */
+const WEB_TRACE_TITLE = '🌐 访问过程';
+
 export class ChatUseCase {
   constructor(
     private readonly gateway: IModelGateway,
@@ -56,6 +62,8 @@ export class ChatUseCase {
     private readonly agent?: IPluginAgent,
     /** 当前角色由页面提供（角色绑定会话）。不传则默认闲聊。 */
     private readonly roleProvider?: () => ChatRoleId,
+    /** chat 角色的网络工具依赖（proxyUrl / timeoutMs）。不传则退回纯文本单次调用 */
+    private readonly webTools?: WebFetchToolDeps,
   ) {}
 
   isReady(): boolean {
@@ -71,6 +79,7 @@ export class ChatUseCase {
    * - 模型失败时只渲染错误提示、**不写进历史**，否则错误文案会在下一轮
    *   被当上下文带进去污染对话。用户消息本身仍保留（用户确实发了）。
    * - Agent 回复经 safeReply 转义后再交给渲染器（渲染器用 marked 解析 HTML）。
+   * - agent loop 的 tool_calls / tool 观察只存在单次 turn 内存里，不写历史。
    */
   async send(text: string): Promise<void> {
     if (isSlashCommand(text)) {
@@ -102,58 +111,81 @@ export class ChatUseCase {
     }
 
     const useAgent = role.agent;
-    // 过程块是否允许出现，由角色决定；但**是否真的出现，由本轮实际产生的
-    // 步骤决定** —— 懒建：只有第一个实质调试步骤到达时才 beginPluginTrace。
-    //
-    // 为什么不能「发送瞬间就建」：plugin 角色下「启用」「看一下插件列表」
-    // 也走 Agent，但它们只产生 decision/observe/final，没有任何代码调试。
-    // 无条件预建会让每句话都挂一个「插件调试过程」空壳，正是本次要修的。
-    // 区分依据是 Agent 真的干了什么（有没有走 codegen），不是逐句猜措辞，
-    // 也不退回按消息文本判意图。
-    const showTrace = role.trace && useAgent;
     this.renderer.showTyping();
 
+    // 两套过程块互斥：plugin 角色用「插件调试过程」（只放行代码调试步骤），
+    // chat 角色用「访问过程」（只放行 decision/observe/final 的网络步骤）。
+    // 懒建：只有第一个该展示的步骤到达时才创建，纯闲聊不挂空壳。
     let realtime = false;
     let started = false;
-    let beginAttempted = false; // begin 只试一次，失败就交给全量兜底，不逐步重试
+    let beginAttempted = false;
     let lastStepOk = true;
     const hasRealtimeRenderer = Boolean(
       this.renderer.beginPluginTrace && this.renderer.appendPluginTraceStep,
     );
-    /** 懒建：收到第一个值得展示的步骤时才点亮过程块，返回是否已建好 */
+    const showPluginTrace = useAgent && role.trace;
+    const showWebTrace = !useAgent;
+
     const ensureStarted = (): boolean => {
-      if (!showTrace || !hasRealtimeRenderer || started || beginAttempted) return started;
+      if (started || beginAttempted || !hasRealtimeRenderer) return started;
       beginAttempted = true;
       try {
-        realtime = this.renderer.beginPluginTrace!() === true;
+        realtime = this.renderer.beginPluginTrace!(
+          showPluginTrace ? undefined : WEB_TRACE_TITLE,
+        ) === true;
         started = realtime;
       } catch { /* 纯展示，吞掉 */ }
       return started;
     };
-    const onTrace = hasRealtimeRenderer
+
+    const onPluginStep = showPluginTrace && hasRealtimeRenderer
       ? (step: PluginTraceStep): void => {
-          // 只放行实质调试步骤（代码/校验/试算）；decision/observe/final
-          // 一概不触发建块，也不追加 —— 与全量兜底同一套口径。
-          if (!showTrace || !isDebugTraceStep(step)) return;
+          if (!isDebugTraceStep(step)) return;
           if (!ensureStarted()) return;
           try {
             this.renderer.appendPluginTraceStep!(step);
             lastStepOk = step.ok;
-          } catch { /* 纯展示，吞掉 */ }
+          } catch { /* ignore */ }
+        }
+      : undefined;
+
+    const onWebStep = showWebTrace && hasRealtimeRenderer
+      ? (step: WebTraceStep): void => {
+          // 纯闲聊（模型直接给最终文本，没有 tool_calls）不该挂一个空的
+          // 「访问过程」块：只有真的执行了工具（observe 步骤）才亮出来。
+          // decision 是每轮都有的内部决策，不作为展示触发条件。
+          if (step.phase !== 'observe' && !started) return;
+          if (!ensureStarted()) return;
+          try {
+            // WebTraceStep 与 PluginTraceStep 结构一致，仅 source 不同
+            this.renderer.appendPluginTraceStep!(step as unknown as PluginTraceStep);
+            lastStepOk = step.ok;
+          } catch { /* ignore */ }
         }
       : undefined;
 
     try {
-      const result = useAgent ? await this.runAgent(text, onTrace) : undefined;
-      const reply = result ? result.reply : await this.runPlainChat();
+      const result = useAgent
+        ? await this.runAgent(text, onPluginStep)
+        : undefined;
+      const webResult = useAgent
+        ? undefined
+        : await this.runWebChat(onWebStep);
+      const reply = result ? result.reply : (webResult?.reply ?? '');
       this.renderer.hideTyping();
 
       // 兜底：渲染器不支持实时、或 begin 返回 false → 结束后一次性全量渲染。
-      // 同样只在 plugin 角色下，且只渲染实质调试步骤。
-      // 实时模式的收尾统一放在 finally，正常/异常都只做一次。
-      const visible = showTrace ? visibleDebugSteps(result?.trace) : [];
-      if (!realtime && visible.length > 0 && this.renderer.renderPluginTrace) {
-        try { await this.renderer.renderPluginTrace(visible); } catch { /* ignore */ }
+      const visiblePlugin = result ? visibleDebugSteps(result.trace) : [];
+      // 纯闲聊不展示「访问过程」：只有真的执行过工具（存在 observe）才渲染，
+      // 与实时路径的懒建条件保持一致。
+      const hasWebAccess = Boolean(webResult?.trace.some((s) => s.phase === 'observe'));
+      const visibleWeb: PluginTraceStep[] = hasWebAccess && webResult ? webResult.trace : [];
+      if (!realtime && this.renderer.renderPluginTrace) {
+        if (showPluginTrace && visiblePlugin.length > 0) {
+          try { await this.renderer.renderPluginTrace(visiblePlugin); } catch { /* ignore */ }
+        } else if (showWebTrace && visibleWeb.length > 0) {
+          try { await this.renderer.renderPluginTrace(visibleWeb, WEB_TRACE_TITLE); } catch { /* ignore */ }
+        }
       }
 
       // 安全边界保持不变：装配了插件系统时，所有回复（含闲聊角色）都经
@@ -167,7 +199,7 @@ export class ChatUseCase {
       await this.renderer.renderMessage(
         safe, false, null, null, undefined, undefined, true,
       );
-      // 历史里只有干净的 user/assistant 文本，trace 永远不进来
+      // 历史里只有干净的 user/assistant 文本，trace 与 tool 消息永远不进来
       await this.history.addMessage({ role: 'assistant', content: safe });
     } catch (error) {
       this.renderer.hideTyping();
@@ -182,15 +214,29 @@ export class ChatUseCase {
     }
   }
 
-  /** 闲聊角色：会话 system prompt + 普通模型调用，模型看不到插件系统 */
-  private async runPlainChat(): Promise<string> {
-    const messages = buildConversationMessages(this.history.getMessages());
-    const result = await this.gateway.execute({
-      task: 'chat.reply',
-      messages,
-      options: { jsonMode: false },
-    });
-    return result.text;
+  /**
+   * chat 角色：标准 tool-calling agent loop。
+   * buildConversationMessages 已完成上下文裁剪；loop 内部追加的 tool_calls /
+   * tool 观察只在内存里，不落会话历史。
+   */
+  private async runWebChat(
+    onTrace?: (step: WebTraceStep) => void,
+  ): Promise<{ reply: string; trace: WebTraceStep[] }> {
+    const messages: ModelMessage[] = buildConversationMessages(this.history.getMessages());
+    // 未装配工具依赖时退回单次纯文本调用（例如某些精简装配场景）
+    if (!this.webTools) {
+      const result = await this.gateway.execute({
+        task: 'chat.reply',
+        messages,
+        options: { jsonMode: false },
+      });
+      return { reply: result.text, trace: [] };
+    }
+    const result = await runWebToolLoop(
+      { gateway: this.gateway, toolDeps: this.webTools },
+      { messages, ...(onTrace ? { onTrace } : {}) },
+    );
+    return { reply: result.reply, trace: result.trace };
   }
 
   /** 插件角色：会话历史只作聊天上下文，插件能力来自工件 */

@@ -2,30 +2,40 @@
  * OpenAI 兼容端点的模型网关实现
  * @module infrastructure/llm/OpenAIModelGateway
  *
- * 只做三件事：读凭据 → 把统一消息结构翻译成 OpenAI payload → 调
+ * 职责：读凭据 → 把统一消息/工具结构翻译成 OpenAI payload → 调
  * OpenAICompatibleClient（复用其超时、400 降级、截断判断）。
  * 不实现任何业务语义，业务语义在各 task 的调用方。
+ *
+ * 两条链路：
+ * - 带 tools → chatWithTools()，可返回 tool_calls（agent loop）
+ * - 不带 tools → chat()，纯文本（意图解析 / 插件协议生成等旧链路）
  */
 
 import type {
   IModelGateway, ModelMessage, ModelPart, ModelRequest, ModelResult,
+  ModelToolCall, ModelToolDefinition,
 } from '../../application/model/IModelGateway';
-import { OpenAICompatibleClient, type ChatMessage } from './OpenAICompatibleClient';
+import {
+  OpenAICompatibleClient,
+  type ChatMessage, type ToolCall, type ToolDefinition,
+} from './OpenAICompatibleClient';
 import { loadLLMConfig, loadApiKey } from './LLMCredentialStore';
 
-/** 把统一消息结构降级成 OpenAI 的纯文本消息（多模态片段暂拼接为文本占位） */
+/** 把统一消息结构翻译成 OpenAI 消息（多模态片段暂拼接为文本占位） */
 function toChatMessages(messages: ModelMessage[]): ChatMessage[] {
-  return messages.map((m) => ({
+  return messages.map((m): ChatMessage => ({
     role: m.role,
     content: typeof m.content === 'string'
       ? m.content
       : m.content.map(partToString).join('\n'),
+    ...(m.tool_calls ? { tool_calls: m.tool_calls.map(toWireToolCall) } : {}),
+    ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
   }));
 }
 
 /**
- * 一期不产生图片/文件片段；这里给出保守降级，避免二期接入前误传导致
- * 静默丢内容。真正支持视觉的端点应在二期按 task 直接构造原生 payload。
+ * 当前不产生图片/文件片段；这里给出保守降级，避免误传导致静默丢内容。
+ * 真正支持视觉的端点应另开 task 直接构造原生 payload。
  */
 function partToString(part: ModelPart): string {
   switch (part.type) {
@@ -38,6 +48,33 @@ function partToString(part: ModelPart): string {
   }
 }
 
+function toWireToolCall(call: ModelToolCall): ToolCall {
+  return {
+    id: call.id,
+    type: 'function',
+    function: { name: call.name, arguments: call.arguments },
+  };
+}
+
+function toWireToolDefinition(tool: ModelToolDefinition): ToolDefinition {
+  return {
+    type: 'function',
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+    },
+  };
+}
+
+function fromWireToolCall(call: ToolCall): ModelToolCall {
+  return {
+    id: call.id,
+    name: call.function.name,
+    arguments: call.function.arguments,
+  };
+}
+
 export class OpenAIModelGateway implements IModelGateway {
   isReady(): boolean {
     const config = loadLLMConfig();
@@ -46,8 +83,8 @@ export class OpenAIModelGateway implements IModelGateway {
   }
 
   async execute(req: ModelRequest): Promise<ModelResult> {
-    // chat.reply：对话页主链路；plugin.generate：插件代码生成/修复循环。
-    // 两者都走同一套纯文本 chat completions，只是调用方给的消息与 jsonMode 不同。
+    // 任务白名单保留：这两个 task 都走纯文本 chat completions，
+    // 只是调用方给的消息、jsonMode 与 tools 不同。
     if (req.task !== 'chat.reply' && req.task !== 'plugin.generate') {
       throw new Error(`模型能力「${req.task}」尚未实现`);
     }
@@ -74,9 +111,20 @@ export class OpenAIModelGateway implements IModelGateway {
         ? { disableThinking: config.disableThinking } : {}),
     });
 
+    const chatMessages = toChatMessages(req.messages);
+
+    if (req.tools && req.tools.length > 0) {
+      const result = await client.chatWithTools(chatMessages, req.tools.map(toWireToolDefinition));
+      return {
+        text: result.content,
+        ...(result.toolCalls ? { toolCalls: result.toolCalls.map(fromWireToolCall) } : {}),
+        truncated: result.truncated,
+      };
+    }
+
     // 对话不需要严格 JSON；意图解析路径仍走 OpenAICompatibleClient 默认 true。
     const jsonMode = req.options?.jsonMode ?? false;
-    const result = await client.chat(toChatMessages(req.messages), { jsonMode });
+    const result = await client.chat(chatMessages, { jsonMode });
     return { text: result.content, truncated: result.truncated };
   }
 }

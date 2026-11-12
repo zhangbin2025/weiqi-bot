@@ -733,6 +733,8 @@ export class AssistantRenderer implements IMessageRenderer {
     list: HTMLElement;
     count: number;
     failed: number;
+    /** 标题前缀；插件调试与网络访问过程各自区分 */
+    title: string;
   } | null = null;
 
   /** 生成一行步骤 DOM（实时与全量两种模式共用） */
@@ -744,7 +746,10 @@ export class AssistantRenderer implements IMessageRenderer {
     head.className = 'plugin-trace__head';
     const tag = document.createElement('span');
     tag.className = 'plugin-trace__tag';
-    tag.textContent = `[${step.source === 'agent' ? '决策' : '代码'} · 第 ${step.attempt} 轮 · ${step.phase}]`;
+    const sourceLabel = step.source === 'codegen' ? '代码'
+      : step.source === 'web' ? '网络'
+      : '决策';
+    tag.textContent = `[${sourceLabel} · 第 ${step.attempt} 轮 · ${step.phase}]`;
     const flag = document.createElement('span');
     flag.className = 'plugin-trace__flag';
     flag.textContent = step.ok ? '✓' : '✗';
@@ -783,10 +788,13 @@ export class AssistantRenderer implements IMessageRenderer {
     return row;
   }
 
-  private setTraceSummary(view: { summary: HTMLElement; count: number; failed: number }, running: boolean): void {
+  private setTraceSummary(
+    view: { summary: HTMLElement; count: number; failed: number; title: string },
+    running: boolean,
+  ): void {
     const failedPart = view.failed ? `，${view.failed} 步失败` : '';
     const state = running ? ' · 进行中…' : (view.failed ? '' : ' · 完成');
-    view.summary.textContent = `🔧 插件调试过程（${view.count} 步${failedPart}${state}）`;
+    view.summary.textContent = `${view.title}（${view.count} 步${failedPart}${state}）`;
   }
 
   /**
@@ -795,7 +803,7 @@ export class AssistantRenderer implements IMessageRenderer {
    *
    * 契约：纯展示、不写会话历史；全程 textContent/createElement，绝不把 LLM 文本交给 innerHTML。
    */
-  beginPluginTrace(): boolean {
+  beginPluginTrace(title?: string): boolean {
     const chatContainer = document.getElementById('chatContainer');
     if (!chatContainer) return false;
     // 上一轮遗留的块先收尾，避免同页出现两个进行中状态
@@ -823,7 +831,10 @@ export class AssistantRenderer implements IMessageRenderer {
       chatContainer.appendChild(wrapper);
     }
 
-    this.pluginTraceView = { wrapper, summary, list, count: 0, failed: 0 };
+    this.pluginTraceView = {
+      wrapper, summary, list, count: 0, failed: 0,
+      title: title ?? '🔧 插件调试过程',
+    };
     this.setTraceSummary(this.pluginTraceView, true);
     return true;
   }
@@ -861,9 +872,9 @@ export class AssistantRenderer implements IMessageRenderer {
    * 全量渲染（可选实现，兼容旧行为 / 无实时能力时兜底）：
    * 一次性把已有步骤列进一个默认折叠的块。
    */
-  async renderPluginTrace(steps: PluginTraceStep[]): Promise<void> {
+  async renderPluginTrace(steps: PluginTraceStep[], title?: string): Promise<void> {
     if (!steps || steps.length === 0) return;
-    if (!this.beginPluginTrace()) return;
+    if (!this.beginPluginTrace(title)) return;
     for (const step of steps) this.appendPluginTraceStep(step);
     const failed = steps.filter((s) => !s.ok).length;
     this.finishPluginTrace(failed === 0);

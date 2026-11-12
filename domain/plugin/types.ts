@@ -193,10 +193,11 @@ export interface AgentResponse {
 
 /**
  * 调试过程的一步（供对话页「过程日志」折叠展示，不写进会话历史）。
- * source=codegen 是「LLM 写/改代码」的自动修复循环，source=agent 是外层决策循环。
+ * source=codegen 是「LLM 写/改代码」的自动修复循环，source=agent 是外层决策循环，
+ * source=web 是标准 tool-calling 智能体的网络访问过程。
  */
 export interface PluginTraceStep {
-  source: 'agent' | 'codegen';
+  source: 'agent' | 'codegen' | 'web';
   /** 轮次：codegen 为修复轮，agent 为决策轮 */
   attempt: number;
   /** 阶段短标签（llm / protocol / validate / sandbox / crash / decision / observe / final） */
