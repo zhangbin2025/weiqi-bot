@@ -196,18 +196,12 @@ export class EventPage implements IPage {
       }
     } catch { /* ignore */ }
 
-    this.renderer.showLoading();
-    try {
-      const result = await this.eventQuerier.queryEvents({ area, month, keyword });
-      console.info('查询比赛', { area, month, keyword, count: result.total });
-      if (this.onNavigate) {
-        this.onNavigate('event/list', { area, month: String(month), keyword });
-      }
-    } catch (error) {
-      console.error('查询比赛失败', error as Error);
-      this.renderer.toast.error('查询失败');
-    } finally {
-      this.renderer.hideLoading();
+    // 查询页只负责收集条件并跳转，不发任何赛事请求。
+    // 实际数据由 events.html 的列表页串行拉取一次；若这里也拉，查询页与列表页
+    // 会各拉一遍全量（用户实测出现两次 39 页进度条），串行下等于白等一倍时间。
+    console.info('查询比赛（跳转列表页）', { area, month, keyword });
+    if (this.onNavigate) {
+      this.onNavigate('event/list', { area, month: String(month), keyword });
     }
   }
 

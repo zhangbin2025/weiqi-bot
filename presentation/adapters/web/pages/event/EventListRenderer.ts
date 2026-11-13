@@ -3,7 +3,7 @@
  * @description 完全对齐 joseki/list.html 风格
  * @module presentation/pages/event/EventListRenderer
  */
-import type { ICard, IToast, IAdapterFactory } from '../../../../core/interfaces';
+import type { ICard, IToast, IAdapterFactory, IOverlay } from '../../../../core/interfaces';
 import type { IEventFormatter } from './IEventFormatter';
 import type { Event } from '../../../../../services/event/types';
 export interface EventListRendererCallbacks {
@@ -19,6 +19,7 @@ export class EventListRenderer {
   readonly headerCard: ICard;
   readonly listCard: ICard;
   readonly toast: IToast;
+  private readonly overlay: IOverlay;
   private tabs: TabDef[] = [
     { id: 'recent', label: '🔥 最近', count: 0 },
     { id: 'history', label: '📜 历史', count: 0 },
@@ -33,6 +34,7 @@ export class EventListRenderer {
     this.headerCard = factory.createCard();
     this.listCard = factory.createCard();
     this.toast = factory.createToast();
+    this.overlay = factory.createOverlay();
   }
   initialize(): void {
     this.headerCard.setConfig({ padding: 'none', elevation: 'none' });
@@ -90,6 +92,15 @@ export class EventListRenderer {
   renderHeader(): void {
     this.headerCard.setConfig({ padding: 'none', elevation: 'none' });
   }
+  /** 串行逐页拉取期间显示进度（复用详情页同款全屏进度，不改动列表 UI）。 */
+  showProgress(percent: number, message: string): void {
+    this.overlay.setContent(this.formatter.formatProgress(percent, message));
+    this.overlay.render();
+    this.overlay.show();
+  }
+  hideProgress(): void {
+    this.overlay.hide();
+  }
   render(): void {
     this.listCard.render();
   }
@@ -97,5 +108,6 @@ export class EventListRenderer {
     this.headerCard.destroy();
     this.listCard.destroy();
     this.toast.destroy();
+    this.overlay.destroy();
   }
 }

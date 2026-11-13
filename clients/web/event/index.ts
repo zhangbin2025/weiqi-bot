@@ -39,20 +39,18 @@ async function main() {
   const params = Object.fromEntries(urlParams.entries());
   
   if (auto === 'true' && Object.keys(params).length > 1) {
+    // 带参直达：查询页不再拉数据，直接把条件交给列表页串行拉取一次即可，
+    // 避免首页拉一遍又跳列表页再拉一遍（两次进度条）。
     const cleanParams = Object.fromEntries(
       Object.entries(params).filter(([key]) => key !== 'auto')
     );
-    const newUrl = Object.keys(cleanParams).length > 0
-      ? `${window.location.pathname}?${new URLSearchParams(cleanParams).toString()}}`
-      : window.location.pathname;
-    window.history.replaceState({}, '', newUrl);
-    
-    page.handleParams(params);
-    await page.triggerQuery();
+    const qs = new URLSearchParams(cleanParams).toString();
+    window.location.replace(`events.html${qs ? '?' + qs : ''}`);
+    return;
   } else if (Object.keys(params).length > 0) {
     page.handleParams(params);
   }
-  
+
   page.render();
 
   console.info('EventPage 首页已启动');

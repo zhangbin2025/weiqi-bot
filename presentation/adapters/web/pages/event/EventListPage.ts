@@ -60,7 +60,10 @@ export class EventListPage implements IPage {
   private async fetchEvents(): Promise<void> {
     try {
       const month = this.query.month ? parseInt(this.query.month, 10) : 1;
-      const opts: { month: number; area?: string; keyword?: string } = { month: isNaN(month) ? 1 : month };
+      const opts: { month: number; area?: string; keyword?: string; onProgress?: (msg: string, pct: number) => void } = {
+        month: isNaN(month) ? 1 : month,
+        onProgress: (msg, pct) => this.renderer.showProgress(pct, msg),
+      };
       if (this.query.area) opts.area = this.query.area;
       if (this.query.keyword) opts.keyword = this.query.keyword;
       const result: EventListResult = await this.q.queryEvents(opts);
@@ -69,6 +72,7 @@ export class EventListPage implements IPage {
       this.renderer.renderHeader();
       this.saveCache();
     } catch (e) { console.error('加载比赛列表失败', e as Error); this.renderer.toast.error('加载失败'); }
+    finally { this.renderer.hideProgress(); }
   }
   private saveCache(): void {
     if (!this.cache) return;

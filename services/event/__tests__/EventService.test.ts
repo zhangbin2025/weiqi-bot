@@ -103,11 +103,38 @@ describe('EventService', () => {
 
       expect(mockNetwork.request).toHaveBeenCalledTimes(totalPages);
       expect(result.total).toBe(totalPages);
-      // 并发返回仍按页序拼接，不打乱服务端的时间倒序
+      // 串行逐页，顺序严格递增，维持服务端的时间倒序
       expect(result.events.map(e => e.id)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+      const requestedPages = (mockNetwork.request as ReturnType<typeof vi.fn>).mock.calls.map(
+        (c) => Number(new URL(c[0].url).searchParams.get('page')),
+      );
+      expect(requestedPages).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
       for (const call of (mockNetwork.request as ReturnType<typeof vi.fn>).mock.calls) {
         expect(new URL(call[0].url).searchParams.get('month')).toBe('12');
       }
+    });
+
+    it('串行拉取时上报进度，且任一时刻只有一个在途请求', async () => {
+      const totalPages = 12;
+      let inFlight = 0, maxInFlight = 0;
+      const progress: Array<[string, number]> = [];
+      (mockNetwork.request as ReturnType<typeof vi.fn>).mockImplementation(async (cfg: { url: string }) => {
+        inFlight++; maxInFlight = Math.max(maxInFlight, inFlight);
+        const page = Number(new URL(cfg.url).searchParams.get('page'));
+        await new Promise((r) => setTimeout(r, 5));
+        inFlight--;
+        return {
+          data: { datArr: { rows: [{ event_id: page, title: `第${page}页`, play_num: 1 }], TotalPage: totalPages } },
+          status: 200,
+        };
+      });
+
+      await service.getEvents({ month: 12, onProgress: (msg, pct) => progress.push([msg, pct]) });
+
+      expect(maxInFlight).toBe(1);
+      expect(progress[0]).toEqual(['正在加载第 1 页...', 0]);
+      expect(progress[progress.length - 1]).toEqual([`已加载 ${totalPages}/${totalPages} 页`, 100]);
+      expect(progress.length).toBe(totalPages + 1);
     });
 
     it('关键词过滤应覆盖所有页而非仅前几页', async () => {

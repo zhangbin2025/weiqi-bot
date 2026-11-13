@@ -15,6 +15,8 @@ export interface EventQueryOptions {
   keyword?: string;
   /** 每页数量（最大 200） */
   pageSize?: number;
+  /** 分页加载进度回调（串行逐页拉取时逐页上报） */
+  onProgress?: ProgressCallback;
 }
 
 /**
