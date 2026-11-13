@@ -5,9 +5,9 @@
  * 不同平台产出不同格式：Web 用 HTML，CLI 用 ANSI 纯文本。
  * Renderer 通过此接口获取内容字符串，由适配器决定渲染方式。
  */
-import type { EventHistoryEntry, EventDetail } from '../../../../../application/event';
+import type { EventHistoryEntry } from '../../../../../application/event';
 import type { Event, Group, Player } from '../../../../../services/event/types';
-import type { RankingResult, PlayerRanking } from '../../../../../domain/ranking';
+import type { RankingTable, PlayerGame } from '../../../../../domain/ranking';
 import type { AgainstPlanResult } from '../../../../../services/event/types';
 /** 首页格式化方法 */
 export interface IEventQueryFormatter {
@@ -39,8 +39,8 @@ export interface IEventListFormatter {
 export interface IEventDetailFormatter {
   /** 详情页 header 内容 */
   formatHeaderContent(): string;
-  /** 排名表格 */
-  formatRankingTable(rankings: RankingResult['rankings'], needsOriginal?: Set<string>, mode?: string): string;
+  /** 排名表格：列与单元格由 RankingTable 决定（内置与插件同一份数据） */
+  formatRankingTable(table: RankingTable, needsOriginal?: Set<string>): string;
   /** 对阵卡片 */
   formatMatchCard(match: AgainstPlanResult['rows'][number], needsOriginal?: Set<string>, scoreMap?: Map<string, number>): string;
   /** 批量渲染对阵表 */
@@ -61,8 +61,8 @@ export interface IEventDetailFormatter {
   formatEmptyPlayers(): string;
   /** 分组选择项 */
   formatGroupOption(group: Group): string;
-  /** 对手详情弹窗 */
-  formatOpponentModal(playerName: string, games: PlayerRanking['games'], rankMap?: Map<string, { rank: number; score: number }>): string;
+  /** 对手详情弹窗：games 从原始对阵派生，rankMap 从排名表 rows 派生 */
+  formatOpponentModal(playerName: string, games: PlayerGame[] | undefined, rankMap?: Map<string, number>): string;
 }
 /** 完整格式化接口（三个子接口合并） */
 export interface IEventFormatter extends IEventQueryFormatter, IEventListFormatter, IEventDetailFormatter {}

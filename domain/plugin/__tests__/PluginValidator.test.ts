@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { PluginValidator, validatePluginOutput, contractCheckHint } from '../PluginValidator';
 import { RANKING_SPEC, type PluginSpec } from '@domain/plugin/types';
+import { SAMPLE_RANKING_INPUT } from '@domain/ranking/sampleInput';
 
 const validator = new PluginValidator();
 const spec = (overrides?: Partial<PluginSpec>): PluginSpec => ({
@@ -9,7 +10,22 @@ const spec = (overrides?: Partial<PluginSpec>): PluginSpec => ({
   limits: { ...RANKING_SPEC.limits, ...overrides?.limits },
 });
 
-const good = 'function rank(players){ return players.map((p,i)=>({id:p.id, rank:i+1})) }';
+const good = 'function rank(input){ return { columns:[{key:"score",label:"积分"}], rows:[] } }';
+
+/** 合法输出：覆盖样例对阵里的 3 名选手，cells 数值 */
+function goodOutput(): unknown {
+  return {
+    columns: [{ key: 'score', label: '积分' }],
+    rows: [
+      { id: 1, name: '甲', rank: 1, cells: { score: 4 } },
+      { id: 2, name: '乙', rank: 2, cells: { score: 2 } },
+      { id: 3, name: '丙', rank: 3, cells: { score: 2 } },
+    ],
+  };
+}
+
+/** 校验输出时用同一份代表性对阵 */
+const check = (output: unknown) => validatePluginOutput(output, spec(), SAMPLE_RANKING_INPUT);
 
 describe('PluginValidator.validate', () => {
   it('正常纯计算代码通过', () => {
@@ -32,7 +48,6 @@ describe('PluginValidator.validate', () => {
     const tiny = spec({ limits: { ...RANKING_SPEC.limits, maxCodeBytes: 20 } });
     expect(validator.validate('x'.repeat(21), tiny).ok).toBe(false);
     expect(validator.validate('x'.repeat(21), tiny).reason).toContain('超过上限');
-    // 中文 3 字节/字
     expect(validator.validate('一'.repeat(10), tiny).ok).toBe(false);
   });
 
@@ -72,58 +87,104 @@ describe('PluginValidator.validate', () => {
     expect(validator.validate('// fetch is bad\n' + good, spec()).ok).toBe(false);
   });
 
-  it('不误伤普通标识符（如 rank、players、fetchCount 里的 fetch 边界）', () => {
-    // \bfetch\b 会命中 fetchCount 里的 fetch 吗？不会，因为后面是 C 属于单词字符
+  it('不误伤普通标识符', () => {
     expect(validator.validate('function rank(p){ const x = 1; return p }', spec()).ok).toBe(true);
   });
 });
 
-describe('validatePluginOutput', () => {
-  it('结构正确的数组通过', () => {
-    const check = validatePluginOutput([{ id: 1, rank: 1 }, { id: 2, rank: 2 }], spec());
-    expect(check.outputIsArray).toBe(true);
-    expect(check.entryFound).toBe(true);
-    expect(check.missingFields).toEqual([]);
+describe('validatePluginOutput（统一排名表契约）', () => {
+  it('结构正确的 { columns, rows } 对象通过；outputIsArray 恒为 false', () => {
+    const c = check(goodOutput());
+    expect(c.outputIsArray).toBe(false);
+    expect(c.entryFound).toBe(true);
+    expect(c.missingFields).toEqual([]);
+    expect(contractCheckHint(c)).toContain('符合契约');
   });
 
-  it('非数组 → outputIsArray=false', () => {
-    const check = validatePluginOutput({ id: 1, rank: 1 }, spec());
-    expect(check.outputIsArray).toBe(false);
-    expect(contractCheckHint(check)).toContain('数组');
+  it('非对象 / 数组输入 → entryFound=false', () => {
+    expect(check({ id: 1, rank: 1 }).entryFound).toBe(false);
+    expect(check([]).entryFound).toBe(false);
+    expect(contractCheckHint(check([]))).toContain('对象');
   });
 
-  it('缺 rank / id → 汇总缺失字段', () => {
-    const check = validatePluginOutput([{ id: 1 }], spec());
-    expect(check.missingFields).toContain('rank');
-    expect(check.missingFields).toContain('rank(number)');
-    expect(check.entryFound).toBe(false);
+  it('缺 columns / rows → 汇总缺失字段', () => {
+    expect(check({ rows: [] }).missingFields).toContain('columns');
+    expect(check({ columns: [] }).missingFields).toContain('rows');
   });
 
-  it('rank 不是数值 → 标记 rank(number)', () => {
-    const check = validatePluginOutput([{ id: 1, rank: '1' }], spec());
-    expect(check.missingFields).toContain('rank(number)');
+  it('列名不是汉字 / key 非法 / 保留列冲突 → 拒绝', () => {
+    const bad = (columns: unknown): unknown => ({
+      columns,
+      rows: [
+        { id: 1, name: '甲', rank: 1, cells: {} },
+        { id: 2, name: '乙', rank: 2, cells: {} },
+        { id: 3, name: '丙', rank: 3, cells: {} },
+      ],
+    });
+    expect(check(bad([{ key: 'score', label: 'Score' }])).entryFound).toBe(false);
+    expect(check(bad([{ key: '1bad', label: '积分' }])).entryFound).toBe(false);
+    expect(check(bad([{ key: 'name', label: '姓名' }])).entryFound).toBe(false);
+    expect(check(bad([{ key: 'rank', label: '名次' }])).entryFound).toBe(false);
   });
 
-  it('行是 null / 标量 → 缺全部字段', () => {
-    const check = validatePluginOutput([null, 3], spec());
-    expect(check.missingFields).toEqual(expect.arrayContaining(['rank', 'id']));
+  it('cells 支持数值与数值数组，拒绝字符串/HTML/对象', () => {
+    const out = (cellValue: unknown): unknown => ({
+      columns: [{ key: 'score', label: '积分' }, { key: 'reverse', label: '逆减' }],
+      rows: [
+        { id: 1, name: '甲', rank: 1, cells: { score: 4, reverse: cellValue } },
+        { id: 2, name: '乙', rank: 2, cells: { score: 2, reverse: [3, 12] } },
+        { id: 3, name: '丙', rank: 3, cells: { score: 2, reverse: [1, 5] } },
+      ],
+    });
+    expect(check(out(6)).entryFound).toBe(true); // 单个数值
+    expect(check(out([3, 12])).entryFound).toBe(true); // 数值数组
+    expect(check(out([])).entryFound).toBe(true); // 空数组也合法
+    expect(check(out('3-12')).entryFound).toBe(false); // 字符串不允许
+    expect(check(out('<b>3</b>')).entryFound).toBe(false);
+    expect(check(out([1, '2'])).entryFound).toBe(false); // 数组里混字符串不行
+    expect(check(out([1, NaN])).entryFound).toBe(false); // 非有限数值不行
+    expect(check(out({ v: 1 })).entryFound).toBe(false);
   });
 
-  it('空数组 → entryFound=false 但无缺失字段', () => {
-    const check = validatePluginOutput([], spec());
-    expect(check.outputIsArray).toBe(true);
-    expect(check.entryFound).toBe(false);
-    expect(check.missingFields).toEqual([]);
-    expect(contractCheckHint(check)).toContain('为空');
+  it('cells 缺列 → 拒绝', () => {
+    const out = {
+      columns: [{ key: 'score', label: '积分' }],
+      rows: [
+        { id: 1, name: '甲', rank: 1, cells: {} },
+        { id: 2, name: '乙', rank: 2, cells: { score: 2 } },
+        { id: 3, name: '丙', rank: 3, cells: { score: 2 } },
+      ],
+    };
+    expect(check(out).entryFound).toBe(false);
+    expect(check(out).missingFields).toContain('rows[].cells.score(number|number[])');
   });
 
-  it('未知扩展点不强制 rank/id', () => {
-    const check = validatePluginOutput([{ foo: 1 }], spec({ pointId: 'other.point' }));
-    expect(check.entryFound).toBe(true);
+  it('id 伪造 / name 改写 / rank 非数值 → 拒绝', () => {
+    const base = goodOutput() as { columns: unknown; rows: Array<Record<string, unknown>> };
+    const fakeId = { ...base, rows: base.rows.map((r, i) => i === 0 ? { ...r, id: 99 } : r) };
+    expect(check(fakeId).entryFound).toBe(false);
+    const badName = { ...base, rows: base.rows.map((r, i) => i === 0 ? { ...r, name: '改名' } : r) };
+    expect(check(badName).entryFound).toBe(false);
+    const badRank = { ...base, rows: base.rows.map((r, i) => i === 0 ? { ...r, rank: '1' } : r) };
+    expect(check(badRank).entryFound).toBe(false);
   });
 
-  it('hint 对缺字段给出可操作提示', () => {
-    const check = validatePluginOutput([{ id: 1 }], spec());
-    expect(contractCheckHint(check)).toContain('rank');
+  it('rows 未覆盖全部选手 → 拒绝', () => {
+    const out = {
+      columns: [{ key: 'score', label: '积分' }],
+      rows: [{ id: 1, name: '甲', rank: 1, cells: { score: 4 } }],
+    };
+    expect(check(out).entryFound).toBe(false);
+  });
+
+  it('hint 对缺字段给出可操作提示（含数值数组说明）', () => {
+    const c = check({ columns: [{ key: 'score', label: '积分' }], rows: [] });
+    expect(contractCheckHint(c)).toContain('cells');
+    expect(contractCheckHint(c)).toContain('数值数组');
+  });
+
+  it('省略 input 时按代表性对阵样例校验（合法输出仍通过）', () => {
+    const c = validatePluginOutput(goodOutput(), spec());
+    expect(c.entryFound).toBe(true);
   });
 });

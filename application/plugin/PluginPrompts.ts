@@ -18,6 +18,18 @@ const ACTION_KINDS = [
   'plugin.delete：删除插件，必须给 artifactId',
 ].join('\n- ');
 
+/** 沙箱契约：内置排名与插件排名共用这一套，写进 system / repair 两处 */
+const CONTRACT_LINES = [
+  '- 入口固定为 rank(input)，input 只有 { matches: [...] }，matches 是最原始的对阵表。',
+  '- 每场含 bout/table/p1Id/p1Name/p1Score/p2Id/p2Name/p2Score；胜=2、负=0、和=1。',
+  '- 积分、对手分、累进分、逆减、胜局等一切中间量都要自己从 matches 算，宿主不代算、不预置字段。',
+  '- 必须返回 { columns, rows }：columns 是 [{key,label}]，key 为英文标识符，label 只能是 1~12 个汉字；',
+  '  rows 是 [{id,name,rank,cells}]，id/name 必须与对阵表里的选手完全一致，rank 为数值名次。',
+  '- cells 里每列的值只能是「有限数值」或「元素全为有限数值的数组」（如逐轮逆减 [3,12] 显示 3-12），',
+  '  不支持字符串、HTML 或其它格式；rank/name/id 是宿主保留的只读结构列，不在 cells 里、不能出现在 columns 里。',
+  '- 显示哪些列、叫什么、顺序、值全部由 columns + cells 决定，插件可自由加列删列改名。',
+].join('\n');
+
 /**
  * 构造智能体路径的 system prompt。
  * 只在用户选定「插件开发」角色时注入（见 ChatRole）；「闲聊」角色使用
@@ -36,15 +48,14 @@ export function buildAgentSystemPrompt(snapshot: PluginContextEntry[], maxAttemp
 
   return [
     '你是围棋客户端里的可编程智能体，不是单纯的聊天对象。',
-    '你能查看、编写、修改、启停、删除「插件」——插件是用户自定义排名规则的纯 JS 计算函数。',
+    '你能查看、编写、修改、启停、删除「插件」——插件是自定义排名规则的纯 JS 计算函数。',
     '',
     '【当前插件清单】',
     list,
     '',
-    '【沙箱契约】',
+    '【沙箱契约】插件与内置排名共用一套机制：',
     '- 插件只能是纯 JavaScript 计算函数，无网络、无存储、无 DOM、无定时器，禁止 require/import/eval。',
-    '- 排名扩展点入口函数名固定为 rank(players)，输入是选手对象数组（含 id/name/score/wins 等字段）。',
-    '- 必须返回数组，每行保留原 id 并给出数值 rank；宿主按 rank 重排。',
+    CONTRACT_LINES,
     '- 每次只能输出完整源码，禁止输出 diff 或片段；自动修复最多 ' + maxAttempts + ' 轮。',
     '- 新建/修订的插件默认停用，须用户确认后才启用。',
     '',
@@ -104,7 +115,7 @@ export function buildRepairMessages(
   const system = [
     '你在修订一个围棋客户端插件。依据「原始需求 + 当前完整源码 + 本轮反馈」输出修正后的完整源码。',
     `自动修复轮数上限 ${maxAttempts}；每次都给全量代码，不给 diff。`,
-    '只写纯 JS 计算函数，入口 rank(players)，返回带 id 与数值 rank 的数组。',
+    '只写纯 JS 计算函数，入口 rank(input)，input={matches}，返回 { columns, rows }，cells 为数值或数值数组。',
   ].join('\n');
 
   const user = [

@@ -1,18 +1,17 @@
-import type { MatchData, PlayerRanking, RankingResult, RankingMode } from './types';
+import type { RankingInput, RankingOutput, RankingMode } from './types';
 
 /**
- * 排名计算器接口
+ * 内置排名计算器接口（统一管线里的一个实现）
  * @ai-example
  * const calculator: IRankingCalculator = {
- *   calculate: (matches, mode) => ({ rankings: [], totalRounds: 5, completedRounds: 3 })
+ *   rank: (input, mode) => ({ columns: [{ key: 'score', label: '积分' }], rows: [] })
  * };
  */
 export interface IRankingCalculator {
   /**
-   * 计算排名
-   * @param matches - 所有轮次对阵数据
-   * @param mode - 排名模式（default 使用累进分，simple 不使用累进分）
-   * @returns 排名结果
+   * 从原始对阵算出排名表内容。与插件的 rank(input) 是同一契约。
+   * @param input - 只含最原始对阵表
+   * @param mode - 内置实现的预设口径（插件忽略此参数）
    */
-  calculate(matches: MatchData[], mode?: RankingMode): RankingResult;
+  rank(input: RankingInput, mode?: RankingMode): RankingOutput;
 }

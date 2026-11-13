@@ -15,7 +15,7 @@ import {
 
 function makeSpec(): PluginSpec {
   return {
-    pointId: 'ranking.tiebreak',
+    pointId: 'ranking',
     version: 1,
     entry: 'rank',
     hostApi: [],
@@ -34,7 +34,7 @@ function makeArtifact(overrides: Partial<PluginArtifact> = {}): PluginArtifact {
   const base: PluginArtifact = {
     id: 'plugin:1000:aaa',
     name: '同分排序',
-    pointId: 'ranking.tiebreak',
+    pointId: 'ranking',
     version: 1,
     enabled: false,
     origin: 'llm',
@@ -150,7 +150,7 @@ describe('update：Partial 合并语义', () => {
         code: 'v2',
         at: 2000,
         trigger: 'auto-repair' as const,
-        feedback: '输出不是数组',
+        feedback: '输出不符合契约',
         outcome: 'rejected' as const,
       },
     ];
@@ -159,7 +159,7 @@ describe('update：Partial 合并语义', () => {
     const got = await store.get(artifact.id);
     expect(got?.history).toHaveLength(2);
     expect(got?.history[0]?.code).toBe('v1');
-    expect(got?.history[1]?.feedback).toBe('输出不是数组');
+    expect(got?.history[1]?.feedback).toBe('输出不符合契约');
     expect(got?.history[1]?.outcome).toBe('rejected');
   });
 

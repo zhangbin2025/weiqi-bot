@@ -4,14 +4,27 @@
  * 重点：
  * - 工件中心：prompt 由 intent+当前代码+反馈构造，不传任何会话历史
  * - 每轮都重新校验 + 重新执行（LLM 修复时可能试探越权）
+ * - 试算默认喂代表性对阵样例，不在 [] 上空跑通过
+ * - 沙箱输出还要按统一契约校验（能跑 ≠ 合契约）
  * - 失败反馈回喂、轮数上限、模型失败/协议失败/校验失败的容错
  */
 
 import { describe, it, expect, vi } from 'vitest';
 import { PluginCodegenUseCase, type PluginCodegenOptions } from '../PluginCodegenUseCase';
 import { RANKING_SPEC, type AgentResponse, type PluginRunResult, type RepairFeedback } from '@domain/plugin/types';
+import { SAMPLE_RANKING_INPUT } from '@domain/ranking/sampleInput';
 
-const goodCode = 'function rank(x){ return x }';
+const goodCode = 'function rank(input){ return { columns:[{key:"score",label:"积分"}], rows:[] } }';
+
+/** 合法排名输出，覆盖 SAMPLE_RANKING_INPUT 里的甲/乙/丙 */
+const validOutput = {
+  columns: [{ key: 'score', label: '积分' }],
+  rows: [
+    { id: 1, name: '甲', rank: 1, cells: { score: 4 } },
+    { id: 2, name: '乙', rank: 2, cells: { score: 2 } },
+    { id: 3, name: '丙', rank: 3, cells: { score: 2 } },
+  ],
+};
 
 interface Harness {
   options: PluginCodegenOptions;
@@ -29,7 +42,7 @@ interface Harness {
 function harness(overrides?: Partial<PluginCodegenOptions>): Harness {
   const gateway = { execute: vi.fn().mockResolvedValue({ text: 'raw', truncated: false }) };
   const runtime = {
-    run: vi.fn().mockResolvedValue({ ok: true, output: [1], logs: [], elapsedMs: 1 } satisfies PluginRunResult),
+    run: vi.fn().mockResolvedValue({ ok: true, output: validOutput, logs: [], elapsedMs: 1 } satisfies PluginRunResult),
     dispose: vi.fn(),
   };
   const validator = { validate: vi.fn().mockReturnValue({ ok: true }) };
@@ -69,7 +82,8 @@ function harness(overrides?: Partial<PluginCodegenOptions>): Harness {
   return { options, gateway, runtime, validator, prompts, protocol, feedback };
 }
 
-const baseReq = { intent: '同分先比胜局', sampleInput: [{ score: 1 }] };
+// 不传 sampleInput：走默认代表性样例（覆盖轮空/未完赛，不在空数组上空跑）
+const baseReq = { intent: '同分先比胜局' };
 
 describe('PluginCodegenUseCase', () => {
   it('首轮成功即返回代码与试算输出', async () => {
@@ -77,9 +91,39 @@ describe('PluginCodegenUseCase', () => {
     const result = await new PluginCodegenUseCase(h.options).run(baseReq);
     expect(result.ok).toBe(true);
     expect(result.code).toBe(goodCode);
-    expect(result.output).toEqual([1]);
+    expect(result.output).toEqual(validOutput);
     expect(result.attempts).toBe(1);
     expect(h.runtime.run).toHaveBeenCalledTimes(1);
+  });
+
+  it('默认喂代表性对阵样例（避免 [] 上空跑试算通过）', async () => {
+    const h = harness();
+    await new PluginCodegenUseCase(h.options).run(baseReq);
+    expect(h.runtime.run).toHaveBeenCalledWith(goodCode, SAMPLE_RANKING_INPUT, RANKING_SPEC);
+  });
+
+  it('沙箱输出不符合契约 → 回喂修复并重试（能跑≠合契约）', async () => {
+    const h = harness();
+    h.runtime.run
+      .mockResolvedValueOnce({ ok: true, output: [{ id: 1, rank: 1 }], logs: [], elapsedMs: 1 } satisfies PluginRunResult) // 旧数组契约
+      .mockResolvedValueOnce({ ok: true, output: validOutput, logs: [], elapsedMs: 1 } satisfies PluginRunResult);
+    const result = await new PluginCodegenUseCase(h.options).run(baseReq);
+    expect(result.ok).toBe(true);
+    expect(result.attempts).toBe(2);
+    expect(result.trace.some((s) => s.phase === 'contract' && !s.ok)).toBe(true);
+  });
+
+  it('含字符串 cell 的输出被契约校验拦下', async () => {
+    const h = harness();
+    const bad = {
+      columns: [{ key: 'score', label: '积分' }],
+      rows: validOutput.rows.map((r) => ({ ...r, cells: { score: '4' } })),
+    };
+    h.runtime.run
+      .mockResolvedValueOnce({ ok: true, output: bad, logs: [], elapsedMs: 1 } satisfies PluginRunResult)
+      .mockResolvedValueOnce({ ok: true, output: validOutput, logs: [], elapsedMs: 1 } satisfies PluginRunResult);
+    const result = await new PluginCodegenUseCase(h.options).run(baseReq);
+    expect(result.attempts).toBe(2);
   });
 
   it('trace 逐轮记录 llm / 校验 / 沙箱，且带完整源码', async () => {
@@ -96,7 +140,7 @@ describe('PluginCodegenUseCase', () => {
     const h = harness();
     h.runtime.run
       .mockResolvedValueOnce({ ok: false, phase: 'runtime', error: { name: 'TypeError', message: 'bad' }, logs: [], elapsedMs: 1 } satisfies PluginRunResult)
-      .mockResolvedValueOnce({ ok: true, output: [2], logs: [], elapsedMs: 1 } satisfies PluginRunResult);
+      .mockResolvedValueOnce({ ok: true, output: validOutput, logs: [], elapsedMs: 1 } satisfies PluginRunResult);
     const result = await new PluginCodegenUseCase(h.options).run(baseReq);
     expect(result.ok).toBe(true);
     expect(result.attempts).toBe(2);
@@ -111,7 +155,6 @@ describe('PluginCodegenUseCase', () => {
     h.gateway.execute.mockRejectedValue(new Error('网络超时'));
     const result = await new PluginCodegenUseCase(h.options).run(baseReq);
     expect(result.ok).toBe(false);
-    // 第一步是「正在调用模型」（await 之前推），第二步才是失败
     expect(result.trace).toHaveLength(2);
     expect(result.trace[0]!.ok).toBe(true);
     expect(result.trace[0]!.detail).toContain('正在调用模型');
@@ -130,7 +173,6 @@ describe('PluginCodegenUseCase', () => {
       ...baseReq,
       onTrace: (s) => seen.push(s.detail),
     });
-    // 模型还「在思考」时，就应该已经收到开始信号
     expect(seen.length).toBeGreaterThan(0);
     expect(seen[0]).toContain('正在调用模型');
     resolveGateway!({ text: 'raw', truncated: false });
@@ -151,7 +193,7 @@ describe('PluginCodegenUseCase', () => {
     const h = harness();
     h.runtime.run
       .mockResolvedValueOnce({ ok: false, phase: 'runtime', error: { name: 'E', message: 'bad' }, logs: [], elapsedMs: 1 } satisfies PluginRunResult)
-      .mockResolvedValueOnce({ ok: true, output: [2], logs: [], elapsedMs: 1 } satisfies PluginRunResult);
+      .mockResolvedValueOnce({ ok: true, output: validOutput, logs: [], elapsedMs: 1 } satisfies PluginRunResult);
     const phases: string[] = [];
     await new PluginCodegenUseCase(h.options).run({
       ...baseReq,
@@ -178,7 +220,6 @@ describe('PluginCodegenUseCase', () => {
     expect(req.task).toBe('plugin.generate');
     expect(req.messages[0].role).toBe('system');
     expect(req.messages[0].content).toBe('SYSTEM');
-    // 只有 system + 需求，没有额外的历史对话轮次
     expect(req.messages).toHaveLength(2);
   });
 
@@ -186,12 +227,11 @@ describe('PluginCodegenUseCase', () => {
     const h = harness();
     h.runtime.run
       .mockResolvedValueOnce({ ok: false, phase: 'runtime', error: { name: 'TypeError', message: 'bad' }, logs: [], elapsedMs: 1 } satisfies PluginRunResult)
-      .mockResolvedValueOnce({ ok: true, output: [2], logs: [], elapsedMs: 1 } satisfies PluginRunResult);
+      .mockResolvedValueOnce({ ok: true, output: validOutput, logs: [], elapsedMs: 1 } satisfies PluginRunResult);
     const result = await new PluginCodegenUseCase(h.options).run(baseReq);
     expect(result.ok).toBe(true);
     expect(result.attempts).toBe(2);
     expect(h.feedback.toFeedback).toHaveBeenCalledTimes(1);
-    // 第二轮 buildRepairMessages 收到的 feedback 是结构化反馈对象，不是会话
     const secondCall = h.prompts.buildRepairMessages.mock.calls[1]!;
     expect(secondCall[2]).toMatchObject({ phase: 'runtime', ok: false });
   });
@@ -200,12 +240,12 @@ describe('PluginCodegenUseCase', () => {
     const h = harness();
     await new PluginCodegenUseCase(h.options).run({
       ...baseReq,
-      currentCode: 'function rank(x){ return x.reverse() }',
+      currentCode: 'function rank(x){ return x }',
       userFeedback: '排错了，同分先比胜局',
     });
     const firstCall = h.prompts.buildRepairMessages.mock.calls[0]!;
     expect(firstCall[0]).toBe('同分先比胜局');
-    expect(firstCall[1]).toContain('reverse');
+    expect(firstCall[1]).toContain('function rank');
     expect(firstCall[2]).toBe('排错了，同分先比胜局');
   });
 
@@ -213,7 +253,7 @@ describe('PluginCodegenUseCase', () => {
     const h = harness();
     h.runtime.run
       .mockResolvedValueOnce({ ok: false, phase: 'compile', error: { name: 'SyntaxError', message: 'x' }, logs: [], elapsedMs: 1 } satisfies PluginRunResult)
-      .mockResolvedValueOnce({ ok: true, output: [], logs: [], elapsedMs: 1 } satisfies PluginRunResult);
+      .mockResolvedValueOnce({ ok: true, output: validOutput, logs: [], elapsedMs: 1 } satisfies PluginRunResult);
     await new PluginCodegenUseCase(h.options).run(baseReq);
     expect(h.validator.validate).toHaveBeenCalledTimes(2);
     expect(h.runtime.run).toHaveBeenCalledTimes(2);
@@ -222,12 +262,12 @@ describe('PluginCodegenUseCase', () => {
   it('校验失败不进入沙箱，直接生成反馈', async () => {
     const h = harness();
     h.validator.validate.mockReturnValueOnce({ ok: false, reason: '含 fetch' });
-    h.runtime.run.mockResolvedValue({ ok: true, output: [], logs: [], elapsedMs: 1 } satisfies PluginRunResult);
+    h.runtime.run.mockResolvedValue({ ok: true, output: validOutput, logs: [], elapsedMs: 1 } satisfies PluginRunResult);
     const result = await new PluginCodegenUseCase(h.options).run(baseReq);
     expect(result.ok).toBe(true);
     expect(result.attempts).toBe(2);
-    expect(h.runtime.run).toHaveBeenCalledTimes(1); // 第一轮被校验挡掉
-    expect(h.feedback.toFeedback).not.toHaveBeenCalled(); // 校验失败不用归一执行反馈
+    expect(h.runtime.run).toHaveBeenCalledTimes(1);
+    expect(h.feedback.toFeedback).not.toHaveBeenCalled();
   });
 
   it('轮数用尽返回失败，并保留最后一版代码与反馈', async () => {
@@ -254,7 +294,7 @@ describe('PluginCodegenUseCase', () => {
   it('协议解析失败时可从代码围栏兜底并继续', async () => {
     const h = harness();
     h.protocol.parse.mockReturnValue({ ok: false, reason: '非法 JSON' });
-    h.gateway.execute.mockResolvedValue({ text: '```js\nfunction rank(x){ return x }\n```', truncated: false });
+    h.gateway.execute.mockResolvedValue({ text: '```js\n' + goodCode + '\n```', truncated: false });
     const result = await new PluginCodegenUseCase(h.options).run(baseReq);
     expect(result.ok).toBe(true);
     expect(result.code).toBe(goodCode);
@@ -273,7 +313,7 @@ describe('PluginCodegenUseCase', () => {
   it('沙箱抛异常被当作可恢复失败而非整个循环崩溃', async () => {
     const h = harness();
     h.runtime.run.mockRejectedValueOnce(new Error('worker died'));
-    h.runtime.run.mockResolvedValueOnce({ ok: true, output: [3], logs: [], elapsedMs: 1 } satisfies PluginRunResult);
+    h.runtime.run.mockResolvedValueOnce({ ok: true, output: validOutput, logs: [], elapsedMs: 1 } satisfies PluginRunResult);
     const result = await new PluginCodegenUseCase(h.options).run(baseReq);
     expect(result.ok).toBe(true);
     expect(result.attempts).toBe(2);
@@ -290,7 +330,7 @@ describe('PluginCodegenUseCase', () => {
     const h = harness();
     const customSpec = { ...RANKING_SPEC, entry: 'compute' };
     await new PluginCodegenUseCase(h.options).run({ ...baseReq, spec: customSpec });
-    expect(h.runtime.run).toHaveBeenCalledWith(goodCode, baseReq.sampleInput, customSpec);
+    expect(h.runtime.run).toHaveBeenCalledWith(goodCode, SAMPLE_RANKING_INPUT, customSpec);
     expect(h.validator.validate).toHaveBeenCalledWith(goodCode, customSpec);
   });
 });

@@ -23,6 +23,7 @@ import type {
   PluginTraceSink,
 } from '@domain/plugin/types';
 import { RANKING_SPEC } from '@domain/plugin/types';
+import { SAMPLE_RANKING_INPUT } from '@domain/ranking';
 import { resolvePluginName } from './PluginNaming';
 
 export interface IAgentPrompts {
@@ -89,7 +90,7 @@ export interface AgentTurnRequest {
   text: string;
   /** 会话历史（仅用于聊天上下文，插件能力不依赖它） */
   history?: Array<{ role: 'user' | 'assistant'; content: string }>;
-  /** 试算输入，默认空数组 */
+  /** 试算输入；不传时由本用例喂 SAMPLE_RANKING_INPUT（有代表性的对阵样例） */
   sampleInput?: unknown;
   /** 当前会话 id，仅作为工件上的可选引用 */
   conversationRef?: string;
@@ -259,7 +260,7 @@ export class PluginAgentUseCase {
             ...(existing?.code ? { currentCode: existing.code } : {}),
             ...(action.feedback ? { userFeedback: action.feedback } : {}),
             ...(action.code ? { userFeedback: action.code } : {}),
-            sampleInput: req.sampleInput ?? [],
+            sampleInput: req.sampleInput ?? SAMPLE_RANKING_INPUT,
             spec,
             snapshot,
             // 实时透传：codegen 的每一步在产生时就推给对话页，不等整轮结束

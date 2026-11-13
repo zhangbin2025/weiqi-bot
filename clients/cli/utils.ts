@@ -336,9 +336,17 @@ function formatPlayerClearText(data: PlayerClearData): string {
 // === Event 文本格式化类型定义 ===
 
 interface EventRankingTextData {
-  rankings: Array<{ rank: number; name: string; wins: number; losses: number; draws: number; score: number }>;
+  columns: Array<{ key: string; label: string }>;
+  rows: Array<{ id: number; name: string; rank: number; cells: Record<string, number | number[]> }>;
   totalRounds: number;
   completedRounds: number;
+}
+
+/** cells 值渲染：数值直接输出，数值数组用 '-' 连接（与 Web/CLI formatter 一致） */
+function formatRankingCellText(value: number | number[] | undefined): string {
+  if (value === undefined) return '0';
+  if (Array.isArray(value)) return value.map((n) => String(n)).join('-');
+  return String(value);
 }
 
 interface EventMatchesTextData {
@@ -375,31 +383,37 @@ interface EventOpponentTextData {
 
 // === Event 文本格式化函数 ===
 
+/** 列由 RankingTable.columns 决定（内置与插件同源），不再硬编码胜/负/和/积分 */
 function formatEventRankingText(data: EventRankingTextData): string {
   const lines: string[] = [];
-  const ranking = data?.rankings ?? [];
+  const rows = data?.rows ?? [];
+  const columns = data?.columns ?? [];
   const totalRounds = data?.totalRounds ?? 0;
   const completedRounds = data?.completedRounds ?? 0;
 
   if (totalRounds > 0) {
-    lines.push(`=== 分组排名 (共 ${ranking.length} 人, ${completedRounds}/${totalRounds} 轮已完) ===`);
+    lines.push(`=== 分组排名 (共 ${rows.length} 人, ${completedRounds}/${totalRounds} 轮已完) ===`);
   } else {
-    lines.push(`=== 分组排名 (${ranking.length} 人) ===`);
+    lines.push(`=== 分组排名 (${rows.length} 人) ===`);
   }
   lines.push('');
 
-  if (ranking.length === 0) {
+  if (rows.length === 0) {
     lines.push('暂无排名数据');
     return lines.join('\n');
   }
 
-  // 表头
-  lines.push('  排名  棋手            胜  负  和  积分');
-  lines.push('  ----  --------------  --- --- --- ----');
+  const nameW = 14;
+  const colW = Math.max(6, ...columns.map((c) => c.label.length * 2));
+  const header = `  ${'排名'.padStart(4)}  ${'棋手'.padEnd(nameW)}` +
+    columns.map((c) => c.label.padStart(colW)).join('');
+  lines.push(header);
+  lines.push(`  ${'----'.padStart(4)}  ${'-'.repeat(nameW)}` + columns.map(() => '-'.repeat(colW)).join(''));
 
-  for (const p of ranking) {
-    const name = p.name.length > 12 ? p.name.slice(0, 12) : p.name.padEnd(14);
-    lines.push(`  ${String(p.rank).padStart(4)}  ${name}  ${String(p.wins).padStart(3)} ${String(p.losses).padStart(3)} ${String(p.draws).padStart(3)} ${String(p.score).padStart(4)}`);
+  for (const p of rows) {
+    const name = p.name.length > 12 ? p.name.slice(0, 12) : p.name.padEnd(nameW);
+    const cells = columns.map((c) => formatRankingCellText(p.cells[c.key]).padStart(colW)).join('');
+    lines.push(`  ${String(p.rank).padStart(4)}  ${name}${cells}`);
   }
 
   return lines.join('\n');

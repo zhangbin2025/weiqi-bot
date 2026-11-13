@@ -59,7 +59,7 @@ describe('toFeedback', () => {
   });
 
   it('contract 阶段把缺失字段写进 hint', () => {
-    const fb = toFeedback(failure({ phase: 'contract', contract: { entryFound: false, outputIsArray: true, missingFields: ['rank'] } }), 2, 3);
+    const fb = toFeedback(failure({ phase: 'contract', contract: { entryFound: false, outputIsArray: false, missingFields: ['rank'] } }), 2, 3);
     expect(fb.contract?.missingFields).toContain('rank');
     expect(fb.hint).toContain('rank');
   });
@@ -70,7 +70,11 @@ describe('toFeedback', () => {
   });
 
   it('成功结果也产出合法反馈包（不崩）', () => {
-    const fb = toFeedback({ ok: true, output: [], logs: [], elapsedMs: 1 }, 1, 3);
+    const fb = toFeedback({
+      ok: true,
+      output: { columns: [{ key: 'score', label: '积分' }], rows: [] },
+      logs: [], elapsedMs: 1,
+    }, 1, 3);
     expect(fb.ok).toBe(false);
     expect(fb.attempt).toBe(1);
   });
@@ -136,7 +140,7 @@ describe('sanitizeFeedback', () => {
   it('contract.missingFields 被限制长度', () => {
     const fb: RepairFeedback = {
       ...base,
-      contract: { entryFound: false, outputIsArray: true, missingFields: Array.from({ length: 50 }, (_, i) => `f${i}`) },
+      contract: { entryFound: false, outputIsArray: false, missingFields: Array.from({ length: 50 }, (_, i) => `f${i}`) },
     };
     expect(sanitizeFeedback(fb, 2000).contract!.missingFields).toHaveLength(12);
   });

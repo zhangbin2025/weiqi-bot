@@ -3,7 +3,8 @@
  * @description Application 层编排器，组合 EventService、RankingCalculator、FavoriteService 完成云比赛业务流程
  */
 import type { IEventService, EventListResult, Group, AgainstPlanResult, AllRoundsResult, PlayerListResult, ProgressCallback } from '../../services/event';
-import type { IRankingCalculator, RankingResult, RankingMode, MatchData } from '../../domain/ranking';
+import type { IRankingCalculator, RankingMode, MatchData, RankingTable } from '../../domain/ranking';
+import { computeRanking, BuiltinRanking } from '../../domain/ranking/RankingPipeline';
 import type { IFavoriteService } from '../../services/favorite';
 import type { EventQueryOptions } from '../../services/event/types';
 /** 比赛详情 */
@@ -56,11 +57,23 @@ export class EventQuerier {
     };
   }
   /**
-   * 获取分组排名
+   * 获取分组排名：只取原始对阵表，再交给唯一管线 computeRanking。
+   * 内置实现是默认 impl；页面若要用插件，走 PluginSystem.applyRanking(matches)，
+   * 两者吃的是同一个 matches、产的是同一个 RankingTable。
    */
-  async getGroupRanking(eventId: number, groupId: number, mode?: RankingMode, onProgress?: ProgressCallback, forceRefresh: boolean = false): Promise<RankingResult> {
+  async getGroupRanking(eventId: number, groupId: number, mode?: RankingMode, onProgress?: ProgressCallback, forceRefresh: boolean = false): Promise<RankingTable> {
     const allRounds = await this.eventService!.getAllRounds(groupId, onProgress, forceRefresh);
-    return this.rankingCalculator!.calculate(allRounds.matches as MatchData[], mode);
+    const matches = allRounds.matches as MatchData[];
+    const impl = this.rankingCalculator
+      ? new BuiltinRanking(mode ?? 'default', this.rankingCalculator)
+      : new BuiltinRanking(mode ?? 'default');
+    return computeRanking(matches, impl);
+  }
+
+  /** 取原始对阵表（插件/页面/CLI 共用的唯一数据源） */
+  async getGroupMatchesRaw(groupId: number, onProgress?: ProgressCallback, forceRefresh: boolean = false): Promise<MatchData[]> {
+    const allRounds = await this.eventService!.getAllRounds(groupId, onProgress, forceRefresh);
+    return allRounds.matches as MatchData[];
   }
   /**
    * 获取对阵表

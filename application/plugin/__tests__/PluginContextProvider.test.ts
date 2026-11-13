@@ -15,7 +15,7 @@ import {
 
 function makeSpec(): PluginSpec {
   return {
-    pointId: 'ranking.tiebreak',
+    pointId: 'ranking',
     version: 1,
     entry: 'rank',
     hostApi: [],
@@ -34,7 +34,7 @@ function makeArtifact(overrides: Partial<PluginArtifact> = {}): PluginArtifact {
   return {
     id: 'plugin:1:a',
     name: '排序',
-    pointId: 'ranking.tiebreak',
+    pointId: 'ranking',
     version: 1,
     enabled: false,
     origin: 'llm',
@@ -82,7 +82,7 @@ describe('snapshot', () => {
     expect(JSON.stringify(await provider.snapshot())).not.toContain('SECRET_CODE');
     expect(entry?.id).toBe('plugin:1:a');
     expect(entry?.name).toBe('排序');
-    expect(entry?.pointId).toBe('ranking.tiebreak');
+    expect(entry?.pointId).toBe('ranking');
     expect(entry?.enabled).toBe(false);
     expect(entry?.version).toBe(1);
     expect(entry?.intent).toBe('同分排序');

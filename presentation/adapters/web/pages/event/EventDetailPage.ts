@@ -3,12 +3,14 @@ import type { IPage, PageParams, IAdapterFactory } from '../../../../core/interf
 import type { IPageCache } from '../../../../core/interfaces/IPageCache';
 import type { EventQuerier, EventDetail } from '../../../../../application/event';
 import type { IEventFormatter } from './IEventFormatter';
-import type { Group, PlayerListResult, AgainstPlanResult } from '../../../../../services/event/types';
-import type { RankingResult, RankingMode } from '../../../../../domain/ranking/types';
-import type { PdfEventDetailRef, PdfEvent, PdfGroup as PdfGroupType } from '../../../../../services/event/PdfEventTypes';
-import type { Match } from '../../../../../services/event/types';
-import { GroupSelector } from '../../../../../domain/ranking/GroupSelector';
-import { RankingCalculator } from '../../../../../domain/ranking/RankingCalculator';
+import type { Group, PlayerListResult, AgainstPlanResult, Match } from '../../../../../services/event/types';
+import type { RankingTable, RankingMode, MatchData } from '../../../../../domain/ranking';
+import {
+  computeRanking, BuiltinRanking, GroupSelector,
+  buildPlayerGames, buildScoreMap, buildRankMap,
+} from '../../../../../domain/ranking';
+import { RANKING_POINT_ID } from '../../../../../domain/plugin/types';
+import type { PdfEventDetailRef, PdfEvent } from '../../../../../services/event/PdfEventTypes';
 import { PdfEventService } from '../../../../../services/event/PdfEventService';
 import { EventDetailRenderer } from './EventDetailRenderer';
 import { SessionStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/SessionStorageAdapter';
@@ -34,11 +36,16 @@ export interface EventDetailPageConfig {
 
 interface Cache {
   groups: Group[]; selectedGroupId?: number | undefined; currentRound: number;
-  totalRounds: number; currentTab: 'ranking' | 'matches' | 'players'; rankingData: RankingResult | null;
+  totalRounds: number; currentTab: 'ranking' | 'matches' | 'players';
+  rankingData: RankingTable | null;
+  /** 唯一原始数据源：对阵表。周边弹窗/积分/名次/插件都从它派生 */
+  matches: MatchData[];
   matchData: AgainstPlanResult | null; playerData: PlayerListResult | null;
   playersTabAvailable: boolean;
   /** 生成该缓存时选中的排名插件口径（undefined=内置）；恢复时据此判断是否需重算 */
   rankingPluginId?: string;
+  /** 缓存时的内置口径；不同则重算 */
+  rankingMode?: RankingMode;
   timestamp: number;
 }
 
@@ -53,7 +60,10 @@ export class EventDetailPage implements IPage {
   private eid?: number; private eTitle?: string;
   private source: 'api' | 'pdf' = 'api';
   private groups: Group[] = []; private selGid?: number | undefined;
-  private rankData: RankingResult | null = null;
+  /** 排名表：内置或插件都经同一条 computeRanking 产出 */
+  private rankData: RankingTable | null = null;
+  /** 唯一原始数据源：对阵表（API 与 PDF 都只提供它） */
+  private rawMatches: MatchData[] = [];
   private matchData: AgainstPlanResult | null = null;
   private playerData: PlayerListResult | null = null;
   /** 「参赛名单」标签是否可用（无对阵表时列出报名名单） */
@@ -61,6 +71,7 @@ export class EventDetailPage implements IPage {
   private curRound = 1; private totRounds = 1;
   private curTab: 'ranking' | 'matches' | 'players' = 'ranking';
   private init = false; private renderer: EventDetailRenderer;
+  /** 内置实现的预设口径（mode 只是内置参数，不是契约版本，PDF 也不锁死） */
   private rankingMode: RankingMode = 'default';
   private pdfService = new PdfEventService();
   private readonly sessionStore = new SessionStorageAdapter('weiqi-bot');
@@ -95,6 +106,8 @@ export class EventDetailPage implements IPage {
     if (this.init) return;
     await this.renderer.initialize(); this.renderer.bindActions();
     await this.pdfService.init();
+    // 内置口径由 renderer 从 localStorage 恢复，同步到页面（避免 PDF/API 口径不一致）
+    this.rankingMode = this.renderer.getRankingMode();
     // 恢复上次选中的排名插件（用户明确要求：只要上次选了插件，下次默认仍用它排序）。
     // 清单加载完会校验该 id 是否仍存在/启用；失效时自动清除并回落内置。
     try {
@@ -111,7 +124,7 @@ export class EventDetailPage implements IPage {
       const sys = await this.ensurePluginSystem();
       if (!sys) return;
       const items = (await sys.artifacts.list())
-        .filter((a) => a.enabled && a.pointId === 'ranking.tiebreak')
+        .filter((a) => a.enabled && a.pointId === RANKING_POINT_ID)
         .map((a) => ({ id: a.id, name: a.name }));
       this.renderer.setRankingPlugins(items, this.selectedRankingPluginId);
     } catch {
@@ -119,7 +132,7 @@ export class EventDetailPage implements IPage {
     }
   }
 
-  /** 选择/取消某个排名插件：持久化 + 立刻重算当前分组排名 */
+  /** 选择/取消某个排名插件：持久化 + 立刻用当前口径重算当前分组排名 */
   private async setRankingPlugin(id: string | undefined): Promise<void> {
     this.selectedRankingPluginId = id;
     try {
@@ -137,9 +150,9 @@ export class EventDetailPage implements IPage {
     // （用户可能在对话页新建/启用/删除了插件），不阻塞主流程。
     void this.refreshRankingPluginMenu();
     if (p['source'] === 'pdf') {
+      // PDF 导入的也只是「对阵表」，与 API 走同一条算分排名管线；
+      // 不再把口径锁死成 directWin，也不叠加任何内置特例。
       this.source = 'pdf';
-      this.rankingMode = 'directWin';
-      this.renderer.setRankingMode('directWin');
       this.loadPdfData();
       return;
     }
@@ -231,7 +244,7 @@ export class EventDetailPage implements IPage {
     return undefined;
   }
 
-  /** PDF 模式：根据数字 id 加载分组数据 */
+  /** PDF 模式：根据数字 id 加载分组数据（同样只提供对阵表，再走统一管线） */
   private async loadPdfGroup(numId: number): Promise<void> {
     if (!this.pdfEvent) return;
     const pdfGroupId = this.pdfGroupMap.get(numId);
@@ -243,15 +256,15 @@ export class EventDetailPage implements IPage {
     // 修正棋手ID：确保同名棋手在不同轮次使用相同ID（修复轮空棋手p1Id=0的问题）
     this.fixPlayerIds(group);
 
-    // 计算排名
+    // PDF 的 matches 是 Match[]（table 必填），可直接当作 MatchData[] 用于统一排名管线；
+    // 同时保留 Match[] 类型给 matchData.rows（AgainstPlanResult['rows'] 要求 table 必填）。
     const allMatches = group.rounds.flatMap(r => r.matches);
-    const calculator = new RankingCalculator();
-    const baseRank = calculator.calculate(allMatches, this.rankingMode);
-    this.rankData = await this.applyRankingPlugins(baseRank);
+    this.rawMatches = allMatches;
+    this.rankData = await this.computeForCurrentImpl(allMatches);
     this.totRounds = this.rankData.totalRounds;
     this.curRound = this.rankData.completedRounds || this.rankData.totalRounds;
 
-    // 构建对阵数据
+    // 构建对阵数据（供对阵 tab 按轮次过滤）
     this.matchData = {
       rows: allMatches,
       totalBout: this.totRounds,
@@ -286,18 +299,21 @@ export class EventDetailPage implements IPage {
   }
 
   /**
-   * 只有当用户通过 ⚙️ 菜单显式选择了某个插件时才应用插件排序；
-   * 未选择（默认）一律返回内置结果，插件「已启用」不再等于「正在使用」。
-   * 任何失败都静默回落内置结果，保证赛事详情页永远不因插件而白屏。
+   * 统一管线：把同一份原始对阵表交给「内置」或「选中的插件」实现。
+   * - 未选插件（默认）→ 内置 BuiltinRanking，主线程完成，不加载 wasm/Worker
+   * - 显式选中插件 → PluginSystem.applyRanking(matches)，内部同样走 computeRanking
+   * - 任何失败都静默回落内置结果，保证赛事详情页永远不因插件而白屏
+   * 插件不再叠加在内置结果之上：它从对阵表自己算出全部列与值。
    */
-  private async applyRankingPlugins(rankData: RankingResult): Promise<RankingResult> {
-    if (!this.selectedRankingPluginId) return rankData;
+  private async computeForCurrentImpl(matches: MatchData[]): Promise<RankingTable> {
+    const builtin = (): Promise<RankingTable> => computeRanking(matches, new BuiltinRanking(this.rankingMode));
+    if (!this.selectedRankingPluginId) return builtin();
     try {
       const sys = await this.ensurePluginSystem();
-      if (!sys) return rankData;
-      return await sys.applyRanking(rankData, this.selectedRankingPluginId);
+      if (!sys) return builtin();
+      return await sys.applyRanking(matches, this.selectedRankingPluginId, this.rankingMode);
     } catch {
-      return rankData;
+      return builtin();
     }
   }
 
@@ -308,9 +324,11 @@ export class EventDetailPage implements IPage {
     this.cache.set(this.ckey(), JSON.stringify({
       groups: this.groups, selectedGroupId: this.selGid, currentRound: this.curRound,
       totalRounds: this.totRounds, currentTab: this.curTab, rankingData: this.rankData,
+      matches: this.rawMatches,
       matchData: this.matchData, playerData: this.playerData,
       playersTabAvailable: this.playersTabAvailable,
       ...(this.selectedRankingPluginId ? { rankingPluginId: this.selectedRankingPluginId } : {}),
+      rankingMode: this.rankingMode,
       timestamp: Date.now(),
     } as Cache));
   }
@@ -324,7 +342,9 @@ export class EventDetailPage implements IPage {
       if (Date.now() - c.timestamp > CACHE_TTL) { this.cache.remove(this.ckey()); return false; }
       this.groups = c.groups; this.selGid = c.selectedGroupId;
       this.curRound = c.currentRound; this.totRounds = c.totalRounds;
-      this.curTab = c.currentTab; this.rankData = c.rankingData; this.matchData = c.matchData;
+      this.curTab = c.currentTab; this.rankData = c.rankingData;
+      this.rawMatches = c.matches ?? [];
+      this.matchData = c.matchData;
       // 旧缓存没有名单字段，回退为 false（名单标签随之隐藏）
       this.playerData = c.playerData ?? null;
       this.playersTabAvailable = c.playersTabAvailable ?? false;
@@ -333,17 +353,16 @@ export class EventDetailPage implements IPage {
       this.renderer.renderGroupSelect(this.groups, this.selGid);
       this.renderContent();
       this.renderer.showContainer();
-      // 缓存是「当时选中口径」下的结果。若当前选择的插件口径与缓存不一致
-      // （跨版本旧缓存，或插件被停用/删除导致选择被清），异步按当前口径重新加载；
-      // 一致时直接显示缓存，秒开且口径正确，不会二次应用插件。
-      if (c.rankingPluginId !== this.selectedRankingPluginId) {
+      // 缓存是「当时选中口径」下的结果。若当前选择的插件/内置口径与缓存不一致
+      // （跨版本旧缓存、插件被停用/删除、内置口径改变），异步按当前口径重新加载。
+      if (c.rankingPluginId !== this.selectedRankingPluginId || c.rankingMode !== this.rankingMode) {
         void this.recomputeForCurrentRankingPlugin();
       }
       return true;
     } catch { return false; }
   }
 
-  /** 缓存口径与当前插件选择不一致时，按当前口径重新生成当前分组数据并刷新缓存 */
+  /** 缓存口径与当前实现选择不一致时，按当前口径重新生成当前分组数据并刷新缓存 */
   private async recomputeForCurrentRankingPlugin(): Promise<void> {
     if (!this.selGid) return;
     if (this.source === 'pdf') {
@@ -381,18 +400,18 @@ export class EventDetailPage implements IPage {
       return;
     }
 
-    // API 模式
+    // API 模式：只取一份原始对阵表，排名与周边数据都从它派生
     if (!this.eid) return;
     this.renderer.showProgress(20, `正在加载「${g.name}」数据...`);
     try {
-      const rr = await this.q.getGroupRanking(this.eid, g.id, this.rankingMode,
+      this.rawMatches = await this.q.getGroupMatchesRaw(g.id,
         (msg, pct) => this.renderer.showProgress(20 + pct * 0.6, msg), forceRefresh);
-      this.rankData = await this.applyRankingPlugins(rr);
-      this.totRounds = rr.totalRounds; this.curRound = rr.totalRounds;
+      this.rankData = await this.computeForCurrentImpl(this.rawMatches);
+      this.totRounds = this.rankData.totalRounds; this.curRound = this.rankData.totalRounds;
       this.renderer.showProgress(90, '正在加载对阵数据...');
       this.matchData = await this.q.getGroupMatches(g.id, this.curRound);
       // 只要存在任意一轮对阵表，就不再展示参赛名单（名单仅用于填补无对阵表的空窗期）
-      const hasMatches = (rr.rankings?.length ?? 0) > 0 || (this.matchData?.rows?.length ?? 0) > 0;
+      const hasMatches = (this.rankData.rows?.length ?? 0) > 0 || (this.matchData?.rows?.length ?? 0) > 0;
       this.playersTabAvailable = !hasMatches;
       if (this.playersTabAvailable) {
         this.renderer.showProgress(95, '正在加载参赛名单...');
@@ -412,18 +431,9 @@ export class EventDetailPage implements IPage {
     } catch (e) { console.error('加载分组数据失败', e as Error); this.renderer.renderError('加载分组数据失败，请重试'); }
   }
 
+  /** 对阵卡片上的积分：从原始对阵派生，不再读内置排名结果里的 games */
   private buildScoreMap(round?: number): Map<string, number> {
-    const m = new Map<string, number>();
-    if (!this.rankData?.rankings) return m;
-    this.rankData.rankings.forEach((r) => {
-      const score = (r.games && round != null)
-        ? r.games.filter(g => g.bout < round).reduce((s, g) => s + (g.result === 'win' ? 2 : g.result === 'draw' ? 1 : 0), 0)
-        : r.score;
-      m.set(r.name, score);
-      const cn = r.name.replace(/\|[\d\w:_-]+$/, '').trim();
-      if (cn !== r.name) m.set(cn, score);
-    });
-    return m;
+    return buildScoreMap(this.rawMatches, round);
   }
 
   /** PDF 模式：从全部对阵数据中按轮次过滤 */
@@ -480,15 +490,13 @@ export class EventDetailPage implements IPage {
     this.renderer.toast.success('数据已刷新');
   }
 
+  /** 对手弹窗：games 由原始对阵派生，名次由排名表 rows 派生 */
   private showOpp(name: string, focusOpponent?: string): void {
-    if (!this.rankData) return;
-    const p = this.rankData.rankings.find((x) => x.name === name);
-    if (!p?.games) return;
-    const rm = new Map<string, { rank: number; score: number }>();
-    this.rankData.rankings.forEach((x) => {
-      rm.set(x.name.replace(/\|[\d\w:_-]+$/, '').trim(), { rank: x.rank, score: x.score });
-    });
-    this.renderer.showOpponentModal(name, p.games, rm, focusOpponent);
+    if (this.rawMatches.length === 0) return;
+    const games = buildPlayerGames(this.rawMatches, name, this.rankData?.totalRounds);
+    if (!games.length) return;
+    const rankMap = buildRankMap(this.rankData);
+    this.renderer.showOpponentModal(name, games, rankMap, focusOpponent);
   }
 
   /**
@@ -515,7 +523,7 @@ export class EventDetailPage implements IPage {
 
   destroy(): void {
     this.renderer.destroy(); this.groups = [];
-    this.rankData = null; this.matchData = null; this.init = false;
+    this.rankData = null; this.rawMatches = []; this.matchData = null; this.init = false;
     this.pdfEvent = null; this.pdfGroupMap.clear();
   }
 }

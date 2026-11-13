@@ -4,7 +4,8 @@
 import type { IEventFormatter } from './pages/event/IEventFormatter';
 import type { EventHistoryEntry } from '../../../application/event';
 import type { Event, Group, Player, AgainstPlanResult } from '../../../services/event/types';
-import type { PlayerRanking } from '../../../domain/ranking/types';
+import type { RankingTable, PlayerGame } from '../../../domain/ranking';
+import { formatRankingCell } from '../../../domain/ranking/RankingTable';
 import { tokens } from '../../core/styles/tokens';
 const S = {
   card: `background:white;border-radius:${tokens.radius.md}px;padding:12px 16px;margin-bottom:10px;box-shadow:${tokens.shadows.md};`,
@@ -46,28 +47,28 @@ export class HtmlEventFormatter implements IEventFormatter {
   formatListHeaderContent(area: string, month: number): string {
     return `<div style="${S.grad}color:white;padding:15px;border-radius:${tokens.radius.md}px;"><h1 style="font-size:1.3em;margin:0 0 4px;">🏆 比赛列表</h1><p style="font-size:0.85em;opacity:0.9;margin:0;">${area || '全国'} · 最近${month}个月</p></div>`;
   }
-  formatRankingTable(rankings: PlayerRanking[], needsOriginal?: Set<string>, mode: string = 'default'): string {
+  /**
+   * 排名表由 columns + rows 数据驱动：显示哪些列、叫什么、顺序、值全部来自实现
+   * （内置或插件都是同一份 RankingTable）。cells 只能是数值/数值数组、列名只能是汉字，
+   * 因此这两处无需 HTML 转义；姓名/名次是宿主保留结构列，只读，姓名用 esc() 转义。
+   */
+  formatRankingTable(table: RankingTable, needsOriginal?: Set<string>): string {
     const th = `padding:10px 6px;font-weight:600;color:${tokens.colors.textSecondary};font-size:0.85em;`;
     const td = 'padding:10px 6px;';
-    const showProgressive = mode === 'default';
-    const showDirectWin = mode === 'directWin';
-    let headCols = `<th style="${th}text-align:center;">排名</th><th style="${th}text-align:left;">姓名</th><th style="${th}text-align:center;">积分</th><th style="${th}text-align:center;">对手分</th>`;
-    if (showDirectWin) headCols += `<th style="${th}text-align:center;">直胜</th>`;
-    if (showProgressive) headCols += `<th style="${th}text-align:center;">累进分</th>`;
-    headCols += `<th style="${th}text-align:center;">逆减</th>`;
+    let headCols = `<th style="${th}text-align:center;">排名</th><th style="${th}text-align:left;">姓名</th>`;
+    for (const col of table.columns) {
+      headCols += `<th style="${th}text-align:center;">${col.label}</th>`;
+    }
     let html = `<table style="width:100%;border-collapse:collapse;font-size:0.9em;background:white;border-radius:${tokens.radius.md}px;overflow:hidden;"><thead><tr style="background:${tokens.colors.bg};">${headCols}</tr></thead><tbody>`;
-    rankings.forEach((p, i) => {
+    table.rows.forEach((p, i) => {
       const cls = i < 3 ? `color:${tokens.colors.warning};` : `color:${tokens.colors.primary};`;
       const dn = getDispName(p.name, needsOriginal), cn = cleanName(p.name);
-      let dataCols = `<td style="${td}text-align:center;font-weight:600;${cls}">${p.rank}</td><td style="${td}text-align:left;font-weight:500;"><a href="../player/?name=${encodeURIComponent(cn)}" style="${S.link}" data-action="playerClick" data-name="${esc(p.name)}">${esc(dn)}</a></td><td style="${td}text-align:center;font-weight:600;color:${tokens.colors.text};">${p.score}</td><td data-action="showOpponents" data-name="${esc(p.name)}" style="${td}text-align:center;cursor:pointer;color:${tokens.colors.primary};text-decoration:underline;">${p.opponentScore ?? 0}</td>`;
-      if (showDirectWin) {
-        const dw = p.directWin ?? '-';
-        dataCols += `<td style="${td}text-align:center;">${dw}</td>`;
+      let dataCols = `<td style="${td}text-align:center;font-weight:600;${cls}">${p.rank}</td><td style="${td}text-align:left;font-weight:500;"><a href="../player/?name=${encodeURIComponent(cn)}" style="${S.link}" data-action="playerClick" data-name="${esc(p.name)}">${esc(dn)}</a></td>`;
+      for (const col of table.columns) {
+        const value = formatRankingCell(p.cells[col.key]);
+        // 第一列沿用「点击看对手」的交互入口；其余列同样可点，行为一致
+        dataCols += `<td data-action="showOpponents" data-name="${esc(p.name)}" style="${td}text-align:center;cursor:pointer;color:${tokens.colors.primary};text-decoration:underline;">${value}</td>`;
       }
-      if (showProgressive) {
-        dataCols += `<td style="${td}text-align:center;">${p.progressiveScore ?? 0}</td>`;
-      }
-      dataCols += `<td style="${td}text-align:center;">${p.reverseMinusDisplay ?? '-'}</td>`;
       html += `<tr id="rank-row-${esc(cn)}" data-player-name="${esc(cn)}" style="border-bottom:1px solid ${tokens.colors.border};transition:background 0.2s;">${dataCols}</tr>`;
     });
     return html + '</tbody></table>';
@@ -119,7 +120,7 @@ export class HtmlEventFormatter implements IEventFormatter {
   }
   formatEmptyPlayers(): string { return `<div style="text-align:center;padding:40px;color:${tokens.colors.textHint};">暂无参赛名单</div>`; }
   formatGroupOption(g: Group): string { return g.name + (g.players != null ? ` (${g.players}人)` : ''); }
-  formatOpponentModal(playerName: string, games: PlayerRanking['games'], rankMap?: Map<string, { rank: number; score: number }>): string {
+  formatOpponentModal(playerName: string, games: PlayerGame[] | undefined, rankMap?: Map<string, number>): string {
     if (!games?.length) return '';
     const w = games.filter(g => g.result === 'win' || g.result === 'bye_win').length, l = games.filter(g => g.result === 'lose').length, d = games.filter(g => g.result === 'draw').length, b = games.filter(g => g.result === 'bye').length;
     const cn = cleanName(playerName);
@@ -135,7 +136,7 @@ export class HtmlEventFormatter implements IEventFormatter {
       const oc = cleanName(g.opponentName), ci = g.color === 'black' ? `${cn}执⚫` : `${cn}执⚪`;
       const rs = g.result === 'win' ? `color:${tokens.colors.success};font-weight:600;` : g.result === 'lose' ? `color:${tokens.colors.error};font-weight:600;` : `color:${tokens.colors.warning};font-weight:600;`;
       const rt = g.result === 'win' ? '胜' : g.result === 'lose' ? '负' : '和';
-      const ri = rankMap?.get(oc), rb = ri ? ` <span style="font-size:0.75em;color:${tokens.colors.textHint};">#${ri.rank}</span>` : '';
+      const ri = rankMap?.get(oc), rb = ri !== undefined ? ` <span style="font-size:0.75em;color:${tokens.colors.textHint};">#${ri}</span>` : '';
       // data-opp-name 供从等级分页返回时定位该对手条目
       return `<div data-opp-name="${esc(oc)}" style="padding:12px 16px;border-bottom:1px solid ${tokens.colors.border};display:flex;align-items:center;justify-content:space-between;"><div><a href="../player/?name=${encodeURIComponent(oc)}" style="${S.link}">${esc(oc)}</a>${rb}<div style="font-size:0.8em;color:${tokens.colors.textHint};">第${g.bout}轮 · ${ci}</div></div><span style="${rs}">${rt}</span></div>`;
     }).join('');

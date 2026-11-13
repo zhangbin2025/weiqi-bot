@@ -4,8 +4,7 @@
 import type { ICard, IToast, IAdapterFactory, IOverlay } from '../../../../core/interfaces';
 import type { IEventFormatter } from './IEventFormatter';
 import type { Group, Player, PlayerListResult, AgainstPlanResult } from '../../../../../services/event/types';
-import type { RankingResult } from '../../../../../domain/ranking';
-import type { PlayerRanking, RankingMode } from '../../../../../domain/ranking/types';
+import type { RankingTable, RankingMode, PlayerGame } from '../../../../../domain/ranking';
 import { GroupSelector } from '../../../../../domain/ranking/GroupSelector';
 import { SessionStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/SessionStorageAdapter';
 import { LocalStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/LocalStorageAdapter';
@@ -28,7 +27,7 @@ export interface EventDetailRendererCallbacks {
   onPlayerClick: (playerName: string) => void;
   onShowOpponents: (playerName: string) => void;
   onRankingModeChange: (mode: RankingMode) => void;
-  /** 选中某个排名插件（叠加在当前内置口径之上）；undefined = 回到内置排序 */
+  /** 选中某个 rank 实现：插件从对阵表自行算全部列；undefined = 回到内置实现 */
   onRankingPluginChange: (artifactId: string | undefined) => void;
   onRefresh?: () => Promise<void>;
 }
@@ -298,12 +297,13 @@ export class EventDetailRenderer {
     this.showContainer();
     this.flushContentReady();
   }
-  renderRanking(result: RankingResult): void {
+  /** 排名表由 RankingTable 数据驱动（内置/插件同一份结构），不再按 mode 门控列 */
+  renderRanking(table: RankingTable): void {
     this.hideOverlay();
     this.rankingCard.setContent(
-      (!result.rankings || result.rankings.length === 0)
+      (!table.rows || table.rows.length === 0)
         ? this.formatter.formatEmptyRanking()
-        : this.formatter.formatRankingTable(result.rankings, undefined, this.rankingMode)
+        : this.formatter.formatRankingTable(table)
     );
     this.rankingCard.render();
     this.showRankingTab();
@@ -368,7 +368,7 @@ export class EventDetailRenderer {
     // 显示容器（即使错误也要显示）
     this.showContainer();
   }
-  showOpponentModal(playerName: string, games: PlayerRanking['games'], rankMap?: Map<string, { rank: number; score: number }>, focusOpponent?: string): void {
+  showOpponentModal(playerName: string, games: PlayerGame[] | undefined, rankMap?: Map<string, number>, focusOpponent?: string): void {
     const html = this.formatter.formatOpponentModal(playerName, games, rankMap);
     if (!html) return;
     // 不再使用 opponentCard，直接添加到 body
@@ -498,7 +498,7 @@ export class EventDetailRenderer {
       el.style.cssText = 'padding:6px 14px 2px;font-size:0.72em;color:#999;letter-spacing:0.5px;';
       return el;
     };
-    menu.appendChild(sectionTitle('内置排序'));
+    menu.appendChild(sectionTitle('内置排名实现'));
 
     MODES.forEach(m => {
       const item = document.createElement('div');
@@ -526,7 +526,7 @@ export class EventDetailRenderer {
       const divider = document.createElement('div');
       divider.style.cssText = 'height:1px;background:#eee;margin:4px 0;';
       menu.appendChild(divider);
-      menu.appendChild(sectionTitle('插件排序'));
+      menu.appendChild(sectionTitle('插件排名实现'));
 
       const pluginItem = (id: string, label: string, desc: string): HTMLElement => {
         const item = document.createElement('div');
@@ -548,7 +548,7 @@ export class EventDetailRenderer {
       // 不单列「回到内置」项：上面的内置排序三项就是切回默认的入口
       // （点任一项都会把 activeRankingPluginId 置回 undefined），不必重复列一个。
       for (const p of this.rankingPlugins) {
-        menu.appendChild(pluginItem(p.id, `🧩 ${p.name}`, '使用此插件的排名规则'));
+        menu.appendChild(pluginItem(p.id, `🧩 ${p.name}`, '从对阵表自行算分与列'));
       }
     }
 

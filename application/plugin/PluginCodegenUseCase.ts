@@ -20,6 +20,7 @@ import type {
   PluginTraceSink,
 } from '@domain/plugin/types';
 import { RANKING_SPEC } from '@domain/plugin/types';
+import { SAMPLE_RANKING_INPUT, validateRankingOutput } from '@domain/ranking';
 
 /** 校验器端口（实现见 domain/plugin/PluginValidator） */
 export interface ICodeValidator {
@@ -68,8 +69,8 @@ export interface CodegenRequest {
   currentCode?: string;
   /** 用户验收反馈（可选），有则作为首轮反馈 */
   userFeedback?: string;
-  /** 沙箱试算输入 */
-  sampleInput: unknown;
+  /** 沙箱试算输入；不传则使用代表性对阵样例（含轮空、含未完赛） */
+  sampleInput?: unknown;
   spec?: PluginSpec;
   /** 注入 system prompt 的插件清单快照 */
   snapshot?: unknown[];
@@ -103,6 +104,12 @@ export class PluginCodegenUseCase {
 
   async run(req: CodegenRequest): Promise<CodegenResult> {
     const spec = req.spec ?? RANKING_SPEC;
+    // 不在空数组上「试算通过」：默认给模型一份真实形状的对阵表
+    const sampleInput = req.sampleInput ?? SAMPLE_RANKING_INPUT;
+    const sampleMatches = (sampleInput as { matches?: unknown }).matches;
+    const validationInput = Array.isArray(sampleMatches)
+      ? { matches: sampleMatches as import('@domain/ranking/types').MatchData[] }
+      : { matches: [] };
     const maxAttempts = Math.max(1, this.options.maxAttempts);
     let code: string | undefined = req.currentCode;
     let lastFeedback: RepairFeedback | undefined;
@@ -192,7 +199,7 @@ export class PluginCodegenUseCase {
       // 每轮都是全新沙箱（一次性 Worker 由 runtime 保证）
       let runResult: PluginRunResult;
       try {
-        runResult = await this.options.runtime.run(code, req.sampleInput, spec);
+        runResult = await this.options.runtime.run(code, sampleInput, spec);
       } catch (error) {
         push(attempt, 'sandbox', false, `第 ${attempt}/${maxAttempts} 轮：沙箱异常 ${error instanceof Error ? error.message : String(error)}`);
         runResult = {
@@ -205,6 +212,22 @@ export class PluginCodegenUseCase {
       }
 
       if (runResult.ok) {
+        // 「能跑」不等于「符合统一契约」：开发期就用生产同一份校验拦住列/单元格错误
+        const check = validateRankingOutput(runResult.output, validationInput);
+        if (!check.ok) {
+          const hint = check.hint ?? '排名表不符合契约';
+          push(attempt, 'contract', false, `第 ${attempt}/${maxAttempts} 轮：输出契约不符 — ${hint}`, code);
+          lastFeedback = {
+            phase: 'contract',
+            ok: false,
+            error: { name: 'ContractError', message: hint },
+            contract: { entryFound: false, outputIsArray: false, missingFields: check.missingFields },
+            hint: '必须返回 { columns, rows }，列名为汉字，cells 只能是数值或数值数组，且覆盖全部选手',
+            attempt,
+            maxAttempts,
+          };
+          continue;
+        }
         push(attempt, 'sandbox', true, `第 ${attempt}/${maxAttempts} 轮：沙箱试算通过（${runResult.elapsedMs}ms）`);
         return { ok: true, code, output: runResult.output, attempts: attempt, reply, trace };
       }

@@ -9,6 +9,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { PluginAgentUseCase, type PluginAgentOptions } from '../PluginAgentUseCase';
 import { RANKING_SPEC, type AgentResponse, type PluginContextEntry } from '@domain/plugin/types';
+import { SAMPLE_RANKING_INPUT } from '@domain/ranking/sampleInput';
 
 const code = 'function rank(x){ return x }';
 
@@ -49,7 +50,7 @@ function harness(): Harness {
     get: vi.fn().mockResolvedValue(null),
   };
   const snapshot: PluginContextEntry[] = [
-    { id: 'plugin:old', name: '旧规则', pointId: 'ranking.tiebreak', enabled: true, version: 2, intent: '同分比胜局' },
+    { id: 'plugin:old', name: '旧规则', pointId: 'ranking', enabled: true, version: 2, intent: '同分比胜局' },
   ];
   const snapshotProvider = {
     snapshot: vi.fn().mockResolvedValue(snapshot),
@@ -168,10 +169,22 @@ describe('PluginAgentUseCase', () => {
     expect(result.trace!.some((s) => s.source === 'codegen' && s.phase === 'sandbox')).toBe(true);
     expect(result.trace!.some((s) => s.source === 'agent')).toBe(true);
     expect(h.artifacts.create).toHaveBeenCalledWith(expect.objectContaining({
-      intent: '同分先比胜局', origin: 'llm', pointId: 'ranking.tiebreak',
+      intent: '同分先比胜局', origin: 'llm', pointId: 'ranking',
+    }));
+    // 不传 sampleInput 时喂有代表性的对阵样例（含轮空/未完赛），不在 [] 上空跑
+    expect(h.codegen.run).toHaveBeenCalledWith(expect.objectContaining({
+      sampleInput: SAMPLE_RANKING_INPUT,
     }));
     // 关键：没有调用 setEnabled(true)
     expect(h.artifacts.setEnabled).not.toHaveBeenCalled();
+  });
+
+  it('显式传入的 sampleInput 不被默认值覆盖', async () => {
+    const h = harness();
+    const custom = { matches: [{ bout: 1, p1Id: 1, p1Name: '甲', p1Score: 2, p2Id: 2, p2Name: '乙', p2Score: 0 }] };
+    setResponses(h, [ok('写', { kind: 'plugin.create', intent: 'x', code: 'x' })]);
+    await new PluginAgentUseCase(h.options).turn({ text: '写个规则', sampleInput: custom });
+    expect(h.codegen.run).toHaveBeenCalledWith(expect.objectContaining({ sampleInput: custom }));
   });
 
   it('plugin.create 用户明确起名 → 用用户指定的名字', async () => {
@@ -192,7 +205,7 @@ describe('PluginAgentUseCase', () => {
   it('plugin.create 未起名且「规则1」已存在 → 顺延到规则2', async () => {
     const h = harness();
     h.snapshot.snapshot.mockResolvedValue([
-      { id: 'plugin:a', name: '规则1', pointId: 'ranking.tiebreak', enabled: false, version: 1, intent: 'x' },
+      { id: 'plugin:a', name: '规则1', pointId: 'ranking', enabled: false, version: 1, intent: 'x' },
     ]);
     setResponses(h, [ok('写', { kind: 'plugin.create', intent: 'x', code: 'x' })]);
     await new PluginAgentUseCase(h.options).turn({ text: '写个规则' });

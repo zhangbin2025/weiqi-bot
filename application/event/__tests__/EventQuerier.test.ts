@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EventQuerier } from '../EventQuerier';
 import type { IEventService, EventListResult, GroupListResult, AgainstPlanResult, AllRoundsResult } from '../../../services/event/types';
-import type { IRankingCalculator, RankingResult, RankingMode, MatchData } from '../../../domain/ranking';
+import type { IRankingCalculator, RankingOutput, RankingMode, MatchData } from '../../../domain/ranking';
 import type { IFavoriteService, IFavoriteItem } from '../../../services/favorite';
 // Mock factories
 const createMockEventService = (): IEventService => ({
@@ -17,7 +17,7 @@ const createMockEventService = (): IEventService => ({
   clearGroupCache: vi.fn(),
 });
 const createMockRankingCalculator = (): IRankingCalculator => ({
-  calculate: vi.fn(),
+  rank: vi.fn(),
 });
 const createMockFavoriteService = (): IFavoriteService => ({
   addFavorite: vi.fn(),
@@ -60,12 +60,15 @@ const mockAllRounds: AllRoundsResult = {
   totalRounds: 5,
   completedRounds: 2,
 };
-const mockRankingResult: RankingResult = {
-  rankings: [
-    { id: 1, name: '张三', rank: 1, score: 4, opponentScore: 3, progressiveScore: 2, reverseMinus: [], reverseMinusDisplay: '', wins: 2, losses: 0, draws: 0 },
+/** 合法排名输出：rows 必须覆盖 mockAllRounds.matches 里的全部 4 名选手 */
+const mockRankingOutput: RankingOutput = {
+  columns: [{ key: 'score', label: '积分' }],
+  rows: [
+    { id: 1, name: '张三', rank: 1, cells: { score: 2 } },
+    { id: 2, name: '李四', rank: 2, cells: { score: 0 } },
+    { id: 3, name: '王五', rank: 3, cells: { score: 2 } },
+    { id: 4, name: '赵六', rank: 4, cells: { score: 0 } },
   ],
-  totalRounds: 2,
-  completedRounds: 2,
 };
 describe('EventQuerier', () => {
   let mockEventService: IEventService;
@@ -116,34 +119,55 @@ describe('EventQuerier', () => {
     });
   });
   describe('getGroupRanking', () => {
-    it('应该计算分组排名', async () => {
+    it('应该经统一管线计算排名并产出 RankingTable', async () => {
       vi.mocked(mockEventService.getAllRounds).mockResolvedValue(mockAllRounds);
-      vi.mocked(mockRankingCalculator.calculate).mockReturnValue(mockRankingResult);
+      vi.mocked(mockRankingCalculator.rank).mockReturnValue(mockRankingOutput);
       const querier = new EventQuerier(mockEventService, mockRankingCalculator);
       const result = await querier.getGroupRanking(12345, 100);
-      expect(result.rankings).toHaveLength(1);
-      expect(mockRankingCalculator.calculate).toHaveBeenCalledWith(
-        expect.any(Array),
-        undefined,
+      expect(result.rows).toHaveLength(4);
+      // 轮次元信息由管线从原始对阵派生（不是照抄 allRounds 里的字段）
+      expect(result.totalRounds).toBe(2);
+      expect(result.completedRounds).toBe(2);
+      // 内置实现收到 { matches }（唯一原始数据源），默认口径 default
+      expect(mockRankingCalculator.rank).toHaveBeenCalledWith(
+        { matches: mockAllRounds.matches },
+        'default',
       );
     });
-    it('应该支持指定排名模式', async () => {
+    it('应该支持指定内置口径', async () => {
       vi.mocked(mockEventService.getAllRounds).mockResolvedValue(mockAllRounds);
-      vi.mocked(mockRankingCalculator.calculate).mockReturnValue(mockRankingResult);
+      vi.mocked(mockRankingCalculator.rank).mockReturnValue(mockRankingOutput);
       const querier = new EventQuerier(mockEventService, mockRankingCalculator);
       await querier.getGroupRanking(12345, 100, 'simple');
-      expect(mockRankingCalculator.calculate).toHaveBeenCalledWith(
-        expect.any(Array),
+      expect(mockRankingCalculator.rank).toHaveBeenCalledWith(
+        { matches: mockAllRounds.matches },
         'simple',
       );
     });
     it('应该支持进度回调', async () => {
       vi.mocked(mockEventService.getAllRounds).mockResolvedValue(mockAllRounds);
-      vi.mocked(mockRankingCalculator.calculate).mockReturnValue(mockRankingResult);
+      vi.mocked(mockRankingCalculator.rank).mockReturnValue(mockRankingOutput);
       const onProgress = vi.fn();
       const querier = new EventQuerier(mockEventService, mockRankingCalculator);
       await querier.getGroupRanking(12345, 100, undefined, onProgress);
       expect(mockEventService.getAllRounds).toHaveBeenCalledWith(100, onProgress, false);
+    });
+    it('输出不符合契约时抛错（不静默返回坏表）', async () => {
+      vi.mocked(mockEventService.getAllRounds).mockResolvedValue(mockAllRounds);
+      vi.mocked(mockRankingCalculator.rank).mockReturnValue({
+        columns: [{ key: 'score', label: '积分' }],
+        rows: [{ id: 99, name: '伪造', rank: 1, cells: { score: 2 } }],
+      });
+      const querier = new EventQuerier(mockEventService, mockRankingCalculator);
+      await expect(querier.getGroupRanking(12345, 100)).rejects.toThrow();
+    });
+  });
+  describe('getGroupMatchesRaw', () => {
+    it('应该返回原始对阵表（插件/页面共用唯一数据源）', async () => {
+      vi.mocked(mockEventService.getAllRounds).mockResolvedValue(mockAllRounds);
+      const querier = new EventQuerier(mockEventService);
+      const matches = await querier.getGroupMatchesRaw(100);
+      expect(matches).toEqual(mockAllRounds.matches);
     });
   });
   describe('getGroupMatches', () => {

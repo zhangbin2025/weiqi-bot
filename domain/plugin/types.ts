@@ -4,13 +4,18 @@
  *
  * 设计要点：
  * - 插件是「可编程工件」：LLM 产出完整 JS 源码，宿主在 QuickJS 沙箱里执行。
- * - 工件（Artifact）是唯一真相，自带 intent/code/spec/history，
- *   不依赖任何聊天会话；会话丢失后仍可继续修订。
+ * - 工件（Artifact）是唯一真相，自带 intent/code/spec/history，不依赖聊天会话。
  * - 沙箱默认零能力：只有 spec.hostApi 显式列出的纯函数才会被注入。
+ * - 排名扩展点只有一个版本：rank({ matches }) → { columns, rows }，
+ *   内置排名与插件排名共用同一契约，PDF 导入也只是提供同一份对阵表。
+ * - cells（自定义数据列）值为数值或数值数组；name/rank/id 是宿主保留的只读结构列，
+ *   不在 cells 里、不受数值约束。列名只允许汉字。
  */
 
-/** 扩展点标识。一期只有 ranking.tiebreak，后续可扩展 */
+/** 扩展点标识。当前只有一个：ranking */
 export type ExtensionPointId = string;
+
+export const RANKING_POINT_ID = 'ranking';
 
 /** 执行失败分类，用于归一成回喂 LLM 的反馈包 */
 export type FailurePhase =
@@ -30,7 +35,13 @@ export interface PluginError {
   lineNumber?: number;
 }
 
-/** 输出契约校验结果 */
+/**
+ * 输出契约校验结果。
+ * 新契约的输出是 { columns, rows } 对象而非数组：
+ * - outputIsArray 恒为 false（保留字段仅为兼容既有诊断/反馈结构）
+ * - entryFound 表示 rank 入口产出了结构合法的对象
+ * - missingFields 是校验器给出的具体缺失/违规字段
+ */
 export interface ContractCheck {
   entryFound: boolean;
   outputIsArray: boolean;
@@ -77,14 +88,11 @@ export const DEFAULT_PLUGIN_LIMITS: PluginLimits = {
   maxLogs: 50,
 };
 
-/**
- * 扩展点契约快照，随工件一起持久化。
- * 版本化后，旧工件不会因为系统升级而静默改变行为。
- */
+/** 扩展点契约快照，随工件一起持久化（单版本，不做兼容演进） */
 export interface PluginSpec {
   pointId: ExtensionPointId;
   version: number;
-  /** 约定的入口函数名，例如 rank */
+  /** 约定的入口函数名：rank */
   entry: string;
   /** 允许注入的宿主纯函数名白名单，默认空数组 */
   hostApi: string[];
@@ -92,7 +100,7 @@ export interface PluginSpec {
 }
 
 export const RANKING_SPEC: PluginSpec = {
-  pointId: 'ranking.tiebreak',
+  pointId: RANKING_POINT_ID,
   version: 1,
   entry: 'rank',
   hostApi: [],
@@ -111,28 +119,24 @@ export interface PluginRevision {
 
 /** 插件工件：唯一真相，自足、可脱离会话存在 */
 export interface PluginArtifact {
-  /** 同时作为 IDocumentStorage 的 id */
   id: string;
   name: string;
   pointId: ExtensionPointId;
   version: number;
   enabled: boolean;
   origin: 'llm' | 'manual';
-  /** 用户最初的自然语言需求 */
   intent: string;
   /** 当前生效的完整源码（永远全量，不是 diff） */
   code: string;
   spec: PluginSpec;
-  /** 可选作用域。省略表示全局可用 */
   scope?: { eventId?: number };
   createdAt: number;
   updatedAt: number;
   history: PluginRevision[];
-  /** 可选：仅用于「打开原会话」，丢失不影响任何能力 */
   conversationRef?: string;
 }
 
-/** 注入 system prompt 的插件清单条目（默认不含代码，按需展开） */
+/** 注入 system prompt 的插件清单条目 */
 export interface PluginContextEntry {
   id: string;
   name: string;
@@ -140,7 +144,6 @@ export interface PluginContextEntry {
   enabled: boolean;
   version: number;
   intent: string;
-  /** 仅在与本次对话相关时展开 */
   code?: string;
 }
 
@@ -150,11 +153,8 @@ export interface RepairFeedback {
   ok: false;
   error?: PluginError;
   contract?: ContractCheck;
-  /** 人话提示，比原始报错更利于模型收敛 */
   hint?: string;
-  /** 输入数据的形状摘要，不含真实姓名 */
   inputShape?: string;
-  /** 用户验收反馈原文 */
   userText?: string;
   attempt: number;
   maxAttempts: number;
@@ -178,11 +178,6 @@ export interface AgentAction {
   feedback?: string;
   pointId?: string;
   intent?: string;
-  /**
-   * plugin.toggle 的目标状态：true=启用，false=停用。
-   * 省略时按存储中的当前状态翻转。显式给出可避免「用户说启用，
-   * 模型却因快照过期翻回停用」这类方向错误。
-   */
   enabled?: boolean;
 }
 
@@ -191,51 +186,32 @@ export interface AgentResponse {
   action: AgentAction;
 }
 
-/**
- * 调试过程的一步（供对话页「过程日志」折叠展示，不写进会话历史）。
- * source=codegen 是「LLM 写/改代码」的自动修复循环，source=agent 是外层决策循环，
- * source=web 是标准 tool-calling 智能体的网络访问过程。
- */
 export interface PluginTraceStep {
   source: 'agent' | 'codegen' | 'web';
-  /** 轮次：codegen 为修复轮，agent 为决策轮 */
   attempt: number;
-  /** 阶段短标签（llm / protocol / validate / sandbox / crash / decision / observe / final） */
   phase: string;
   ok: boolean;
-  /** 一行人话摘要，已含轮次与结果描述 */
   detail: string;
-  /** 该轮 LLM 产出的完整源码（可选，供「查看本轮代码」） */
   code?: string;
 }
 
-/**
- * 调试过程的实时推送回调。每一步产生时立刻调用（不等待整轮结束）。
- * 纯展示通道：接收方负责渲染，绝不能把步骤写进会话历史。
- */
 export type PluginTraceSink = (step: PluginTraceStep) => void;
 
-/** 一次 Agent Turn 的结果 */
 export interface AgentTurnResult {
   reply: string;
   artifactId?: string;
-  /** 本次是否执行了插件动作 */
   acted: boolean;
-  /** 自动修复轮数 */
   attempts: number;
-  /** 调试过程（可选）：对话页据此渲染可折叠的过程日志 */
   trace?: PluginTraceStep[];
 }
 
 // ---------- 端口（六边形架构：application 依赖端口，infrastructure 实现） ----------
 
-/** 沙箱运行时端口。每轮调用应相互隔离（实现方负责一次性 Worker）。 */
 export interface IPluginRuntime {
   run(code: string, input: unknown, spec: PluginSpec): Promise<PluginRunResult>;
   dispose(): Promise<void>;
 }
 
-/** 工件存储端口 */
 export interface IPluginArtifactStore {
   list(): Promise<PluginArtifact[]>;
   get(id: string): Promise<PluginArtifact | null>;
@@ -244,10 +220,7 @@ export interface IPluginArtifactStore {
   remove(id: string): Promise<void>;
 }
 
-/** 上下文提供者端口：给 system prompt 注入插件快照 */
 export interface IPluginContextProvider {
-  /** 精简清单（每次请求都带） */
   snapshot(): Promise<PluginContextEntry[]>;
-  /** 带代码的完整上下文（选中某插件时） */
   withCode(id: string): Promise<PluginContextEntry | null>;
 }

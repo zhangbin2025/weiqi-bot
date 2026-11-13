@@ -6,7 +6,8 @@
 import type { IEventFormatter } from '../../pages/event/IEventFormatter';
 import type { EventHistoryEntry } from '../../../application/event';
 import type { Event, Group, Player } from '../../../services/event/types';
-import type { PlayerRanking } from '../../../domain/ranking/types';
+import type { RankingTable, PlayerGame } from '../../../domain/ranking';
+import { formatRankingCell } from '../../../domain/ranking/RankingTable';
 import type { AgainstPlanResult } from '../../../services/event/types';
 import { TerminalTable } from './TerminalTable';
 import { cleanName } from './utils';
@@ -43,20 +44,17 @@ export class AnsiEventFormatter implements IEventFormatter {
   formatListHeaderContent(area: string, month: number): string {
     return `🏆 比赛列表 · ${area || '全国'} · 最近${month}个月`;
   }
-  formatRankingTable(rankings: PlayerRanking[], _needsOriginal?: Set<string>): string {
+  /** 列由 RankingTable.columns 决定（内置与插件同源），不再硬编码表头 */
+  formatRankingTable(data: RankingTable, _needsOriginal?: Set<string>): string {
     const table = new TerminalTable([
       { header: '排名', align: 'right', width: 4, color: (t) => `${BOLD}${t}${RESET}` },
       { header: '姓名', align: 'left' },
-      { header: '积分', align: 'right', width: 4 },
-      { header: '对手分', align: 'right', width: 6 },
-      { header: '累进分', align: 'right', width: 6 },
-      { header: '逆减', align: 'left', width: 8 },
+      ...data.columns.map((c) => ({ header: c.label, align: 'right' as const, width: 6 })),
     ]);
-    for (const r of rankings) {
+    for (const r of data.rows) {
       table.addRow([
-        String(r.rank), cleanName(r.name), String(r.score),
-        String(r.opponentScore), String(r.progressiveScore),
-        r.reverseMinusDisplay || '-',
+        String(r.rank), cleanName(r.name),
+        ...data.columns.map((c) => formatRankingCell(r.cells[c.key])),
       ]);
     }
     return table.render();
@@ -105,7 +103,7 @@ export class AnsiEventFormatter implements IEventFormatter {
     const p = group.players ?? '?';
     return `${group.name}(${p}人)`;
   }
-  formatOpponentModal(playerName: string, games: PlayerRanking['games']): string {
+  formatOpponentModal(playerName: string, games: PlayerGame[] | undefined, _rankMap?: Map<string, number>): string {
     if (!games?.length) return '';
     const cn = cleanName(playerName);
     const lines: string[] = [`${BOLD}${CYAN}🎯 ${cn} 的对手${RESET}`];

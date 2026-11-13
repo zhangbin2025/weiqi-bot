@@ -3,16 +3,20 @@
  * @module application/plugin/PluginSystem
  *
  * 把各层端口粘成一个可注入到页面的完整系统。所有构造都在这里完成，
- * 页面只拿 `agent` / `rank` 两个入口，不关心 IndexedDB、Worker、wasm 细节。
+ * 页面只拿 `agent` / `applyRanking` 等入口，不关心 IndexedDB、Worker、wasm 细节。
  *
  * 关键性质：插件对 LLM 随时可见（数据来自工件存储，不是会话历史），
  * 因此新会话、老会话、会话清空后都能查看与修订插件。
+ *
+ * 排名只有一条管线 computeRanking(matches, impl)：内置实现与插件实现
+ * 都是同一个 IRankingImplementation，本装配根只负责「选中哪个 impl」。
  */
 
 import type { IModelGateway } from '@application/model/IModelGateway';
 import type { IPluginRuntime, PluginSpec, PluginArtifact } from '@domain/plugin/types';
 import { RANKING_SPEC } from '@domain/plugin/types';
-import type { RankingResult } from '@domain/ranking/types';
+import type { MatchData, RankingTable, RankingMode } from '@domain/ranking/types';
+import { computeRanking, BuiltinRanking } from '@domain/ranking/RankingPipeline';
 import { OpenAIModelGateway } from '@infrastructure/llm/OpenAIModelGateway';
 import { QuickJsRuntime } from '@infrastructure/plugin-vm/QuickJsRuntime';
 import { createPluginArtifactStore } from '@infrastructure/plugin/PluginArtifactStore';
@@ -25,7 +29,7 @@ import { toFeedback, sanitizeFeedback, describeInputShape } from './FeedbackPack
 import { parseAgentResponse, safeAgentReply } from './AgentProtocol';
 import { PluginCodegenUseCase } from './PluginCodegenUseCase';
 import { PluginAgentUseCase } from './PluginAgentUseCase';
-import { applyRankingPlugin } from './RankingPluginAdapter';
+import { createPluginRanking } from './RankingPluginAdapter';
 import { loadPluginMaxAttempts } from './PluginConfig';
 
 export { DEFAULT_PLUGIN_MAX_ATTEMPTS, loadPluginMaxAttempts, savePluginMaxAttempts } from './PluginConfig';
@@ -126,11 +130,13 @@ export interface PluginSystem {
   agent: PluginAgentUseCase;
   maxAttempts: number;
   /**
-   * 给排名页用：**只有显式传入选中的插件 id 时才应用插件**，否则一律回落内置结果。
-   * 插件「已启用」只是可用性闸门，不等于「当前正在使用」——是否使用由页面菜单决定，
-   * 避免任何启用插件静默接管默认排序（用户明确要求默认维持无插件时的排序）。
+   * 给排名页用：把同一份原始对阵表交给唯一管线 computeRanking。
+   * - 只有显式传入选中的插件 id 时才构造插件 impl（否则一律内置，避免加载 wasm）
+   * - 插件「已启用」只是可用性闸门，不等于「当前正在使用」——由页面菜单决定
+   * - 插件执行/校验失败一律回落内置结果，保证页面不白屏
+   * - mode 只影响内置实现的预设口径，插件忽略
    */
-  applyRanking(builtin: RankingResult, selectedArtifactId?: string): Promise<RankingResult>;
+  applyRanking(matches: MatchData[], selectedArtifactId?: string, mode?: RankingMode): Promise<RankingTable>;
   /** 渲染前安全处理 LLM 文本 */
   safeReply(text: string): string;
   dispose(): Promise<void>;
@@ -183,15 +189,24 @@ export async function createPluginSystem(options: PluginSystemOptions = {}): Pro
     codegen,
     agent,
     maxAttempts,
-    applyRanking: async (builtin: RankingResult, selectedArtifactId?: string) => {
-      if (!selectedArtifactId) return builtin;
-      const all = await artifacts.list();
-      const active = all.find((a) =>
-        a.id === selectedArtifactId && a.enabled && a.pointId === RANKING_SPEC.pointId,
-      );
-      if (!active) return builtin;
-      const applied = await applyRankingPlugin(active.code, builtin, { runtime });
-      return applied ?? builtin;
+    applyRanking: async (matches: MatchData[], selectedArtifactId?: string, mode: RankingMode = 'default') => {
+      const builtin = (): Promise<RankingTable> => computeRanking(matches, new BuiltinRanking(mode));
+      if (!selectedArtifactId) return builtin();
+      let active: PluginArtifact | undefined;
+      try {
+        const all = await artifacts.list();
+        active = all.find((a) =>
+          a.id === selectedArtifactId && a.enabled && a.pointId === RANKING_SPEC.pointId,
+        );
+      } catch {
+        return builtin();
+      }
+      if (!active) return builtin();
+      try {
+        return await computeRanking(matches, createPluginRanking(active.code, { runtime }));
+      } catch {
+        return builtin();
+      }
     },
     safeReply: (text: string) => safeAgentReply(text, 2000),
     dispose: () => runtime.dispose(),

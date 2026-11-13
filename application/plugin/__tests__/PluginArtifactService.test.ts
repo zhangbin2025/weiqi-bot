@@ -15,7 +15,7 @@ import {
 
 function makeSpec(): PluginSpec {
   return {
-    pointId: 'ranking.tiebreak',
+    pointId: 'ranking',
     version: 1,
     entry: 'rank',
     hostApi: ['log'],
@@ -35,7 +35,7 @@ function makeInput(overrides: Partial<CreatePluginArtifactInput> = {}): CreatePl
     name: '同分排序插件',
     intent: '同分时按对手分和连胜排序',
     code: 'export function rank(x) { return x; }',
-    pointId: 'ranking.tiebreak',
+    pointId: 'ranking',
     origin: 'llm',
     spec: makeSpec(),
     ...overrides,
@@ -121,7 +121,7 @@ describe('revise', () => {
     const revised = await service.revise(artifact.id, {
       code: 'export function rank(x) { return x.slice().reverse(); }',
       trigger: 'auto-repair',
-      feedback: '输出不是数组',
+      feedback: '输出不符合契约',
       outcome: 'rejected',
     });
 
@@ -133,7 +133,7 @@ describe('revise', () => {
     expect(revised.history[1]?.version).toBe(2);
     expect(revised.history[1]?.code).toBe('export function rank(x) { return x.slice().reverse(); }');
     expect(revised.history[1]?.trigger).toBe('auto-repair');
-    expect(revised.history[1]?.feedback).toBe('输出不是数组');
+    expect(revised.history[1]?.feedback).toBe('输出不符合契约');
     expect(revised.history[1]?.outcome).toBe('rejected');
     expect(revised.history[1]?.at).toBe(now);
   });

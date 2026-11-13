@@ -11,7 +11,7 @@ import {
 import type { PluginContextEntry } from '@domain/plugin/types';
 
 const entry = (name: string): PluginContextEntry => ({
-  id: `plugin:${name}`, name, pointId: 'ranking.tiebreak',
+  id: `plugin:${name}`, name, pointId: 'ranking',
   enabled: false, version: 1, intent: 'x',
 });
 

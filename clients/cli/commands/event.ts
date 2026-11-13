@@ -106,8 +106,9 @@ event ranking - 查询分组排名
   --debug                       显示网络请求日志
 
 输出:
-  JSON 模式返回 { ok: true, data: { ranking: [...], summary: {...} } }
-  text 模式返回格式化的排名表
+  JSON 模式返回 { ok: true, data: { columns: [...], rows: [...], totalRounds, completedRounds } }
+  columns 定义显示列（key + 汉字列名），rows[].cells 为数值或数值数组；姓名/名次是宿主保留只读列；内置与插件同一结构
+  text 模式返回按 columns 数据驱动的排名表
 
 示例:
   event ranking --eventId 66261 --groupId 327319
@@ -410,7 +411,7 @@ async function eventRanking(
   const { eventQuerier } = ctx;
 
   try {
-    const result = await eventQuerier.getGroupRanking(eventId, groupId, mode as 'default' | undefined);
+    const result = await eventQuerier.getGroupRanking(eventId, groupId, mode as 'default' | 'simple' | 'directWin' | undefined);
     return { ok: true, command: 'event-ranking', data: result };
   } catch (e) {
     return { ok: false, command: 'event-ranking', error: `分组排名查询失败: ${e instanceof Error ? e.message : String(e)}` };

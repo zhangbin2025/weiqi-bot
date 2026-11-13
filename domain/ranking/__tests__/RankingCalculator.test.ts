@@ -1,185 +1,190 @@
 import { describe, it, expect } from 'vitest';
 import { RankingCalculator } from '../RankingCalculator';
-import type { MatchData } from '../types';
+import { computeRanking, BuiltinRanking } from '../RankingPipeline';
+import { validateRankingOutput, formatRankingCell } from '../RankingTable';
+import type { MatchData, RankingTable, RankingMode } from '../types';
 
-describe('RankingCalculator', () => {
-  const calculator = new RankingCalculator();
+const calculator = new RankingCalculator();
 
-  describe('empty matches', () => {
-    it('should return empty result for no matches', () => {
-      const result = calculator.calculate([]);
-      expect(result.rankings).toEqual([]);
-      expect(result.totalRounds).toBe(0);
-      expect(result.completedRounds).toBe(0);
+/** 经统一管线：内置实现 → 结构校验 → 派生轮次 */
+async function table(matches: MatchData[], mode: RankingMode = 'default'): Promise<RankingTable> {
+  return computeRanking(matches, new BuiltinRanking(mode, calculator));
+}
+
+/** 取某选手某列的 cells 值 */
+function cell(t: RankingTable, id: number, key: string): number | number[] | undefined {
+  return t.rows.find((r) => r.id === id)?.cells[key];
+}
+
+describe('RankingCalculator（统一管线里的内置实现）', () => {
+  describe('空对阵', () => {
+    it('产出空 rows、列仍由内置口径给出，轮次元信息为 0', async () => {
+      const t = await table([]);
+      expect(t.rows).toEqual([]);
+      expect(t.totalRounds).toBe(0);
+      expect(t.completedRounds).toBe(0);
+      expect(t.columns.map((c) => c.label)).toEqual(['积分', '对手分', '累进分', '逆减']);
     });
   });
 
-  describe('basic ranking', () => {
+  describe('基本排名', () => {
     const matches: MatchData[] = [
-      // Round 1: A beats B, C beats D
+      // 第1轮 A 胜 B，C 胜 D
       { bout: 1, p1Id: 1, p1Name: 'A', p1Score: 2, p2Id: 2, p2Name: 'B', p2Score: 0 },
       { bout: 1, p1Id: 3, p1Name: 'C', p1Score: 2, p2Id: 4, p2Name: 'D', p2Score: 0 },
-      // Round 2: A beats C, B beats D
+      // 第2轮 A 胜 C，B 胜 D
       { bout: 2, p1Id: 1, p1Name: 'A', p1Score: 2, p2Id: 3, p2Name: 'C', p2Score: 0 },
       { bout: 2, p1Id: 2, p1Name: 'B', p1Score: 2, p2Id: 4, p2Name: 'D', p2Score: 0 },
-      // Round 3: A beats D, B beats C
+      // 第3轮 A 胜 D，B 胜 C
       { bout: 3, p1Id: 1, p1Name: 'A', p1Score: 2, p2Id: 4, p2Name: 'D', p2Score: 0 },
       { bout: 3, p1Id: 2, p1Name: 'B', p1Score: 2, p2Id: 3, p2Name: 'C', p2Score: 0 },
     ];
 
-    it('should calculate correct scores', () => {
-      const result = calculator.calculate(matches);
-      // A: 3 wins = 6 points, B: 2 wins = 4 points, C: 1 win = 2 points, D: 0 wins = 0 points
-      const playerA = result.rankings.find((r) => r.id === 1);
-      const playerB = result.rankings.find((r) => r.id === 2);
-      const playerC = result.rankings.find((r) => r.id === 3);
-      const playerD = result.rankings.find((r) => r.id === 4);
-
-      expect(playerA?.score).toBe(6);
-      expect(playerB?.score).toBe(4);
-      expect(playerC?.score).toBe(2);
-      expect(playerD?.score).toBe(0);
+    it('产出结构符合统一契约（内部实现也要过校验）', () => {
+      const out = calculator.rank({ matches });
+      expect(validateRankingOutput(out, { matches }).ok).toBe(true);
     });
 
-    it('should calculate correct wins/losses', () => {
-      const result = calculator.calculate(matches);
-      const playerA = result.rankings.find((r) => r.id === 1);
-
-      expect(playerA?.wins).toBe(3);
-      expect(playerA?.losses).toBe(0);
-      expect(playerA?.draws).toBe(0);
+    it('积分列：A6 B4 C2 D0', async () => {
+      const t = await table(matches);
+      expect(cell(t, 1, 'score')).toBe(6);
+      expect(cell(t, 2, 'score')).toBe(4);
+      expect(cell(t, 3, 'score')).toBe(2);
+      expect(cell(t, 4, 'score')).toBe(0);
     });
 
-    it('should calculate total and completed rounds', () => {
-      const result = calculator.calculate(matches);
-      expect(result.totalRounds).toBe(3);
-      expect(result.completedRounds).toBe(3);
+    it('按积分降序排 rank', async () => {
+      const t = await table(matches);
+      expect(t.rows.map((r) => r.cells['score'])).toEqual([6, 4, 2, 0]);
+      expect(t.rows.map((r) => r.rank)).toEqual([1, 2, 3, 4]);
     });
 
-    it('should rank by score descending', () => {
-      const result = calculator.calculate(matches);
-      const scores = result.rankings.map((r) => r.score);
-      expect(scores).toEqual([6, 4, 2, 0]);
+    it('对手分（SOS）：A 的对手 B4+C2+D0 = 6', async () => {
+      const t = await table(matches);
+      expect(cell(t, 1, 'opponentScore')).toBe(6);
     });
 
-    it('should calculate opponent score (SOS)', () => {
-      const result = calculator.calculate(matches);
-      const playerA = result.rankings.find((r) => r.id === 1);
-      // A's opponents: B(4) + C(2) + D(0) = 6
-      expect(playerA?.opponentScore).toBe(6);
+    it('累进分：A 逐轮 2+4+6 = 12', async () => {
+      const t = await table(matches);
+      expect(cell(t, 1, 'progressiveScore')).toBe(12);
     });
 
-    it('should calculate progressive score', () => {
-      const result = calculator.calculate(matches);
-      const playerA = result.rankings.find((r) => r.id === 1);
-      // A: round1(2) + round2(4) + round3(6) = 12
-      expect(playerA?.progressiveScore).toBe(12);
+    it('轮次元信息由管线从对阵派生', async () => {
+      const t = await table(matches);
+      expect(t.totalRounds).toBe(3);
+      expect(t.completedRounds).toBe(3);
+    });
+
+    it('列名为纯汉字、cells 值全为有限数值或数值数组', async () => {
+      const t = await table(matches);
+      for (const c of t.columns) expect(/^[\u4e00-\u9fa5]{1,12}$/.test(c.label)).toBe(true);
+      for (const r of t.rows) {
+        for (const c of t.columns) {
+          const v = r.cells[c.key];
+          if (Array.isArray(v)) expect(v.every(Number.isFinite)).toBe(true);
+          else expect(Number.isFinite(v)).toBe(true);
+        }
+      }
     });
   });
 
-  describe('draw handling', () => {
+  describe('和棋', () => {
     const matches: MatchData[] = [
       { bout: 1, p1Id: 1, p1Name: 'A', p1Score: 1, p2Id: 2, p2Name: 'B', p2Score: 1 },
     ];
-
-    it('should count draws correctly', () => {
-      const result = calculator.calculate(matches);
-      const playerA = result.rankings.find((r) => r.id === 1);
-      const playerB = result.rankings.find((r) => r.id === 2);
-
-      expect(playerA?.draws).toBe(1);
-      expect(playerB?.draws).toBe(1);
-      expect(playerA?.score).toBe(1);
-      expect(playerB?.score).toBe(1);
+    it('双方各得 1 分', async () => {
+      const t = await table(matches);
+      expect(cell(t, 1, 'score')).toBe(1);
+      expect(cell(t, 2, 'score')).toBe(1);
     });
   });
 
-  describe('incomplete rounds', () => {
+  describe('未完赛轮次', () => {
     const matches: MatchData[] = [
       { bout: 1, p1Id: 1, p1Name: 'A', p1Score: 2, p2Id: 2, p2Name: 'B', p2Score: 0 },
       { bout: 2, p1Id: 1, p1Name: 'A', p1Score: 0, p2Id: 2, p2Name: 'B', p2Score: 0 },
     ];
-
-    it('should count completed rounds correctly', () => {
-      const result = calculator.calculate(matches);
-      expect(result.totalRounds).toBe(2);
-      expect(result.completedRounds).toBe(1);
+    it('比分全 0 的轮次不计入 completedRounds', async () => {
+      const t = await table(matches);
+      expect(t.totalRounds).toBe(2);
+      expect(t.completedRounds).toBe(1);
     });
   });
 
-  describe('tie-breaking', () => {
-    it('should use opponent score for tie-breaking', () => {
-      // Two players with same score but different SOS
-      const matches: MatchData[] = [
-        // Round 1: A beats C, B beats D
-        { bout: 1, p1Id: 1, p1Name: 'A', p1Score: 2, p2Id: 3, p2Name: 'C', p2Score: 0 },
-        { bout: 1, p1Id: 2, p1Name: 'B', p1Score: 2, p2Id: 4, p2Name: 'D', p2Score: 0 },
-        // Round 2: A loses to D, B loses to C
-        { bout: 2, p1Id: 1, p1Name: 'A', p1Score: 0, p2Id: 4, p2Name: 'D', p2Score: 2 },
-        { bout: 2, p1Id: 3, p1Name: 'C', p1Score: 2, p2Id: 2, p2Name: 'B', p2Score: 0 },
-        // Round 3: C beats D (to differentiate SOS)
-        { bout: 3, p1Id: 3, p1Name: 'C', p1Score: 2, p2Id: 4, p2Name: 'D', p2Score: 0 },
-      ];
-
-      const result = calculator.calculate(matches);
-      // A and B both have score=2, but A's opponent D has higher score
-      const rankA = result.rankings.find((r) => r.id === 1);
-      const rankB = result.rankings.find((r) => r.id === 2);
-
-      // A's opponents: C(4) + D(0) => SOS = 4
-      // B's opponents: D(0) + C(4) => SOS = 4
-      // Same SOS, check progressive score
-      expect(rankA?.score).toBe(rankB?.score);
-    });
-  });
-
-  describe('simple mode', () => {
+  describe('simple 口径', () => {
     const matches: MatchData[] = [
       { bout: 1, p1Id: 1, p1Name: 'A', p1Score: 2, p2Id: 2, p2Name: 'B', p2Score: 0 },
       { bout: 1, p1Id: 3, p1Name: 'C', p1Score: 2, p2Id: 4, p2Name: 'D', p2Score: 0 },
       { bout: 2, p1Id: 1, p1Name: 'A', p1Score: 2, p2Id: 3, p2Name: 'C', p2Score: 0 },
       { bout: 2, p1Id: 2, p1Name: 'B', p1Score: 2, p2Id: 4, p2Name: 'D', p2Score: 0 },
     ];
-
-    it('should not use progressive score in simple mode', () => {
-      const result = calculator.calculate(matches, 'simple');
-      // Simple mode: score > SOS > reverse minus (no progressive)
-      expect(result.rankings.length).toBe(4);
+    it('不产累进分列，但仍覆盖 4 人', async () => {
+      const t = await table(matches, 'simple');
+      expect(t.rows.length).toBe(4);
+      expect(t.columns.map((c) => c.key)).not.toContain('progressiveScore');
     });
   });
 
-  describe('reverse minus display', () => {
-    it('should show empty display for non-tied players', () => {
+  describe('directWin 口径', () => {
+    it('追加「直胜」列，值为纯数值 1/0/-1', async () => {
       const matches: MatchData[] = [
         { bout: 1, p1Id: 1, p1Name: 'A', p1Score: 2, p2Id: 2, p2Name: 'B', p2Score: 0 },
       ];
+      const t = await table(matches, 'directWin');
+      expect(t.columns.map((c) => c.label)).toContain('直胜');
+      expect(typeof cell(t, 1, 'directWin')).toBe('number');
+    });
+  });
 
-      const result = calculator.calculate(matches);
-      const playerA = result.rankings.find((r) => r.id === 1);
-      expect(playerA?.reverseMinusDisplay).toBe('');
+  describe('逆减数组（16:09 澄清：cells 允许数值数组）', () => {
+    it('非同分选手逆减为空数组（渲染不显示内容）', async () => {
+      const t = await table([
+        { bout: 1, p1Id: 1, p1Name: 'A', p1Score: 2, p2Id: 2, p2Name: 'B', p2Score: 0 },
+      ]);
+      expect(Array.isArray(cell(t, 1, 'reverseMinus'))).toBe(true);
+      expect(formatRankingCell(cell(t, 1, 'reverseMinus'))).toBe('');
     });
 
-    it('should show display for tied players', () => {
-      const matches: MatchData[] = [
-        // Round 1: A beats C, B beats D
-        { bout: 1, p1Id: 1, p1Name: 'A', p1Score: 2, p2Id: 3, p2Name: 'C', p2Score: 0 },
-        { bout: 1, p1Id: 4, p1Name: 'D', p1Score: 0, p2Id: 2, p2Name: 'B', p2Score: 2 },
-        // Round 2: A beats D, B beats C
-        { bout: 2, p1Id: 1, p1Name: 'A', p1Score: 2, p2Id: 4, p2Name: 'D', p2Score: 0 },
-        { bout: 2, p1Id: 3, p1Name: 'C', p1Score: 0, p2Id: 2, p2Name: 'B', p2Score: 2 },
-        // Round 3: A loses to B
-        { bout: 3, p1Id: 1, p1Name: 'A', p1Score: 0, p2Id: 2, p2Name: 'B', p2Score: 2 },
-      ];
+    it('同分选手逆减是数值数组，formatRankingCell 用 - 连接（3-12）', () => {
+      expect(formatRankingCell([3, 12])).toBe('3-12');
+      expect(formatRankingCell(6)).toBe('6');
+      expect(formatRankingCell([])).toBe('');
+    });
+  });
 
-      const result = calculator.calculate(matches);
-      // Both A and B have 4 points - they're tied on score and SOS
-      const tiedPlayers = result.rankings.filter((r) => r.score === 4);
-      // Tied players should have reverse minus display
-      tiedPlayers.forEach((p) => {
-        if (tiedPlayers.length > 1) {
-          expect(p.reverseMinusDisplay).toBeTruthy();
-        }
-      });
+  describe('校验器拒绝非法输出', () => {
+    const matches: MatchData[] = [
+      { bout: 1, p1Id: 1, p1Name: 'A', p1Score: 2, p2Id: 2, p2Name: 'B', p2Score: 0 },
+    ];
+    it('cells 含字符串 → 拒绝', () => {
+      const out = {
+        columns: [{ key: 'score', label: '积分' }],
+        rows: [
+          { id: 1, name: 'A', rank: 1, cells: { score: '6' } },
+          { id: 2, name: 'B', rank: 2, cells: { score: 0 } },
+        ],
+      };
+      expect(validateRankingOutput(out, { matches }).ok).toBe(false);
+    });
+    it('cells 含数值数组 → 通过', () => {
+      const out = {
+        columns: [{ key: 'score', label: '积分' }, { key: 'rm', label: '逆减' }],
+        rows: [
+          { id: 1, name: 'A', rank: 1, cells: { score: 2, rm: [3, 12] } },
+          { id: 2, name: 'B', rank: 2, cells: { score: 0, rm: [] } },
+        ],
+      };
+      expect(validateRankingOutput(out, { matches }).ok).toBe(true);
+    });
+    it('name 被改写 / 新增选手 → 拒绝', () => {
+      const out = {
+        columns: [{ key: 'score', label: '积分' }],
+        rows: [
+          { id: 1, name: '改名', rank: 1, cells: { score: 2 } },
+          { id: 2, name: 'B', rank: 2, cells: { score: 0 } },
+        ],
+      };
+      expect(validateRankingOutput(out, { matches }).ok).toBe(false);
     });
   });
 });

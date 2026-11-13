@@ -38,8 +38,8 @@ function hintFor(result: Extract<PluginRunResult, { ok: false }>): string {
       return '运行时抛错，请检查字段是否可能 undefined、数组是否越界';
     case 'contract':
       return result.contract?.missingFields.length
-        ? `返回值缺少字段 ${result.contract.missingFields.join(',')}；每行都要保留 id 并给出数值 rank`
-        : (result.hint ?? '入口或返回值不符合契约，必须返回带 id 与数值 rank 的数组');
+        ? `排名表不符合契约（${result.contract.missingFields.join(',')}）：必须返回 { columns, rows } 对象，列名为汉字，cells 只能是数值或数值数组`
+        : (result.hint ?? '入口或返回值不符合契约，必须返回 { columns, rows } 对象且 cells 为数值或数值数组');
     case 'timeout':
       return '执行超时，请避免死循环与 O(n²) 以上的复杂度';
     case 'oom':

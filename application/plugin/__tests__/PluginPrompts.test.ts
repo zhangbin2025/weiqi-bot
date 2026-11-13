@@ -3,24 +3,27 @@ import { buildAgentSystemPrompt, buildRepairMessages } from '../PluginPrompts';
 import type { PluginContextEntry, RepairFeedback } from '@domain/plugin/types';
 
 const snapshot: PluginContextEntry[] = [
-  { id: 'plugin:1', name: '同分比胜局', pointId: 'ranking.tiebreak', enabled: true, version: 2, intent: '同分先看胜局数' },
-  { id: 'plugin:2', name: '草稿', pointId: 'ranking.tiebreak', enabled: false, version: 1, intent: '按对手分' },
+  { id: 'plugin:1', name: '同分比胜局', pointId: 'ranking', enabled: true, version: 2, intent: '同分先看胜局数' },
+  { id: 'plugin:2', name: '草稿', pointId: 'ranking', enabled: false, version: 1, intent: '按对手分' },
 ];
 
 describe('buildAgentSystemPrompt', () => {
-  it('声明可编程智能体身份与沙箱契约', () => {
+  it('声明可编程智能体身份与统一排名契约', () => {
     const s = buildAgentSystemPrompt(snapshot, 3);
     expect(s).toContain('可编程智能体');
     expect(s).toContain('无网络');
-    expect(s).toContain('rank(players)');
-    expect(s).toContain('rank');
+    expect(s).toContain('rank(input)');
+    expect(s).toContain('{ matches: [...] }');
+    expect(s).toContain('{ columns, rows }');
+    expect(s).toContain('数值数组');
+    expect(s).toContain('宿主保留');
   });
 
   it('列出全部插件的 id/name/pointId/enabled/version/intent', () => {
     const s = buildAgentSystemPrompt(snapshot, 3);
     expect(s).toContain('plugin:1');
     expect(s).toContain('同分比胜局');
-    expect(s).toContain('ranking.tiebreak');
+    expect(s).toContain('| 扩展点 ranking |');
     expect(s).toContain('已启用');
     expect(s).toContain('停用');
     expect(s).toContain('v2');
@@ -136,7 +139,8 @@ describe('buildRepairMessages（工件中心）', () => {
   it('prompt 长度克制（不含历史，不重复拼接）', () => {
     const s = buildAgentSystemPrompt(snapshot, 3);
     const m = buildRepairMessages('x', code, fb, 3);
-    expect(s.length).toBeLessThan(3000);
+    // 契约说明比旧版更详细（列/cells/宿主保留列），但仍控制在 4000 字内
+    expect(s.length).toBeLessThan(4000);
     expect(m[1]!.content.length).toBeLessThan(1500);
   });
 });

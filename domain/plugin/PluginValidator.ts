@@ -2,11 +2,15 @@
  * 插件代码预检（纯字符串检查，不做语法解析）
  * @module domain/plugin/PluginValidator
  *
- * 定位：这是写入工件前的「快筛」，真正的隔离由 QuickJS 沙箱保证。
- * 这里只挡住明显的越权意图，避免把明显不合规的代码喂给 LLM 反复修复。
+ * 定位：写入工件前的「快筛」，真正隔离由 QuickJS 沙箱保证。
+ * 输出结构的正式校验在 domain/ranking/RankingTable.validateRankingOutput，
+ * 由统一管线 computeRanking 调用；这里只提供同一校验的轻量包装，便于诊断回喂。
  */
 
 import type { ContractCheck, PluginSpec } from '@domain/plugin/types';
+import type { RankingInput } from '@domain/ranking/types';
+import { validateRankingOutput } from '@domain/ranking/RankingTable';
+import { SAMPLE_RANKING_INPUT } from '@domain/ranking/sampleInput';
 
 /** 浏览器 / 宿主全局访问：沙箱里本就不存在，但提前给出更清楚的报错 */
 const BROWSER_GLOBALS =
@@ -49,48 +53,29 @@ export class PluginValidator {
   }
 }
 
-/** 按扩展点约定，输出行必须具备的字段 */
-function requiredFields(spec: PluginSpec): string[] {
-  return spec.pointId === 'ranking.tiebreak' ? ['rank', 'id'] : [];
-}
-
 /**
- * 输出契约校验（备用）：只检查结构，不解析代码。
- * - outputIsArray：是否数组
- * - missingFields：缺失的字段名（去重）
- * - entryFound：结构是否足以认为入口产物成立（非空数组且无缺失）
+ * 输出契约校验：委托给统一管线的 validateRankingOutput（同一份约束，不另立解释）。
+ * input 省略时用代表性对阵样例，方便诊断/测试单独调用时也能核对选手身份。
+ * 注意：新契约输出是 { columns, rows } 对象，不再是数组；outputIsArray 恒为 false。
  */
-export function validatePluginOutput(output: unknown, spec: PluginSpec): ContractCheck {
-  if (!Array.isArray(output)) {
-    return { entryFound: false, outputIsArray: false, missingFields: requiredFields(spec) };
-  }
-
-  const required = requiredFields(spec);
-  const missing = new Set<string>();
-  for (const row of output) {
-    if (row === null || typeof row !== 'object' || Array.isArray(row)) {
-      for (const f of required) missing.add(f);
-      continue;
-    }
-    const record = row as Record<string, unknown>;
-    for (const f of required) {
-      if (!(f in record)) missing.add(f);
-    }
-    if (required.includes('rank') && typeof record['rank'] !== 'number') {
-      missing.add('rank(number)');
-    }
-  }
-
-  const missingFields = [...missing];
-  return { entryFound: output.length > 0 && missingFields.length === 0, outputIsArray: true, missingFields };
+export function validatePluginOutput(
+  output: unknown,
+  _spec: PluginSpec,
+  input: RankingInput = SAMPLE_RANKING_INPUT,
+): ContractCheck {
+  const check = validateRankingOutput(output, input);
+  return {
+    entryFound: check.ok,
+    outputIsArray: false,
+    missingFields: check.missingFields,
+  };
 }
 
 /** 把 ContractCheck 转成可回喂 LLM 的人话提示 */
 export function contractCheckHint(check: ContractCheck): string {
-  if (!check.outputIsArray) return '插件入口必须返回一个数组';
   if (check.missingFields.length > 0) {
-    return `返回数组缺少字段：${check.missingFields.join('、')}；每一行都要带数值 rank 和原有 id`;
+    return `排名表不符合契约（${check.missingFields.join('、')}）：必须返回 { columns, rows } 对象，列名为汉字，cells 只能是数值或数值数组`;
   }
-  if (!check.entryFound) return '返回数组为空，请检查入口是否被调用';
+  if (!check.entryFound) return '入口未返回合法的 { columns, rows } 对象，请检查 rank 是否被调用';
   return '输出结构符合契约';
 }

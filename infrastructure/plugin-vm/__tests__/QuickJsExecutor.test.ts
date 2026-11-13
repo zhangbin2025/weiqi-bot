@@ -29,27 +29,44 @@ function executor(): QuickJsExecutor {
   return new QuickJsExecutor({ wasmBinary: loadWasm() });
 }
 
-const players = [
-  { name: 'A', score: 4, wins: 2 },
-  { name: 'B', score: 4, wins: 1 },
-  { name: 'C', score: 2, wins: 1 },
-];
+// 唯一原始数据源：对阵表。插件自己从 matches 算出积分并产出 { columns, rows }。
+const input = {
+  matches: [
+    { bout: 1, p1Id: 1, p1Name: 'A', p1Score: 2, p2Id: 2, p2Name: 'B', p2Score: 0 },
+    { bout: 1, p1Id: 3, p1Name: 'C', p1Score: 2, p2Id: 4, p2Name: 'D', p2Score: 0 },
+  ],
+};
 
 const rankCode = `
-function rank(players) {
-  return players.slice()
-    .sort((a,b)=> b.score-a.score || b.wins-a.wins)
-    .map((p,i)=> ({ ...p, rank: i+1 }));
+function rank(input) {
+  const scores = {};
+  for (const m of input.matches) {
+    scores[m.p1Name] = (scores[m.p1Name] || 0) + m.p1Score;
+    scores[m.p2Name] = (scores[m.p2Name] || 0) + m.p2Score;
+  }
+  const rows = [];
+  let id = 1;
+  for (const name of Object.keys(scores)) {
+    rows.push({ id: id++, name: name, rank: 1, cells: { score: scores[name], multi: [3, 12] } });
+  }
+  rows.sort((a,b) => b.cells.score - a.cells.score);
+  rows.forEach((r,i) => r.rank = i+1);
+  return { columns: [{ key: 'score', label: '积分' }, { key: 'multi', label: '逆减' }], rows: rows };
 }`;
 
 describe('QuickJsExecutor', () => {
-  it('正确执行排序插件并返回带 rank 的结果', async () => {
-    const result = await executor().execute({ code: rankCode, input: players, spec: makeSpec() });
+  it('正确执行排名插件并返回 { columns, rows }（含数值数组 cells）', async () => {
+    const result = await executor().execute({ code: rankCode, input, spec: makeSpec() });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const rows = result.output as Array<{ name: string; rank: number }>;
-    expect(rows.map((r) => r.name)).toEqual(['A', 'B', 'C']);
-    expect(rows.map((r) => r.rank)).toEqual([1, 2, 3]);
+    const out = result.output as {
+      columns: Array<{ key: string; label: string }>;
+      rows: Array<{ name: string; rank: number; cells: Record<string, number | number[]> }>;
+    };
+    expect(out.columns.map((c) => c.label)).toEqual(['积分', '逆减']);
+    expect(out.rows.map((r) => r.name)).toEqual(['A', 'C']);
+    expect(out.rows.map((r) => r.rank)).toEqual([1, 2]);
+    expect(out.rows[0]!.cells['multi']).toEqual([3, 12]);
   });
 
   it('浏览器全局全部不可见（零能力）', async () => {
@@ -141,28 +158,29 @@ describe('QuickJsExecutor', () => {
 
   it('入口名非法时拒绝执行（防注入到调用表达式）', async () => {
     const spec = makeSpec({ entry: 'rank();evil(' });
-    const result = await executor().execute({ code: rankCode, input: players, spec });
+    const result = await executor().execute({ code: rankCode, input, spec });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.phase).toBe('contract');
   });
 
   it('输入以 JSON 传入，插件拿到的是副本而非宿主引用', async () => {
-    const code = `function rank(x){ x[0].score = 999; return x }`;
-    const result = await executor().execute({ code, input: players, spec: makeSpec() });
+    const code = `function rank(x){ x.matches[0].p1Score = 999; return x }`;
+    const result = await executor().execute({ code, input, spec: makeSpec() });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect((result.output as typeof players)[0].score).toBe(999);
-    expect(players[0].score).toBe(4);
+    expect((result.output as typeof input).matches[0]!.p1Score).toBe(999);
+    expect(input.matches[0]!.p1Score).toBe(2);
   });
 
   it('同一执行器连续多次执行互不污染（独立 Runtime/Context）', async () => {
     const ex = executor();
-    const first = await ex.execute({ code: rankCode, input: players, spec: makeSpec() });
-    const second = await ex.execute({ code: rankCode, input: players.slice().reverse(), spec: makeSpec() });
+    const first = await ex.execute({ code: rankCode, input, spec: makeSpec() });
+    const second = await ex.execute({ code: rankCode, input, spec: makeSpec() });
     expect(first.ok).toBe(true);
     expect(second.ok).toBe(true);
     if (!first.ok || !second.ok) return;
-    expect((second.output as Array<{ name: string }>).map((r) => r.name)).toEqual(['A', 'B', 'C']);
+    const rows = (second.output as { rows: Array<{ name: string }> }).rows;
+    expect(rows.map((r) => r.name)).toEqual(['A', 'C']);
   });
 });
