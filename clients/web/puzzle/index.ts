@@ -9,6 +9,7 @@ import { PuzzlePage } from '../../../presentation/adapters/web/pages/puzzle';
 import { PuzzleApp } from '../../../application/puzzle/PuzzleApp';
 import { ExportService } from '../../../services/export/ExportService';
 import { ShareService } from '../../../services/share/ShareService';
+import { WEIQI_SHARE_DECODE_URL } from '../../../services/share/WeiqiAssetsUrls';
 import { WebFileExporter } from '../../../infrastructure/utils/export/WebFileExporter';
 import { WebAudioPlayer } from '../../../infrastructure/audio/WebAudioPlayer';
 import { Select } from '../shared/ui';
@@ -31,7 +32,7 @@ async function main() {
   // 3. 创建 FetcherApp（复用其 fetchLatestGames 取题能力）
   const fileExporter = new WebFileExporter();
   const exportService = new ExportService(fileExporter);
-  const shareService = new ShareService('https://weiqi-dev.github.io/weiqi-assets/share/');
+  const shareService = new ShareService(WEIQI_SHARE_DECODE_URL);
   const { FetcherApp } = await import('../../../application/fetcher/FetcherApp');
   const fetcherApp = new FetcherApp(
     gameService,

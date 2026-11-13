@@ -9,6 +9,7 @@ import { WebAudioPlayer } from '../../../../infrastructure/audio/WebAudioPlayer'
 import { WebFileExporter } from '../../../../infrastructure/utils/export/WebFileExporter';
 import { GameService } from '../../../../services/game/GameService';
 import { ShareService } from '../../../../services/share/ShareService';
+import { WEIQI_SHARE_DECODE_URL } from '../../../../services/share/WeiqiAssetsUrls';
 import { SessionService } from '../../../../services/session';
 import type { WebShellContext } from '../Context';
 import type { IGameService } from '../../../../services/game/IGameService';
@@ -34,7 +35,7 @@ export async function createReplayDeps(ctx: WebShellContext): Promise<ReplayDeps
   const sessionService = new SessionService(cacheStorage);
   
   // 分享服务：无来源 URL 时用 SGF 内容编码生成分享链接（与 fetcher/puzzle 同域名）
-  const shareService = new ShareService('https://weiqi-dev.github.io/weiqi-assets/share/');
+  const shareService = new ShareService(WEIQI_SHARE_DECODE_URL);
 
   const replayApp = new ReplayApp(exportService, audioPlayer, gameService, sessionService, shareService);
   

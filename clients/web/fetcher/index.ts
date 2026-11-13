@@ -9,6 +9,7 @@ import { FetcherPage } from '../../../presentation/adapters/web/pages/fetcher';
 import { FetcherApp } from '../../../application/fetcher';
 import { ExportService } from '../../../services/export/ExportService';
 import { ShareService } from '../../../services/share/ShareService';
+import { WEIQI_SHARE_DECODE_URL } from '../../../services/share/WeiqiAssetsUrls';
 import { WebFileExporter } from '../../../infrastructure/utils/export/WebFileExporter';
 import { SessionService } from '../../../services/session/SessionService';
 import { LocalStorageCacheAdapter } from '../../../infrastructure/storage/adapters/web/LocalStorageCacheAdapter';
@@ -35,7 +36,7 @@ async function main() {
   const { gameService } = await createGameDeps(ctx);
 
   // 5. 创建分享服务
-  const shareService = new ShareService('https://weiqi-dev.github.io/weiqi-assets/share/');
+  const shareService = new ShareService(WEIQI_SHARE_DECODE_URL);
 
   // 6. 创建 FetcherApp（使用 Shell 上下文的收藏服务）
   const fetcherApp = new FetcherApp(

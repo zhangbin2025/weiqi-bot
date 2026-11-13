@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { ShareService } from '../ShareService.js';
 import type { EncodedMove } from '../../../domain/share/index.js';
+import { WEIQI_SHARE_DECODE_URL } from '../WeiqiAssetsUrls.js';
 
 describe('ShareService', () => {
   describe('构造函数', () => {
     it('使用默认基础URL', () => {
       const service = new ShareService();
-      expect(service.baseUrl).toBe('https://weiqi-dev.github.io/weiqi-assets/share/');
+      expect(service.baseUrl).toBe(WEIQI_SHARE_DECODE_URL);
     });
 
     it('支持自定义基础URL', () => {

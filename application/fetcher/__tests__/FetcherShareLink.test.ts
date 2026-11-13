@@ -12,6 +12,7 @@ import type { IExportService } from '../../../services/export';
 import type { IFavoriteService } from '../../../services/favorite';
 import type { IShareService } from '../../../services/share';
 import { actionText } from '../../../presentation/adapters/web/pages/fetcher/utils/gameKind';
+import { WEIQI_SHARE_DECODE_URL } from '../../../services/share/WeiqiAssetsUrls.js';
 
 const SGF = '(;GM[1]FF[4]SZ[19]KM[7.5]PB[柯洁]PW[申真谞];B[pd];W[dp];B[pp];W[dd])';
 
@@ -27,8 +28,8 @@ function makeGameService(archiveUrl?: string): IGameService {
 
 function makeShareService(): IShareService {
   return {
-    baseUrl: 'https://weiqi-dev.github.io/weiqi-assets/share/',
-    generateShareUrl: vi.fn().mockReturnValue('https://weiqi-dev.github.io/weiqi-assets/share/?d=ENCODED'),
+    baseUrl: WEIQI_SHARE_DECODE_URL,
+    generateShareUrl: vi.fn().mockReturnValue(WEIQI_SHARE_DECODE_URL + '?d=ENCODED'),
     decodeShareUrl: vi.fn(),
     decodeParam: vi.fn(),
     toSGF: vi.fn(),

@@ -5,6 +5,7 @@
 
 import { GameEncoder, type EncodedMove, type DecodedGame } from '../../domain/share/index.js';
 import type { IShareService } from './IShareService.js';
+import { WEIQI_SHARE_DECODE_URL } from './WeiqiAssetsUrls.js';
 
 /**
  * 分享服务
@@ -26,7 +27,7 @@ export class ShareService implements IShareService {
    * @param baseUrl - 分享页面基础URL，默认为官方分享页面
    */
   constructor(baseUrl?: string) {
-    this.baseUrl = baseUrl ?? 'https://weiqi-dev.github.io/weiqi-assets/share/';
+    this.baseUrl = baseUrl ?? WEIQI_SHARE_DECODE_URL;
   }
 
   /**
