@@ -214,6 +214,11 @@ export class ChatPage {
     if (banner) banner.style.display = ready ? 'none' : 'block';
   }
 
+  /** 是否 PDF：预览图标与「PDF 读取方式」选择器共用同一口径 */
+  private isPdfFile(file: { name: string; type: string }): boolean {
+    return /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
+  }
+
   /** 附件预览：只显示文件名，绝不把 base64 / 文件内容拼进 DOM */
   private renderAttachPreview(): void {
     const root = document.getElementById('attachPreview');
@@ -222,15 +227,17 @@ export class ChatPage {
     if (!root) return;
     root.textContent = '';
     const has = this.pendingFiles.length > 0;
+    // 「PDF 读取方式」只在真的有 PDF 时出现：纯图片附件不该看到无关选项
+    const hasPdf = this.pendingFiles.some((f) => this.isPdfFile(f));
     root.style.display = has ? 'flex' : 'none';
-    if (mode) mode.style.display = has ? 'flex' : 'none';
+    if (mode) mode.style.display = hasPdf ? 'flex' : 'none';
     btn?.classList.toggle('attach-btn--on', has);
     this.pendingFiles.forEach((file, index) => {
       const chip = document.createElement('span');
       chip.className = 'attach-chip';
       const name = document.createElement('span');
       name.className = 'attach-chip__name';
-      const icon = /\.pdf$/i.test(file.name) || file.type === 'application/pdf' ? '📄' : '🖼️';
+      const icon = this.isPdfFile(file) ? '📄' : '🖼️';
       name.textContent = `${icon} ${file.name}`;
       const remove = document.createElement('button');
       remove.type = 'button';

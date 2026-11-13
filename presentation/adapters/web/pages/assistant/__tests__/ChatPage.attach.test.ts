@@ -68,6 +68,30 @@ describe('ChatPage 附件按钮早期绑定', () => {
     expect(preview.style.display).toBe('flex');
   });
 
+  it('「PDF 读取方式」只在有 PDF 时出现；纯图片不提示，移除最后一个 PDF 后收起', () => {
+    const { doc, page } = harness();
+    const mode = doc.getElementById('attachMode')!;
+    const render = () => (page['renderAttachPreview'] as () => void).call(page);
+
+    // 纯图片：预览条可见，但模式选择器保持隐藏
+    page['pendingFiles'] = [{ name: 'board.png', type: 'image/png' }];
+    render();
+    expect(doc.getElementById('attachPreview')!.style.display).toBe('flex');
+    expect(mode.style.display).toBe('none');
+
+    // 加一个 PDF：出现
+    page['pendingFiles'].push({ name: 'doc.pdf', type: 'application/pdf' });
+    render();
+    expect(mode.style.display).toBe('flex');
+
+    // 移除 PDF（点 chip 上的 ×）：重新判定，收起
+    const chips = doc.querySelectorAll('#attachPreview .attach-chip__x');
+    const pdfRemove = chips[1] as HTMLButtonElement;
+    pdfRemove.click();
+    expect(page['pendingFiles']).toHaveLength(1);
+    expect(mode.style.display).toBe('none');
+  });
+
   it('syncReadyState 不再禁用附件按钮（没配 LLM 也能选文件）', () => {
     const { doc, page } = harness();
     const btn = doc.getElementById('attachBtn') as HTMLButtonElement;
