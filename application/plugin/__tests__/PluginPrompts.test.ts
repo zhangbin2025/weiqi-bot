@@ -141,7 +141,34 @@ describe('buildRepairMessages（工件中心）', () => {
     expect(s).toContain('完整 JS 源码');
     expect(s).toContain('不给 JSON 动作协议');
     expect(s).toContain('id=0');
-    expect(s).toContain('不能出现在 rows 里');
+    expect(s).toContain('不进 rows');
+  });
+
+  it('四元分离：有 instruction 时原样置顶、优先级最高，spec/state/feedback 各自独立', () => {
+    const instruction = '不对，总分不该是积分加对手分，请按积分编排制重算';
+    const m = buildRepairMessages('原始需求：按积分排名', code, fb, 3, instruction);
+    const user = m[1]!.content;
+    // 指令原样、置顶
+    expect(user.startsWith('【本轮修改要求（原样，最高优先级，必须逐条满足）】')).toBe(true);
+    expect(user).toContain(instruction);
+    // 四元互不覆盖
+    expect(user).toContain('【原始需求（仅作背景）】原始需求：按积分排名');
+    expect(user).toContain('【当前源码（改动基点）】');
+    expect(user).toContain(code);
+    expect(user).toContain('【本轮反馈（上轮验证结果）】');
+    expect(user).toContain('TypeError');
+    // 要求实质改动，不许照抄
+    expect(user).toContain('不要原样照抄当前源码');
+    const s = m[0]!.content;
+    expect(s).toContain('【四元】');
+    expect(s).toContain('优先级最高');
+    expect(s).toContain('实质改动');
+  });
+
+  it('无 instruction 时不出现「本轮修改要求」段（首次生成保持原状）', () => {
+    const m = buildRepairMessages('需求', undefined, '请根据需求输出', 3);
+    expect(m[1]!.content).not.toContain('【本轮修改要求');
+    expect(m[1]!.content).toContain('无（首次生成）');
   });
 
   it('prompt 长度克制（不含历史，不重复拼接）', () => {

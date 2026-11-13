@@ -145,7 +145,12 @@ export function buildCodegenSystemPrompt(_snapshot: PluginContextEntry[] = [], m
 }
 
 /**
- * 构造一轮修复消息。只依赖工件（intent/code）与本轮反馈。
+ * 构造一轮修复消息。四元分离（业界 edit(state, instruction) -> state' 的形状）：
+ * - spec         = 原始需求（intent），仅作背景
+ * - state        = 当前完整源码（code）
+ * - instruction  = 本轮修改要求（用户原话，原样、最高优先级）
+ * - feedback     = 上轮验证/试算结果
+ * 四者互不覆盖、互不伪装；最新指令放在 user 最前，每轮都带，不依赖会话历史。
  * 返回的消息里没有任何会话历史轮次。
  */
 export function buildRepairMessages(
@@ -153,19 +158,24 @@ export function buildRepairMessages(
   code: string | undefined,
   feedback: RepairFeedback | string,
   maxAttempts: number,
+  instruction?: string,
 ): Array<{ role: 'system' | 'user' | 'assistant'; content: string }> {
   const system = [
-    '你在修订一个围棋客户端插件。依据「原始需求 + 当前完整源码 + 本轮反馈」输出修正后的完整 JS 源码。',
+    '你在按「本轮修改要求」修订一个围棋客户端插件，输出修正后的完整 JS 源码。',
+    '【四元】原始需求(spec)只是背景；当前完整源码(state)是改动基点；本轮修改要求(instruction)是唯一验收依据，优先级最高；本轮反馈(feedback)是上轮验证结果。',
+    '修订必须相对 state 产生实质改动，且严格满足 instruction；不要照着原始需求原样重写一遍。',
     `自动修复轮数上限 ${maxAttempts}；每次都给全量代码，不给 diff、不给解释、不给 JSON 动作协议。`,
     '只写纯 JS 计算函数，入口 rank(input)，input={matches}，返回 { columns, rows }，cells 为数值或数值数组。',
     'id=0 或姓名为空是轮空，不进 rows（但另一侧的比分照常计入）；rows 必须恰好覆盖对阵表里全部真实选手。',
   ].join('\n');
 
   const user = [
-    `【原始需求】${intent}`,
-    code ? `【当前源码】\n${code}` : '【当前源码】无（首次生成）',
-    `【本轮反馈】${feedbackText(feedback)}`,
-    '请输出修正后的完整 JS 源码（可放在 JSON 的 action.code 里，或 ```js 围栏里）。',
+    // 指令保真：用户本轮原话原样置顶，不转述、不压成一行、不脱敏
+    ...(instruction ? [`【本轮修改要求（原样，最高优先级，必须逐条满足）】\n${instruction}`] : []),
+    `【原始需求（仅作背景）】${intent}`,
+    code ? `【当前源码（改动基点）】\n${code}` : '【当前源码】无（首次生成）',
+    `【本轮反馈（上轮验证结果）】${feedbackText(feedback)}`,
+    '请输出「按本轮修改要求改动后」的完整 JS 源码（可放在 ```js 围栏里），不要只解释、不要原样照抄当前源码。',
   ].join('\n\n');
 
   return [

@@ -62,6 +62,8 @@ export interface IPluginCodegen {
   run(req: {
     intent: string;
     currentCode?: string;
+    /** 本轮增量指令（用户原话），修订时显式透传，不与 intent/feedback 混同 */
+    revisionRequest?: string;
     userFeedback?: string;
     sampleInput: unknown;
     spec?: PluginSpec;
@@ -253,13 +255,24 @@ export class PluginAgentUseCase {
           const existing = action.artifactId
             ? await this.options.artifacts.get(action.artifactId)
             : null;
+          // 四元分离：intent 是原始需求（spec），req.text 是本轮增量指令（instruction）。
+          // 修订时两者必须并列传下去，绝不能让老需求盖掉用户这轮说的「改一下」。
           const intent = action.intent ?? (isCreate ? req.text : existing?.intent ?? req.text);
           const spec = existing?.spec ?? RANKING_SPEC;
+          // action.feedback 是模型转述的用户意见；第一段代码不该再拿一段源码覆盖它。
+          // action.code 若存在，只作为「参考源码」放进 feedback 文本，绝不伪装成用户反馈。
+          const feedbackParts = [
+            action.feedback,
+            // 模型可能把新代码直接放在 action.code；保留作参考，但不顶替用户原话
+            action.code ? `（模型给出的候选源码，仅供参考）\n${action.code}` : undefined,
+          ].filter((p): p is string => Boolean(p && p.trim()));
+          const userFeedback = feedbackParts.length ? feedbackParts.join('\n\n') : undefined;
           const codegen = await this.options.codegen.run({
             intent,
             ...(existing?.code ? { currentCode: existing.code } : {}),
-            ...(action.feedback ? { userFeedback: action.feedback } : {}),
-            ...(action.code ? { userFeedback: action.code } : {}),
+            // 修订：本轮用户原话原样透传，作为验收依据（instruction）
+            ...(!isCreate ? { revisionRequest: req.text } : {}),
+            ...(userFeedback ? { userFeedback } : {}),
             sampleInput: req.sampleInput ?? SAMPLE_RANKING_INPUT,
             spec,
             snapshot,
@@ -306,7 +319,8 @@ export class PluginAgentUseCase {
             await this.options.artifacts.revise(action.artifactId, {
               code: codegen.code,
               trigger: 'user-feedback',
-              ...(action.feedback ? { feedback: action.feedback } : {}),
+              // 留痕用用户本轮原话，不用模型转述，也不用源码顶替
+              feedback: req.text,
             });
             artifactId = action.artifactId;
           }

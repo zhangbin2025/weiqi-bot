@@ -233,13 +233,51 @@ describe('PluginAgentUseCase', () => {
     const result = await new PluginAgentUseCase(h.options).turn({ text: '这个规则排反了' });
     expect(result.acted).toBe(true);
     expect(result.artifactId).toBe('plugin:old');
+    // 留痕用用户本轮原话，而不是模型转述的 feedback
     expect(h.artifacts.revise).toHaveBeenCalledWith('plugin:old', expect.objectContaining({
-      trigger: 'user-feedback', feedback: '排反了',
+      trigger: 'user-feedback', feedback: '这个规则排反了',
     }));
     expect(h.codegen.run).toHaveBeenCalledWith(expect.objectContaining({
       intent: '原始需求',
       currentCode: 'function rank(x){ return x.reverse() }',
+      // 四元分离：本轮用户原话作为独立 instruction 显式透传，不被老 intent 吞掉
+      revisionRequest: '这个规则排反了',
     }));
+  });
+
+  it('plugin.revise 时 action.code 不覆盖用户反馈：feedback 保留用户意见、code 仅作参考', async () => {
+    const h = harness();
+    h.artifacts.get.mockResolvedValue({
+      id: 'plugin:old', code: 'OLD', intent: '原始需求', spec: RANKING_SPEC,
+    });
+    setResponses(h, [ok('改', {
+      kind: 'plugin.revise', artifactId: 'plugin:old',
+      feedback: '把总分算法改对',
+      code: 'function rank(x){ return x }',
+    })]);
+    await new PluginAgentUseCase(h.options).turn({ text: '总分算错了，按编排制改' });
+    const req = h.codegen.run.mock.calls[0]![0] as {
+      revisionRequest?: string;
+      userFeedback?: string;
+      intent?: string;
+    };
+    // 用户原话在独立字段，原样保留
+    expect(req.revisionRequest).toBe('总分算错了，按编排制改');
+    // feedback 里用户意见没被源码顶掉
+    expect(req.userFeedback).toContain('把总分算法改对');
+    expect(req.userFeedback).toContain('仅供参考');
+    // 且不含被覆盖的迹象：源码不是唯一内容
+    expect(req.userFeedback).not.toBe('function rank(x){ return x }');
+    // intent 仍是原始 spec，没被本轮指令污染
+    expect(req.intent).toBe('原始需求');
+  });
+
+  it('plugin.create 不传 revisionRequest（首次生成无需增量指令）', async () => {
+    const h = harness();
+    setResponses(h, [ok('我来写', { kind: 'plugin.create', intent: '同分先比胜局', code: 'x' })]);
+    await new PluginAgentUseCase(h.options).turn({ text: '写个排名规则' });
+    const req = h.codegen.run.mock.calls[0]![0] as { revisionRequest?: string };
+    expect(req.revisionRequest).toBeUndefined();
   });
 
   it('codegen 失败时把观测回喂给模型继续决策', async () => {

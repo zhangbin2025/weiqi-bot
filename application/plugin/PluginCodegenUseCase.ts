@@ -21,6 +21,7 @@ import type {
 } from '@domain/plugin/types';
 import { RANKING_SPEC } from '@domain/plugin/types';
 import { SAMPLE_RANKING_INPUT, validateRankingOutput } from '@domain/ranking';
+import type { IInstructionVerifier, VerificationResult } from './InstructionVerifier';
 
 /** 校验器端口（实现见 domain/plugin/PluginValidator） */
 export interface ICodeValidator {
@@ -37,6 +38,7 @@ export interface IPromptBuilder {
     code: string | undefined,
     feedback: RepairFeedback | string,
     maxAttempts: number,
+    instruction?: string,
   ): Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
 }
 
@@ -63,12 +65,16 @@ export interface PluginCodegenOptions {
   protocol: IAgentProtocol;
   feedback: IFeedbackAdapter;
   maxAttempts: number;
+  /** 可选：指令满足度验证器；不注入则修订只做 diff 检测（轻量档） */
+  verifier?: IInstructionVerifier;
 }
 
 export interface CodegenRequest {
   intent: string;
   /** 修订时的当前代码；首次生成传 undefined */
   currentCode?: string;
+  /** 本轮增量指令（用户原话）。修订时由 agent 显式传入，不与 intent/feedback 混同 */
+  revisionRequest?: string;
   /** 用户验收反馈（可选），有则作为首轮反馈 */
   userFeedback?: string;
   /** 沙箱试算输入；不传则使用代表性对阵样例（含轮空、含未完赛） */
@@ -146,6 +152,14 @@ export class PluginCodegenUseCase {
     let code: string | undefined = req.currentCode;
     let lastFeedback: RepairFeedback | undefined;
     let reply = '';
+    // 修订态：有「当前代码」或「本轮指令」即视为修订（标准 edit(state, instruction) -> state'）
+    const isRevision = Boolean(req.currentCode || req.revisionRequest);
+    // 原始 state：给 verifier 当 previousCode（验收「相对最初的净改动」），
+    // 也是 diff 检测的第二个基准，防止「改了两轮又绕回原样」被放过。
+    // 每轮给模型看的 state 则是上一轮候选（code），标准逐轮 edit 形状。
+    const baseCode = req.currentCode ?? '';
+    // 本轮指令原样保留，每轮透传、每轮验收
+    const instruction = req.revisionRequest ?? '';
     const trace: PluginTraceStep[] = [];
     const push = (stepAttempt: number, phase: string, ok: boolean, detail: string, stepCode?: string): void => {
       const step: PluginTraceStep = { source: 'codegen', attempt: stepAttempt, phase, ok, detail };
@@ -161,6 +175,7 @@ export class PluginCodegenUseCase {
         code,
         lastFeedback ?? req.userFeedback ?? '请根据需求输出完整插件代码',
         maxAttempts,
+        instruction || undefined,
       );
       // codegen 用独立极简 prompt（不含任何插件动作/artifactId 字样）；
       // 端口未注入时回落旧行为，保证测试与旧装配可用。
@@ -216,6 +231,24 @@ export class PluginCodegenUseCase {
           ok: false,
           error: { name: 'ProtocolError', message: reason },
           hint: '请直接输出完整的 function rank(input){ ... } 源码（可用 ```js 围栏），不要解释、不要 JSON 动作协议、不要 diff',
+          attempt,
+          maxAttempts,
+        };
+        continue;
+      }
+      // 显式变更检测（不变式 3）：修订时两种「没改」都直接回喂、不进入后续验收：
+      //  a. 原样照抄本轮 state，即上一轮候选或首次的原始源码 —— 模型卡住重复输出；
+      //  b. 净改动为零：绕几轮又改回原始 baseCode —— 交付的还是没改的代码。
+      // 比对时忽略首尾空白差异，任何实质内容变化都算改动。
+      const sameAsState = nextCode.trim() === (code ?? '').trim();
+      const sameAsBase = Boolean(baseCode) && nextCode.trim() === baseCode.trim();
+      if (isRevision && (sameAsState || sameAsBase)) {
+        push(attempt, 'diff', false, `第 ${attempt}/${maxAttempts} 轮：输出与改动基点完全相同，未做任何修改`);
+        lastFeedback = {
+          phase: 'user',
+          ok: false,
+          error: { name: 'NoChangeError', message: '代码没有任何改动' },
+          hint: `你没有修改代码。请严格按【本轮修改要求】给出改动后的完整源码，不要原样照抄当前源码。本轮修改要求：${instruction || '（未提供，请按用户反馈修订）'}`,
           attempt,
           maxAttempts,
         };
@@ -280,6 +313,45 @@ export class PluginCodegenUseCase {
           continue;
         }
         push(attempt, 'sandbox', true, `第 ${attempt}/${maxAttempts} 轮：沙箱试算通过（${runResult.elapsedMs}ms）`);
+
+        // 验收 = 指令满足度（业界 C：生成→验证→修订）。
+        // 「能跑 / 合契约」只是必要条件；修订时还要单独判定「是否按本轮指令改了」。
+        if (isRevision && this.options.verifier) {
+          let verdict: VerificationResult;
+          try {
+            verdict = await this.options.verifier.verify({
+              spec: req.intent,
+              instruction: instruction || req.userFeedback || '（用户要求修改插件，但未给出具体指令）',
+              previousCode: baseCode,
+              candidateCode: code,
+            });
+          } catch (error) {
+            // 验证器自身异常也不打回正确代码，但显式记一步，不静默
+            verdict = {
+              satisfied: false,
+              available: false,
+              reason: `验证器异常（不据此打回）：${error instanceof Error ? error.message : String(error)}`,
+            };
+          }
+          if (!verdict.available) {
+            push(attempt, 'verify', false, `第 ${attempt}/${maxAttempts} 轮：${verdict.reason}`);
+            // fail-open：判定不可采信时不回环，但用户能在过程里看到「未判定」
+          } else if (!verdict.satisfied) {
+            push(attempt, 'verify', false, `第 ${attempt}/${maxAttempts} 轮：指令未满足 — ${verdict.reason}`);
+            lastFeedback = {
+              phase: 'user',
+              ok: false,
+              error: { name: 'InstructionError', message: '未满足本轮修改要求' },
+              hint: `验证判定：候选代码没有按【本轮修改要求】改到位。还差什么：${verdict.reason}。请照此重写完整源码，本轮修改要求：${instruction || req.userFeedback || '（未提供）'}`,
+              attempt,
+              maxAttempts,
+            };
+            continue;
+          } else {
+            push(attempt, 'verify', true, `第 ${attempt}/${maxAttempts} 轮：指令满足度通过`);
+          }
+        }
+
         return { ok: true, code, output: runResult.output, attempts: attempt, reply, trace };
       }
       push(attempt, 'sandbox', false, `第 ${attempt}/${maxAttempts} 轮：试算失败 [${runResult.phase}] ${runResult.error?.message ?? runResult.hint ?? '未知'}`, code);

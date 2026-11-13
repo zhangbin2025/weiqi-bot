@@ -27,6 +27,7 @@ import { PluginContextProvider } from './PluginContextProvider';
 import { buildAgentSystemPrompt, buildCodegenSystemPrompt, buildRepairMessages } from './PluginPrompts';
 import { toFeedback, sanitizeFeedback, describeInputShape } from './FeedbackPack';
 import { parseAgentResponse, safeAgentReply } from './AgentProtocol';
+import { InstructionVerifier } from './InstructionVerifier';
 import { PluginCodegenUseCase } from './PluginCodegenUseCase';
 import { PluginAgentUseCase } from './PluginAgentUseCase';
 import { createPluginRanking } from './RankingPluginAdapter';
@@ -165,6 +166,10 @@ export async function createPluginSystem(options: PluginSystemOptions = {}): Pro
   const snapshot = new PluginContextProvider(store);
   const validator = new PluginValidator();
 
+  // 指令满足度验证器：只在修订时由 codegen 调用一次独立模型判定。
+  // 注入为端口，测试可 mock；不注入时 codegen 自动退化为「只做 diff 检测」的轻量档。
+  const verifier = new InstructionVerifier(gateway);
+
   const codegen = new PluginCodegenUseCase({
     gateway,
     runtime,
@@ -172,6 +177,7 @@ export async function createPluginSystem(options: PluginSystemOptions = {}): Pro
     prompts: codegenPrompts,
     protocol,
     feedback: feedbackAdapter,
+    verifier,
     maxAttempts,
   });
 
