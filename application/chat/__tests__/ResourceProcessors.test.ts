@@ -26,6 +26,7 @@ const imageResource = (): ResourceInput => ({
 function stubPdfJs(itemsPerPage: string[][]): void {
   const global = globalThis as unknown as { pdfjsLib?: unknown };
   global.pdfjsLib = {
+    // 模拟 defer 加载完成但还没设 workerSrc 的状态
     GlobalWorkerOptions: { workerSrc: '' },
     getDocument: () => ({
       promise: Promise.resolve({
@@ -52,10 +53,12 @@ describe('parsePdfMode', () => {
 describe('processPdf', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('text 模式逐页抽文字，观察带来源 URL，附件是 pdf-text', async () => {
+  it('text 模式逐页抽文字，观察带来源 URL，附件是 pdf-text；defer 后懒设 workerSrc', async () => {
     stubPdfJs([['黑1', '星位'], ['白2', '小目']]);
     const r = await processPdf(pdfResource(), 'text');
     expect(r.ok).toBe(true);
+    const lib = (globalThis as unknown as { pdfjsLib: { GlobalWorkerOptions: { workerSrc: string } } }).pdfjsLib;
+    expect(lib.GlobalWorkerOptions.workerSrc).toContain('pdf.worker.min.js');
     expect(r.observation).toContain('https://example.com/doc.pdf');
     expect(r.observation).toContain('[第 1 页]');
     expect(r.observation).toContain('黑1 星位');

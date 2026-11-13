@@ -59,6 +59,10 @@ export class ChatPage {
 
   /** 入口注入：proxyUrl 由 vite 域的 chat.ts 算好（三端分流），此处只接收 */
   async init(options?: { proxyUrl?: string }): Promise<void> {
+    // 附件按钮是纯 DOM 行为，必须第一时间可用：后面 IndexedDB / 插件系统 /
+    // 会话恢复任何一个 await 卡住或抛错，都不该让用户点 📎 毫无反应。
+    this.bindAttachUI();
+
     const storage = new IndexedDBAdapter<{ id: string; category: string; key: string; createdAt: number }>(
       DB_NAME, DB_STORE,
     );
@@ -116,6 +120,7 @@ export class ChatPage {
   // ---------- UI 绑定 ----------
 
   private bindUI(): void {
+    this.bindAttachUI();
     const input = document.getElementById('userInput') as HTMLTextAreaElement | null;
     const sendBtn = document.getElementById('sendBtn') as HTMLButtonElement | null;
 
@@ -127,19 +132,6 @@ export class ChatPage {
     });
     input?.addEventListener('input', () => this.autoResize(input));
     sendBtn?.addEventListener('click', () => void this.handleSend());
-
-    // 本地附件：按钮 → 隐藏 file input → 预览 chips（可逐个移除）
-    const attachBtn = document.getElementById('attachBtn') as HTMLButtonElement | null;
-    const attachInput = document.getElementById('attachInput') as HTMLInputElement | null;
-    attachBtn?.addEventListener('click', () => attachInput?.click());
-    attachInput?.addEventListener('change', () => {
-      if (attachInput.files) {
-        for (const file of Array.from(attachInput.files)) this.pendingFiles.push(file);
-      }
-      // 允许连续选同一个文件：清空 input 的 value
-      attachInput.value = '';
-      this.renderAttachPreview();
-    });
 
     // 菜单五项 + 遮罩关闭
     document.getElementById('menuBtn')?.addEventListener('click', () => this.toggleMenu());
@@ -162,6 +154,34 @@ export class ChatPage {
         this.toggleRoleMenu(false);
       }
     });
+  }
+
+  /**
+   * 供入口在 resolveProxyUrl() 之前调用：App 端的 window.prompt('config:get')
+   * 是原生桥接，可能挂起，不能让附件按钮等它回来才可用。幂等。
+   */
+  bindEarlyUI(): void {
+    this.bindAttachUI();
+  }
+
+  /**
+   * 附件绑定单独抽出、可重复调用（入口 + init 早期 + bindUI 各一次）。
+   * 用 onclick / onchange 赋值而非 addEventListener：天然幂等，不会重复绑定。
+   */
+  private bindAttachUI(): void {
+    const attachBtn = document.getElementById('attachBtn') as HTMLButtonElement | null;
+    const attachInput = document.getElementById('attachInput') as HTMLInputElement | null;
+    if (attachBtn && attachInput) {
+      attachBtn.onclick = () => attachInput.click();
+      attachInput.onchange = () => {
+        if (attachInput.files) {
+          for (const file of Array.from(attachInput.files)) this.pendingFiles.push(file);
+        }
+        // 允许连续选同一个文件：清空 input 的 value
+        attachInput.value = '';
+        this.renderAttachPreview();
+      };
+    }
   }
 
   private autoResize(input: HTMLTextAreaElement): void {
@@ -189,8 +209,8 @@ export class ChatPage {
       input.placeholder = ready ? getRole(this.currentRole).placeholder : '请先到功能助手配置 LLM';
     }
     if (sendBtn) sendBtn.disabled = !ready;
-    const attachBtn = document.getElementById('attachBtn') as HTMLButtonElement | null;
-    if (attachBtn) attachBtn.disabled = !ready;
+    // 📎 故意不管 ready：选文件是纯本地行为，不该被 LLM 配置挡住。
+    // 未就绪时仍可选，发送时再给明确提示（见 handleSend）。
     if (banner) banner.style.display = ready ? 'none' : 'block';
   }
 
@@ -229,7 +249,13 @@ export class ChatPage {
 
   private async handleSend(): Promise<void> {
     const input = document.getElementById('userInput') as HTMLTextAreaElement | null;
-    if (!input || input.disabled) return;
+    if (!input) return;
+    if (input.disabled) {
+      // 未配置 LLM 时输入被禁用，但附件按钮仍可用；别让用户点了发送没反应。
+      const banner = document.getElementById('notReady');
+      if (banner) banner.style.display = 'block';
+      return;
+    }
     const text = input.value.trim();
     const files = this.pendingFiles;
     // 纯附件无文字时补一句明确的问题，不让模型对着一张图猜用户要什么

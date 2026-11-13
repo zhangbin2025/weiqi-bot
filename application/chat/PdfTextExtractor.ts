@@ -2,9 +2,10 @@
  * PDF 端侧抽文本（pdf.js 全局版）
  * @module application/chat/PdfTextExtractor
  *
- * 与 event 页同一加载方式：cdnjs 的 pdf.min.js + pdf.worker.min.js，
- * 通过全局 pdfjsLib 使用（见 clients/web/assistant/chat.html）。不复用
- * services/pdf/PdfMatchParser.ts —— 那是对阵表业务解析器，带布局/正则规则。
+ * 与 event 页同一份 cdnjs pdf.js（全局 pdfjsLib），但 chat.html 用 defer 加载，
+ * 不阻塞页面初始化。workerSrc 在这里首次调用时设置（幂等），替代 event 页的
+ * 内联脚本 —— 否则 defer 后那行内联脚本会在 pdf.min.js 之前执行。
+ * 不复用 services/pdf/PdfMatchParser.ts —— 那是对阵表业务解析器，带布局/正则规则。
  *
  * 边界（如实说明，不假装读过）：
  * - 只抽文字层：扫描版 PDF（纯图）、版式复杂的多栏/表格会丢内容或顺序。
@@ -24,10 +25,17 @@ interface PdfDocumentLike {
   destroy(): Promise<void>;
 }
 
+/** 与 chat.html 的 defer 外链同版本；不引入 npm 依赖，也不另造常数 */
+const PDF_WORKER_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
 function pdfjs(): PdfJsGlobal {
   const global = globalThis as unknown as { pdfjsLib?: PdfJsGlobal };
   if (!global.pdfjsLib) {
     throw new Error('pdf.js 未加载（请检查 cdnjs 脚本是否可用）');
+  }
+  // defer 后页面解析不等待它；首次真正读 PDF 时再确保 worker 路径已设。
+  if (!global.pdfjsLib.GlobalWorkerOptions.workerSrc) {
+    global.pdfjsLib.GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
   }
   return global.pdfjsLib;
 }

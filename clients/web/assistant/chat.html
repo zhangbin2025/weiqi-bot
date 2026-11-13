@@ -5,10 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>围棋 AI 对话</title>
 
-    <!-- PDF 端侧抽文字：与 event 页完全相同的 cdnjs 全局 pdf.js 加载方式。
-         chat.html 是独立多页应用入口，各自加载；不复用 event 页的解析器。 -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    <script>if(typeof pdfjsLib!=="undefined")pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
+    <!-- PDF 端侧抽文字：与 event 页同一份 cdnjs pdf.js（全局 pdfjsLib）。
+         但这里必须 defer：chat.ts 是模块入口，同步外链脚本会阻塞整页解析，
+         一旦 cdnjs 慢/不可达，连附件按钮的事件绑定都不会执行（2026-11-13 实测）。
+         workerSrc 改由 PdfTextExtractor 首次调用时设置，不再用内联脚本。 -->
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 
     <!-- 与功能助手共用同一份样式，规则零改动 -->
     <link rel="stylesheet" href="../shared/assistant.css">
@@ -234,7 +235,9 @@
         <div id="attachPreview"></div>
 
         <div class="input-container">
-            <button class="toolbar-btn attach-btn" id="attachBtn" title="附加 PDF / 图片" type="button" disabled>📎</button>
+            <!-- 选附件是纯本地行为，不依赖 LLM 配置；故意不带 disabled。
+                 否则没配 /llm 时点它毫无反应，用户不知道是没配置还是按钮坏了。 -->
+            <button class="toolbar-btn attach-btn" id="attachBtn" title="附加 PDF / 图片" type="button">📎</button>
             <input type="file" id="attachInput" accept="application/pdf,image/png,image/jpeg,image/gif,image/webp,image/bmp" multiple hidden>
             <textarea class="input-textarea" id="userInput" placeholder="继续对话…" rows="1" disabled></textarea>
             <button class="toolbar-btn send-btn" id="sendBtn" title="发送" disabled>➤</button>
