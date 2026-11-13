@@ -136,19 +136,51 @@ describe('RankingCalculator（统一管线里的内置实现）', () => {
     });
   });
 
-  describe('逆减数组（16:09 澄清：cells 允许数值数组）', () => {
+  describe('逆减显示（cells 允许数值数组；与重构前老版逐字等价）', () => {
+    it('formatRankingCell 用 - 连接数值数组', () => {
+      expect(formatRankingCell([3, 12])).toBe('3-12');
+      expect(formatRankingCell(6)).toBe('6');
+      expect(formatRankingCell([])).toBe('');
+    });
+
     it('非同分选手逆减为空数组（渲染不显示内容）', async () => {
       const t = await table([
         { bout: 1, p1Id: 1, p1Name: 'A', p1Score: 2, p2Id: 2, p2Name: 'B', p2Score: 0 },
       ]);
-      expect(Array.isArray(cell(t, 1, 'reverseMinus'))).toBe(true);
+      expect(cell(t, 1, 'reverseMinus')).toEqual([]);
       expect(formatRankingCell(cell(t, 1, 'reverseMinus'))).toBe('');
     });
 
-    it('同分选手逆减是数值数组，formatRankingCell 用 - 连接（3-12）', () => {
-      expect(formatRankingCell([3, 12])).toBe('3-12');
-      expect(formatRankingCell(6)).toBe('6');
-      expect(formatRankingCell([])).toBe('');
+    it('同分组：显示 [区分轮次号, 该轮逆减值]，不是一串剩余值', async () => {
+      // 老版同款对阵：C/D 同分同对手分，reverseMinus 分别 [6,0] / [4,0]，
+      // 第 1 轮就能区分 → 老版显示 "1-6" / "1-4"。
+      const t = await table([
+        { bout: 1, p1Id: 1, p1Name: 'A', p1Score: 2, p2Id: 3, p2Name: 'C', p2Score: 0 },
+        { bout: 1, p1Id: 4, p1Name: 'D', p1Score: 0, p2Id: 2, p2Name: 'B', p2Score: 2 },
+        { bout: 2, p1Id: 1, p1Name: 'A', p1Score: 2, p2Id: 4, p2Name: 'D', p2Score: 0 },
+        { bout: 2, p1Id: 3, p1Name: 'C', p1Score: 0, p2Id: 2, p2Name: 'B', p2Score: 2 },
+        { bout: 3, p1Id: 1, p1Name: 'A', p1Score: 0, p2Id: 2, p2Name: 'B', p2Score: 2 },
+      ]);
+      expect(cell(t, 3, 'reverseMinus')).toEqual([1, 6]);
+      expect(cell(t, 4, 'reverseMinus')).toEqual([1, 4]);
+      expect(formatRankingCell(cell(t, 3, 'reverseMinus'))).toBe('1-6');
+      expect(formatRankingCell(cell(t, 4, 'reverseMinus'))).toBe('1-4');
+      // 非同分组为空
+      expect(cell(t, 1, 'reverseMinus')).toEqual([]);
+      expect(cell(t, 2, 'reverseMinus')).toEqual([]);
+    });
+
+    it('找不到区分轮次时回落到 [逆减轮数, 末值]（老版 `${len}-${last}`）', async () => {
+      // 三人循环赛全和棋：score/SOS/累进分/逆减全相同，没有任何一轮能区分
+      const t = await table([
+        { bout: 1, p1Id: 1, p1Name: 'A', p1Score: 1, p2Id: 2, p2Name: 'B', p2Score: 1 },
+        { bout: 2, p1Id: 2, p1Name: 'B', p1Score: 1, p2Id: 3, p2Name: 'C', p2Score: 1 },
+        { bout: 3, p1Id: 3, p1Name: 'C', p1Score: 1, p2Id: 1, p2Name: 'A', p2Score: 1 },
+      ]);
+      expect(cell(t, 1, 'reverseMinus')).toEqual([2, 0]);
+      expect(cell(t, 2, 'reverseMinus')).toEqual([2, 0]);
+      expect(cell(t, 3, 'reverseMinus')).toEqual([2, 0]);
+      expect(formatRankingCell(cell(t, 1, 'reverseMinus'))).toBe('2-0');
     });
   });
 

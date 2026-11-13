@@ -43,7 +43,7 @@ export class RankingCalculator {
       if (mode !== 'simple') {
         cells['progressiveScore'] = Math.floor(p.progressiveScore);
       }
-      // 逐轮逆减以数值数组呈现，渲染为 3-12（延续既有展示格式，不再是字符串）
+      // 逆减显示值：[轮次序号, 该轮逆减值]，数值化后渲染仍为 3-12（延续老版展示格式）
       cells['reverseMinus'] = p.reverseMinusValue;
       return { id: p.id, name: p.name, rank: index + 1, cells };
     });
@@ -176,8 +176,10 @@ export class RankingCalculator {
   }
 
   /**
-   * 破同分时展示用的逐轮逆减：同分组内取「从首个能区分所有人的轮次开始的逐轮值」，
-   * 以 number[] 存进 cells（旧版是 "3-12" 字符串，现为数值数组，渲染结果一致）。
+   * 破同分时展示用的逆减值，与重构前老版 processTieBreakDisplay 逐字等价：
+   * 同分组内找「首个能把所有人区分开的轮次」，显示 [轮次序号, 该轮逆减值]；
+   * 找不到区分轮次则显示 [逆减轮数, 最后一个逆减值]；无逆减数据或非同分为 []。
+   * 老版是 "3-12" 这类字符串，统一契约要求数值化，故用 [3, 12]（渲染仍为 3-12）。
    */
   private computeReverseMinusValue(players: InternalPlayer[], mode: RankingMode): void {
     let i = 0;
@@ -196,11 +198,19 @@ export class RankingCalculator {
         const values = group.map((p) => p.reverseMinus[round] ?? 0);
         if (new Set(values).size === group.length) { chosen = round; break; }
       }
-      if (chosen < 0) chosen = Math.max(0, maxRounds - 1);
-      for (const p of group) {
-        p.reverseMinusValue = p.reverseMinus
-          .slice(chosen)
-          .map((n) => Math.floor(n));
+      if (chosen >= 0) {
+        // 轮次号从 1 起，与老版 `${round + 1}-${value}` 一致
+        for (const p of group) {
+          p.reverseMinusValue = [chosen + 1, Math.floor(p.reverseMinus[chosen] ?? 0)];
+        }
+      } else {
+        // 老版兜底 `${length}-${last}`；无逆减数据时老版显示 '-'，
+        // 数值契约不支持字符串，用空数组（渲染为空）表达同一「无数据」语义。
+        for (const p of group) {
+          p.reverseMinusValue = p.reverseMinus.length > 0
+            ? [p.reverseMinus.length, Math.floor(p.reverseMinus[p.reverseMinus.length - 1] ?? 0)]
+            : [];
+        }
       }
       i = j;
     }
