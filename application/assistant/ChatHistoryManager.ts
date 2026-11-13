@@ -3,12 +3,19 @@
  * @description 管理聊天会话历史，使用 FavoriteService 存储
  */
 import type { IFavoriteService } from '../../services/favorite/IFavoriteService';
+import type { ChatAttachment } from '../chat/ChatAttachment';
 /** 聊天消息 */
 export interface ChatMessage {
   /** 角色 */
   role: 'user' | 'assistant';
-  /** 消息内容 */
+  /** 消息内容（纯文本，附件绝不塞进来：否则 markdown/标题/URL 卡片会误伤 base64） */
   content: string;
+  /**
+   * 随消息落历史的资源附件（PDF 抽取文字 / 原生 PDF / 图片 base64）。
+   * 2026-11-13 决策：落历史以支持多轮追问；字符预算只管 content，
+   * 附件随所在消息受 maxMessages 窗口约束，不另设字节上限。
+   */
+  attachments?: ChatAttachment[];
   /** 识别的意图 */
   intent?: string;
   /** 提取的实体 */
@@ -140,6 +147,28 @@ export class ChatHistoryManager {
     await this.saveCurrentSession();
   }
   
+  /**
+   * 把工具本轮读到的资源附件补写进「最后一条 user 消息」。
+   *
+   * 时序说明：用户消息在发模型前就已落盘（buildConversationMessages 要读），
+   * 而工具附件直到 agent loop 跑完才知道。补写是为了**下一轮追问**能重放这些
+   * 资源（用户决策第 6 点），本轮 loop 内部已自行把 parts 追加进内存消息。
+   * 多次调用是合并语义，不覆盖用户原有附件。
+   */
+  async appendAttachmentsToLastUser(attachments: ChatAttachment[]): Promise<void> {
+    if (!this.currentSessionId || attachments.length === 0) return;
+    for (let i = this.currentMessages.length - 1; i >= 0; i--) {
+      const msg = this.currentMessages[i]!;
+      if (msg.role === 'user') {
+        const existing = msg.attachments ?? [];
+        // exactOptionalPropertyTypes：只在真的有合并结果时写字段
+        msg.attachments = [...existing, ...attachments];
+        await this.saveCurrentSession();
+        return;
+      }
+    }
+  }
+
   /**
    * 更新最后一条 assistant 消息
    * 

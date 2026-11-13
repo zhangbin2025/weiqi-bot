@@ -26,7 +26,8 @@ import { FavoriteService } from '../../../../../services/favorite/FavoriteServic
 import { IndexedDBAdapter } from '../../../../../infrastructure/storage/adapters/web/IndexedDBAdapter';
 import { WebFileExporter } from '../../../../../infrastructure/utils/export/WebFileExporter';
 import { WebDialog } from '../../components/Dialog';
-import { ChatUseCase } from '../../../../../application/chat/ChatUseCase';
+import { ChatUseCase, type LocalFileInput } from '../../../../../application/chat/ChatUseCase';
+import { describeAttachment } from '../../../../../application/chat/ChatAttachment';
 import { OpenAIModelGateway } from '../../../../../infrastructure/llm/OpenAIModelGateway';
 import { loadLLMConfig, DEFAULT_LLM_TIMEOUT_MS } from '../../../../../infrastructure/llm/LLMCredentialStore';
 import { createPluginSystem, type PluginSystem } from '../../../../../application/plugin/PluginSystem';
@@ -53,6 +54,8 @@ export class ChatPage {
   private pluginPanelSeq = 0;
   /** 当前会话的模型角色。角色绑定会话，切换角色会新建会话。 */
   private currentRole: ChatRoleId = DEFAULT_ROLE_ID;
+  /** 待发送的本地附件（发送瞬间清空；不进 DOM 的 base64） */
+  private pendingFiles: LocalFileInput[] = [];
 
   /** 入口注入：proxyUrl 由 vite 域的 chat.ts 算好（三端分流），此处只接收 */
   async init(options?: { proxyUrl?: string }): Promise<void> {
@@ -125,6 +128,19 @@ export class ChatPage {
     input?.addEventListener('input', () => this.autoResize(input));
     sendBtn?.addEventListener('click', () => void this.handleSend());
 
+    // 本地附件：按钮 → 隐藏 file input → 预览 chips（可逐个移除）
+    const attachBtn = document.getElementById('attachBtn') as HTMLButtonElement | null;
+    const attachInput = document.getElementById('attachInput') as HTMLInputElement | null;
+    attachBtn?.addEventListener('click', () => attachInput?.click());
+    attachInput?.addEventListener('change', () => {
+      if (attachInput.files) {
+        for (const file of Array.from(attachInput.files)) this.pendingFiles.push(file);
+      }
+      // 允许连续选同一个文件：清空 input 的 value
+      attachInput.value = '';
+      this.renderAttachPreview();
+    });
+
     // 菜单五项 + 遮罩关闭
     document.getElementById('menuBtn')?.addEventListener('click', () => this.toggleMenu());
     document.getElementById('menuOverlay')?.addEventListener('click', () => this.toggleMenu(false));
@@ -173,17 +189,61 @@ export class ChatPage {
       input.placeholder = ready ? getRole(this.currentRole).placeholder : '请先到功能助手配置 LLM';
     }
     if (sendBtn) sendBtn.disabled = !ready;
+    const attachBtn = document.getElementById('attachBtn') as HTMLButtonElement | null;
+    if (attachBtn) attachBtn.disabled = !ready;
     if (banner) banner.style.display = ready ? 'none' : 'block';
+  }
+
+  /** 附件预览：只显示文件名，绝不把 base64 / 文件内容拼进 DOM */
+  private renderAttachPreview(): void {
+    const root = document.getElementById('attachPreview');
+    const mode = document.getElementById('attachMode');
+    const btn = document.getElementById('attachBtn');
+    if (!root) return;
+    root.textContent = '';
+    const has = this.pendingFiles.length > 0;
+    root.style.display = has ? 'flex' : 'none';
+    if (mode) mode.style.display = has ? 'flex' : 'none';
+    btn?.classList.toggle('attach-btn--on', has);
+    this.pendingFiles.forEach((file, index) => {
+      const chip = document.createElement('span');
+      chip.className = 'attach-chip';
+      const name = document.createElement('span');
+      name.className = 'attach-chip__name';
+      const icon = /\.pdf$/i.test(file.name) || file.type === 'application/pdf' ? '📄' : '🖼️';
+      name.textContent = `${icon} ${file.name}`;
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'attach-chip__x';
+      remove.title = '移除';
+      remove.setAttribute('aria-label', `移除 ${file.name}`);
+      remove.textContent = '×';
+      remove.addEventListener('click', () => {
+        this.pendingFiles.splice(index, 1);
+        this.renderAttachPreview();
+      });
+      chip.append(name, remove);
+      root.append(chip);
+    });
   }
 
   private async handleSend(): Promise<void> {
     const input = document.getElementById('userInput') as HTMLTextAreaElement | null;
     if (!input || input.disabled) return;
     const text = input.value.trim();
-    if (!text) return;
+    const files = this.pendingFiles;
+    // 纯附件无文字时补一句明确的问题，不让模型对着一张图猜用户要什么
+    if (!text && files.length === 0) return;
+    const modeEl = document.getElementById('pdfMode') as HTMLSelectElement | null;
+    const pdfMode = modeEl?.value === 'native' ? 'native' : 'text';
     input.value = '';
     this.autoResize(input);
-    await this.useCase.send(text);
+    this.pendingFiles = [];
+    this.renderAttachPreview();
+    await this.useCase.send(text || '请阅读我附加的文件并说明其内容。', {
+      ...(files.length > 0 ? { files } : {}),
+      pdfMode,
+    });
     // Agent 可能在本轮里启停/新建/删除插件。若面板正开着，立即重列，
     // 避免用户看到的是发送前的旧状态（「模型说已启用，面板仍禁用」的一半成因）。
     // 面板没打开时 refreshPluginPanel 会因找不到 root 直接返回，成本为零。
@@ -351,6 +411,24 @@ export class ChatPage {
         msg.content, msg.role === 'user', null, null,
         undefined, undefined, false, undefined, msg.timestamp,
       );
+      // 附件摘要跟在该条气泡后面：只显示文件名/类型，绝不打印 base64。
+      // 资源本体由 buildConversationMessages 重放进模型上下文（多轮追问）。
+      if (msg.attachments?.length) {
+        const holder = document.createElement('div');
+        holder.className = 'msg-attachments';
+        for (const a of msg.attachments) {
+          const chip = document.createElement('span');
+          chip.className = 'msg-attachment';
+          chip.textContent = describeAttachment(a);
+          holder.append(chip);
+        }
+        const container = document.getElementById('chatContainer');
+        // 取最后一条消息气泡（容器里可能还有状态/打字指示器等其它节点，
+        // :last-child 不一定指向气泡）
+        const bubbles = container?.querySelectorAll('.message');
+        const lastBubble = bubbles?.item(bubbles.length - 1);
+        (lastBubble ?? container)?.append(holder);
+      }
     }
     this.updateTitle();
     this.scrollToBottom();
@@ -366,6 +444,9 @@ export class ChatPage {
       this.renderer.clearMessages();
       this.updateTitle();
     }
+    // 新会话不该把上一个会话里没发的附件带过去
+    this.pendingFiles = [];
+    this.renderAttachPreview();
     this.toggleMenu(false);
     this.syncRoleUI();
     this.syncReadyState();
@@ -473,8 +554,12 @@ export class ChatPage {
       },
       filename,
     );
+    const hasAttachments = meta.messages.some((m) => m.attachments?.length);
+    const note = result.success && hasAttachments
+      ? '（含 PDF/图片附件的 base64，文件可能较大，请自行保管）'
+      : '';
     await this.renderer.renderMessage(
-      result.success ? `已导出当前会话（${meta.messages.length} 条消息）` : `导出失败：${result.error ?? '未知错误'}`,
+      (result.success ? `已导出当前会话（${meta.messages.length} 条消息）` : `导出失败：${result.error ?? '未知错误'}`) + note,
       false, null, null, undefined, undefined, false,
     );
   }
@@ -484,6 +569,8 @@ export class ChatPage {
     await this.history.clearCurrentSession();
     this.renderer.clearMessages();
     this.updateTitle();
+    this.pendingFiles = [];
+    this.renderAttachPreview();
     // 清空后没有聊天记录了，角色解锁（按钮由 🔒 变回 ▾）
     this.syncRoleUI();
     this.syncReadyState();

@@ -7,8 +7,10 @@
  *
  * 边界（和已验收的 weiqi-proxy 一致）：
  * - 只做「把字节送到」，不搜索、不解析 HTML、不判语义、不缓存、不落日志。
- * - 第一版只回文本：HTML / JSON / 纯文本原样进上下文由模型自己归纳；
- *   图片 / PDF 等二进制不往上下文塞（转 base64 / 抽文本归后续端侧插件）。
+ * - web_fetch 只回文本：HTML / JSON / 纯文本原样进上下文由模型自己归纳；
+ *   图片 / PDF 等二进制不往上下文塞。读 PDF / 图片请用独立工具
+ *   web_read_pdf / web_read_image（见 WebResourceTools.ts），它们复用本文件的
+ *   URL 校验与代理链路，把字节交给端侧抽取 / 多模态转换器。
  * - 授权（Authorization / X-Cookie / X-Referer）由后续端侧插件决定，
  *   本工具不提供任何鉴权来源，也不注入默认 Referer / User-Agent。
  *
@@ -131,8 +133,16 @@ export async function executeWebFetch(argsJson: string, deps: WebFetchToolDeps):
     // 明确告知模型「这是二进制，无法读取内容」，避免把乱码喂进去。
     if (/^(image|audio|video)\//i.test(contentType)
       || /^application\/(pdf|octet-stream|zip|x-zip-compressed|gzip|x-tar|x-bzip2|wasm)/i.test(contentType)) {
+      // 文案只做能力指路，不改行为：二进制内容依然不进上下文。
+      // 让误用 web_fetch 的模型知道有专门工具，而不是笼统地说「换文本 URL」。
+      const ct = contentType.split(';')[0]!.trim().toLowerCase();
+      const hint = ct === 'application/pdf'
+        ? '请改用 web_read_pdf 读取这份 PDF（mode=text 抽文字 / mode=native 送原文）。'
+        : ct.startsWith('image/')
+          ? '请改用 web_read_image 读取这张图片。'
+          : '请改用对应工具或如实说明无法读取。';
       const observation = `web_fetch：${url} 返回 ${response.status}，Content-Type=${contentType}。` +
-        '该资源是二进制内容，第一版只支持文本，未读取内容。请改用文本型 URL 或直接说明无法读取。';
+        `该资源是二进制内容，web_fetch 只支持文本，未读取内容。${hint}`;
       return { observation, ok: false, detail: `二进制资源 ${response.status} ${contentType}` };
     }
     const observation = `web_fetch：${url}\nHTTP ${response.status} ${response.statusText}\nContent-Type: ${contentType}\n\n${text}`;

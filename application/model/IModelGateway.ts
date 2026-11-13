@@ -17,11 +17,17 @@ export type ModelTaskId =
   | 'plugin.generate'
   | (string & {});
 
-/** 多模态消息片段。当前只产生 `text`。 */
+/**
+ * 多模态消息片段。2026-11-13 起 chat 链路会真实产生 image / file：
+ * - `image`：uri 是 data URI（base64 内嵌），送 vision 端点（见 MultimodalTranslator）
+ * - `file`：原生 PDF，uri 同样是 data URI
+ * - `label`：展示用文件名 / URL 末段，wire 层拿它填 filename；可选
+ * 抽象层不绑定任何厂商的 wire 形状，翻译在 infrastructure/llm 完成。
+ */
 export type ModelPart =
   | { type: 'text'; text: string }
-  | { type: 'image'; uri: string; mimeType?: string }
-  | { type: 'file'; uri: string; mimeType?: string };
+  | { type: 'image'; uri: string; mimeType?: string; label?: string }
+  | { type: 'file'; uri: string; mimeType?: string; label?: string };
 
 /** 暴露给模型的工具声明（抽象形状，wire 构造在基础设施层） */
 export interface ModelToolDefinition {

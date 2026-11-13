@@ -88,6 +88,8 @@ describe('executeWebFetch', () => {
     expect(r.ok).toBe(false);
     expect(r.observation).toContain('二进制内容');
     expect(r.observation).not.toContain('%PDF-1.4');
+    // 指路：误用 web_fetch 读 PDF 时，模型应被告知改用专门工具
+    expect(r.observation).toContain('web_read_pdf');
   });
 
   it('上游非 2xx 也算观察（模型自己决定重试或说明）', async () => {

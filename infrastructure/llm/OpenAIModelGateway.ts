@@ -19,33 +19,24 @@ import {
   OpenAICompatibleClient,
   type ChatMessage, type ToolCall, type ToolDefinition,
 } from './OpenAICompatibleClient';
+import { modelPartsToWire } from './MultimodalTranslator';
 import { loadLLMConfig, loadApiKey } from './LLMCredentialStore';
 
-/** 把统一消息结构翻译成 OpenAI 消息（多模态片段暂拼接为文本占位） */
+/**
+ * 把统一消息结构翻译成 OpenAI 消息。
+ * - 纯文本 content 原样透传（tool 观察 / 普通对话）
+ * - ModelPart[] 交给 MultimodalTranslator 变成真正的多模态 part
+ *   （image_url + data URI / file + file_data），不再降级成占位文本。
+ */
 function toChatMessages(messages: ModelMessage[]): ChatMessage[] {
   return messages.map((m): ChatMessage => ({
     role: m.role,
     content: typeof m.content === 'string'
       ? m.content
-      : m.content.map(partToString).join('\n'),
+      : modelPartsToWire(m.content),
     ...(m.tool_calls ? { tool_calls: m.tool_calls.map(toWireToolCall) } : {}),
     ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
   }));
-}
-
-/**
- * 当前不产生图片/文件片段；这里给出保守降级，避免误传导致静默丢内容。
- * 真正支持视觉的端点应另开 task 直接构造原生 payload。
- */
-function partToString(part: ModelPart): string {
-  switch (part.type) {
-    case 'text':
-      return part.text;
-    case 'image':
-      return `[图片:${part.mimeType ?? 'unknown'}]`;
-    case 'file':
-      return `[文件:${part.mimeType ?? 'unknown'}]`;
-  }
 }
 
 function toWireToolCall(call: ModelToolCall): ToolCall {

@@ -19,10 +19,14 @@
  * 标题与可见性规则独立，不复用插件调试那套过滤。
  */
 
-import type { IModelGateway, ModelMessage } from '../model/IModelGateway';
+import type { IModelGateway, ModelMessage, ModelPart } from '../model/IModelGateway';
 import type { ChatHistoryManager } from '../assistant/ChatHistoryManager';
 import type { IMessageRenderer } from '../assistant/IMessageRenderer';
+import type { ChatAttachment } from './ChatAttachment';
+import { describeAttachment } from './ChatAttachment';
 import { buildConversationMessages, summarizeSession } from './ConversationPrompt';
+import { resourceFromFile } from './ResourceInput';
+import { processImage, processPdf } from './ResourceProcessors';
 import { isDebugTraceStep, visibleDebugSteps } from './PluginTraceVisibility';
 import { getRole, type ChatRoleId } from './ChatRole';
 import type { AgentTurnRequest } from '../plugin/PluginAgentUseCase';
@@ -48,6 +52,56 @@ export interface IPluginAgent {
 
 export function isSlashCommand(text: string): boolean {
   return text.trim().startsWith('/');
+}
+
+/** 本地附件的宿主输入形状（只用到 File 的这三个成员，便于测试注入） */
+export interface LocalFileInput {
+  name: string;
+  type: string;
+  arrayBuffer(): Promise<ArrayBuffer>;
+}
+
+/** send() 的可选参数：用户直接附加的本地文件 */
+export interface SendOptions {
+  files?: LocalFileInput[];
+  /** PDF 处理模式，默认 text（端侧抽文字）；用户可在 UI 选 native */
+  pdfMode?: 'text' | 'native';
+}
+
+/**
+ * 本地文件 → 附件 + 需要注入当前轮消息的多模态 parts。
+ * 用户已经明确给了文件，不需要模型「决定」读取，因此不走 tool_calls。
+ * 失败逐个变一段可见文本（不假装读过），不阻断其余附件。
+ */
+async function prepareLocalFiles(
+  files: LocalFileInput[],
+  pdfMode: 'text' | 'native',
+): Promise<{ attachments: ChatAttachment[]; parts: ModelPart[]; notes: string[] }> {
+  const attachments: ChatAttachment[] = [];
+  const parts: ModelPart[] = [];
+  const notes: string[] = [];
+  for (const file of files) {
+    try {
+      const resource = await resourceFromFile(file);
+      // 种类在统一输入里一次判定，不拿规范化后的 MIME 二次猜
+      if (resource.kind === 'pdf') {
+        const r = await processPdf(resource, pdfMode);
+        if (r.attachment) attachments.push(r.attachment);
+        if (r.parts) parts.push(...r.parts);
+        if (!r.ok) notes.push(`《${file.name}》：${r.detail}`);
+      } else if (resource.kind === 'image') {
+        const r = processImage(resource);
+        if (r.attachment) attachments.push(r.attachment);
+        if (r.parts) parts.push(...r.parts);
+      } else {
+        notes.push(`《${file.name}》：不支持的文件类型（${file.type || '未知'}）`);
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      notes.push(`《${file.name}》读取失败：${reason}`);
+    }
+  }
+  return { attachments, parts, notes };
 }
 
 /** 网络智能体过程块的标题；与插件调试过程区分 */
@@ -81,7 +135,7 @@ export class ChatUseCase {
    * - Agent 回复经 safeReply 转义后再交给渲染器（渲染器用 marked 解析 HTML）。
    * - agent loop 的 tool_calls / tool 观察只存在单次 turn 内存里，不写历史。
    */
-  async send(text: string): Promise<void> {
+  async send(text: string, options?: SendOptions): Promise<void> {
     if (isSlashCommand(text)) {
       await this.renderHint(SLASH_COMMAND_HINT);
       return;
@@ -91,12 +145,35 @@ export class ChatUseCase {
       return;
     }
 
+    // 纯附件没有文字时补一句明确问题：不让模型对着图片猜用户要什么。
+    // 放在 useCase 而不是 UI，保证任何调用方（含测试/其他宿主）口径一致。
+    const hasFiles = Boolean(options?.files?.length);
+    const userText = (!text.trim() && hasFiles)
+      ? '请阅读我附加的文件并说明其内容。'
+      : text;
+
     // 角色在发送这一刻确定，整条消息只走这一条路径。
     const role = getRole(this.roleProvider?.() ?? 'chat');
 
-    // 用户气泡 + 落盘
-    await this.renderer.renderMessage(text, true, null, null, undefined, undefined, false);
-    await this.history.addMessage({ role: 'user', content: text });
+    // 本地附件：宿主在发送瞬间预处理，不劳模型「决定」读取。
+    // 失败逐个变成可见说明，其余附件照常发送。
+    const local = options?.files?.length
+      ? await prepareLocalFiles(options.files, options.pdfMode ?? 'text')
+      : { attachments: [] as ChatAttachment[], parts: [] as ModelPart[], notes: [] as string[] };
+
+    // 用户气泡 + 落盘（附件作为独立字段，不进 content）
+    const bubbleText = local.notes.length
+      ? `${userText}\n\n[附件提示] ${local.notes.join('；')}`
+      : userText;
+    await this.renderer.renderMessage(bubbleText, true, null, null, undefined, undefined, false);
+    for (const a of local.attachments) {
+      await this.renderHint(describeAttachment(a));
+    }
+    await this.history.addMessage({
+      role: 'user',
+      content: userText,
+      ...(local.attachments.length > 0 ? { attachments: local.attachments } : {}),
+    });
     // 首条消息生成会话摘要/标题（用户要求：第一条消息截断）
     if (this.history.getMessages().filter((m) => m.role === 'user').length === 1) {
       await this.history.setCurrentSessionTitle(summarizeSession(this.history.getMessages()));
@@ -170,8 +247,20 @@ export class ChatUseCase {
         : undefined;
       const webResult = useAgent
         ? undefined
-        : await this.runWebChat(onWebStep);
+        : await this.runWebChat(onWebStep, local.parts);
       const reply = result ? result.reply : (webResult?.reply ?? '');
+
+      // 工具这一轮读到的资源落进用户消息，下一轮追问能重放（决策第 6 点）。
+      // 本轮 loop 内部已自行追加 parts，这里只补历史，不重复注入。
+      // 用 duck typing 兼容旧实现 / 测试替身：没有该方法就跳过，不抛错。
+      if (webResult?.attachments.length) {
+        const append = (this.history as {
+          appendAttachmentsToLastUser?: (a: ChatAttachment[]) => Promise<void>;
+        }).appendAttachmentsToLastUser;
+        if (typeof append === 'function') {
+          await append.call(this.history, webResult.attachments);
+        }
+      }
       this.renderer.hideTyping();
 
       // 兜底：渲染器不支持实时、或 begin 返回 false → 结束后一次性全量渲染。
@@ -221,8 +310,20 @@ export class ChatUseCase {
    */
   private async runWebChat(
     onTrace?: (step: WebTraceStep) => void,
-  ): Promise<{ reply: string; trace: WebTraceStep[] }> {
+    localParts: ModelPart[] = [],
+  ): Promise<{ reply: string; trace: WebTraceStep[]; attachments: ChatAttachment[] }> {
     const messages: ModelMessage[] = buildConversationMessages(this.history.getMessages());
+    // 本地附件的多模态 parts 注入「当前句」：历史构造已把用户消息放在最后，
+    // 这里把它从 string 提升为 part 数组，追加图片 / 原生 PDF。
+    if (localParts.length > 0) {
+      const last = messages[messages.length - 1];
+      if (last && last.role === 'user') {
+        const head: ModelPart[] = typeof last.content === 'string'
+          ? [{ type: 'text', text: last.content }]
+          : last.content;
+        last.content = [...head, ...localParts];
+      }
+    }
     // 未装配工具依赖时退回单次纯文本调用（例如某些精简装配场景）
     if (!this.webTools) {
       const result = await this.gateway.execute({
@@ -230,13 +331,13 @@ export class ChatUseCase {
         messages,
         options: { jsonMode: false },
       });
-      return { reply: result.text, trace: [] };
+      return { reply: result.text, trace: [], attachments: [] };
     }
     const result = await runWebToolLoop(
       { gateway: this.gateway, toolDeps: this.webTools },
       { messages, ...(onTrace ? { onTrace } : {}) },
     );
-    return { reply: result.reply, trace: result.trace };
+    return { reply: result.reply, trace: result.trace, attachments: result.attachments };
   }
 
   /** 插件角色：会话历史只作聊天上下文，插件能力来自工件 */

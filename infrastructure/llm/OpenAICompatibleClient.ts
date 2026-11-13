@@ -9,9 +9,19 @@
  *
  * 400 降级（reasoning_effort / json_mode 不被端点支持时去掉重试一次）
  * 由 request() 统一处理，两条链路共享。
+ *
+ * 2026-11-13：content 从 string 扩成 string | WireContentPart[]，支持图片
+ * （image_url + data URI）与原生 PDF（file + file_data）。tool 消息仍保持
+ * 纯文本：端点普遍不接受 role='tool' 里的多模态 part，观察文本单独走 text。
  */
 
 import { buildChatCompletionsUrl } from './LLMCredentialStore';
+
+/** OpenAI content part（多模态）。形状由 MultimodalTranslator 统一构造。 */
+export type WireContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
+  | { type: 'file'; file: { file_data: string; filename: string } };
 
 /** 工具声明（OpenAI tools[].function 形状） */
 export interface ToolDefinition {
@@ -37,7 +47,8 @@ export interface ToolCall {
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string;
+  /** 纯文本或多模态 part 数组（user / system 可用数组；tool 观察保持字符串） */
+  content: string | WireContentPart[];
   /** role='assistant' 且模型发起工具调用时带 */
   tool_calls?: ToolCall[];
   /** role='tool' 时必带，与 ToolCall.id 对应 */
@@ -209,7 +220,8 @@ export class OpenAICompatibleClient {
       const data = await response.json() as {
         choices?: Array<{
           message?: {
-            content?: string | null;
+            /** 部分端点在多模态响应里也返回 content part 数组，这里统一拍平为文本 */
+            content?: string | null | WireContentPart[];
             reasoning_content?: string;
             tool_calls?: Array<{
               id?: string;
@@ -222,7 +234,12 @@ export class OpenAICompatibleClient {
       };
       const choice = data.choices?.[0];
       const message = choice?.message;
-      const content = typeof message?.content === 'string' ? message.content : '';
+      const content = Array.isArray(message?.content)
+        ? message.content
+            .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+            .map((p) => p.text)
+            .join('')
+        : (typeof message?.content === 'string' ? message.content : '');
       const truncated = choice?.finish_reason === 'length';
 
       // 规范化 tool_calls：缺 id / 非法 function 的条目直接丢弃，避免 loop 里

@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>围棋 AI 对话</title>
 
+    <!-- PDF 端侧抽文字：与 event 页完全相同的 cdnjs 全局 pdf.js 加载方式。
+         chat.html 是独立多页应用入口，各自加载；不复用 event 页的解析器。 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>if(typeof pdfjsLib!=="undefined")pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
+
     <!-- 与功能助手共用同一份样式，规则零改动 -->
     <link rel="stylesheet" href="../shared/assistant.css">
 
@@ -28,6 +33,26 @@
             border: 1px solid #ffe082;
         }
         #notReady a { color: #667eea; text-decoration: underline; }
+
+        /* 本地附件：按钮 + 待发送预览条（绝不显示 base64 正文） */
+        .attach-btn { flex: 0 0 auto; }
+        .attach-btn--on { background: #ecebff; border-color: #667eea; }
+        #attachPreview { display: none; flex-wrap: wrap; gap: 6px; padding: 6px 12px 0; }
+        .attach-chip {
+            display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
+            padding: 4px 8px; border-radius: 999px; background: #f3f2ff;
+            border: 1px solid #d9d6f5; font-size: 12px; color: #4a466e;
+        }
+        .attach-chip__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .attach-chip__x { cursor: pointer; border: 0; background: none; color: #8a86b5; font-size: 14px; line-height: 1; }
+        .attach-mode { display: none; align-items: center; gap: 8px; padding: 6px 12px 0; font-size: 12px; color: #666; }
+        .attach-mode select { font-size: 12px; padding: 2px 6px; }
+        /* 历史恢复时的附件摘要：只显示文件名/类型，不打印 base64 */
+        .msg-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+        .msg-attachment {
+            font-size: 12px; color: #5a5680; background: rgba(255,255,255,.6);
+            border: 1px solid rgba(102,126,234,.25); border-radius: 8px; padding: 2px 8px;
+        }
 
         .session-list {
             max-height: 55vh;
@@ -198,7 +223,19 @@
             </div>
         </div>
 
+        <!-- PDF 处理模式：默认端侧抽文字；要看版式/扫描件时选「送模型原文」 -->
+        <div class="attach-mode" id="attachMode">
+            <label for="pdfMode">PDF 读取方式</label>
+            <select id="pdfMode">
+                <option value="text">端侧抽文字（默认，适用于有文字层的 PDF）</option>
+                <option value="native">送模型原文（扫描件 / 需要看版式，端点需支持原生 PDF）</option>
+            </select>
+        </div>
+        <div id="attachPreview"></div>
+
         <div class="input-container">
+            <button class="toolbar-btn attach-btn" id="attachBtn" title="附加 PDF / 图片" type="button" disabled>📎</button>
+            <input type="file" id="attachInput" accept="application/pdf,image/png,image/jpeg,image/gif,image/webp,image/bmp" multiple hidden>
             <textarea class="input-textarea" id="userInput" placeholder="继续对话…" rows="1" disabled></textarea>
             <button class="toolbar-btn send-btn" id="sendBtn" title="发送" disabled>➤</button>
         </div>
