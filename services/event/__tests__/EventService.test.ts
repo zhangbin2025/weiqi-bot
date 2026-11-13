@@ -83,6 +83,49 @@ describe('EventService', () => {
       expect(result.events.length).toBe(1);
       expect(result.events[0].title).toBe('围棋比赛');
     });
+
+    it('应按 TotalPage 拉全所有页，最近一年不被截断（>10页）', async () => {
+      const totalPages = 12;
+      (mockNetwork.request as ReturnType<typeof vi.fn>).mockImplementation(async (cfg: { url: string }) => {
+        const page = Number(new URL(cfg.url).searchParams.get('page'));
+        return {
+          data: {
+            datArr: {
+              rows: [{ event_id: page, title: `第${page}页比赛`, city_name: '广州', max_time: '2026-01-01', play_num: 10 }],
+              TotalPage: totalPages,
+            },
+          },
+          status: 200,
+        };
+      });
+
+      const result = await service.getEvents({ month: 12 });
+
+      expect(mockNetwork.request).toHaveBeenCalledTimes(totalPages);
+      expect(result.total).toBe(totalPages);
+      // 并发返回仍按页序拼接，不打乱服务端的时间倒序
+      expect(result.events.map(e => e.id)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+      for (const call of (mockNetwork.request as ReturnType<typeof vi.fn>).mock.calls) {
+        expect(new URL(call[0].url).searchParams.get('month')).toBe('12');
+      }
+    });
+
+    it('关键词过滤应覆盖所有页而非仅前几页', async () => {
+      (mockNetwork.request as ReturnType<typeof vi.fn>).mockImplementation(async (cfg: { url: string }) => {
+        const page = Number(new URL(cfg.url).searchParams.get('page'));
+        // 只有最旧的第 12 页含关键词，旧实现（截断到 10 页）搜不到
+        const title = page === 12 ? '围棋赛' : '象棋赛';
+        return {
+          data: { datArr: { rows: [{ event_id: page, title, city_name: '广州', play_num: 10 }], TotalPage: 12 } },
+          status: 200,
+        };
+      });
+
+      const result = await service.getEvents({ month: 12, keyword: '围棋' });
+
+      expect(result.events.length).toBe(1);
+      expect(result.events[0].title).toBe('围棋赛');
+    });
   });
 
   describe('getGroups', () => {

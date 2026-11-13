@@ -41,32 +41,54 @@ export class EventService implements IEventService {
     const config = await this.getConfig();
     const { area = '', month = 1, keyword = '', pageSize = 100 } = options || {};
 
-    const params = new URLSearchParams({
-      page: '1', eventType: '2', month: String(month),
-      PageSize: String(Math.min(pageSize, 200)),
-    });
-    if (area) params.set('areaNum', area);
+    type RawListResponse = {
+      datArr?: { rows?: Record<string, unknown>[]; TotalPage?: number };
+      rows?: Record<string, unknown>[]; TotalPage?: number;
+    };
 
-    let allEvents: ReturnType<typeof mapEvent>[] = [];
-    let matched: ReturnType<typeof mapEvent>[] = [];
-    let page = 1, totalPages = 1;
+    // 每页独立构造 URL，避免并发请求共享同一个 URLSearchParams 互相覆盖 page。
+    // 实测服务端忽略 PageSize，固定每页返回 15 条；页数以响应的 TotalPage 为准。
+    const buildPageUrl = (page: number): string => {
+      const p = new URLSearchParams({
+        page: String(page), eventType: '2', month: String(month),
+        PageSize: String(Math.min(pageSize, 200)),
+      });
+      if (area) p.set('areaNum', area);
+      return this.buildUrl(config.eventsBaseUrl, p);
+    };
+    const fetchPage = async (page: number): Promise<{ rows: Record<string, unknown>[]; totalPages: number }> => {
+      const res = await this.request<RawListResponse>(buildPageUrl(page), config.timeout);
+      return {
+        rows: res.datArr?.rows || res.rows || [],
+        totalPages: res.datArr?.TotalPage || res.TotalPage || 1,
+      };
+    };
 
-    while (page <= totalPages && page <= 10) {
-      params.set('page', String(page));
-      const url = this.buildUrl(config.eventsBaseUrl, params);
-      const res = await this.request<{
-        datArr?: { rows?: Record<string, unknown>[]; TotalPage?: number };
-        rows?: Record<string, unknown>[]; TotalPage?: number;
-      }>(url, config.timeout);
+    // 第 1 页串行先取，只为拿到服务端声明的总页数 TotalPage。
+    // 旧实现把循环写死为 page <= 10，而服务端每页固定 15 条，于是 month=12 时
+    // （全国 251 页 / 广东省 39 页）只能拿到最新的前 10 页，前几页与 month=1 几乎重合，
+    // 表现为「选最近一年却只看到最近一个月」。按 TotalPage 拉全，month 的过滤范围才真正生效。
+    const first = await fetchPage(1);
+    const totalPages = Math.max(1, Number(first.totalPages) || 1);
 
-      const rows = res.datArr?.rows || res.rows || [];
+    // 剩余页一次性并发：代理与源站均为 HTTP/2 多路复用，实测全国 month=12 的 251 页
+    // 约 8s、0 失败，故不引入人为并发批大小，由浏览器/HTTP2 自行控制连接并发。
+    // Promise.all 保序，拼接后仍维持服务端的时间倒序；任一页失败即整体失败
+    // （NetworkManager 已有重试），不静默返回残缺列表。
+    const rest = await Promise.all(
+      Array.from({ length: totalPages - 1 }, (_, i) => fetchPage(i + 2)),
+    );
+
+    const allEvents: ReturnType<typeof mapEvent>[] = [];
+    const matched: ReturnType<typeof mapEvent>[] = [];
+    for (const rows of [first.rows, ...rest.map(r => r.rows)]) {
       const events = rows.map(mapEvent);
-      allEvents = allEvents.concat(events);
+      allEvents.push(...events);
+      // 服务端不支持关键词参数（keyword/name/title/search 等均被忽略），只能拉回全量后
+      // 本地筛；覆盖所有页才能搜到较早的比赛。
       if (keyword) {
-        matched = matched.concat(events.filter(e => e.title.includes(keyword) || e.city.includes(keyword)));
+        matched.push(...events.filter(e => e.title.includes(keyword) || e.city.includes(keyword)));
       }
-      totalPages = res.datArr?.TotalPage || res.TotalPage || 1;
-      page++;
     }
 
     return { events: keyword ? matched : allEvents, total: keyword ? matched.length : allEvents.length };
