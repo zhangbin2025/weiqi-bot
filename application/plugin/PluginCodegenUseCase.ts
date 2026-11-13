@@ -30,6 +30,8 @@ export interface ICodeValidator {
 /** system prompt 构造端口 */
 export interface IPromptBuilder {
   agentSystemPrompt(snapshot: unknown[], maxAttempts: number): string;
+  /** codegen 专用极简 prompt；不传则回落 agentSystemPrompt（兼容旧装配/测试） */
+  codegenSystemPrompt?(snapshot: unknown[], maxAttempts: number): string;
   buildRepairMessages(
     intent: string,
     code: string | undefined,
@@ -90,12 +92,42 @@ export interface CodegenResult {
   trace: PluginTraceStep[];
 }
 
-/** 从 LLM 文本里稳健提取代码：优先解析 {reply,action}，再兜底剥代码围栏 */
+/**
+ * 从 LLM 文本里稳健提取代码。
+ * codegen 阶段模型应直接输出 JS 源码（可带 ```js 围栏）；
+ * 兼容旧版 {reply,action:{code}} JSON，但**不再依赖动作协议**——
+ * 协议解析失败时也要从原始文本抢救代码，避免「plugin.revise 缺 artifactId」
+ * 这类与写代码无关的错误把整轮废掉。
+ */
 function extractCode(parsed: AgentResponse | undefined, raw: string): string | undefined {
+  const trimmed = raw.trim();
+
+  // 1) 代码围栏（codegen 的主输出形态）
+  const fenced = trimmed.match(/```(?:js|javascript)?\s*([\s\S]*?)```/i)?.[1];
+  if (fenced && fenced.trim()) return fenced.trim();
+
+  // 2) 兼容旧动作协议里的 action.code
   const actionCode = parsed?.action?.code;
   if (typeof actionCode === 'string' && actionCode.trim()) return actionCode.trim();
-  const fenced = raw.match(/```(?:js|javascript)?\s*([\s\S]*?)```/i)?.[1];
-  if (fenced && fenced.trim()) return fenced.trim();
+
+  // 3) 纯 JS 源码：必须含 rank 入口，且不是 JSON 对象
+  if (!trimmed.startsWith('{') && /\bfunction\s+rank\s*\(|\brank\s*=\s*(?:function|\()/.test(trimmed)) {
+    return trimmed;
+  }
+
+  // 4) 兜底：JSON 字符串里的 code 字段（提取失败也别丢）
+  try {
+    const obj: unknown = JSON.parse(trimmed);
+    if (obj && typeof obj === 'object') {
+      const o = obj as Record<string, unknown>;
+      const direct = typeof o['code'] === 'string' ? o['code'] : undefined;
+      const nested = o['action'] && typeof o['action'] === 'object'
+        ? (o['action'] as Record<string, unknown>)['code'] : undefined;
+      const candidate = direct ?? (typeof nested === 'string' ? nested : undefined);
+      if (candidate && candidate.trim() && /\brank\s*\(/.test(candidate)) return candidate.trim();
+    }
+  } catch { /* 不是 JSON，忽略 */ }
+
   return undefined;
 }
 
@@ -130,10 +162,14 @@ export class PluginCodegenUseCase {
         lastFeedback ?? req.userFeedback ?? '请根据需求输出完整插件代码',
         maxAttempts,
       );
-      // 保证 system prompt 含插件清单（智能体随时可见插件系统）
-      const systemText = this.options.prompts.agentSystemPrompt(req.snapshot ?? [], maxAttempts);
+      // codegen 用独立极简 prompt（不含任何插件动作/artifactId 字样）；
+      // 端口未注入时回落旧行为，保证测试与旧装配可用。
+      const buildSystem = this.options.prompts.codegenSystemPrompt ?? this.options.prompts.agentSystemPrompt;
+      const systemText = buildSystem(req.snapshot ?? [], maxAttempts);
+      // 修订 system 必须接上：它明确「只输出完整源码、不给 JSON 动作协议」。
+      const repairSystem = messages.filter((m) => m.role === 'system').map((m) => m.content).join('\n');
       const modelMessages: ModelMessage[] = [
-        { role: 'system', content: systemText },
+        { role: 'system', content: repairSystem ? `${systemText}\n\n${repairSystem}` : systemText },
         ...messages.filter((m) => m.role !== 'system').map((m) => ({
           role: m.role as 'user' | 'assistant',
           content: m.content,
@@ -148,7 +184,9 @@ export class PluginCodegenUseCase {
         const result = await this.options.gateway.execute({
           task: 'plugin.generate',
           messages: modelMessages,
-          options: { jsonMode: true },
+          // codegen 输出的是整段 JS 源码，不是 JSON 对象；
+          // 强制 jsonMode 会把源码塞进字符串导致转义破损（expecting '(' 的来源）。
+          options: { jsonMode: false },
         });
         raw = result.text;
         push(attempt, 'llm', true, `第 ${attempt}/${maxAttempts} 轮：模型已返回（${raw.length} 字符）`);
@@ -163,16 +201,21 @@ export class PluginCodegenUseCase {
         };
       }
 
+      // 先尽力从原始文本抠代码；协议只作为「兼容旧 JSON 输出」的辅助，
+      // 它的失败不再等于本轮失败（模型没发 action 是正常的）。
       const parsed = this.options.protocol.parse(raw);
       const nextCode = extractCode(parsed.ok ? parsed.response : undefined, raw);
+      // 纯源码输出没有动作协议里的 reply，给一个可展示的兜底文案
       if (parsed.ok) reply = parsed.response.reply;
+      else if (nextCode) reply = reply || '已生成插件源码';
       if (!nextCode) {
-        push(attempt, 'protocol', false, `第 ${attempt}/${maxAttempts} 轮：未拿到完整代码 — ${parsed.ok ? '未提供完整代码' : parsed.reason}`);
+        const reason = parsed.ok ? '模型没有输出 JS 源码' : '模型没有输出可识别的 JS 源码';
+        push(attempt, 'protocol', false, `第 ${attempt}/${maxAttempts} 轮：未拿到完整代码 — ${reason}`);
         lastFeedback = {
           phase: 'contract',
           ok: false,
-          error: { name: 'ProtocolError', message: parsed.ok ? '未提供完整代码' : parsed.reason },
-          hint: '请输出包含完整 code 的 JSON，不要只给解释或 diff',
+          error: { name: 'ProtocolError', message: reason },
+          hint: '请直接输出完整的 function rank(input){ ... } 源码（可用 ```js 围栏），不要解释、不要 JSON 动作协议、不要 diff',
           attempt,
           maxAttempts,
         };
@@ -217,12 +260,20 @@ export class PluginCodegenUseCase {
         if (!check.ok) {
           const hint = check.hint ?? '排名表不符合契约';
           push(attempt, 'contract', false, `第 ${attempt}/${maxAttempts} 轮：输出契约不符 — ${hint}`, code);
+          // 回喂试算输入的实际形状与选手清单，让模型能直接对照修 rows，
+          // 而不是只收到一句「必须覆盖全部选手」的通用提示。
+          const ids = validationInput.matches.flatMap((m) => [
+            m.p1Id && m.p1Name ? `${m.p1Id}:${m.p1Name}` : '',
+            m.p2Id && m.p2Name ? `${m.p2Id}:${m.p2Name}` : '',
+          ]).filter(Boolean);
+          const shape = `试算输入 matches 共 ${validationInput.matches.length} 场；真实选手 = [${[...new Set(ids)].join(', ')}]；`
+            + `id=0 或姓名为空是轮空，不进 rows（但另一侧的比分照常计入）；未完赛为双方比分全 0。`;
           lastFeedback = {
             phase: 'contract',
             ok: false,
             error: { name: 'ContractError', message: hint },
             contract: { entryFound: false, outputIsArray: false, missingFields: check.missingFields },
-            hint: '必须返回 { columns, rows }，列名为汉字，cells 只能是数值或数值数组，且覆盖全部选手',
+            hint: `${hint}。${shape} 必须返回 { columns, rows }，列名为汉字，cells 只能是数值或数值数组，rows 恰好覆盖上述选手。`,
             attempt,
             maxAttempts,
           };

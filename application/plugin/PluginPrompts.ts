@@ -103,6 +103,48 @@ function feedbackText(feedback: RepairFeedback | string): string {
 }
 
 /**
+ * 代码生成/修复专用的极简 system prompt。
+ *
+ * 与 buildAgentSystemPrompt 刻意分开：codegen 阶段不需要任何插件动作
+ * （插件动作协议那套），也不该看到它们——
+ * 否则模型会把「修订代码」误答成「发一个动作」而卡在无关的校验上。
+ * 这里只讲一件事：给出一段完整、可试算的 rank(input) 源码。
+ */
+export function buildCodegenSystemPrompt(_snapshot: PluginContextEntry[] = [], maxAttempts: number = 3): string {
+  const example = [
+    '【输入形状】input = { matches: [ { bout, table, p1Id, p1Name, p1Score, p2Id, p2Name, p2Score }, ... ] }',
+    '【口径约定】胜=2、负=0、和=1（沿用对阵表既有比分）；p1Id/p2Id 为 0 或姓名为空 = 轮空，',
+    '            轮空侧不是选手、不进 rows，但另一侧的比分照常计入（内置实现即如此）；',
+    '            双方比分全 0 = 未完赛。所有中间量自己从 matches 算。',
+    '【输出形状】必须是 { columns, rows } 对象：',
+    '  columns: [{ key: "score", label: "积分" }]  —— key 英文标识符，label 只能是 1~12 个汉字；',
+    '  rows: [{ id, name, rank, cells }] —— id/name 必须与对阵表里的选手完全一致（不能输出 id=0 的轮空），',
+    '                                      rank 为数值名次，cells 里每列的值是有限数值或有限数值数组。',
+    '【完整示例】对 {matches:[{bout:1,table:1,p1Id:1,p1Name:"甲",p1Score:2,p2Id:2,p2Name:"乙",p2Score:0},',
+    '                          {bout:1,table:2,p1Id:3,p1Name:"丙",p1Score:2,p2Id:0,p2Name:"",p2Score:0}]}',
+    '  可返回（积分 = 自己各场比分之和）：',
+    '  { columns:[{key:"score",label:"积分"}],',
+    '    rows:[{id:1,name:"甲",rank:1,cells:{score:2}},',
+    '          {id:3,name:"丙",rank:2,cells:{score:2}},',
+    '          {id:2,name:"乙",rank:3,cells:{score:0}}] }',
+    '  注意：丙对的是轮空（p2Id=0），轮空不进 rows，但丙的 2 分照计；甲乙丙三人一个都不能少、不能多。',
+  ].join('\n');
+
+  return [
+    '你是一个只写 JavaScript 纯函数的代码生成器。输出一段完整、可直接执行的插件源码，不要任何解释、不要 JSON 包裹。',
+    '插件入口固定为 function rank(input) { ... }，无网络、无存储、无 DOM、无定时器，禁止 require/import/eval。',
+    '',
+    '【沙箱契约】内置排名与插件排名共用这一套：',
+    CONTRACT_LINES,
+    '',
+    example,
+    '',
+    `【输出要求】只输出完整 JS 源码（可用 \`\`\`js 围栏包住），禁止 diff、片段、注释式说明；自动修复最多 ${maxAttempts} 轮。`,
+    '不要输出 JSON 对象，本阶段只收源码；不要发任何插件动作，也不需要启停或查清单。',
+  ].join('\n');
+}
+
+/**
  * 构造一轮修复消息。只依赖工件（intent/code）与本轮反馈。
  * 返回的消息里没有任何会话历史轮次。
  */
@@ -113,9 +155,10 @@ export function buildRepairMessages(
   maxAttempts: number,
 ): Array<{ role: 'system' | 'user' | 'assistant'; content: string }> {
   const system = [
-    '你在修订一个围棋客户端插件。依据「原始需求 + 当前完整源码 + 本轮反馈」输出修正后的完整源码。',
-    `自动修复轮数上限 ${maxAttempts}；每次都给全量代码，不给 diff。`,
+    '你在修订一个围棋客户端插件。依据「原始需求 + 当前完整源码 + 本轮反馈」输出修正后的完整 JS 源码。',
+    `自动修复轮数上限 ${maxAttempts}；每次都给全量代码，不给 diff、不给解释、不给 JSON 动作协议。`,
     '只写纯 JS 计算函数，入口 rank(input)，input={matches}，返回 { columns, rows }，cells 为数值或数值数组。',
+    'id=0 或姓名为空是轮空，不进 rows（但另一侧的比分照常计入）；rows 必须恰好覆盖对阵表里全部真实选手。',
   ].join('\n');
 
   const user = [

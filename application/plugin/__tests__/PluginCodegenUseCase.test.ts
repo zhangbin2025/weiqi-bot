@@ -33,6 +33,7 @@ interface Harness {
   validator: { validate: ReturnType<typeof vi.fn> };
   prompts: {
     agentSystemPrompt: ReturnType<typeof vi.fn>;
+    codegenSystemPrompt: ReturnType<typeof vi.fn>;
     buildRepairMessages: ReturnType<typeof vi.fn>;
   };
   protocol: { parse: ReturnType<typeof vi.fn> };
@@ -47,8 +48,10 @@ function harness(overrides?: Partial<PluginCodegenOptions>): Harness {
   };
   const validator = { validate: vi.fn().mockReturnValue({ ok: true }) };
   const prompts = {
-    agentSystemPrompt: vi.fn().mockReturnValue('SYSTEM'),
+    agentSystemPrompt: vi.fn().mockReturnValue('AGENT_SYSTEM'),
+    codegenSystemPrompt: vi.fn().mockReturnValue('CODEGEN_SYSTEM'),
     buildRepairMessages: vi.fn().mockReturnValue([
+      { role: 'system' as const, content: 'REPAIR_SYSTEM' },
       { role: 'user' as const, content: '需求' },
     ]),
   };
@@ -211,16 +214,37 @@ describe('PluginCodegenUseCase', () => {
     expect(onTrace).toHaveBeenCalled();
   });
 
-  it('system prompt 带插件清单，且 messages 不含任何会话历史', async () => {
+  it('codegen 用独立极简 system prompt、接回修订 system、且不含会话历史', async () => {
     const h = harness();
     const snapshot = [{ id: 'p1', name: '旧规则', enabled: true }];
     await new PluginCodegenUseCase(h.options).run({ ...baseReq, snapshot });
-    expect(h.prompts.agentSystemPrompt).toHaveBeenCalledWith(snapshot, 3);
-    const req = h.gateway.execute.mock.calls[0]![0] as { messages: Array<{ role: string; content: string }>; task: string };
+    expect(h.prompts.codegenSystemPrompt).toHaveBeenCalledWith(snapshot, 3);
+    expect(h.prompts.agentSystemPrompt).not.toHaveBeenCalled();
+    const req = h.gateway.execute.mock.calls[0]![0] as {
+      messages: Array<{ role: string; content: string }>;
+      task: string;
+      options?: { jsonMode?: boolean };
+    };
     expect(req.task).toBe('plugin.generate');
     expect(req.messages[0].role).toBe('system');
-    expect(req.messages[0].content).toBe('SYSTEM');
+    expect(req.messages[0].content).toContain('CODEGEN_SYSTEM');
+    // 修订 system 不再被 filter 丢弃
+    expect(req.messages[0].content).toContain('REPAIR_SYSTEM');
     expect(req.messages).toHaveLength(2);
+  });
+
+  it('不再强制 jsonMode（整段 JS 源码不塞进 JSON 字符串）', async () => {
+    const h = harness();
+    await new PluginCodegenUseCase(h.options).run(baseReq);
+    const req = h.gateway.execute.mock.calls[0]![0] as { options?: { jsonMode?: boolean } };
+    expect(req.options?.jsonMode).toBe(false);
+  });
+
+  it('未注入 codegenSystemPrompt 时回落 agentSystemPrompt（兼容旧装配）', async () => {
+    const h = harness();
+    delete (h.options.prompts as unknown as { codegenSystemPrompt?: unknown }).codegenSystemPrompt;
+    await new PluginCodegenUseCase(h.options).run(baseReq);
+    expect(h.prompts.agentSystemPrompt).toHaveBeenCalled();
   });
 
   it('执行失败时把反馈回喂给下一轮', async () => {
@@ -300,14 +324,52 @@ describe('PluginCodegenUseCase', () => {
     expect(result.code).toBe(goodCode);
   });
 
-  it('既无 action.code 也无围栏时给出契约反馈并重试', async () => {
+  it('模型直接输出纯 JS 源码时无需任何动作协议即可通过', async () => {
+    const h = harness();
+    h.protocol.parse.mockReturnValue({ ok: false, reason: '未找到合法 JSON 对象' });
+    h.gateway.execute.mockResolvedValue({ text: goodCode, truncated: false });
+    const result = await new PluginCodegenUseCase(h.options).run(baseReq);
+    expect(result.ok).toBe(true);
+    expect(result.code).toBe(goodCode);
+  });
+
+  it('协议因 plugin.revise 缺 artifactId 失败时仍能抢救 action.code（不再废掉整轮）', async () => {
+    const h = harness();
+    h.protocol.parse.mockReturnValue({ ok: false, reason: 'plugin.revise 必须提供 artifactId' });
+    h.gateway.execute.mockResolvedValue({
+      text: JSON.stringify({ reply: '修订好了', action: { kind: 'plugin.revise', code: goodCode } }),
+      truncated: false,
+    });
+    const result = await new PluginCodegenUseCase(h.options).run(baseReq);
+    expect(result.ok).toBe(true);
+    expect(result.code).toBe(goodCode);
+  });
+
+  it('只有解释文字时给出契约反馈并重试，且提示要求直接输出源码', async () => {
     const h = harness({ maxAttempts: 1 });
     h.protocol.parse.mockReturnValue({ ok: false, reason: '非法 JSON' });
     h.gateway.execute.mockResolvedValue({ text: '我只解释一下', truncated: false });
     const result = await new PluginCodegenUseCase(h.options).run(baseReq);
     expect(result.ok).toBe(false);
     expect(result.lastFeedback?.error?.name).toBe('ProtocolError');
+    expect(result.lastFeedback?.hint).toContain('function rank(input)');
+    expect(result.lastFeedback?.hint).toContain('不要 JSON 动作协议');
     expect(h.runtime.run).not.toHaveBeenCalled();
+  });
+
+  it('输出契约失败时把试算输入形状与真实选手清单回喂给下一轮', async () => {
+    const h = harness();
+    h.runtime.run
+      .mockResolvedValueOnce({ ok: true, output: [{ id: 1, rank: 1 }], logs: [], elapsedMs: 1 } satisfies PluginRunResult)
+      .mockResolvedValueOnce({ ok: true, output: validOutput, logs: [], elapsedMs: 1 } satisfies PluginRunResult);
+    await new PluginCodegenUseCase(h.options).run(baseReq);
+    const secondCall = h.prompts.buildRepairMessages.mock.calls[1]!;
+    const fb = secondCall[2] as RepairFeedback;
+    expect(fb.hint).toContain('matches 共 6 场');
+    expect(fb.hint).toContain('1:甲');
+    expect(fb.hint).toContain('2:乙');
+    expect(fb.hint).toContain('3:丙');
+    expect(fb.hint).toContain('id=0');
   });
 
   it('沙箱抛异常被当作可恢复失败而非整个循环崩溃', async () => {

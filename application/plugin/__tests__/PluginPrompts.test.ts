@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildAgentSystemPrompt, buildRepairMessages } from '../PluginPrompts';
+import { buildAgentSystemPrompt, buildCodegenSystemPrompt, buildRepairMessages } from '../PluginPrompts';
 import type { PluginContextEntry, RepairFeedback } from '@domain/plugin/types';
 
 const snapshot: PluginContextEntry[] = [
@@ -136,11 +136,59 @@ describe('buildRepairMessages（工件中心）', () => {
     expect(buildRepairMessages('x', code, fb, 7)[0]!.content).toContain('7');
   });
 
+  it('修订 system 明确「只输出源码、不给 JSON 动作协议」并讲清轮空', () => {
+    const s = buildRepairMessages('需求', code, fb, 3)[0]!.content;
+    expect(s).toContain('完整 JS 源码');
+    expect(s).toContain('不给 JSON 动作协议');
+    expect(s).toContain('id=0');
+    expect(s).toContain('不能出现在 rows 里');
+  });
+
   it('prompt 长度克制（不含历史，不重复拼接）', () => {
     const s = buildAgentSystemPrompt(snapshot, 3);
     const m = buildRepairMessages('x', code, fb, 3);
     // 契约说明比旧版更详细（列/cells/宿主保留列），但仍控制在 4000 字内
     expect(s.length).toBeLessThan(4000);
     expect(m[1]!.content.length).toBeLessThan(1500);
+  });
+});
+
+describe('buildCodegenSystemPrompt（codegen 专用极简契约）', () => {
+  const s = buildCodegenSystemPrompt([], 3);
+
+  it('不含任何插件动作/artifactId 语义，避免模型误答成 plugin.revise', () => {
+    expect(s).not.toContain('plugin.create');
+    expect(s).not.toContain('plugin.revise');
+    expect(s).not.toContain('plugin.toggle');
+    expect(s).not.toContain('artifactId');
+    expect(s).not.toContain('"action"');
+    expect(s).not.toContain('"reply"');
+  });
+
+  it('讲清输入/口径/输出形状，且给出完整合法示例', () => {
+    expect(s).toContain('input = { matches:');
+    expect(s).toContain('胜=2、负=0、和=1');
+    expect(s).toContain('轮空');
+    expect(s).toContain('未完赛');
+    expect(s).toContain('{ columns, rows }');
+    expect(s).toContain('cells');
+    expect(s).toContain('p2Id:0');
+    expect(s).toContain('id:1,name:"甲"');
+  });
+
+  it('明确「轮空不进 rows 但另一侧比分照计、真实选手一个不能少」', () => {
+    expect(s).toContain('轮空不进 rows');
+    expect(s).toContain('丙的 2 分照计');
+    expect(s).toContain('一个都不能少、不能多');
+  });
+
+  it('要求只输出完整 JS 源码，轮数上限体现在 prompt 里', () => {
+    expect(s).toContain('只输出完整 JS 源码');
+    expect(s).toContain('function rank(input)');
+    expect(buildCodegenSystemPrompt([], 5)).toContain('5');
+  });
+
+  it('长度克制', () => {
+    expect(s.length).toBeLessThan(4000);
   });
 });

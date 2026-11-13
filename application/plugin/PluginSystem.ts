@@ -24,7 +24,7 @@ import { InMemoryPluginArtifactStore } from '@infrastructure/plugin/InMemoryPlug
 import { PluginValidator } from '@domain/plugin/PluginValidator';
 import { PluginArtifactService } from './PluginArtifactService';
 import { PluginContextProvider } from './PluginContextProvider';
-import { buildAgentSystemPrompt, buildRepairMessages } from './PluginPrompts';
+import { buildAgentSystemPrompt, buildCodegenSystemPrompt, buildRepairMessages } from './PluginPrompts';
 import { toFeedback, sanitizeFeedback, describeInputShape } from './FeedbackPack';
 import { parseAgentResponse, safeAgentReply } from './AgentProtocol';
 import { PluginCodegenUseCase } from './PluginCodegenUseCase';
@@ -34,10 +34,16 @@ import { loadPluginMaxAttempts } from './PluginConfig';
 
 export { DEFAULT_PLUGIN_MAX_ATTEMPTS, loadPluginMaxAttempts, savePluginMaxAttempts } from './PluginConfig';
 
-/** 提示词端口实现（把纯函数包成接口） */
+/** 对话页智能体用的提示词（含插件动作协议） */
 const prompts = {
   agentSystemPrompt: buildAgentSystemPrompt,
   buildRepairMessages,
+};
+
+/** codegen 专用：极简契约 prompt，不带任何插件动作/artifactId 语义 */
+const codegenPrompts = {
+  ...prompts,
+  codegenSystemPrompt: buildCodegenSystemPrompt,
 };
 
 const protocol = { parse: parseAgentResponse };
@@ -163,7 +169,7 @@ export async function createPluginSystem(options: PluginSystemOptions = {}): Pro
     gateway,
     runtime,
     validator,
-    prompts,
+    prompts: codegenPrompts,
     protocol,
     feedback: feedbackAdapter,
     maxAttempts,
