@@ -6,9 +6,9 @@
  * 复用功能助手的渲染器、会话存储、凭据与共享 CSS，不引入旧意图/命令体系。
  *
  * 页面由「模型角色」驱动（见 ChatRole）：默认闲聊，用户可在标题栏切换到
- * 插件开发。闲聊角色是标准 tool-calling 智能体，模型自主决定要不要访问
- * 网页；插件角色走自定义 JSON 动作协议，能真实启停插件。两者互不干扰。
- * 不再按每句话猜意图。
+ * 插件开发。两个角色共用同一个标准 tool-calling agent loop：闲聊挂网页/PDF/
+ * 图片工具，插件角色挂插件工具集（列/查/写/试算/启停/删除/应用/回滚等）。
+ * 角色只决定挂哪套工具与 system，不再按每句话猜意图，也没有两套循环。
  *
  * 角色固化在会话数据里（ChatSessionData.role），历史会话列表显示角色标识，
  * 打开历史会话会恢复它自己的角色。**已有聊天记录的会话角色锁定，不能切换**
@@ -89,9 +89,8 @@ export class ChatPage {
       gateway,
       this.history,
       this.renderer,
-      this.plugin
-        ? { turn: (req) => this.plugin!.agent.turn(req), safeReply: (t) => this.plugin!.safeReply(t) }
-        : undefined,
+      // plugin 角色只挂插件工具集，与闲聊共用同一个标准 tool-calling loop
+      this.plugin?.toolKit,
       // 角色由页面持有，用例只读取、不猜测、不持久化
       () => this.currentRole,
       webTools,

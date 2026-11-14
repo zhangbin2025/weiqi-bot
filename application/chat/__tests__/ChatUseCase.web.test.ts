@@ -6,6 +6,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ChatUseCase } from '../ChatUseCase';
 import { WEB_FETCH_TOOL_NAME } from '../WebFetchTool';
+import type { ToolKit } from '../ToolLoop';
 import type { IModelGateway } from '../../model/IModelGateway';
 import type { IMessageRenderer } from '../../assistant/IMessageRenderer';
 import type { ChatHistoryManager } from '../../assistant/ChatHistoryManager';
@@ -84,15 +85,19 @@ describe('ChatUseCase: chat 角色的网络智能体接线', () => {
     expect(r.finishPluginTrace).toHaveBeenCalled();
   });
 
-  it('plugin 角色装配 webTools 也不碰网络工具（走 Agent）', async () => {
+  it('plugin 角色挂插件工具集，即使装配了 webTools 也不碰网络工具', async () => {
     const r = renderer();
-    const agent = {
-      turn: vi.fn().mockResolvedValue({ reply: '插件已建好', acted: true, attempts: 1 }),
-      safeReply: vi.fn((t: string) => t),
+    const kit: ToolKit = {
+      tools: [{ name: 'plugin_list', description: '列出插件', parameters: { type: 'object' } }],
+      executors: { plugin_list: async () => ({ observation: '无插件', ok: true, detail: '列出插件' }) },
+      systemPrompt: () => Promise.resolve('你是插件开发智能体'),
     };
-    const uc = new ChatUseCase(gateway([{ text: 'ignored' }]), history(), r, agent, () => 'plugin', webTools);
+    const gw = gateway([{ text: '已就绪' }]);
+    const uc = new ChatUseCase(gw, history(), r, kit, () => 'plugin', webTools);
     await uc.send('写个规则');
-    expect(agent.turn).toHaveBeenCalled();
     expect(webTools.fetchImpl).not.toHaveBeenCalled();
+    const req = (gw.execute as ReturnType<typeof vi.fn>).mock.calls[0]![0];
+    expect(req.tools.map((t: { name: string }) => t.name)).toEqual(['plugin_list']);
+    expect(req.messages[0]).toEqual({ role: 'system', content: '你是插件开发智能体' });
   });
 });

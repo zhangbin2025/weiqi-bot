@@ -2,7 +2,7 @@
  * 插件系统装配根测试
  *
  * 验证：
- * - 内存存储 + mock 运行时可完整装配
+ * - 内存存储 + mock 运行时可完整装配，暴露 toolKit（聊天侧 plugin 角色唯一入口）
  * - **会话清空后工件仍可读可改**（工件中心最核心的验收点）
  * - applyRanking 是唯一管线：未选插件走内置、显式选中已启用插件才进沙箱，
  *   失败/未启用/不存在一律回落内置结果（但都是 computeRanking 新产的 RankingTable）
@@ -22,7 +22,7 @@ import { RANKING_SPEC } from '@domain/plugin/types';
 function gateway(): IModelGateway {
   return {
     isReady: () => true,
-    execute: async (_req: ModelRequest): Promise<ModelResult> => ({ text: '{"reply":"好","action":{"kind":"none"}}', truncated: false }),
+    execute: async (_req: ModelRequest): Promise<ModelResult> => ({ text: '好', truncated: false }),
   };
 }
 
@@ -66,19 +66,21 @@ function sys(overrides: Parameters<typeof createPluginSystem>[0] = {}) {
 const BUILTIN_LABELS = ['积分', '对手分', '累进分', '逆减'];
 
 describe('createPluginSystem', () => {
-  it('完整装配出 agent / codegen / artifacts / snapshot', async () => {
+  it('完整装配出 toolKit / artifacts / snapshot', async () => {
     const s = await sys();
-    expect(s.agent).toBeDefined();
-    expect(s.codegen).toBeDefined();
+    expect(s.toolKit).toBeDefined();
+    expect(s.toolKit.tools.map((t) => t.name)).toContain('plugin_write');
+    expect(s.toolKit.maxTurns).toBe(DEFAULT_PLUGIN_MAX_ATTEMPTS + 1);
     expect(s.artifacts).toBeDefined();
     expect(s.snapshot).toBeDefined();
     expect(s.maxAttempts).toBe(DEFAULT_PLUGIN_MAX_ATTEMPTS);
     await s.dispose();
   });
 
-  it('可配置修复轮数', async () => {
+  it('可配置修复轮数：同时决定 loop 的总决策轮数上限', async () => {
     const s = await sys({ maxAttempts: 5 });
     expect(s.maxAttempts).toBe(5);
+    expect(s.toolKit.maxTurns).toBe(6);
     await s.dispose();
   });
 

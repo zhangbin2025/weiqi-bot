@@ -83,9 +83,9 @@ describe('AssistantRenderer.renderPluginTrace（过程日志，纯展示）', ()
   });
 
   const steps = [
-    { source: 'agent' as const, attempt: 1, phase: 'decision', ok: true, detail: '第 1 次决策：调用模型' },
-    { source: 'codegen' as const, attempt: 1, phase: 'sandbox', ok: false, detail: '试算失败 TypeError', code: 'function rank(p){ return p }' },
-    { source: 'codegen' as const, attempt: 2, phase: 'sandbox', ok: true, detail: '试算通过' },
+    { source: 'plugin' as const, attempt: 1, phase: 'decision', ok: true, detail: '第 1 次决策：调用模型' },
+    { source: 'plugin' as const, attempt: 1, phase: 'sandbox', ok: false, detail: '试算失败 TypeError', code: 'function rank(p){ return p }' },
+    { source: 'plugin' as const, attempt: 2, phase: 'sandbox', ok: true, detail: '试算通过' },
   ];
 
   it('空 trace 不渲染任何 DOM', async () => {
@@ -110,7 +110,7 @@ describe('AssistantRenderer.renderPluginTrace（过程日志，纯展示）', ()
     expect(rows[0]!.querySelector('.plugin-trace__flag')?.textContent).toBe('✓');
     expect(rows[1]!.className).toContain('plugin-trace__step--fail');
     expect(rows[1]!.querySelector('.plugin-trace__flag')?.textContent).toBe('✗');
-    expect(rows[1]!.querySelector('.plugin-trace__tag')?.textContent).toContain('代码 · 第 1 轮 · sandbox');
+    expect(rows[1]!.querySelector('.plugin-trace__tag')?.textContent).toContain('插件 · 第 1 轮 · sandbox');
   });
 
   it('代码可展开、完整源码在 <pre> 里、复制按钮带原文', async () => {
@@ -126,7 +126,7 @@ describe('AssistantRenderer.renderPluginTrace（过程日志，纯展示）', ()
   });
 
   it('LLM 产出的 HTML/脚本注入只作为文本，不产生元素', async () => {
-    const evil = [{ source: 'agent' as const, attempt: 1, phase: 'decision', ok: false,
+    const evil = [{ source: 'plugin' as const, attempt: 1, phase: 'decision', ok: false,
       detail: '<img src=x onerror=alert(1)>', code: '<script>alert(2)</script>' }];
     await renderer.renderPluginTrace(evil);
     expect(document.querySelector('.plugin-trace img')).toBeNull();
@@ -152,7 +152,7 @@ describe('AssistantRenderer 实时过程日志（逐步输出）', () => {
   });
 
   const step = (over: Partial<{ attempt: number; phase: string; ok: boolean; detail: string; code: string }> = {}) => ({
-    source: 'agent' as const, attempt: 1, phase: 'decision', ok: true, detail: '调用模型', ...over,
+    source: 'plugin' as const, attempt: 1, phase: 'decision', ok: true, detail: '调用模型', ...over,
   });
 
   it('begin 立即插入过程块且进行中默认展开，标题带「进行中」', () => {

@@ -160,34 +160,13 @@ export interface RepairFeedback {
   maxAttempts: number;
 }
 
-/** 对话页 Agent 协议：模型输出 { reply, action } */
-export type AgentActionKind =
-  | 'none'
-  | 'plugin.list'
-  | 'plugin.show'
-  | 'plugin.create'
-  | 'plugin.revise'
-  | 'plugin.toggle'
-  | 'plugin.delete';
-
-export interface AgentAction {
-  kind: AgentActionKind;
-  artifactId?: string;
-  name?: string;
-  code?: string;
-  feedback?: string;
-  pointId?: string;
-  intent?: string;
-  enabled?: boolean;
-}
-
-export interface AgentResponse {
-  reply: string;
-  action: AgentAction;
-}
-
+/**
+ * 统一 tool-calling 过程步骤。
+ * source 只区分两条链路：'web'（闲聊/网络工具）与 'plugin'（插件开发工具）。
+ * 旧的自造 JSON 动作协议（'agent' / 'codegen' 双层循环）已删除。
+ */
 export interface PluginTraceStep {
-  source: 'agent' | 'codegen' | 'web';
+  source: 'web' | 'plugin';
   attempt: number;
   phase: string;
   ok: boolean;
@@ -196,14 +175,6 @@ export interface PluginTraceStep {
 }
 
 export type PluginTraceSink = (step: PluginTraceStep) => void;
-
-export interface AgentTurnResult {
-  reply: string;
-  artifactId?: string;
-  acted: boolean;
-  attempts: number;
-  trace?: PluginTraceStep[];
-}
 
 // ---------- 端口（六边形架构：application 依赖端口，infrastructure 实现） ----------
 

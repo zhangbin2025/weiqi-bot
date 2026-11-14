@@ -6,12 +6,13 @@
  * 越重、边界永远补不完，还出现过「用户说启用 → 被判闲聊 → 模型嘴上回已启用
  * 却什么都没执行」的假成功。
  *
- * 现在改成用户显式选角色：**角色确定后才加载对应的 system prompt 与背景知识**。
- * - chat（默认）：纯聊天对象，看不到插件系统、没有 JSON 协议、没有任何写权限。
- * - plugin：可编程智能体，注入插件清单/沙箱契约/动作协议，能真实执行启停等动作。
+ * 现在改成用户显式选角色：**角色确定后才挂对应的工具集与 system prompt**。
+ * - chat（默认）：挂网页/PDF/图片工具，model 自主决定是否访问网络，没有插件写权限。
+ * - plugin：挂插件工具集，注入实时插件清单 + 沙箱契约，能真实执行查看/编写/
+ *   试算/启停/删除/应用/回滚等动作（全部是标准 tool_calls）。
  *
- * 扩展性：新增角色只需在 ROLES 里加一项（id / label / hint / 能力开关），
- * ChatUseCase 与 ChatPage 都按角色配置驱动，不需要再堆 if/else 猜措辞。
+ * 扩展性：新增角色只需在 ROLES 里加一项（id / label / hint / 能力开关）并给
+ * ChatUseCase 配一套 ToolKit，不需要再堆 if/else 猜措辞，也不需要新循环。
  */
 
 /** 角色 id。字符串枚举便于持久化到 localStorage / 会话元数据。 */
@@ -28,11 +29,11 @@ export interface ChatRoleConfig {
   /** 输入框 placeholder */
   placeholder: string;
   /**
-   * 是否启用插件智能体能力（Agent Loop / 插件快照 / JSON 动作协议）。
+   * 是否挂插件工具集（标准 tool-calling 的 tools + 动态 system）。
    * 为 false 时该角色完全不接触插件系统。
    */
   agent: boolean;
-  /** 是否允许展示插件调试过程日志 */
+  /** 是否展示过程日志（两个角色都按「真的执行过工具」懒建） */
   trace: boolean;
 }
 
@@ -53,7 +54,7 @@ export const CHAT_ROLES: readonly ChatRoleConfig[] = [
   {
     id: 'plugin',
     label: '插件开发',
-    description: '可编程智能体，可查看/编写/启停插件，能真实执行',
+    description: '可编程智能体，可查看/编写/试算/启停/回滚插件，能真实执行',
     icon: '🧩',
     placeholder: '描述插件需求，或直接说「启用」…',
     agent: true,

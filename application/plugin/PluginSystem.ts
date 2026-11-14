@@ -3,17 +3,19 @@
  * @module application/plugin/PluginSystem
  *
  * 把各层端口粘成一个可注入到页面的完整系统。所有构造都在这里完成，
- * 页面只拿 `agent` / `applyRanking` 等入口，不关心 IndexedDB、Worker、wasm 细节。
+ * 页面只拿 `toolKit` / `applyRanking` 等入口，不关心 IndexedDB、Worker、wasm 细节。
  *
  * 关键性质：插件对 LLM 随时可见（数据来自工件存储，不是会话历史），
  * 因此新会话、老会话、会话清空后都能查看与修订插件。
  *
- * 排名只有一条管线 computeRanking(matches, impl)：内置实现与插件实现
- * 都是同一个 IRankingImplementation，本装配根只负责「选中哪个 impl」。
+ * 2026-11-14：旧的自造 JSON 动作协议 + 双层循环 + verifier 全部删除，
+ * 改为「一张工具表挂到通用 tool-calling loop」。`toolKit` 是聊天侧 plugin
+ * 角色唯一需要的东西；调试/启停/历史/回滚/应用等都在工具集里，和 UI 面板
+ * 共用同一批 service。排名仍只有一条管线 computeRanking(matches, impl)。
  */
 
 import type { IModelGateway } from '@application/model/IModelGateway';
-import type { IPluginRuntime, PluginSpec, PluginArtifact } from '@domain/plugin/types';
+import type { IPluginRuntime, PluginArtifact } from '@domain/plugin/types';
 import { RANKING_SPEC } from '@domain/plugin/types';
 import type { MatchData, RankingTable, RankingMode } from '@domain/ranking/types';
 import { computeRanking, BuiltinRanking } from '@domain/ranking/RankingPipeline';
@@ -21,71 +23,20 @@ import { OpenAIModelGateway } from '@infrastructure/llm/OpenAIModelGateway';
 import { QuickJsRuntime } from '@infrastructure/plugin-vm/QuickJsRuntime';
 import { createPluginArtifactStore } from '@infrastructure/plugin/PluginArtifactStore';
 import { InMemoryPluginArtifactStore } from '@infrastructure/plugin/InMemoryPluginArtifactStore';
+import { LocalStorageAdapter } from '@infrastructure/storage/adapters/web/LocalStorageAdapter';
 import { PluginValidator } from '@domain/plugin/PluginValidator';
 import { PluginArtifactService } from './PluginArtifactService';
 import { PluginContextProvider } from './PluginContextProvider';
-import { buildAgentSystemPrompt, buildCodegenSystemPrompt, buildRepairMessages } from './PluginPrompts';
-import { toFeedback, sanitizeFeedback, describeInputShape } from './FeedbackPack';
-import { parseAgentResponse, safeAgentReply } from './AgentProtocol';
-import { InstructionVerifier } from './InstructionVerifier';
-import { PluginCodegenUseCase } from './PluginCodegenUseCase';
-import { PluginAgentUseCase } from './PluginAgentUseCase';
+import { createPluginToolKit, type PluginToolKit } from './PluginTools';
 import { createPluginRanking } from './RankingPluginAdapter';
 import { loadPluginMaxAttempts } from './PluginConfig';
+import { safeReply, DEFAULT_REPLY_MAX_CHARS } from '../chat/safeReply';
 
 export { DEFAULT_PLUGIN_MAX_ATTEMPTS, loadPluginMaxAttempts, savePluginMaxAttempts } from './PluginConfig';
 
-/** 对话页智能体用的提示词（含插件动作协议） */
-const prompts = {
-  agentSystemPrompt: buildAgentSystemPrompt,
-  buildRepairMessages,
-};
-
-/** codegen 专用：极简契约 prompt，不带任何插件动作/artifactId 语义 */
-const codegenPrompts = {
-  ...prompts,
-  codegenSystemPrompt: buildCodegenSystemPrompt,
-};
-
-const protocol = { parse: parseAgentResponse };
-
-const feedbackAdapter = {
-  toFeedback,
-};
-
-/** 把 PluginArtifactService 适配成 PluginAgentUseCase 期望的窄接口 */
-function artifactPort(service: PluginArtifactService): PluginAgentUseCaseArtifacts {
-  return {
-    create: async (input) => {
-      const a = await service.create(input);
-      return { id: a.id };
-    },
-    revise: async (id, input) => {
-      const a = await service.revise(id, input);
-      return { id: a.id };
-    },
-    setEnabled: (id, enabled) => service.setEnabled(id, enabled),
-    remove: (id) => service.remove(id),
-    get: async (id) => {
-      const a = await service.get(id);
-      return a ? { id: a.id, code: a.code, intent: a.intent, spec: a.spec } : null;
-    },
-  };
-}
-
-interface PluginAgentUseCaseArtifacts {
-  create(input: {
-    name: string; intent: string; code: string; pointId: string;
-    origin: 'llm' | 'manual'; spec: PluginSpec; conversationRef?: string;
-  }): Promise<{ id: string }>;
-  revise(id: string, input: {
-    code: string; trigger: 'create' | 'auto-repair' | 'user-feedback' | 'manual';
-    feedback?: string;
-  }): Promise<{ id: string }>;
-  setEnabled(id: string, enabled: boolean): Promise<void>;
-  remove(id: string): Promise<void>;
-  get(id: string): Promise<{ id: string; code: string; intent: string; spec: PluginSpec } | null>;
-}
+/** 赛事页「当前选中的排名插件」持久化口径（与 EventDetailPage.ts 完全一致） */
+const RANKING_PLUGIN_KEY = 'event-ranking-plugin';
+const LOCAL_STORE_NAMESPACE = 'weiqi-bot';
 
 export interface PluginSystemOptions {
   /** 注入自定义网关（测试用）；不传则新建 OpenAIModelGateway */
@@ -96,8 +47,10 @@ export interface PluginSystemOptions {
   store?: PluginArtifactStoreLike;
   /** 是否用内存存储（Node/测试环境） */
   useMemoryStore?: boolean;
-  /** 自动修复轮数 */
+  /** 决策轮数上限（沿用 /llm repairs 的同一配置） */
   maxAttempts?: number;
+  /** 注入自定义本地存储（测试用）；不传则按 namespace 新建 */
+  localStorage?: LocalStorageAdapter;
   /** wasm 二进制提供者；不传则按 public 目录路径 fetch */
   wasmBinary?: ArrayBuffer | (() => Promise<ArrayBuffer>);
 }
@@ -133,8 +86,9 @@ export interface PluginSystem {
   runtime: IPluginRuntime;
   artifacts: PluginArtifactService;
   snapshot: PluginContextProvider;
-  codegen: PluginCodegenUseCase;
-  agent: PluginAgentUseCase;
+  /** 挂到通用 ToolLoop 的插件工具集（plugin 角色唯一入口） */
+  toolKit: PluginToolKit;
+  /** 决策轮数上限：ToolLoop.maxTurns = maxAttempts + 1（沿用既有 /llm repairs 配置） */
   maxAttempts: number;
   /**
    * 给排名页用：把同一份原始对阵表交给唯一管线 computeRanking。
@@ -166,30 +120,21 @@ export async function createPluginSystem(options: PluginSystemOptions = {}): Pro
   const snapshot = new PluginContextProvider(store);
   const validator = new PluginValidator();
 
-  // 指令满足度验证器：只在修订时由 codegen 调用一次独立模型判定。
-  // 注入为端口，测试可 mock；不注入时 codegen 自动退化为「只做 diff 检测」的轻量档。
-  const verifier = new InstructionVerifier(gateway);
+  // 赛事页选择键：与 EventDetailPage 用同一个 namespace / key / write/delete 口径。
+  // 工具集不依赖具体存储实现，通过窄函数注入。
+  const localStore = options.localStorage ?? new LocalStorageAdapter(LOCAL_STORE_NAMESPACE);
+  try { await localStore.initialize(); } catch { /* 存储不可用时应用工具会明确失败 */ }
+  const applySelection = async (id: string | undefined): Promise<void> => {
+    if (id) await localStore.write(RANKING_PLUGIN_KEY, id);
+    else await localStore.delete(RANKING_PLUGIN_KEY);
+  };
 
-  const codegen = new PluginCodegenUseCase({
-    gateway,
+  const toolKit = createPluginToolKit({
+    artifacts,
     runtime,
     validator,
-    prompts: codegenPrompts,
-    protocol,
-    feedback: feedbackAdapter,
-    verifier,
-    maxAttempts,
-  });
-
-  const agent = new PluginAgentUseCase({
-    gateway,
-    prompts,
-    protocol,
-    validator,
-    runtime,
-    artifacts: artifactPort(artifacts),
     snapshot,
-    codegen,
+    applySelection,
     maxAttempts,
   });
 
@@ -198,8 +143,7 @@ export async function createPluginSystem(options: PluginSystemOptions = {}): Pro
     runtime,
     artifacts,
     snapshot,
-    codegen,
-    agent,
+    toolKit,
     maxAttempts,
     applyRanking: async (matches: MatchData[], selectedArtifactId?: string, mode: RankingMode = 'default') => {
       const builtin = (): Promise<RankingTable> => computeRanking(matches, new BuiltinRanking(mode));
@@ -220,10 +164,10 @@ export async function createPluginSystem(options: PluginSystemOptions = {}): Pro
         return builtin();
       }
     },
-    safeReply: (text: string) => safeAgentReply(text, 2000),
+    safeReply: (text: string) => safeReply(text, DEFAULT_REPLY_MAX_CHARS),
     dispose: () => runtime.dispose(),
   };
 }
 
-// 导出便于其它模块复用的工具（避免重复实现）
-export { describeInputShape, sanitizeFeedback };
+// 保留对外复用（既有模块/测试依赖这两个导出，与旧链路无关）
+export { describeInputShape, sanitizeFeedback } from './FeedbackPack';

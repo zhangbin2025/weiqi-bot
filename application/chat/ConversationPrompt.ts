@@ -6,8 +6,8 @@
  * 要不要取网页 / 读 PDF / 看图片，宿主只提供工具与观察。因此 system prompt
  * 不再禁止结构化输出（模型可能返回 tool_calls），改为说明「需要时才访问网络」。
  *
- * 角色由用户在页面上显式选择（见 ChatRole）；插件开发角色走
- * PluginPrompts，不在这里提插件，避免模型把闲聊拽回插件话题。
+ * 角色由用户在页面上显式选择（见 ChatRole）；插件开发角色挂的是插件工具集，
+ * 由 ToolLoop 用自己的动态 system 替换本段，不在这里提插件，避免闲聊被拽回插件话题。
  */
 
 import type { ModelPart } from '../model/IModelGateway';

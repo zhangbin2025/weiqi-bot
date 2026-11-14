@@ -786,9 +786,8 @@ export class AssistantRenderer implements IMessageRenderer {
     head.className = 'plugin-trace__head';
     const tag = document.createElement('span');
     tag.className = 'plugin-trace__tag';
-    const sourceLabel = step.source === 'codegen' ? '代码'
-      : step.source === 'web' ? '网络'
-      : '决策';
+    const sourceLabel = step.source === 'plugin' ? '插件'
+      : '网络';
     tag.textContent = `[${sourceLabel} · 第 ${step.attempt} 轮 · ${step.phase}]`;
     const flag = document.createElement('span');
     flag.className = 'plugin-trace__flag';
