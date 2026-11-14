@@ -11,8 +11,11 @@
  *
  * 终止条件 = 模型不再调工具（标准 loop 自然收敛）。试算失败不落库，
  * 失败原因变观察回喂，模型自己决定重试；这类「提交源码 → 验收失败 → 重写」
- * 由 repairable 标记交给共用 loop 计为同一次决策的延续，不占决策预算
- * （连续失败上限仍是 /llm repairs 的 maxAttempts，见 ToolLoop.ts 头部口径）。
+ * 由 repairable 标记交给共用 loop 计为同一次决策的延续，不占决策预算。
+ * 同理，list/show/history/debug 这些只读准备工具也标 preparatory，让「一个意图串起
+ * 的多步查询」不各自吃掉一次决策（否则第一次开发就会撞满 4 次上限）。两类延续共用
+ * /llm repairs 的 maxAttempts 作为连续上限，见 ToolLoop.ts 头部口径。
+ * 状态变更工具(write/toggle/delete/apply/rollback) 不标，仍是逐次自主决策。
  *
  * 一切操作都是工具：调试(试算)、历史、回滚、启停、删除、应用为排名实现。
  * 执行器与 UI 面板共用同一批 service，消除「模型一套、按钮一套」的分裂。
@@ -646,6 +649,21 @@ export function createPluginToolKit(deps: PluginToolDeps): PluginToolKit {
       return fail(`回滚落库失败：${e instanceof Error ? e.message : String(e)}`);
     }
   };
+
+  // 只读准备工具统一标记 preparatory：只是给工具打「查资料」的性质标签，
+  // 不是编排模型的步骤顺序（决策权仍在模型）。放这里包一层，避免每个 return 点漏标。
+  // debug 试算失败已带 repairable（要重写，续的是修复串），优先级更高，不覆盖。
+  const READ_ONLY_TOOLS: readonly string[] = [
+    PLUGIN_TOOL_NAMES.list, PLUGIN_TOOL_NAMES.show,
+    PLUGIN_TOOL_NAMES.history, PLUGIN_TOOL_NAMES.debug,
+  ];
+  for (const name of READ_ONLY_TOOLS) {
+    const inner = executors[name]!;
+    executors[name] = async (argsJson: string) => {
+      const out = await inner(argsJson);
+      return out.repairable ? out : { ...out, preparatory: true };
+    };
+  }
 
   return {
     tools: TOOLS,

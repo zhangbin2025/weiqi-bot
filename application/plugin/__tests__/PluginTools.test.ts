@@ -357,7 +357,7 @@ describe('试算失败标记 repairable（修复延续不占决策预算）', ()
     expect(out.repairable).toBeUndefined();
   });
 
-  it('plugin_debug 试算失败带标记；参数错误不带（不是验收失败，正常计决策）', async () => {
+  it('plugin_debug 试算失败带 repairable；参数错误不带 repairable（只读包装统一给 preparatory）', async () => {
     const h = broken();
     const failed = await call(h, PLUGIN_TOOL_NAMES.debug, { code: CODE_V1 });
     expect(failed.ok).toBe(false);
@@ -365,5 +365,45 @@ describe('试算失败标记 repairable（修复延续不占决策预算）', ()
     const badArgs = await call(h, PLUGIN_TOOL_NAMES.debug, { matches: 'not array' });
     expect(badArgs.ok).toBe(false);
     expect(badArgs.repairable).toBeUndefined();
+    expect(badArgs.preparatory).toBe(true); // 只读包装统一打标，不占决策预算
+  });
+});
+
+
+describe('只读工具标记 preparatory（准备动作不占决策预算）', () => {
+  it('list / show / history / debug 成功 → preparatory=true', async () => {
+    const h = harness();
+    const created = await h.artifacts.create({
+      name: '测试', intent: '测试', code: CODE_V1,
+      pointId: RANKING_POINT_ID, origin: 'llm', spec: RANKING_SPEC,
+    });
+    const kit = createPluginToolKit(h.deps);
+    const listOut = await kit.executors[PLUGIN_TOOL_NAMES.list]!('{}');
+    const showOut = await kit.executors[PLUGIN_TOOL_NAMES.show]!(JSON.stringify({ artifactId: created.id }));
+    const histOut = await kit.executors[PLUGIN_TOOL_NAMES.history]!(JSON.stringify({ artifactId: created.id }));
+    const debugOut = await kit.executors[PLUGIN_TOOL_NAMES.debug]!(JSON.stringify({ code: CODE_V1 }));
+    for (const out of [listOut, showOut, histOut, debugOut]) {
+      expect(out.ok).toBe(true);
+      expect(out.preparatory).toBe(true);
+    }
+  });
+
+  it('状态变更工具 write 成功不带 preparatory（仍是逐次自主决策）', async () => {
+    const h = harness();
+    const kit = createPluginToolKit(h.deps);
+    const out = await kit.executors[PLUGIN_TOOL_NAMES.write]!(
+      JSON.stringify({ code: CODE_V1, intent: '测试' }),
+    );
+    expect(out.ok).toBe(true);
+    expect(out.preparatory).toBeUndefined();
+  });
+
+  it('debug 试算失败保持 repairable，不被 preparatory 覆盖', async () => {
+    const h = harness({ runImpl: async () => { throw new Error('沙箱炸了'); } });
+    const kit = createPluginToolKit(h.deps);
+    const out = await kit.executors[PLUGIN_TOOL_NAMES.debug]!(JSON.stringify({ code: CODE_V1 }));
+    expect(out.ok).toBe(false);
+    expect(out.repairable).toBe(true);
+    expect(out.preparatory).toBeUndefined();
   });
 });

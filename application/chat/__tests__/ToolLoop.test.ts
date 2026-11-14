@@ -276,7 +276,7 @@ describe('runToolLoop 修复延续（2026-11-14：两个预算不再合并）', 
     expect(r.turns).toBe(1);
   });
 
-  it('连续失败达 maxAttempts 次 → 针对性提示，不再报「决策次数用尽」', async () => {
+  it('连续失败不再被「连续延续封顶」误杀，只由总调用轮数 guard 兜底', async () => {
     const always: ModelResult = {
       text: '', truncated: false,
       toolCalls: [{ id: 'c', name: 'plugin_write', arguments: '{"code":"x"}' }],
@@ -287,10 +287,12 @@ describe('runToolLoop 修复延续（2026-11-14：两个预算不再合并）', 
       { messages: baseMessages() },
     );
     expect(r.exhausted).toBe(true);
-    expect(r.reply).toContain('自动修复轮数上限');
+    expect(r.reply).toContain('总调用轮数上限');
     expect(r.reply).toContain('/llm repairs');
     expect(r.reply).not.toContain('最大决策次数');
-    expect(gw.calls).toHaveLength(DEFAULT_PLUGIN_MAX_ATTEMPTS);
+    expect(r.reply).not.toContain('未推进到实质操作');
+    const maxTurns = DEFAULT_PLUGIN_MAX_ATTEMPTS + 1;
+    expect(gw.calls).toHaveLength(maxTurns * maxTurns);
   });
 
   it('未置位 repairable 的工具（chat/web 角色）行为完全不变', async () => {
@@ -304,6 +306,154 @@ describe('runToolLoop 修复延续（2026-11-14：两个预算不再合并）', 
       { messages: baseMessages() },
     );
     expect(r.turns).toBe(DEFAULT_PLUGIN_MAX_ATTEMPTS + 1);
+    expect(r.reply).toContain('最大决策次数');
+  });
+});
+
+
+describe('runToolLoop 只读准备不占决策（2026-11-14：细粒度工具配粗粒度预算的修正）', () => {
+  /** 只读工具每次都带 preparatory；状态变更工具不带 */
+  const prepKit = (): ToolKit => ({
+    tools: [
+      { name: 'lookup', description: '只读查询', parameters: { type: 'object' } },
+      { name: 'commit', description: '状态变更', parameters: { type: 'object' } },
+    ],
+    executors: {
+      lookup: async () => ({ observation: '查到了', ok: true, detail: '只读查询', preparatory: true }),
+      commit: async () => ({ observation: '已改', ok: true, detail: '状态变更' }),
+    },
+  });
+  const step = (id: string, name: string): ModelResult => ({
+    text: '', truncated: false,
+    toolCalls: [{ id, name, arguments: '{}' }],
+  });
+
+  it('多步只读 + 状态变更 + 收敛：不再撞满决策上限', async () => {
+    // 旧口径下这 4 次工具往返各计一次决策 → 正好撞满 4 次、拿不到最终答复；
+    // 新口径下 2 次只读是延续、不计数，只有 2 次状态变更计决策。
+    const gw = gatewayWith([
+      step('c1', 'lookup'), step('c2', 'lookup'),
+      step('c3', 'commit'), step('c4', 'commit'),
+      { text: '总分插件已修订并启用', truncated: false },
+    ]);
+    const r = await runToolLoop(
+      { gateway: gw, ...prepKit(), source: 'plugin' },
+      { messages: baseMessages() },
+    );
+    expect(r.exhausted).toBe(false);
+    expect(r.reply).toBe('总分插件已修订并启用');
+    expect(r.turns).toBe(3); // 2 次状态变更 + 收敛那次
+  });
+
+  it('连续只读准备不误杀：debug×3 全成功后仍能正常收敛（用户实测 trace 回归）', async () => {
+    // 2026-11-15 用户贴的过程：list ✓ → write ✓ → debug×3 ✓ → 却报「最终失败」。
+    // 旧版「连续延续封顶」在第 3 次 debug 就强停，模型没机会给最终答复。
+    const gw = gatewayWith([
+      step('c1', 'lookup'), step('c2', 'lookup'), step('c3', 'lookup'), step('c4', 'lookup'),
+      { text: '验算都通过了，插件已建好', truncated: false },
+    ]);
+    const r = await runToolLoop(
+      { gateway: gw, ...prepKit(), source: 'plugin' },
+      { messages: baseMessages() },
+    );
+    expect(r.exhausted).toBe(false);
+    expect(r.reply).toBe('验算都通过了，插件已建好');
+    expect(r.turns).toBe(1); // 全是延续，一次实质动作都没有；收敛那次算第 1 个决策编号
+    expect(gw.calls).toHaveLength(5);
+  });
+
+  it('修复与只读交替不误杀：收敛前不再被连续计数强停', async () => {
+    const mixed: ToolKit = {
+      tools: [
+        { name: 'lookup', description: '只读', parameters: { type: 'object' } },
+        { name: 'submit', description: '提交', parameters: { type: 'object' } },
+      ],
+      executors: {
+        lookup: async () => ({ observation: '查', ok: true, detail: '只读', preparatory: true }),
+        submit: async () => ({ observation: '不合格', ok: false, detail: '试算失败', repairable: true }),
+      },
+    };
+    const gw = gatewayWith([
+      step('c1', 'submit'), step('c2', 'lookup'),
+      step('c3', 'submit'), step('c4', 'lookup'),
+      { text: '终于改对了', truncated: false },
+    ]);
+    const r = await runToolLoop(
+      { gateway: gw, ...mixed, source: 'plugin' },
+      { messages: baseMessages() },
+    );
+    expect(r.exhausted).toBe(false);
+    expect(r.reply).toBe('终于改对了');
+    expect(r.turns).toBe(1);
+    expect(gw.calls).toHaveLength(5);
+  });
+
+  it('未置位任何标记的工具（chat/web 角色）仍逐轮计决策，行为完全不变', async () => {
+    const gw = gatewayWith([step('c', 'commit')]);
+    const r = await runToolLoop(
+      { gateway: gw, ...prepKit(), source: 'web' },
+      { messages: baseMessages() },
+    );
+    expect(r.turns).toBe(DEFAULT_PLUGIN_MAX_ATTEMPTS + 1);
+    expect(r.exhausted).toBe(true);
+    expect(r.reply).toContain('最大决策次数');
+  });
+});
+
+
+describe('runToolLoop 总调用轮数 guard（2026-11-15：删掉连续延续封顶后的唯一兜底）', () => {
+  const alwaysPrep: ToolKit = {
+    tools: [{ name: 'lookup', description: '只读', parameters: { type: 'object' } }],
+    executors: {
+      lookup: async () => ({ observation: '查', ok: true, detail: '只读', preparatory: true }),
+    },
+  };
+  const callStep = (): ModelResult => ({
+    text: '', truncated: false,
+    toolCalls: [{ id: 'c', name: 'lookup', arguments: '{}' }],
+  });
+
+  it('纯只读无限循环 → 总调用轮数 guard 到顶，如实报「总调用轮数上限」', async () => {
+    const gw = gatewayWith([callStep()]);
+    const r = await runToolLoop(
+      { gateway: gw, ...alwaysPrep, source: 'plugin' },
+      { messages: baseMessages() },
+    );
+    const maxTurns = DEFAULT_PLUGIN_MAX_ATTEMPTS + 1;
+    expect(r.exhausted).toBe(true);
+    expect(r.reply).toContain('总调用轮数上限');
+    expect(r.reply).toContain('/llm repairs');
+    expect(r.reply).not.toContain('最大决策次数');
+    expect(r.reply).not.toContain('未推进到实质操作');
+    expect(r.reply).not.toContain('试算未通过');
+    expect(gw.calls).toHaveLength(maxTurns * maxTurns);
+  });
+
+  it('未置位任何标记的工具（chat/web）仍逐轮计决策，行为完全不变', async () => {
+    const gw = gatewayWith([{
+      text: '', truncated: false,
+      toolCalls: [{ id: 'c', name: 'echo', arguments: '{"text":"x"}' }],
+    }]);
+    const r = await runToolLoop(
+      { gateway: gw, ...echoKit(), source: 'web' },
+      { messages: baseMessages() },
+    );
+    expect(r.turns).toBe(DEFAULT_PLUGIN_MAX_ATTEMPTS + 1);
+    expect(r.exhausted).toBe(true);
+    expect(r.reply).toContain('最大决策次数');
+  });
+
+  it('实质动作达 maxTurns 仍报最大决策次数（不受 guard 影响）', async () => {
+    const gw = gatewayWith([{
+      text: '', truncated: false,
+      toolCalls: [{ id: 'c', name: 'echo', arguments: '{"text":"x"}' }],
+    }]);
+    const r = await runToolLoop(
+      { gateway: gw, ...echoKit(), source: 'plugin' },
+      { messages: baseMessages() },
+    );
+    expect(r.turns).toBe(DEFAULT_PLUGIN_MAX_ATTEMPTS + 1);
+    expect(r.exhausted).toBe(true);
     expect(r.reply).toContain('最大决策次数');
   });
 });

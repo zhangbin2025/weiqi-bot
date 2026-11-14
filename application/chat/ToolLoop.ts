@@ -17,15 +17,20 @@
  * 供上层落历史，支持多轮追问。
  *
  * 数值口径（全部沿用已有、可追溯的来源，不新造常量）：
- * - 自主决策轮数上限：DEFAULT_PLUGIN_MAX_ATTEMPTS + 1（与既有 agent loop 同机制，
- *   见 application/plugin/PluginConfig.ts；可用 `/llm repairs` 配置）
- * - 自动修复轮数上限：maxTurns - 1。因为 maxTurns = maxAttempts + 1，减 1 还原出的
- *   正是 PluginConfig 里的 maxAttempts（「自动修复轮数」，/llm repairs 的本义）。
- *   这不是新造数：2026-11-14 的重构把「修复次数」和「决策次数」两个独立预算
- *   合并成一个总轮数，插件试算每失败一次就吃掉一次决策，用户实测「4 次」很快用尽。
- *   这里还原语义：模型提交源码 → 确定性验收失败 → 重写，属于「同一次决策的延续」
- *   （工具在 ToolOutcome.repairable 上标记），不计入自主决策；连续失败达
- *   maxAttempts 次则明确终止并给出针对性提示。chat/web 角色从不置位该标记，行为不变。
+ * - 自主决策轮数上限：DEFAULT_PLUGIN_MAX_ATTEMPTS + 1（maxTurns，见 PluginConfig.ts；
+ *   可用 `/llm repairs` 配置）。只有「实质动作」才计一次自主决策：
+ *   状态变更工具 / 普通工具 / 未知工具 / 最终文本。
+ * - 延续（不占决策预算）：确定性验收失败后的重写(ToolOutcome.repairable) 与
+ *   只读准备工具的观察(ToolOutcome.preparatory)。这两类只是「同一次决策里没产生
+ *   实质动作」的轮次，不推进 decisions。标准 tool-calling 把一个意图摊成多步工具往返，
+ *   不豁免的话第一次开发就会被只读准备动作吃光 maxTurns。
+ *   chat/web 角色的工具从不置位这两个标记，逐字沿用「每轮一次决策」的旧行为。
+ * - 总调用轮数 guard：maxTurns × maxTurns。唯一作用是防止豁免后无限循环，
+ *   来源明说：还原旧架构「外层最多 maxTurns 个粗粒度动作 × 每个动作内最多
+ *   maxTurns 次模型调用（含 codegen 修复）」的实际预算规模；随 /llm repairs 联动，
+ *   不是扫验证集挑的经验值。到顶如实报「总调用轮数上限」，不谎报「未推进到实质操作」。
+ *   ⚠️ 不要再加「连续 N 次延续就封顶」：合理的多步只读迭代次数不可预知，
+ *   任何固定 N 都会误杀（2026-11-15 实测 debug×3 全成功却被判打转、报最终失败）。
  * - 观察文本裁剪：CONTEXT_LIMITS.maxCharsPerMessage（与历史构造一致）
  * - 附件 base64 不计入字符预算，随所在消息受 maxMessages 窗口约束
  */
@@ -59,6 +64,13 @@ export interface ToolOutcome {
    * 其它工具 / 其它角色一律不置位，避免在共用引擎里悄悄改变 chat 的行为。
    */
   repairable?: boolean;
+  /**
+   * 本轮观察来自「只读准备工具」（plugin_list/show/history/debug 这类只查不改的动作）。
+   * 语义：标准 tool-calling 下一个意图会串多步只读查询，它们不是独立的自主决策，
+   * 与 repairable 一样计为同一次决策的延续，不占决策预算（共用连续延续上限）。
+   * 仅插件工具集的只读工具置位；状态变更工具与 chat/web 工具一律不置位。
+   */
+  preparatory?: boolean;
 }
 
 /** 工具执行器：入参是端点给的字符串，由实现自行 JSON.parse */
@@ -82,7 +94,7 @@ export interface ToolLoopDeps {
   systemPrompt?: string | (() => Promise<string>);
   /** trace 的来源标签，供展示层区分过程块 */
   source?: PluginTraceStep['source'];
-  /** 自主决策轮数上限；不传用 DEFAULT_PLUGIN_MAX_ATTEMPTS + 1。修复延续不占此预算 */
+  /** 自主决策轮数上限；不传用 DEFAULT_PLUGIN_MAX_ATTEMPTS + 1。修复/只读延续不占此预算 */
   maxTurns?: number;
 }
 
@@ -154,18 +166,28 @@ export async function runToolLoop(
   const done = (reply: string, turns: number, exhausted: boolean): ToolLoopResult =>
     ({ reply, trace, attachments, turns, exhausted });
 
-  // 两个预算，都由同一个 maxTurns 派生，不新造常量：
-  // - decisions：自主决策次数，上限 maxTurns
-  // - maxRepairs：允许的连续试算失败次数 = maxTurns - 1 = maxAttempts（见头部口径）
-  const maxRepairs = Math.max(0, maxTurns - 1);
+  // 总调用轮数 guard：唯一防无限循环的硬约束，来源见头部口径（maxTurns × maxTurns）。
+  // decisions 只数「实质动作」；repairable/preparatory 是同一次决策的延续，不推进 decisions，
+  // 也不再累加任何「连续次数」——合理的只读迭代次数不可预知，固定封顶会误杀。
+  const maxModelCalls = maxTurns * maxTurns;
   let decisions = 0;
-  let consecutiveRepairs = 0;
+  let modelCalls = 0;
 
   while (decisions < maxTurns) {
+    modelCalls++;
+    if (modelCalls > maxModelCalls) {
+      push(decisions + 1, 'final', false,
+        `已达到总调用轮数上限（${maxModelCalls}），未得到最终回复`);
+      return done(
+        `已达到总调用轮数上限（${maxModelCalls}，可用 /llm repairs 调整）。`
+        + `请缩小问题或稍后重试。`,
+        decisions + 1,
+        true,
+      );
+    }
+
     const decisionNo = decisions + 1;
-    const repairNote = consecutiveRepairs > 0
-      ? ` · 修复延续 ${consecutiveRepairs}/${maxRepairs}` : '';
-    push(decisionNo, 'decision', true, `第 ${decisionNo}/${maxTurns} 次决策${repairNote}：调用模型`);
+    push(decisionNo, 'decision', true, `第 ${decisionNo}/${maxTurns} 次决策：调用模型`);
 
     let result;
     try {
@@ -195,7 +217,7 @@ export async function runToolLoop(
       tool_calls: calls,
     });
 
-    let repairable = false;
+    let allContinuation = true;
     for (const call of calls) {
       const outcome = await runOneTool(call, deps);
       push(decisionNo, 'observe', outcome.ok, `${call.name}：${outcome.detail}`, outcome.code);
@@ -209,30 +231,12 @@ export async function runToolLoop(
         messages.push({ role: 'user', content: [{ type: 'text', text: intro }, ...outcome.parts] });
       }
       if (outcome.attachment) attachments.push(outcome.attachment);
-      if (outcome.repairable) repairable = true;
+      // 只要有一个工具是实质动作，这一轮就计一次自主决策。
+      if (!outcome.repairable && !outcome.preparatory) allContinuation = false;
     }
 
-    if (repairable) {
-      // 确定性验收失败 → 模型重写是同一次决策的延续，不消耗自主决策预算。
-      consecutiveRepairs++;
-      if (consecutiveRepairs >= maxRepairs) {
-        // 连续失败封顶：给针对性提示，不再回到笼统的「决策次数用尽」。
-        push(decisionNo, 'final', false,
-          `已连续 ${consecutiveRepairs} 次确定性验收未通过，达到自动修复轮数上限（${maxRepairs}）`);
-        return done(
-          `已连续 ${consecutiveRepairs} 次试算未通过，达到自动修复轮数上限（${maxRepairs}，可用 /llm repairs 调整）。`
-          + `最后一次失败原因见上方观察，请核对输出契约或缩小改动后重试。`,
-          decisionNo,
-          true,
-        );
-      }
-      // 未到上限：decisions 不增加，下一轮仍是这次决策的延续（文案带「修复延续」）。
-    } else {
-      // 正常决策（工具成功，或非验收类失败）：计入预算，连续修复串归零。
-      decisions++;
-      consecutiveRepairs = 0;
-    }
-    // 观察已回填，进入下一轮：模型可继续调别的工具，也可收敛给答案
+    if (!allContinuation) decisions++;
+    // 延续轮：decisions 不动，观察已回填，下一轮模型可继续调工具或给最终答复。
   }
 
   push(maxTurns, 'final', false, `已达决策轮数上限（${maxTurns} 轮），未得到最终回复`);
