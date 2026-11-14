@@ -237,3 +237,73 @@ describe('runToolLoop system / 多模态 / 裁剪', () => {
     expect(observation).toContain('已截断');
   });
 });
+
+
+describe('runToolLoop 修复延续（2026-11-14：两个预算不再合并）', () => {
+  /** 前 fails 轮都提交源码且验收失败，最后一轮给最终文本 */
+  const writeThenFinal = (fails: number): ModelResult[] => {
+    const steps: ModelResult[] = [];
+    for (let i = 0; i < fails; i++) {
+      steps.push({
+        text: '', truncated: false,
+        toolCalls: [{ id: `c${i}`, name: 'plugin_write', arguments: '{"code":"x"}' }],
+      });
+    }
+    steps.push({ text: '终于改对了', truncated: false });
+    return steps;
+  };
+
+  /** 模拟插件工具集：每次提交都过不了确定性验收 */
+  const repairKit = (): ToolKit => ({
+    tools: [{ name: 'plugin_write', description: '提交源码', parameters: { type: 'object' } }],
+    executors: {
+      plugin_write: async () => ({
+        observation: '输出不符合契约：缺少 score', ok: false,
+        detail: '试算失败', repairable: true,
+      }),
+    },
+  });
+
+  it('确定性验收失败不占决策预算：连续失败后仍能收敛', async () => {
+    const gw = gatewayWith(writeThenFinal(DEFAULT_PLUGIN_MAX_ATTEMPTS - 1));
+    const r = await runToolLoop(
+      { gateway: gw, ...repairKit(), source: 'plugin' },
+      { messages: baseMessages() },
+    );
+    expect(r.reply).toBe('终于改对了');
+    expect(r.exhausted).toBe(false);
+    // 失败轮全部豁免，只有最后收敛那次算自主决策
+    expect(r.turns).toBe(1);
+  });
+
+  it('连续失败达 maxAttempts 次 → 针对性提示，不再报「决策次数用尽」', async () => {
+    const always: ModelResult = {
+      text: '', truncated: false,
+      toolCalls: [{ id: 'c', name: 'plugin_write', arguments: '{"code":"x"}' }],
+    };
+    const gw = gatewayWith([always]);
+    const r = await runToolLoop(
+      { gateway: gw, ...repairKit(), source: 'plugin' },
+      { messages: baseMessages() },
+    );
+    expect(r.exhausted).toBe(true);
+    expect(r.reply).toContain('自动修复轮数上限');
+    expect(r.reply).toContain('/llm repairs');
+    expect(r.reply).not.toContain('最大决策次数');
+    expect(gw.calls).toHaveLength(DEFAULT_PLUGIN_MAX_ATTEMPTS);
+  });
+
+  it('未置位 repairable 的工具（chat/web 角色）行为完全不变', async () => {
+    const always: ModelResult = {
+      text: '', truncated: false,
+      toolCalls: [{ id: 'c', name: 'echo', arguments: '{"text":"x"}' }],
+    };
+    const gw = gatewayWith([always]);
+    const r = await runToolLoop(
+      { gateway: gw, ...echoKit(), source: 'web' },
+      { messages: baseMessages() },
+    );
+    expect(r.turns).toBe(DEFAULT_PLUGIN_MAX_ATTEMPTS + 1);
+    expect(r.reply).toContain('最大决策次数');
+  });
+});

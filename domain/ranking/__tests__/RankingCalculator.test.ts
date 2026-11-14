@@ -198,6 +198,35 @@ describe('RankingCalculator（统一管线里的内置实现）', () => {
       };
       expect(validateRankingOutput(out, { matches }).ok).toBe(false);
     });
+    it('cells 失败诊断定位到具体行/列，且只说类型不回带真实值', () => {
+      const out = {
+        columns: [{ key: 'score', label: '积分' }, { key: 'direct', label: '直胜' }],
+        rows: [
+          { id: 1, name: 'A', rank: 1, cells: { score: 2, direct: 1 } },
+          // 第 2 行漏了 direct 列，重现「只有部分行填了这一列」的真实症状
+          { id: 2, name: 'B', rank: 2, cells: { score: 0 } },
+        ],
+      };
+      const check = validateRankingOutput(out, { matches });
+      expect(check.ok).toBe(false);
+      expect(check.hint).toContain('rows[].cells.direct');
+      expect(check.hint).toContain('第 2 行');
+      expect(check.hint).toContain('id=2');
+      expect(check.hint).toContain('缺失');
+      expect(check.hint).toContain('score、direct'); // columns 声明的键列表
+      expect(check.hint).toContain('columns 的每个 key 都必须在每一行');
+      // 不回带真实分数 / 姓名：诊断只说形状
+      expect(check.hint).not.toContain('"6"');
+    });
+    it('cells 是字符串时诊断说明实际类型（带长度，不含值本身）', () => {
+      const out = {
+        columns: [{ key: 'score', label: '积分' }],
+        rows: [{ id: 1, name: 'A', rank: 1, cells: { score: 'abcdef' } }],
+      };
+      const check = validateRankingOutput(out, { matches });
+      expect(check.hint).toContain('字符串（长度 6）');
+      expect(check.hint).not.toContain('abcdef');
+    });
     it('cells 含数值数组 → 通过', () => {
       const out = {
         columns: [{ key: 'score', label: '积分' }, { key: 'rm', label: '逆减' }],

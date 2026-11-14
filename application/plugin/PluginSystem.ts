@@ -88,7 +88,7 @@ export interface PluginSystem {
   snapshot: PluginContextProvider;
   /** 挂到通用 ToolLoop 的插件工具集（plugin 角色唯一入口） */
   toolKit: PluginToolKit;
-  /** 决策轮数上限：ToolLoop.maxTurns = maxAttempts + 1（沿用既有 /llm repairs 配置） */
+  /** 修复 / 决策预算的同一来源：ToolLoop.maxTurns = maxAttempts + 1，修复延续不占决策 */
   maxAttempts: number;
   /**
    * 给排名页用：把同一份原始对阵表交给唯一管线 computeRanking。

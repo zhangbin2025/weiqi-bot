@@ -163,6 +163,33 @@ describe('plugin_write：创建与迭代修订同构（核心）', () => {
     expect(await h.artifacts.list()).toHaveLength(0); // 没落库
   });
 
+  it('输出不符契约：观察含具体行/列定位与全量填写要求，不只给一句笼统错误', async () => {
+    // 复现实测症状：columns 声明 direct 列，但只给部分行填了它
+    const h = harness({
+      runResult: {
+        ok: true,
+        output: {
+          columns: [{ key: 'score', label: '积分' }, { key: 'direct', label: '直胜' }],
+          rows: [
+            { id: 1, name: '甲', rank: 1, cells: { score: 2, direct: 1 } },
+            { id: 2, name: '乙', rank: 2, cells: { score: 0 } },
+            { id: 3, name: '丙', rank: 3, cells: { score: 2 } },
+          ],
+        },
+        logs: [], elapsedMs: 1,
+      },
+    });
+    const r = await call(h, PLUGIN_TOOL_NAMES.write, { intent: '带直胜列', code: CODE_V1 });
+    expect(r.ok).toBe(false);
+    expect(r.observation).toContain('rows[].cells.direct');
+    expect(r.observation).toContain('第 2 行');
+    expect(r.observation).toContain('cells.direct');
+    expect(r.observation).toContain('columns 的每个 key 都必须在每一行');
+    expect(r.observation).toContain('plugin_debug'); // 给出可先验算的下一步
+    expect(r.code).toBe(CODE_V1);
+    expect(await h.artifacts.list()).toHaveLength(0);
+  });
+
   it('代码预检不通过（含 require）不进沙箱、不落库', async () => {
     const h = harness();
     const r = await call(h, PLUGIN_TOOL_NAMES.write, {
@@ -306,5 +333,37 @@ describe('参数健壮性（失败一律变观察，不抛给 loop）', () => {
     expect((await kit.executors[PLUGIN_TOOL_NAMES.show]!('not json')).ok).toBe(false);
     expect((await kit.executors[PLUGIN_TOOL_NAMES.show]!('{}')).observation).toContain('缺少 artifactId');
     expect((await kit.executors[PLUGIN_TOOL_NAMES.toggle]!('[]')).ok).toBe(false);
+  });
+});
+
+
+describe('试算失败标记 repairable（修复延续不占决策预算）', () => {
+  /** 让沙箱抛异常，走 trial 的「验收失败」分支，不依赖 PluginRunResult 形状 */
+  const broken = (opts: Parameters<typeof harness>[0] = {}) =>
+    harness({ ...opts, runImpl: async () => { throw new Error('沙箱炸了'); } });
+
+  it('plugin_write 试算失败 → repairable=true，且不落库', async () => {
+    const h = broken();
+    const out = await call(h, PLUGIN_TOOL_NAMES.write, { code: CODE_V1, intent: '测试' });
+    expect(out.ok).toBe(false);
+    expect(out.repairable).toBe(true);
+    expect(await h.artifacts.list()).toHaveLength(0);
+  });
+
+  it('plugin_write 试算通过 → 不带标记', async () => {
+    const h = harness();
+    const out = await call(h, PLUGIN_TOOL_NAMES.write, { code: CODE_V1, intent: '测试' });
+    expect(out.ok).toBe(true);
+    expect(out.repairable).toBeUndefined();
+  });
+
+  it('plugin_debug 试算失败带标记；参数错误不带（不是验收失败，正常计决策）', async () => {
+    const h = broken();
+    const failed = await call(h, PLUGIN_TOOL_NAMES.debug, { code: CODE_V1 });
+    expect(failed.ok).toBe(false);
+    expect(failed.repairable).toBe(true);
+    const badArgs = await call(h, PLUGIN_TOOL_NAMES.debug, { matches: 'not array' });
+    expect(badArgs.ok).toBe(false);
+    expect(badArgs.repairable).toBeUndefined();
   });
 });

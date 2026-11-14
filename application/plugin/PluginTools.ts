@@ -9,8 +9,10 @@
  * 第 2、第 3 次 plugin_write，走一模一样的路径，没有重载的特殊循环，
  * 没有独立 verifier 模型判定，没有 diff 闸门，没有自造 JSON 动作协议。
  *
- * 终止条件 = 模型不再调工具（标准 loop 自然收敛）；唯一上限是 loop 的
- * 总决策轮数。试算失败不落库，失败原因变观察回喂，模型自己决定重试。
+ * 终止条件 = 模型不再调工具（标准 loop 自然收敛）。试算失败不落库，
+ * 失败原因变观察回喂，模型自己决定重试；这类「提交源码 → 验收失败 → 重写」
+ * 由 repairable 标记交给共用 loop 计为同一次决策的延续，不占决策预算
+ * （连续失败上限仍是 /llm repairs 的 maxAttempts，见 ToolLoop.ts 头部口径）。
  *
  * 一切操作都是工具：调试(试算)、历史、回滚、启停、删除、应用为排名实现。
  * 执行器与 UI 面板共用同一批 service，消除「模型一套、按钮一套」的分裂。
@@ -69,7 +71,7 @@ export interface PluginToolKit {
   executors: Record<string, ToolExecutor>;
   /** 每轮 turn 动态生成：实时读工件清单，不依赖会话历史 */
   systemPrompt: () => Promise<string>;
-  /** 沿用既有「maxAttempts + 1 次决策」机制，不另造数值 */
+  /** 自主决策轮数上限 = maxAttempts + 1；修复延续不占此预算（见 ToolLoop.ts） */
   maxTurns: number;
 }
 
@@ -82,7 +84,9 @@ const CONTRACT_LINES = [
   '- 必须返回 { columns, rows }：columns 是 [{key,label}]，key 为英文标识符，label 只能是 1~12 个汉字；',
   '  rows 是 [{id,name,rank,cells}]，id/name 必须与对阵表里的选手完全一致，rank 为数值名次。',
   '- cells 里每列的值只能是「有限数值」或「元素全为有限数值的数组」（如逐轮逆减 [3,12] 显示 3-12），',
-  '  不支持字符串、HTML 或其它格式；rank/name/id 是宿主保留的只读结构列，不在 cells 里、不能出现在 columns 里。',
+  '  不支持字符串、HTML、null、对象或其它格式；rank/name/id 是宿主保留的只读结构列，不在 cells 里、不能出现在 columns 里。',
+  '  columns 声明的每一个 key，都必须在每一行的 cells 里都有对应的合法值；',
+  '  只给部分行填某一列、或漏填，都会导致整份输出不通过校验。建议先构造齐所有行再统一填 cells。',
   '- 显示哪些列、叫什么、顺序、值全部由 columns + cells 决定，插件可自由加列删列改名。',
   '- 轮空：p1Id/p2Id 为 0 或姓名为空的一侧不是选手、不进 rows，但另一侧比分照常计入；',
   '  双方比分全 0 = 未完赛。rows 必须恰好覆盖对阵表里全部真实选手，不能多不能少。',
@@ -263,8 +267,11 @@ async function trial(
   }
   const check = validateRankingOutput(run.output, input);
   if (!check.ok) {
+    // check.hint 来自唯一校验管线，含具体行/列定位（确定性信息，不是模型 verifier）。
+    // 原样带出，不再自己拼一句笼统结论，模型才能一次改对。
     return { ok: false, outcome: fail(
-      `输出不符合契约（${check.missingFields.join('、')}）：${check.hint ?? '必须返回 { columns, rows }'}`,
+      `输出不符合契约（${check.missingFields.join('、')}）：${check.hint ?? '必须返回 { columns, rows }'}`
+      + `\n请给出修正后的完整源码重新调用 plugin_write（可直接用 plugin_debug 带同一份 code 先验算）。`,
     ) };
   }
   const table = run.output as RankingOutput;
@@ -461,8 +468,9 @@ export function createPluginToolKit(deps: PluginToolDeps): PluginToolKit {
 
     const result = await trial(deps, code, SAMPLE_RANKING_INPUT);
     if (!result.ok) {
-      // 试算失败：不落库，失败原因即观察，模型据此在下一轮自行修正（标准 loop）
-      return { ...result.outcome, code };
+      // 试算失败：不落库，失败原因即观察，模型据此在下一轮自行修正（标准 loop）。
+      // repairable=true 告诉共用 loop：这次重写是同一次决策的延续，不占决策预算。
+      return { ...result.outcome, repairable: true, code };
     }
 
     try {
@@ -524,7 +532,7 @@ export function createPluginToolKit(deps: PluginToolDeps): PluginToolKit {
       code = normalizeCode(code);
     }
     const result = await trial(deps, code, input);
-    if (!result.ok) return { ...result.outcome, code };
+    if (!result.ok) return { ...result.outcome, repairable: true, code };
     const scope = rawMatches === undefined ? '内置代表性样例' : '自定义对阵表';
     return ok(
       `对 ${label} 用${scope}试算通过（不修改任何工件）：\n${result.text}`,
@@ -621,7 +629,7 @@ export function createPluginToolKit(deps: PluginToolDeps): PluginToolKit {
     if (!picked) return fail(`插件 ${id} 没有 v${version}，请先 plugin_history`);
     // 回滚与新建/修订同构：历史源码也要过同一确定性验收，不合规就不落库
     const result = await trial(deps, picked.code, SAMPLE_RANKING_INPUT);
-    if (!result.ok) return { ...result.outcome, code: picked.code };
+    if (!result.ok) return { ...result.outcome, repairable: true, code: picked.code };
     try {
       const revised = await deps.artifacts.revise(id, {
         code: picked.code,

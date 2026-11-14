@@ -37,6 +37,24 @@ export function isRankingCellValue(v: unknown): v is RankingCellValue {
 }
 
 /**
+ * 只描述值的「类型/形状」，不回带真实数据值（沿用 FeedbackPack 的脱敏原则）。
+ * 用于把契约失败定位到具体行/列，避免模型只拿到「某一行不合规」而反复盲改。
+ */
+function describeCellValue(v: unknown): string {
+  if (v === undefined) return '缺失（undefined）';
+  if (v === null) return 'null';
+  if (isFiniteNumber(v)) return '有限数值';
+  if (typeof v === 'string') return `字符串（长度 ${v.length}）`;
+  if (Array.isArray(v)) {
+    const bad = v.findIndex((x) => !isFiniteNumber(x));
+    return bad < 0
+      ? `数值数组（长度 ${v.length}）`
+      : `数组（长度 ${v.length}，第 ${bad + 1} 个元素是 ${typeof v[bad]}）`;
+  }
+  return typeof v;
+}
+
+/**
  * 把 cells 值渲染成纯文本：单数值直接输出，数值数组用 '-' 连接
  * （延续项目里逐轮逆减既有的 3-12 展示格式，不是新造的分隔符）。
  * 值一定是数值/数值数组，不含字符串，故无需 HTML 转义。
@@ -107,7 +125,8 @@ export function validateRankingOutput(
   }
 
   const seen = new Set<number>();
-  for (const row of rows) {
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    const row = rows[rowIndex];
     if (!row || typeof row !== 'object' || Array.isArray(row)) {
       missing.push('rows[]');
       return hint('rows 每一项都必须是对象');
@@ -137,7 +156,17 @@ export function validateRankingOutput(
     for (const k of keys) {
       if (!isRankingCellValue(cells[k])) {
         missing.push(`rows[].cells.${k}(number|number[])`);
-        return hint(`列 ${k} 在某一行缺失或不是「数值 / 元素全为数值的数组」；cells 不支持字符串或 HTML`);
+        // 定位到具体行/列：columns 的每个 key 都必须在每一行 cells 里给出合法值。
+        // 只报类型与形状，不回带真实分数/姓名（诊断信息保持确定性且不泄漏数据）。
+        const declared = keys.join('、');
+        const present = Object.keys(cells).join('、') || '（空）';
+        return hint(
+          `列 ${k} 在第 ${rowIndex + 1} 行（id=${id}）的 cells.${k} 实际是「${describeCellValue(cells[k])}」，`
+          + `要求为有限数值或元素全为有限数值的数组；cells 不支持字符串、HTML、null 或对象。`
+          + ` columns 声明了 ${keys.length} 个 key（${declared}），`
+          + `该行 cells 实际有 ${Object.keys(cells).length} 个 key（${present}）；`
+          + `columns 的每个 key 都必须在每一行的 cells 里都有合法值，请检查是不是只给部分行填了这一列。`,
+        );
       }
     }
   }

@@ -17,8 +17,15 @@
  * 供上层落历史，支持多轮追问。
  *
  * 数值口径（全部沿用已有、可追溯的来源，不新造常量）：
- * - 决策轮数上限：DEFAULT_PLUGIN_MAX_ATTEMPTS + 1（与既有 agent loop 同机制，
+ * - 自主决策轮数上限：DEFAULT_PLUGIN_MAX_ATTEMPTS + 1（与既有 agent loop 同机制，
  *   见 application/plugin/PluginConfig.ts；可用 `/llm repairs` 配置）
+ * - 自动修复轮数上限：maxTurns - 1。因为 maxTurns = maxAttempts + 1，减 1 还原出的
+ *   正是 PluginConfig 里的 maxAttempts（「自动修复轮数」，/llm repairs 的本义）。
+ *   这不是新造数：2026-11-14 的重构把「修复次数」和「决策次数」两个独立预算
+ *   合并成一个总轮数，插件试算每失败一次就吃掉一次决策，用户实测「4 次」很快用尽。
+ *   这里还原语义：模型提交源码 → 确定性验收失败 → 重写，属于「同一次决策的延续」
+ *   （工具在 ToolOutcome.repairable 上标记），不计入自主决策；连续失败达
+ *   maxAttempts 次则明确终止并给出针对性提示。chat/web 角色从不置位该标记，行为不变。
  * - 观察文本裁剪：CONTEXT_LIMITS.maxCharsPerMessage（与历史构造一致）
  * - 附件 base64 不计入字符预算，随所在消息受 maxMessages 窗口约束
  */
@@ -45,6 +52,13 @@ export interface ToolOutcome {
   attachment?: ChatAttachment;
   /** 本轮涉及的完整源码，交给过程块「查看本轮代码」展示（可选） */
   code?: string;
+  /**
+   * 本轮观察是一次「确定性验收失败」（模型提交的源码没过试算，需重写）。
+   * 语义：这是同一次自主决策的延续，不计入决策轮数上限；连续失败次数由
+   * loop 按 maxTurns - 1（= maxAttempts）封顶。仅插件工具集在试算失败时置位，
+   * 其它工具 / 其它角色一律不置位，避免在共用引擎里悄悄改变 chat 的行为。
+   */
+  repairable?: boolean;
 }
 
 /** 工具执行器：入参是端点给的字符串，由实现自行 JSON.parse */
@@ -56,7 +70,7 @@ export interface ToolKit {
   executors: Record<string, ToolExecutor>;
   /** 静态文本或每轮动态生成（插件清单要实时读工件存储） */
   systemPrompt?: string | (() => Promise<string>);
-  /** 可选：覆盖默认决策轮数上限（沿用 /llm repairs 配置时由插件系统传入） */
+  /** 可选：覆盖默认自主决策轮数上限（沿用 /llm repairs 配置时由插件系统传入） */
   maxTurns?: number;
 }
 
@@ -68,7 +82,7 @@ export interface ToolLoopDeps {
   systemPrompt?: string | (() => Promise<string>);
   /** trace 的来源标签，供展示层区分过程块 */
   source?: PluginTraceStep['source'];
-  /** 决策轮数上限；不传用 DEFAULT_PLUGIN_MAX_ATTEMPTS + 1 */
+  /** 自主决策轮数上限；不传用 DEFAULT_PLUGIN_MAX_ATTEMPTS + 1。修复延续不占此预算 */
   maxTurns?: number;
 }
 
@@ -140,8 +154,18 @@ export async function runToolLoop(
   const done = (reply: string, turns: number, exhausted: boolean): ToolLoopResult =>
     ({ reply, trace, attachments, turns, exhausted });
 
-  for (let turn = 1; turn <= maxTurns; turn++) {
-    push(turn, 'decision', true, `第 ${turn}/${maxTurns} 次决策：调用模型`);
+  // 两个预算，都由同一个 maxTurns 派生，不新造常量：
+  // - decisions：自主决策次数，上限 maxTurns
+  // - maxRepairs：允许的连续试算失败次数 = maxTurns - 1 = maxAttempts（见头部口径）
+  const maxRepairs = Math.max(0, maxTurns - 1);
+  let decisions = 0;
+  let consecutiveRepairs = 0;
+
+  while (decisions < maxTurns) {
+    const decisionNo = decisions + 1;
+    const repairNote = consecutiveRepairs > 0
+      ? ` · 修复延续 ${consecutiveRepairs}/${maxRepairs}` : '';
+    push(decisionNo, 'decision', true, `第 ${decisionNo}/${maxTurns} 次决策${repairNote}：调用模型`);
 
     let result;
     try {
@@ -152,16 +176,16 @@ export async function runToolLoop(
       });
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      push(turn, 'decision', false, `模型调用失败：${reason}`);
-      return done(`模型调用失败：${reason}`, turn, false);
+      push(decisionNo, 'decision', false, `模型调用失败：${reason}`);
+      return done(`模型调用失败：${reason}`, decisionNo, false);
     }
 
     const calls = result.toolCalls ?? [];
     if (calls.length === 0) {
       // 保留既有文案「未访问网络」：闲聊角色的 trace 断言依赖它，
       // 通用 loop 里同样成立（没有 tool_calls 就没访问任何工具/资源）。
-      push(turn, 'final', true, '模型给出最终回复，未访问网络');
-      return done(result.text, turn, false);
+      push(decisionNo, 'final', true, '模型给出最终回复，未访问网络');
+      return done(result.text, decisionNo, false);
     }
 
     // 把 assistant 的 tool_calls 原样放进消息，端点要求它后面跟逐条 tool 观察
@@ -171,9 +195,10 @@ export async function runToolLoop(
       tool_calls: calls,
     });
 
+    let repairable = false;
     for (const call of calls) {
       const outcome = await runOneTool(call, deps);
-      push(turn, 'observe', outcome.ok, `${call.name}：${outcome.detail}`, outcome.code);
+      push(decisionNo, 'observe', outcome.ok, `${call.name}：${outcome.detail}`, outcome.code);
       messages.push({
         role: 'tool',
         content: clipObservation(outcome.observation),
@@ -184,8 +209,30 @@ export async function runToolLoop(
         messages.push({ role: 'user', content: [{ type: 'text', text: intro }, ...outcome.parts] });
       }
       if (outcome.attachment) attachments.push(outcome.attachment);
+      if (outcome.repairable) repairable = true;
     }
-    // 观察已回填，进入下一轮决策：模型可继续调别的工具，也可收敛给答案
+
+    if (repairable) {
+      // 确定性验收失败 → 模型重写是同一次决策的延续，不消耗自主决策预算。
+      consecutiveRepairs++;
+      if (consecutiveRepairs >= maxRepairs) {
+        // 连续失败封顶：给针对性提示，不再回到笼统的「决策次数用尽」。
+        push(decisionNo, 'final', false,
+          `已连续 ${consecutiveRepairs} 次确定性验收未通过，达到自动修复轮数上限（${maxRepairs}）`);
+        return done(
+          `已连续 ${consecutiveRepairs} 次试算未通过，达到自动修复轮数上限（${maxRepairs}，可用 /llm repairs 调整）。`
+          + `最后一次失败原因见上方观察，请核对输出契约或缩小改动后重试。`,
+          decisionNo,
+          true,
+        );
+      }
+      // 未到上限：decisions 不增加，下一轮仍是这次决策的延续（文案带「修复延续」）。
+    } else {
+      // 正常决策（工具成功，或非验收类失败）：计入预算，连续修复串归零。
+      decisions++;
+      consecutiveRepairs = 0;
+    }
+    // 观察已回填，进入下一轮：模型可继续调别的工具，也可收敛给答案
   }
 
   push(maxTurns, 'final', false, `已达决策轮数上限（${maxTurns} 轮），未得到最终回复`);
