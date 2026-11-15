@@ -15,6 +15,7 @@ import { PdfEventService } from '../../../../../services/event/PdfEventService';
 import { EventDetailRenderer } from './EventDetailRenderer';
 import { SessionStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/SessionStorageAdapter';
 import { LocalStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/LocalStorageAdapter';
+import { normalizePlayerIds } from '../../../../../services/event/PlayerIds';
 
 /** ⚙️ 菜单里「当前选中的排名插件」持久化键；没有/失效时一律回落内置排序 */
 const RANKING_PLUGIN_KEY = 'event-ranking-plugin';
@@ -206,34 +207,9 @@ export class EventDetailPage implements IPage {
     }
   }
 
-  /** 修正分组中的棋手ID：同名棋手应使用相同ID，修复轮空等场景下p1Id=0的问题 */
+  /** 修正分组中的棋手ID：同名同ID、异名异ID，修复分轮导入时临时编号撞车的问题 */
   private fixPlayerIds(group: { rounds: Array<{ matches: Match[] }> }): void {
-    // 先收集 name -> id 映射（优先使用非零ID）
-    const nameToId = new Map<string, number>();
-    for (const r of group.rounds) {
-      for (const m of r.matches) {
-        if (m.p1Name && m.p1Id && !nameToId.has(m.p1Name)) nameToId.set(m.p1Name, m.p1Id);
-        if (m.p2Name && m.p2Id && !nameToId.has(m.p2Name)) nameToId.set(m.p2Name, m.p2Id);
-      }
-    }
-    // 对没有编号的棋手分配负数ID
-    let fakeId = -1;
-    for (const r of group.rounds) {
-      for (const m of r.matches) {
-        for (const name of [m.p1Name, m.p2Name]) {
-          if (name && !nameToId.has(name)) {
-            nameToId.set(name, fakeId--);
-          }
-        }
-      }
-    }
-    // 统一修正所有 match 的 ID
-    for (const r of group.rounds) {
-      for (const m of r.matches) {
-        if (m.p1Name && nameToId.has(m.p1Name)) m.p1Id = nameToId.get(m.p1Name)!;
-        if (m.p2Name && nameToId.has(m.p2Name)) m.p2Id = nameToId.get(m.p2Name)!;
-      }
-    }
+    normalizePlayerIds(group.rounds);
   }
 
   /** 根据 pdfGroupId（uuid string）找到对应的数字 id */
