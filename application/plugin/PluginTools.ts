@@ -494,10 +494,13 @@ export function createPluginToolKit(deps: PluginToolDeps): PluginToolKit {
       }
       const existing = await requireArtifact(deps, id);
       if (!existing) return fail(`找不到插件 ${id}，无法修订。请先 plugin_list 确认 id；若是要新建请省略 artifactId`);
+      // 先取一次再窄化：exactOptionalPropertyTypes 下，两次求值会让展开后的
+      // feedback 被推成 string | undefined，不能赋给可选的 string。
+      const feedback = str(a.value, 'feedback');
       const revised = await deps.artifacts.revise(id, {
         code,
         trigger: 'user-feedback',
-        ...(str(a.value, 'feedback') ? { feedback: str(a.value, 'feedback') } : {}),
+        ...(feedback ? { feedback } : {}),
       });
       return ok(
         `已修订插件 ${revised.name}（${id}）：v${existing.version} → v${revised.version}，版本快照已追加快照链。\n`

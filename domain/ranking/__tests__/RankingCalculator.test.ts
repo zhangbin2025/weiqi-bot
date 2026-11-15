@@ -209,7 +209,10 @@ describe('RankingCalculator（统一管线里的内置实现）', () => {
       };
       const check = validateRankingOutput(out, { matches });
       expect(check.ok).toBe(false);
-      expect(check.hint).toContain('rows[].cells.direct');
+      // 结构化字段路径在 missingFields（PluginTools 会拼进观察），hint 是给模型
+      // 看的自然语言，只定位到「列 direct / 第 2 行 / id=2」，不带完整字段路径。
+      expect(check.missingFields.join('、')).toContain('rows[].cells.direct');
+      expect(check.hint).toContain('cells.direct');
       expect(check.hint).toContain('第 2 行');
       expect(check.hint).toContain('id=2');
       expect(check.hint).toContain('缺失');

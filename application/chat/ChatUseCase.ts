@@ -197,7 +197,10 @@ export class ChatUseCase {
     let realtime = false;
     let started = false;
     let beginAttempted = false;
-    let lastStepOk = true;
+    // 过程块成败按「任一步失败」累计，而不是最后一步的 ok：
+    // 工具失败后通常还会追加一条成功的 final 步，用最后一步会把失败状态洗掉。
+    // 与 AssistantRenderer.renderPluginTrace 的 failed === 0 口径保持一致。
+    let traceFailed = false;
     const hasRealtimeRenderer = Boolean(
       this.renderer.beginPluginTrace && this.renderer.appendPluginTraceStep,
     );
@@ -218,7 +221,7 @@ export class ChatUseCase {
           if (!ensureStarted()) return;
           try {
             this.renderer.appendPluginTraceStep!(step);
-            lastStepOk = step.ok;
+            if (!step.ok) traceFailed = true;
           } catch { /* ignore */ }
         }
       : undefined;
@@ -260,13 +263,13 @@ export class ChatUseCase {
       await this.history.addMessage({ role: 'assistant', content: safe });
     } catch (error) {
       this.renderer.hideTyping();
-      lastStepOk = false;
+      traceFailed = true;
       const message = error instanceof Error ? error.message : String(error);
       await this.renderHint(`❌ 对话失败：${message}`);
     } finally {
       // 实时块统一收尾：标题定稿、折叠回去；异常路径也不会一直挂「进行中…」
       if (realtime && started && this.renderer.finishPluginTrace) {
-        try { this.renderer.finishPluginTrace(lastStepOk); } catch { /* ignore */ }
+        try { this.renderer.finishPluginTrace(!traceFailed); } catch { /* ignore */ }
       }
     }
   }

@@ -64,8 +64,9 @@ describe('QuickJsExecutor', () => {
       rows: Array<{ name: string; rank: number; cells: Record<string, number | number[]> }>;
     };
     expect(out.columns.map((c) => c.label)).toEqual(['积分', '逆减']);
-    expect(out.rows.map((r) => r.name)).toEqual(['A', 'C']);
-    expect(out.rows.map((r) => r.rank)).toEqual([1, 2]);
+    // rankCode 给 p1/p2 都记了分，四名参赛者都要进 rows（统一契约要求覆盖全部选手）
+    expect(out.rows.map((r) => r.name)).toEqual(['A', 'C', 'B', 'D']);
+    expect(out.rows.map((r) => r.rank)).toEqual([1, 2, 3, 4]);
     expect(out.rows[0]!.cells['multi']).toEqual([3, 12]);
   });
 
@@ -180,7 +181,8 @@ describe('QuickJsExecutor', () => {
     expect(first.ok).toBe(true);
     expect(second.ok).toBe(true);
     if (!first.ok || !second.ok) return;
+    expect(second.output).toEqual(first.output); // 独立 Runtime/Context：两次结果完全一致
     const rows = (second.output as { rows: Array<{ name: string }> }).rows;
-    expect(rows.map((r) => r.name)).toEqual(['A', 'C']);
+    expect(rows.map((r) => r.name)).toEqual(['A', 'C', 'B', 'D']);
   });
 });

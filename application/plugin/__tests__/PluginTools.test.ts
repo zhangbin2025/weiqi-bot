@@ -222,10 +222,21 @@ describe('plugin_write：创建与迭代修订同构（核心）', () => {
 
 describe('plugin_debug：试算不修改工件', () => {
   it('临时源码 + 自定义 matches：用自定义输入试算，不落库', async () => {
-    const h = harness();
+    // 统一契约后 rows 必须覆盖「本次传入」对阵里的选手，故 mock 输出要按自定义
+    // matches 构造（默认夹具 validOutput 是内置样例的 甲/乙/丙，会被判「新增选手」）。
     const customMatches = [
       { bout: 1, p1Id: 9, p1Name: 'X', p1Score: 2, p2Id: 8, p2Name: 'Y', p2Score: 0 },
     ];
+    const customOutput: RankingOutput = {
+      columns: [{ key: 'score', label: '积分' }],
+      rows: [
+        { id: 9, name: 'X', rank: 1, cells: { score: 2 } },
+        { id: 8, name: 'Y', rank: 2, cells: { score: 0 } },
+      ],
+    };
+    const h = harness({
+      runResult: { ok: true, output: customOutput, logs: [], elapsedMs: 1 },
+    });
     const r = await call(h, PLUGIN_TOOL_NAMES.debug, { code: CODE_V1, matches: customMatches });
     expect(r.ok).toBe(true);
     expect(r.observation).toContain('自定义对阵表');
