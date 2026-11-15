@@ -1,0 +1,54 @@
+/**
+ * 在线技能（Skill Recipe）核心类型 —— 本项目唯一类型来源。
+ * @module application/skill/SkillTypes
+ *
+ * 设计：宿主原语内置且稳定；在线只发「纯声明 JSON 配方」，
+ * 配方只引用宿主已注册的原语名，永远不含可执行代码。
+ * 所有模块一律从这里 import，禁止另写一份同名类型。
+ */
+
+import type { ModelToolDefinition } from '../model/IModelGateway';
+
+/** 宿主内置原语：真正能执行的函数。在线资源永远不含代码。 */
+export interface SkillPrimitive {
+  /** 与 tool name 同名，必须是宿主注册表里的固定 id */
+  name: string;
+  /** 传给模型的 JSON Schema */
+  definition: ModelToolDefinition;
+  execute(argsJson: string): Promise<PrimitiveResult>;
+}
+
+export interface PrimitiveResult {
+  /** 回填给模型的观察文本（role:'tool'） */
+  observation: string;
+  ok: boolean;
+  /** 一行人话摘要，过程块显示 */
+  detail: string;
+}
+
+/** 一条技能 = 纯 JSON 配方，只引用宿主原语，不含任何可执行代码 */
+export interface SkillRecipe {
+  schemaVersion: 1;
+  /** 如 'event.import-pairing-image' */
+  id: string;
+  /** 正整数 */
+  version: number;
+  /** 展示名 */
+  name: string;
+  /** 一句话，给模型看 */
+  summary: string;
+  /** 触发词/短语，宿主按当前用户消息做「包含即命中」匹配；不引入模糊阈值 */
+  triggers: string[];
+  /** 引用的宿主原语名，必须全部存在于 SkillRegistry；否则该技能整条跳过 */
+  primitives: string[];
+  /** 命中后追加到 system 的自然语言指令（纯文本，无代码、无 URL 模板注入） */
+  prompt: string;
+}
+
+/** 在线清单 */
+export interface SkillRegistryFile {
+  schemaVersion: 1;
+  name: string;
+  description: string;
+  skills: SkillRecipe[];
+}

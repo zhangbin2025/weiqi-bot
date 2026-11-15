@@ -26,7 +26,11 @@ import { FavoriteService } from '../../../../../services/favorite/FavoriteServic
 import { IndexedDBAdapter } from '../../../../../infrastructure/storage/adapters/web/IndexedDBAdapter';
 import { WebFileExporter } from '../../../../../infrastructure/utils/export/WebFileExporter';
 import { WebDialog } from '../../components/Dialog';
-import { ChatUseCase, type LocalFileInput } from '../../../../../application/chat/ChatUseCase';
+import { ChatUseCase, type LocalFileInput, type SkillDeps } from '../../../../../application/chat/ChatUseCase';
+import { createSkillRegistry } from '../../../../../application/skill/SkillRegistry';
+import { createBasicPrimitives } from '../../../../../application/skill/primitives/BasicPrimitives';
+import { EVENT_PRIMITIVES } from '../../../../../application/skill/primitives/EventImportPrimitives';
+import { createDefaultSkillCatalog } from '../../../../../services/skill-catalog/SkillCatalogService';
 import { clampTitle } from '../../../../../application/chat/SessionTitle';
 import { describeAttachment } from '../../../../../application/chat/ChatAttachment';
 import { OpenAIModelGateway } from '../../../../../infrastructure/llm/OpenAIModelGateway';
@@ -104,6 +108,19 @@ export class ChatPage {
       proxyUrl,
       timeoutMs: config?.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS,
     };
+    // 在线技能配方（仅闲聊角色生效）：
+    // - primitives 是宿主内置且固定的执行器注册表（基础 web 原语 + 赛事导入两阶段原语）；
+    // - catalog 只取 JSON 描述，配方引用的原语必须已在上表，缺一项整条跳过；
+    // - 取不到在线清单时自动回落内置配方，装配失败也不阻塞对话页。
+    // 绝不在运行时加载 / 执行远程 JS。
+    const skillCatalog = createDefaultSkillCatalog();
+    const skillDeps: SkillDeps = {
+      loadSkills: () => skillCatalog.loadSkills(),
+      primitives: createSkillRegistry([
+        ...createBasicPrimitives(webTools),
+        ...EVENT_PRIMITIVES,
+      ]),
+    };
     this.useCase = new ChatUseCase(
       gateway,
       this.history,
@@ -113,6 +130,7 @@ export class ChatPage {
       // 角色由页面持有，用例只读取、不猜测、不持久化
       () => this.currentRole,
       webTools,
+      skillDeps,
     );
 
     this.bindUI();

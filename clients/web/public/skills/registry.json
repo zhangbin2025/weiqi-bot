@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "name": "weiqi-bot skills",
+  "description": "围棋能力配方：只组合宿主已注册的原语，不含可执行代码。",
+  "skills": [
+    {
+      "schemaVersion": 1,
+      "id": "event.import-pairing-image",
+      "version": 1,
+      "name": "图片对阵表导入赛事",
+      "summary": "用户上传比赛对阵表图片并希望导入赛事时，把图片里的对阵信息整理成草稿，人工确认后写入赛事库。",
+      "triggers": ["对阵表", "导入比赛", "导入赛事", "比赛图片", "赛事导入"],
+      "primitives": ["event_parse_draft", "event_commit_draft"],
+      "prompt": "图片已随消息送达，直接按所见内容逐行整理：标题、分组、轮次、每台黑方姓名/得分、白方姓名/得分（胜=2 负=0 和=1，轮空白方留空且得分 0）。先调用 event_parse_draft 得到预览，把预览摘要复述给用户并结束本轮回复；等用户下一条消息明确确认后，再调用 event_commit_draft 写库（无需重复传 draftToken）。不要臆造看不清的姓名，不确定就向用户追问。"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "puzzle.tsumego",
+      "version": 1,
+      "name": "死活题练习",
+      "summary": "用户想做一道死活题/做题时，用现成能力给出做题引导并指路题库页面。",
+      "triggers": ["死活题", "做一道", "死活", "做题"],
+      "primitives": ["web_fetch", "navigate_to"],
+      "prompt": "先简要说明死活题的做题要点（先找眼位、再算气、注意劫与双活），必要时用 web_fetch 核实规则术语，然后用 navigate_to 指向 /puzzle/index.html 让用户进入做题页。不要自己编造具体题目或答案。"
+    }
+  ]
+}

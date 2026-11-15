@@ -1,0 +1,154 @@
+/**
+ * 在线技能配方 / 清单的宽容解析与严格字段校验。
+ * @module application/skill/SkillRecipe
+ *
+ * 边界：
+ * - 只校验结构与取值，不查宿主注册表（原语是否存在由 SkillRegistry 决定）。
+ * - 未知字段一律忽略（只读取已知字段、只构造已知字段）。
+ * - 绝不执行配方里的任何内容：本文件只有类型判断与字符串处理。
+ * - 失败时 reason 是中文可读原因，供上层静默回退内置技能。
+ */
+
+import type { SkillRecipe, SkillRegistryFile } from './SkillTypes';
+
+/** 原语名即宿主注册表的固定 id：小写字母开头，只允许小写字母 / 数字 / 下划线。 */
+const PRIMITIVE_NAME_RE = /^[a-z][a-z0-9_]*$/;
+
+type FieldResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; reason: string };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** 必填非空字符串：纯空白也视为空，避免脏配方带空触发提示混进 system。 */
+function readString(
+  raw: Record<string, unknown>,
+  key: string,
+  label: string,
+): FieldResult<string> {
+  const value = raw[key];
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return { ok: false, reason: `字段「${label}」必须是非空字符串` };
+  }
+  return { ok: true, value };
+}
+
+function readVersion(raw: Record<string, unknown>): FieldResult<number> {
+  const value = raw['version'];
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+    return { ok: false, reason: '字段「version」必须是正整数' };
+  }
+  return { ok: true, value };
+}
+
+function readTriggers(raw: Record<string, unknown>): FieldResult<string[]> {
+  const value = raw['triggers'];
+  if (!Array.isArray(value) || value.length === 0) {
+    return { ok: false, reason: '字段「triggers」必须是至少包含 1 条的字符串数组' };
+  }
+  const items: readonly unknown[] = value;
+  const out: string[] = [];
+  for (let i = 0; i < items.length; i += 1) {
+    const item: unknown = items[i];
+    if (typeof item !== 'string') {
+      return { ok: false, reason: `字段「triggers」第 ${i + 1} 项必须是字符串` };
+    }
+    out.push(item);
+  }
+  return { ok: true, value: out };
+}
+
+function readPrimitives(raw: Record<string, unknown>): FieldResult<string[]> {
+  const value = raw['primitives'];
+  if (!Array.isArray(value) || value.length === 0) {
+    return { ok: false, reason: '字段「primitives」必须是至少包含 1 条的字符串数组' };
+  }
+  const items: readonly unknown[] = value;
+  const out: string[] = [];
+  for (let i = 0; i < items.length; i += 1) {
+    const item: unknown = items[i];
+    if (typeof item !== 'string' || !PRIMITIVE_NAME_RE.test(item)) {
+      return { ok: false, reason: `字段「primitives」第 ${i + 1} 项必须匹配 /^[a-z][a-z0-9_]*$/` };
+    }
+    out.push(item);
+  }
+  return { ok: true, value: out };
+}
+
+export function parseSkillRecipe(
+  raw: unknown,
+): { ok: true; skill: SkillRecipe } | { ok: false; reason: string } {
+  if (!isRecord(raw)) {
+    return { ok: false, reason: '技能配方必须是一个对象' };
+  }
+  if (raw['schemaVersion'] !== 1) {
+    return { ok: false, reason: '技能配方字段「schemaVersion」必须等于 1' };
+  }
+
+  const id = readString(raw, 'id', 'id');
+  if (!id.ok) return id;
+  const version = readVersion(raw);
+  if (!version.ok) return version;
+  const name = readString(raw, 'name', 'name');
+  if (!name.ok) return name;
+  const summary = readString(raw, 'summary', 'summary');
+  if (!summary.ok) return summary;
+  const triggers = readTriggers(raw);
+  if (!triggers.ok) return triggers;
+  const primitives = readPrimitives(raw);
+  if (!primitives.ok) return primitives;
+  const prompt = readString(raw, 'prompt', 'prompt');
+  if (!prompt.ok) return prompt;
+
+  const skill: SkillRecipe = {
+    schemaVersion: 1,
+    id: id.value,
+    version: version.value,
+    name: name.value,
+    summary: summary.value,
+    triggers: triggers.value,
+    primitives: primitives.value,
+    prompt: prompt.value,
+  };
+  return { ok: true, skill };
+}
+
+export function parseSkillRegistry(
+  raw: unknown,
+): { ok: true; registry: SkillRegistryFile } | { ok: false; reason: string } {
+  if (!isRecord(raw)) {
+    return { ok: false, reason: '技能清单必须是一个对象' };
+  }
+  if (raw['schemaVersion'] !== 1) {
+    return { ok: false, reason: '技能清单字段「schemaVersion」必须等于 1' };
+  }
+
+  const name = readString(raw, 'name', 'name');
+  if (!name.ok) return name;
+  const description = readString(raw, 'description', 'description');
+  if (!description.ok) return description;
+
+  const value = raw['skills'];
+  if (!Array.isArray(value)) {
+    return { ok: false, reason: '技能清单字段「skills」必须是数组' };
+  }
+  const items: readonly unknown[] = value;
+  const skills: SkillRecipe[] = [];
+  for (let i = 0; i < items.length; i += 1) {
+    const parsed = parseSkillRecipe(items[i]);
+    if (!parsed.ok) {
+      return { ok: false, reason: `技能清单「skills」第 ${i + 1} 项无效：${parsed.reason}` };
+    }
+    skills.push(parsed.skill);
+  }
+
+  const registry: SkillRegistryFile = {
+    schemaVersion: 1,
+    name: name.value,
+    description: description.value,
+    skills,
+  };
+  return { ok: true, registry };
+}

@@ -27,16 +27,21 @@ import type { ChatHistoryManager } from '../assistant/ChatHistoryManager';
 import type { IMessageRenderer } from '../assistant/IMessageRenderer';
 import type { ChatAttachment } from './ChatAttachment';
 import { describeAttachment } from './ChatAttachment';
-import { buildConversationMessages } from './ConversationPrompt';
+import { buildConversationMessages, CONVERSATION_SYSTEM_PROMPT } from './ConversationPrompt';
 import { clampTitle, generateSessionTitle } from './SessionTitle';
 import { resourceFromFile } from './ResourceInput';
 import { processImage, processPdf } from './ResourceProcessors';
 import { getRole, type ChatRoleId } from './ChatRole';
 import type { PluginTraceStep } from '@domain/plugin/types';
-import { runToolLoop, type ToolKit, type ToolLoopResult } from './ToolLoop';
+import { runToolLoop, type ToolKit, type ToolLoopResult, type ToolExecutor } from './ToolLoop';
 import { createWebToolKit } from './WebToolLoop';
 import type { WebFetchToolDeps } from './WebFetchTool';
 import { safeReply } from './safeReply';
+import type { SkillPrimitive, SkillRecipe } from '../skill/SkillTypes';
+import { selectSkills } from '../skill/SkillSelector';
+import { buildSkillToolParts } from '../skill/SkillRegistry';
+import { buildSkillSystemPrompt } from '../skill/SkillSystemPrompt';
+import { beginUserTurn } from '../skill/SkillTurn';
 
 /** 拦截「/」开头：chat 页零命令体系，配置请回功能助手 */
 export const SLASH_COMMAND_HINT = '对话页不支持命令，模型配置请回到功能助手操作。';
@@ -48,6 +53,20 @@ export const AGENT_UNAVAILABLE_HINT =
 
 export function isSlashCommand(text: string): boolean {
   return text.trim().startsWith('/');
+}
+
+/**
+ * 在线技能配方的可选装配（ChatUseCase 第 7 个构造参数）。
+ *
+ * 安全边界：在线资源只有 JSON 描述，primitives 是宿主内置且固定的执行器注册表。
+ * 在线配方只能引用注册表里已有的原语名，永远不携带可执行代码；缺原语的配方
+ * 由 selectSkills 整条跳过（在线允许领先宿主版本）。
+ */
+export interface SkillDeps {
+  /** 每条用户消息调用一次，返回内置 + 在线合并后的配方清单；失败应自行回落内置 */
+  loadSkills(): Promise<SkillRecipe[]>;
+  /** 宿主原语注册表：name → 声明 + 执行器 */
+  primitives: ReadonlyMap<string, SkillPrimitive>;
 }
 
 /** 本地附件的宿主输入形状（只用到 File 的这三个成员，便于测试注入） */
@@ -100,6 +119,29 @@ async function prepareLocalFiles(
   return { attachments, parts, notes };
 }
 
+/** 取最后一条 user 消息的纯文本（content 可能是多模态 part 数组） */
+function lastUserText(messages: readonly ModelMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (!m || m.role !== 'user') continue;
+    const c = m.content;
+    if (typeof c === 'string') return c;
+    return c
+      .filter((p): p is Extract<ModelPart, { type: 'text' }> => p.type === 'text')
+      .map((p) => p.text)
+      .join('\n');
+  }
+  return '';
+}
+
+/** 上下文里是否还带着图片 / 原生 PDF 附件（重放的历史附件也算） */
+function hasImagePart(messages: readonly ModelMessage[]): boolean {
+  return messages.some((m) => {
+    const c = m.content;
+    return Array.isArray(c) && c.some((p) => p.type === 'image' || p.type === 'file');
+  });
+}
+
 /** 过程块标题：两个角色各一个，展示层按 source 再区分步骤标签 */
 const WEB_TRACE_TITLE = '🌐 访问过程';
 const PLUGIN_TRACE_TITLE = '🔧 插件开发过程';
@@ -115,6 +157,8 @@ export class ChatUseCase {
     private readonly roleProvider?: () => ChatRoleId,
     /** chat 角色的网络工具依赖（proxyUrl / timeoutMs）。不传则退回纯文本单次调用 */
     private readonly webTools?: WebFetchToolDeps,
+    /** 可选：在线技能配方（仅 chat 角色生效）。不传则行为与旧版完全一致。 */
+    private readonly skills?: SkillDeps,
   ) {}
 
   isReady(): boolean {
@@ -149,6 +193,10 @@ export class ChatUseCase {
       await this.renderHint(NOT_READY_HINT);
       return;
     }
+
+    // 每条用户消息推进一次「人工确认闸门」序号：赛事导入的 commit 只接受
+    // 预览之后的新一条消息，杜绝模型在同一轮里自问自答把数据写进库。
+    beginUserTurn();
 
     // 纯附件没有文字时补一句明确问题：不让模型对着图片猜用户要什么。
     const hasFiles = Boolean(options?.files?.length);
@@ -310,9 +358,14 @@ export class ChatUseCase {
       };
     }
 
+    // chat 角色：基础 web 工具恒定挂载；装了技能系统时，按「当前句 + 上下文里是否
+    // 仍带图片附件」挑出命中的配方，只把配方引用的原语追加进本轮 tools[]。
+    // 未命中任何技能时 buildChatToolKit 直接返回基础 kit，零额外 token。
     const kit: ToolKit = usePlugin
       ? this.pluginToolKit!
-      : createWebToolKit(this.webTools!);
+      : this.skills
+        ? await this.buildChatToolKit(messages, localParts.length > 0)
+        : createWebToolKit(this.webTools!);
     const source: PluginTraceStep['source'] = usePlugin ? 'plugin' : 'web';
 
     return runToolLoop(
@@ -330,6 +383,47 @@ export class ChatUseCase {
         ...(onTrace ? { onTrace } : {}),
       },
     );
+  }
+
+  /**
+   * 拼装 chat 角色本轮的工具集：
+   * - 基础 web 工具（3 个）恒定挂载，行为与旧版一致；
+   * - 命中技能引用的原语按 name 去重后追加（基础工具优先，避免同名执行器被覆盖）；
+   * - system 由 buildSkillSystemPrompt 在 CONVERSATION_SYSTEM_PROMPT 之上补本轮技能说明；
+   *   无命中时原样返回基础 system，模型看到的上下文与旧版逐字相同。
+   *
+   * 在线清单取用失败不阻塞对话：loadSkills 内部已回落内置，外层再兜一次异常。
+   */
+  private async buildChatToolKit(messages: ModelMessage[], hasNewParts: boolean): Promise<ToolKit> {
+    const base = createWebToolKit(this.webTools!);
+    let recipes: readonly SkillRecipe[] = [];
+    try {
+      recipes = await this.skills!.loadSkills();
+    } catch {
+      recipes = [];
+    }
+    // 图片导入是「预览 → 用户确认 → 写库」两阶段：确认那一轮没有新附件，
+    // 但历史里的图片附件仍随上下文重放。用它保持导入技能挂载，直到图片滑出
+    // 20 条消息窗口（沿用既有 maxMessages，不另设过期时间/阈值）。
+    const contextHasImage = hasNewParts || hasImagePart(messages);
+    const active = selectSkills(lastUserText(messages), contextHasImage, recipes, this.skills!.primitives);
+    if (active.length === 0) return base;
+
+    const parts = buildSkillToolParts(active, this.skills!.primitives);
+    const tools = [...base.tools];
+    const executors: Record<string, ToolExecutor> = { ...base.executors };
+    for (const t of parts.tools) {
+      const exec = parts.executors[t.name];
+      if (exec && !executors[t.name]) {
+        tools.push(t);
+        executors[t.name] = exec;
+      }
+    }
+    return {
+      tools,
+      executors,
+      systemPrompt: buildSkillSystemPrompt(CONVERSATION_SYSTEM_PROMPT, active),
+    };
   }
 
   /** 提示类消息：只渲染，绝不写历史 */
