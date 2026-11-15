@@ -6,19 +6,15 @@ import type { IPage, PageParams, IAdapterFactory } from '../../../../core/interf
 import type { EventQuerier, EventHistoryEntry } from '../../../../../application/event';
 import type { IEventFormatter } from './IEventFormatter';
 import type { RecentEntry } from './EventRenderer';
-import type { Match } from '../../../../../services/event/types';
 import type { PdfMatch } from '../../../../../services/pdf/types';
 import type { IKeyValueStorageAdapter } from '../../../../../infrastructure/storage/interfaces/IKeyValueStorage';
 import { EventRenderer } from './EventRenderer';
 import { PdfMatchParser } from '../../../../../services/pdf/PdfMatchParser';
 import { PdfEventService } from '../../../../../services/event/PdfEventService';
 import { SessionStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/SessionStorageAdapter';
+import { buildPdfScores, recalcWinLoss } from '../../../../../services/event/WinLoss';
 
 type EventTab = 'query' | 'import' | 'recent';
-
-const WIN = 2;
-const DRAW = 1;
-const LOSS = 0;
 
 const STORAGE_KEY_AREA = 'lastArea';
 
@@ -247,7 +243,7 @@ export class EventPage implements IPage {
       const groupName = result.groupName || '默认组';
       const round = this.inferRound(result) ?? await this.guessNextRound(title, groupName);
 
-      const pdfScores = this.buildPdfScores(result.matches);
+      const pdfScores = buildPdfScores(result.matches);
       const playerIdMap = await this.buildPlayerIdMap(title, groupName);
 
       const matches = result.matches.map((m, idx) => ({
@@ -267,7 +263,7 @@ export class EventPage implements IPage {
       if (event) {
         const group = event.groups.find(g => g.name === groupName);
         if (group) {
-          this.recalcWinLoss(group);
+          recalcWinLoss(group);
           await this.pdfService.saveEvent(event);
         }
       }
@@ -279,76 +275,6 @@ export class EventPage implements IPage {
     } catch (e) {
       console.error('PDF 解析失败', e as Error);
       this.renderer.toast.error('PDF 解析失败: ' + (e as Error).message);
-    }
-  }
-
-  private buildPdfScores(pdfMatches: PdfMatch[]): Record<string, number> {
-    const scores: Record<string, number> = {};
-    for (const m of pdfMatches) {
-      if (m.blackName) scores[m.blackName] = m.blackScore;
-      if (m.whiteName) scores[m.whiteName] = m.whiteScore;
-    }
-    return scores;
-  }
-
-  private recalcWinLoss(group: { rounds: Array<{ round: number; matches: Match[]; pdfScores: Record<string, number> }> }): void {
-    const rounds = group.rounds.sort((a, b) => a.round - b.round);
-    if (rounds.length === 0) return;
-
-    const allPlayerNames = new Set<string>();
-    for (const r of rounds) {
-      for (const m of r.matches) {
-        if (m.p1Name) allPlayerNames.add(m.p1Name);
-        if (m.p2Name) allPlayerNames.add(m.p2Name);
-      }
-      for (const name of Object.keys(r.pdfScores)) {
-        allPlayerNames.add(name);
-      }
-    }
-
-    for (let i = 0; i < rounds.length - 1; i++) {
-      const curRound = rounds[i]!;
-      const nextPdfScores = rounds[i + 1]!.pdfScores;
-
-      for (const m of curRound.matches) {
-        const nextP1 = nextPdfScores[m.p1Name] ?? 0;
-        const nextP2 = nextPdfScores[m.p2Name] ?? 0;
-        const curP1 = curRound.pdfScores[m.p1Name] ?? 0;
-        const curP2 = curRound.pdfScores[m.p2Name] ?? 0;
-        m.p1Score = this.deltaToWinLoss(nextP1 - curP1);
-        m.p2Score = this.deltaToWinLoss(nextP2 - curP2);
-      }
-
-      const matchPlayerNames = new Set<string>();
-      for (const m of curRound.matches) {
-        if (m.p1Name) matchPlayerNames.add(m.p1Name);
-        if (m.p2Name) matchPlayerNames.add(m.p2Name);
-      }
-      for (const name of allPlayerNames) {
-        if (matchPlayerNames.has(name)) continue;
-        const curScore = curRound.pdfScores[name] ?? 0;
-        const nextScore = nextPdfScores[name] ?? 0;
-        const delta = nextScore - curScore;
-        if (delta > 0) {
-          const existingId = this.findPlayerId(rounds, name);
-          curRound.matches.push({
-            bout: curRound.round,
-            table: curRound.matches.length + 1,
-            p1Id: existingId,
-            p1Name: name,
-            p1Score: this.deltaToWinLoss(delta),
-            p2Id: 0,
-            p2Name: '',
-            p2Score: 0,
-          });
-        }
-      }
-    }
-
-    const lastRound = rounds[rounds.length - 1]!;
-    for (const m of lastRound.matches) {
-      m.p1Score = 0;
-      m.p2Score = 0;
     }
   }
 
@@ -375,22 +301,6 @@ export class EventPage implements IPage {
       }
     }
     return idMap;
-  }
-
-  private deltaToWinLoss(delta: number): number {
-    if (delta >= WIN) return WIN;
-    if (delta === DRAW) return DRAW;
-    return LOSS;
-  }
-
-  private findPlayerId(rounds: Array<{ matches: Match[] }>, name: string): number {
-    for (const r of rounds) {
-      for (const m of r.matches) {
-        if (m.p1Name === name && m.p1Id) return m.p1Id;
-        if (m.p2Name === name && m.p2Id) return m.p2Id;
-      }
-    }
-    return -1;
   }
 
   private extractTitleFromFilename(filename: string): string {

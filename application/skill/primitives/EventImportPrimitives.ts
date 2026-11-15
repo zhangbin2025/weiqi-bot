@@ -1,8 +1,12 @@
 /**
- * 赛事导入两阶段原语
- * @description event_parse_draft 只校验并生成预览 + draftToken（不写库）；
- * event_commit_draft 只在预览之后的用户新消息、且 confirm 明确为 true 时才写库。
+ * 赛事导入两阶段原语（图片通道）
+ * @description event_parse_draft 把编排表上的**累计积分**校验成草稿 + pdfScores 快照
+ * 并生成预览 + draftToken（不写库）；event_commit_draft 只在预览之后的用户新消息、
+ * 且 confirm 明确为 true 时才写库，写库后按 PDF 通道同一套逻辑回算胜负。
  * 所有异常都转成 observation（ok:false），绝不抛穿。
+ *
+ * 胜负不是模型读出来的：编排表上的得分是累计积分（大分），第 1 轮通常是 0:0，
+ * 本轮胜负由「下一轮累计分 − 本轮累计分」差分反推（recalcWinLoss）。
  */
 
 import type { SkillPrimitive, PrimitiveResult } from '@application/skill/SkillTypes';
@@ -10,6 +14,7 @@ import {
   validateEventDraft,
   type EventDraft,
 } from '@services/event/EventDraft';
+import { recalcWinLoss } from '@services/event/WinLoss';
 import { PdfEventService } from '@services/event/PdfEventService';
 import { SessionStorageAdapter } from '@infrastructure/storage/adapters/web/SessionStorageAdapter';
 import { currentUserTurn } from '../SkillTurn';
@@ -35,7 +40,7 @@ function nextToken(): string {
 
 const PARSE_DEFINITION: SkillPrimitive['definition'] = {
   name: 'event_parse_draft',
-  description: '把从图片/PDF 读到的赛事对阵信息校验成规范草稿，返回预览摘要与 draftToken。不写库。',
+  description: '把从图片读到的编排对阵表校验成规范草稿，返回预览摘要与 draftToken。不写库。表上的得分是选手截至本轮的累计积分（大分），不是本轮胜负；胜负由宿主在导入下一轮后差分回算。',
   parameters: {
     type: 'object',
     properties: {
@@ -48,10 +53,10 @@ const PARSE_DEFINITION: SkillPrimitive['definition'] = {
           type: 'object',
           properties: {
             table: { type: 'integer', description: '台号，可省略' },
-            p1Name: { type: 'string' },
-            p1Score: { type: 'integer', description: '黑方得分：2胜 0负 1和' },
+            p1Name: { type: 'string', description: '黑方姓名' },
+            p1Score: { type: 'number', description: '黑方截至本轮的累计积分（大分）；第1轮通常为0，不要填胜负分' },
             p2Name: { type: 'string', description: '白方姓名，轮空填空串' },
-            p2Score: { type: 'integer' },
+            p2Score: { type: 'number', description: '白方截至本轮的累计积分（大分）；第1轮通常为0，轮空填0' },
           },
           required: ['p1Name', 'p1Score', 'p2Name', 'p2Score'],
           additionalProperties: false,
@@ -65,7 +70,7 @@ const PARSE_DEFINITION: SkillPrimitive['definition'] = {
 
 const COMMIT_DEFINITION: SkillPrimitive['definition'] = {
   name: 'event_commit_draft',
-  description: '用户在下一条消息里明确确认预览后，把待确认草稿写入本地赛事库并返回详情入口。draftToken 可省略，省略时提交最近一次预览的草稿。同一条消息内生成预览后立即调用会被宿主拒绝。',
+  description: '用户在下一条消息里明确确认预览后，把待确认草稿写入本地赛事库、按累计分差分回算已能确定的轮次胜负，并返回详情入口。draftToken 可省略，省略时提交最近一次预览的草稿。同一条消息内生成预览后立即调用会被宿主拒绝。',
   parameters: {
     type: 'object',
     properties: {
@@ -84,7 +89,9 @@ function fail(observation: string, detail: string): PrimitiveResult {
 function matchSummary(draft: EventDraft): string[] {
   return draft.matches.map((m) => {
     const p2 = m.p2Name === '' ? '轮空' : m.p2Name;
-    return `第${m.table}台：${m.p1Name}(${m.p1Score}) vs ${p2}(${m.p2Score})`;
+    const b = draft.pdfScores[m.p1Name] ?? 0;
+    const w = m.p2Name === '' ? 0 : (draft.pdfScores[m.p2Name] ?? 0);
+    return `第${m.table}台：${m.p1Name}(累计${b}) vs ${p2}(累计${w})`;
   });
 }
 
@@ -92,6 +99,7 @@ function buildPreview(draft: EventDraft, token: string): string {
   const lines = [
     `草稿校验通过：比赛《${draft.title}》/ 分组「${draft.groupName}」/ 第${draft.round}轮 / 共${draft.matches.length}场`,
     ...matchSummary(draft),
+    '说明：表上为累计积分（大分），本轮胜负将从下一轮累计分差分回算；当前轮次胜负暂记为未定。',
     `draftToken：${token}`,
     '请把预览复述给用户并结束本轮回复；等用户下一条消息明确确认后，再调用 event_commit_draft（无需再传 token）。同一条消息内不能写库。',
   ];
@@ -214,6 +222,11 @@ async function commitDraftInner(argsJson: string): Promise<PrimitiveResult> {
     if (!group) {
       return fail('写入赛事库后未能定位到目标分组，无法定位详情入口', '分组读取失败');
     }
+
+    // 与 PDF 通道同一套入库路径：导入新一轮后按累计分差分回算已能确定的轮次胜负，
+    // 再整体保存。第 1 轮单独导入时它的胜负仍是未定（0/0），符合编排表语义。
+    recalcWinLoss(group);
+    await service.saveEvent(event);
 
     const store = new SessionStorageAdapter('weiqi-bot');
     await store.initialize();

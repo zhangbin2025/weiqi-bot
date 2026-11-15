@@ -1,7 +1,10 @@
 /**
  * EventImportPrimitives 单元测试
- * @description 只校验两阶段原语的行为；PdfEventService / SessionStorageAdapter 全部 mock，
+ * @description 校验两阶段原语；PdfEventService / SessionStorageAdapter 全部 mock，
  * 不打真实 IndexedDB，也无需 sessionStorage。
+ *
+ * 语义回归重点：编排表上的得分是**累计积分（大分）**，第 1 轮 0:0 合法；
+ * 胜负由宿主在导入下一轮后用 recalcWinLoss 差分回算，模型不提供胜负分。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { PdfEvent } from '@services/event/PdfEventTypes';
@@ -12,6 +15,7 @@ import { beginUserTurn } from '../SkillTurn';
 const mocks = vi.hoisted(() => ({
   importRound: vi.fn(),
   findEvent: vi.fn(),
+  saveEvent: vi.fn(),
   initialize: vi.fn(),
   write: vi.fn(),
 }));
@@ -20,6 +24,7 @@ vi.mock('@services/event/PdfEventService', () => ({
   PdfEventService: vi.fn().mockImplementation(() => ({
     importRound: mocks.importRound,
     findEvent: mocks.findEvent,
+    saveEvent: mocks.saveEvent,
   })),
 }));
 
@@ -39,21 +44,36 @@ function primitive(name: string): SkillPrimitive {
 const parse = primitive('event_parse_draft');
 const commit = primitive('event_commit_draft');
 
-const validDraft = {
-  title: '2026 春季围棋赛',
+/** 第 1 轮编排表：赛前双方累计分都是 0（这是真实图片里的形态） */
+const firstRoundDraft = {
+  title: '第四届孙子兵法杯',
   groupName: '公开组',
-  round: 2,
+  round: 1,
   matches: [
-    { p1Name: '张三', p1Score: 2, p2Name: '李四', p2Score: 0 },
-    { p1Name: '王五', p1Score: 1, p2Name: '赵六', p2Score: 1 },
+    { table: 1, p1Name: '王可汗', p1Score: 0, p2Name: '申云豪', p2Score: 0 },
+    { table: 2, p1Name: '李子恩', p1Score: 0, p2Name: '刘海洋', p2Score: 0 },
   ],
 };
 
-function makeEvent(): PdfEvent {
+/** 第 2 轮编排表：累计分里已含第 1 轮结果（胜者 +2） */
+const secondRoundDraft = {
+  title: '第四届孙子兵法杯',
+  groupName: '公开组',
+  round: 2,
+  matches: [
+    { table: 1, p1Name: '王可汗', p1Score: 2, p2Name: '李子恩', p2Score: 2 },
+    { table: 2, p1Name: '申云豪', p1Score: 0, p2Name: '刘海洋', p2Score: 0 },
+  ],
+};
+
+/** 兼容旧断言用的通用草稿（第 2 轮累计分） */
+const validDraft = secondRoundDraft;
+
+function makeEvent(rounds: PdfEvent['groups'][number]['rounds'] = []): PdfEvent {
   return {
     id: 'evt-1',
     title: validDraft.title,
-    groups: [{ id: 'grp-1', name: validDraft.groupName, rounds: [] }],
+    groups: [{ id: 'grp-1', name: validDraft.groupName, rounds }],
     createdAt: 0,
     updatedAt: 0,
   };
@@ -70,20 +90,33 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.initialize.mockResolvedValue(undefined);
   mocks.write.mockResolvedValue(undefined);
-  mocks.importRound.mockResolvedValue(makeEvent());
-  mocks.findEvent.mockResolvedValue(makeEvent());
+  mocks.saveEvent.mockResolvedValue(undefined);
+  mocks.importRound.mockImplementation(async (
+    _title: string, _group: string, round: number,
+    _matches: unknown, pdfScores: Record<string, number>,
+  ) => {
+    // 模拟 importRound 把新轮次并入事件：带上本轮累计分快照
+    return makeEvent([{ round, matches: [], pdfScores, importedAt: 0 }]);
+  });
+  mocks.findEvent.mockImplementation(async () => makeEvent([
+    { round: 1, matches: [
+      { bout: 1, table: 1, p1Id: 1, p1Name: '王可汗', p1Score: 0, p2Id: 3, p2Name: '申云豪', p2Score: 0 },
+      { bout: 1, table: 2, p1Id: 2, p1Name: '李子恩', p1Score: 0, p2Id: 4, p2Name: '刘海洋', p2Score: 0 },
+    ], pdfScores: { 王可汗: 0, 申云豪: 0, 李子恩: 0, 刘海洋: 0 }, importedAt: 0 },
+    { round: 2, matches: [], pdfScores: { 王可汗: 2, 申云豪: 0, 李子恩: 2, 刘海洋: 0 }, importedAt: 0 },
+  ]));
 });
 
 describe('event_parse_draft', () => {
   it('合法草稿返回 ok 与预览，含比赛名/分组/轮次/场数/逐场摘要/draftToken/确认提示', async () => {
     const r = await parse.execute(JSON.stringify(validDraft));
     expect(r.ok).toBe(true);
-    expect(r.observation).toContain('2026 春季围棋赛');
+    expect(r.observation).toContain('第四届孙子兵法杯');
     expect(r.observation).toContain('公开组');
     expect(r.observation).toContain('第2轮');
     expect(r.observation).toContain('共2场');
-    expect(r.observation).toContain('张三');
-    expect(r.observation).toContain('赵六');
+    expect(r.observation).toContain('王可汗');
+    expect(r.observation).toContain('累计2');
     expect(r.observation).toContain('draftToken：');
     expect(r.observation).toContain('结束本轮回复');
     expect(r.observation).toContain('下一条消息明确确认');
@@ -93,29 +126,38 @@ describe('event_parse_draft', () => {
     expect(mocks.write).not.toHaveBeenCalled();
   });
 
-  it('非法比分被拒并列明 errors', async () => {
-    const bad = { ...validDraft, matches: [{ p1Name: '甲', p1Score: 3, p2Name: '乙', p2Score: 0 }] };
+  it('第 1 轮编排表 0:0（累计分，非胜负）可通过，不再被当成「双方同为负」', async () => {
+    const r = await parse.execute(JSON.stringify(firstRoundDraft));
+    expect(r.ok).toBe(true);
+    expect(r.observation).toContain('累计0');
+    expect(r.observation).toContain('本轮胜负将从下一轮累计分差分回算');
+  });
+
+  it('累计分允许非负小数（兼容表上 0.5 等显示）', async () => {
+    const d = { ...firstRoundDraft, matches: [
+      { p1Name: '甲', p1Score: 0.5, p2Name: '乙', p2Score: 0.5 },
+    ] };
+    const r = await parse.execute(JSON.stringify(d));
+    expect(r.ok).toBe(true);
+  });
+
+  it('负累计分被拒', async () => {
+    const bad = { ...validDraft, matches: [{ p1Name: '甲', p1Score: -1, p2Name: '乙', p2Score: 0 }] };
     const r = await parse.execute(JSON.stringify(bad));
     expect(r.ok).toBe(false);
-    expect(r.observation).toContain('只允许 2/0/1');
+    expect(r.observation).toContain('累计积分');
+    expect(r.observation).toContain('非负数字');
   });
 
   it('空姓名被拒', async () => {
-    const bad = { ...validDraft, matches: [{ p1Name: '', p1Score: 2, p2Name: '乙', p2Score: 0 }] };
+    const bad = { ...validDraft, matches: [{ p1Name: '', p1Score: 0, p2Name: '乙', p2Score: 0 }] };
     const r = await parse.execute(JSON.stringify(bad));
     expect(r.ok).toBe(false);
     expect(r.observation).toContain('黑方姓名');
   });
 
-  it('双方同为胜(2/2)被拒', async () => {
-    const bad = { ...validDraft, matches: [{ p1Name: '甲', p1Score: 2, p2Name: '乙', p2Score: 2 }] };
-    const r = await parse.execute(JSON.stringify(bad));
-    expect(r.ok).toBe(false);
-    expect(r.observation).toContain('同为胜');
-  });
-
   it('轮空（p2Name 空串 / p2Score 0）可通过', async () => {
-    const bye = { title: '轮空赛', round: 1, matches: [{ p1Name: '甲', p1Score: 2, p2Name: '', p2Score: 0 }] };
+    const bye = { title: '轮空赛', round: 1, matches: [{ p1Name: '甲', p1Score: 0, p2Name: '', p2Score: 0 }] };
     const r = await parse.execute(JSON.stringify(bye));
     expect(r.ok).toBe(true);
     expect(r.observation).toContain('轮空');
@@ -149,8 +191,8 @@ describe('event_commit_draft', () => {
     expect(mocks.write).not.toHaveBeenCalled();
   });
 
-  it('commit 成功调用 importRound 且写 sessionStorage 的 pdf-event-detail', async () => {
-    const p = await parse.execute(JSON.stringify(validDraft));
+  it('commit 成功调用 importRound（带累计分快照）、回算并 saveEvent、写 pdf-event-detail', async () => {
+    const p = await parse.execute(JSON.stringify(secondRoundDraft));
     const token = extractToken(p.observation);
     beginUserTurn();
     const r = await commit.execute(JSON.stringify({ draftToken: token, confirm: true }));
@@ -161,16 +203,38 @@ describe('event_commit_draft', () => {
     expect(args[1]).toBe(validDraft.groupName);
     expect(args[2]).toBe(validDraft.round);
     expect(args[3]).toHaveLength(2);
-    expect(args[4]).toEqual({});
+    // p1Score/p2Score 是未定胜负（0），不是累计分；累计分在 args[4] 快照里
+    expect(args[4]).toEqual({ 王可汗: 2, 李子恩: 2, 申云豪: 0, 刘海洋: 0 });
+    const saved = mocks.saveEvent.mock.calls[0]?.[0] as PdfEvent;
+    expect(saved).toBeTruthy();
+    const round1 = saved.groups[0]?.rounds.find((x) => x.round === 1);
+    // 第 2 轮累计分确定第 1 轮结果：王可汗/李子恩胜(2)，申云豪/刘海洋负(0)
+    expect(round1?.matches.find((m) => m.p1Name === '王可汗')?.p1Score).toBe(2);
+    expect(round1?.matches.find((m) => m.p1Name === '王可汗')?.p2Score).toBe(0);
     expect(mocks.initialize).toHaveBeenCalledTimes(1);
     expect(mocks.write).toHaveBeenCalledWith('pdf-event-detail', {
       eventId: 'evt-1',
       groupId: 'grp-1',
     });
-    expect(r.observation).toContain('已导入《2026 春季围棋赛》');
+    expect(r.observation).toContain('已导入《第四届孙子兵法杯》');
     expect(r.observation).toContain('../event/detail.html?source=pdf&title=');
     expect(r.observation).toContain(encodeURIComponent(validDraft.title));
     expect(r.observation).toContain('赛事 → 最近');
+  });
+
+  it('仅导入第 1 轮时胜负保持未定（0/0），不臆造结果', async () => {
+    mocks.findEvent.mockImplementation(async () => makeEvent([
+      { round: 1, matches: [
+        { bout: 1, table: 1, p1Id: 1, p1Name: '王可汗', p1Score: 0, p2Id: 2, p2Name: '申云豪', p2Score: 0 },
+      ], pdfScores: { 王可汗: 0, 申云豪: 0 }, importedAt: 0 },
+    ]));
+    const p = await parse.execute(JSON.stringify(firstRoundDraft));
+    beginUserTurn();
+    const r = await commit.execute(JSON.stringify({ confirm: true }));
+    expect(r.ok).toBe(true);
+    const saved = mocks.saveEvent.mock.calls[0]?.[0] as PdfEvent;
+    expect(saved.groups[0]?.rounds[0]?.matches[0]?.p1Score).toBe(0);
+    expect(saved.groups[0]?.rounds[0]?.matches[0]?.p2Score).toBe(0);
   });
 
   it('写库成功后 token 一次性失效', async () => {
@@ -195,7 +259,7 @@ describe('event_commit_draft', () => {
       eventId: 'evt-1',
       groupId: 'grp-1',
     });
-    expect(r.observation).toContain('已导入《2026 春季围棋赛》');
+    expect(r.observation).toContain('已导入《第四届孙子兵法杯》');
   });
 
   it('提交成功后没有待确认草稿，再次确认只报明确错误而不重复写库', async () => {

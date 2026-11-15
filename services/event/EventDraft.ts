@@ -1,17 +1,26 @@
 /**
- * 赛事草稿校验
- * @description 把模型从图片/PDF 读出的结构化对阵信息校验成可写库的规范草稿。
- * 只做结构与枚举校验，不复刻 PDF 累计积分，不写库。
+ * 赛事草稿校验（图片通道）
+ * @description 把模型从图片读出的**编排对阵表**校验成可写库的规范草稿。
+ *
+ * 语义（与 PDF 导入通道一致，见 services/event/WinLoss.ts）：
+ * - 编排表上的「得分」是选手截至本轮的**累计积分（大分）**，不是本轮胜负。
+ *   第 1 轮赛前通常全是 0；第 2 轮的累计分里才包含第 1 轮结果。
+ * - 草稿里存累计分，由 buildPdfScores 收成 pdfScores 快照；Match.p1Score/p2Score
+ *   先置 0，胜负在 commit 里用 recalcWinLoss 按「下一轮 − 本轮」差分回算。
+ * - 本文件只做结构校验 + 规范化，不写库、不回算、不引入任何阈值。
  */
 
 import type { Match } from './types';
+import { buildPdfScores, type ScorePair } from './WinLoss';
 
 /** 单场草稿输入（table 可省略；p1Id/p2Id 一律由宿主分配，模型不得提供） */
 export interface EventDraftMatch {
   table?: number;
   p1Name: string;
+  /** 黑方截至本轮的累计积分（大分），非负数字；不是胜负分 */
   p1Score: number;
   p2Name: string;
+  /** 白方截至本轮的累计积分（大分），非负数字；轮空填 0 */
   p2Score: number;
 }
 
@@ -23,17 +32,17 @@ export interface EventDraftInput {
   matches: EventDraftMatch[];
 }
 
-/** 校验通过后的规范草稿：matches 已补齐 bout/table/id，可直接交给 importRound */
+/** 校验通过后的规范草稿：可直接交给 importRound */
 export interface EventDraft {
   title: string;
   groupName: string;
   round: number;
   matches: Match[];
+  /** 姓名 → 截至本轮的累计积分快照，供下一轮导入时回算本轮胜负 */
   pdfScores: Record<string, number>;
 }
 
 const DEFAULT_GROUP_NAME = '默认组';
-const ALLOWED_SCORES: readonly number[] = [2, 0, 1];
 
 interface NormalizedMatch {
   table: number;
@@ -47,8 +56,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function isScore(value: unknown): value is number {
-  return typeof value === 'number' && ALLOWED_SCORES.includes(value);
+/** 累计积分必须是非负有限数（0 合法；允许小数以兼容表上可能出现的 0.5 等显示） */
+function isCumulativeScore(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
 export function validateEventDraft(
@@ -101,25 +111,11 @@ export function validateEventDraft(
       if (typeof p2Name !== 'string') {
         errors.push(`${label}白方姓名(p2Name)必须是字符串（轮空请填空串）`);
       }
-      if (!isScore(p1Score)) {
-        errors.push(`${label}黑方得分(p1Score)只允许 2/0/1`);
+      if (!isCumulativeScore(p1Score)) {
+        errors.push(`${label}黑方累计积分(p1Score)必须是非负数字`);
       }
-      if (!isScore(p2Score)) {
-        errors.push(`${label}白方得分(p2Score)只允许 2/0/1`);
-      }
-
-      // 比分组合：只接受 2/0、0/2、1/1；双胜/双负/半和都拒绝
-      if (isScore(p1Score) && isScore(p2Score)) {
-        if (p1Score === 2 && p2Score === 2) {
-          errors.push(`${label}双方不能同为胜(2/2)`);
-        } else if (p1Score === 0 && p2Score === 0) {
-          errors.push(`${label}双方不能同为负(0/0)`);
-        } else if (
-          (p1Score === 1 || p2Score === 1) &&
-          !(p1Score === 1 && p2Score === 1)
-        ) {
-          errors.push(`${label}和棋必须双方均为 1(1/1)`);
-        }
+      if (!isCumulativeScore(p2Score)) {
+        errors.push(`${label}白方累计积分(p2Score)必须是非负数字`);
       }
 
       // table 缺省按数组下标 +1；提供了但非法时同样回落缺省值（契约未要求校验 table）
@@ -131,7 +127,7 @@ export function validateEventDraft(
       if (
         typeof p1Name === 'string' && p1Name.trim() !== '' &&
         typeof p2Name === 'string' &&
-        isScore(p1Score) && isScore(p2Score)
+        isCumulativeScore(p1Score) && isCumulativeScore(p2Score)
       ) {
         normalized.push({
           table: resolvedTable,
@@ -171,20 +167,27 @@ export function validateEventDraft(
     return id;
   };
 
+  // 胜负分先置 0：本轮结果要等下一轮累计分导入后由 recalcWinLoss 差分回算
   const matches: Match[] = normalized.map((m) => ({
     bout: round,
     table: m.table,
     p1Id: assignId(m.p1Name),
     p1Name: m.p1Name,
-    p1Score: m.p1Score,
+    p1Score: 0,
     p2Id: assignId(m.p2Name),
     p2Name: m.p2Name,
-    p2Score: m.p2Score,
+    p2Score: 0,
   }));
 
-  // 图片直接读胜负，不复刻 PDF 累计积分回算
+  const pairs: ScorePair[] = normalized.map((m) => ({
+    blackName: m.p1Name,
+    blackScore: m.p1Score,
+    whiteName: m.p2Name,
+    whiteScore: m.p2Score,
+  }));
+
   return {
     ok: true,
-    draft: { title, groupName, round, matches, pdfScores: {} },
+    draft: { title, groupName, round, matches, pdfScores: buildPdfScores(pairs) },
   };
 }
