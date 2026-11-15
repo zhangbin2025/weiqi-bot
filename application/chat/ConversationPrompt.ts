@@ -41,8 +41,8 @@ export const CONTEXT_LIMITS = {
   maxTotalChars: 8000,
 } as const;
 
-/** 聊天摘要 / 会话标题：取第一条 user 消息，截断到这个长度 */
-export const SUMMARY_MAX_CHARS = 30;
+// 会话标题已独立到 SessionTitle.ts（模型精炼 + 统一展示上限）。
+// 本文件只负责「发给模型的上下文」，不再掺和标题口径，避免出现两个上限。
 
 /** 会话消息形状：附件是独立字段，不进 content */
 export interface ConversationHistoryMessage {
@@ -104,15 +104,4 @@ type ModelMessageForPrompt = {
   content: string | ModelPart[];
 };
 
-/** 会话摘要 / 标题：第一条 user 消息截断（不碰附件，避免截到 base64） */
-export function summarizeSession(
-  messages: ReadonlyArray<ConversationHistoryMessage>,
-): string {
-  const first = messages.find((m) => m.role === 'user');
-  if (!first) return '新对话';
-  const flat = first.content.replace(/\s+/g, ' ').trim();
-  if (!flat) return '新对话';
-  return flat.length > SUMMARY_MAX_CHARS
-    ? flat.slice(0, SUMMARY_MAX_CHARS) + '...'
-    : flat;
-}
+// 标题兜底见 SessionTitle.clampTitle：按 Unicode 码点截断，不碰附件字段。

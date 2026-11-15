@@ -15,6 +15,8 @@
 export type ModelTaskId =
   | 'chat.reply'
   | 'plugin.generate'
+  /** 会话标题精炼：纯文本 chat completions，不挂工具、不入历史 */
+  | 'chat.title'
   | (string & {});
 
 /**

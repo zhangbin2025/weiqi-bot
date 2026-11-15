@@ -27,7 +27,8 @@ import type { ChatHistoryManager } from '../assistant/ChatHistoryManager';
 import type { IMessageRenderer } from '../assistant/IMessageRenderer';
 import type { ChatAttachment } from './ChatAttachment';
 import { describeAttachment } from './ChatAttachment';
-import { buildConversationMessages, summarizeSession } from './ConversationPrompt';
+import { buildConversationMessages } from './ConversationPrompt';
+import { clampTitle, generateSessionTitle } from './SessionTitle';
 import { resourceFromFile } from './ResourceInput';
 import { processImage, processPdf } from './ResourceProcessors';
 import { getRole, type ChatRoleId } from './ChatRole';
@@ -120,6 +121,24 @@ export class ChatUseCase {
     return this.gateway.isReady();
   }
 
+  /**
+   * 用模型精炼当前会话标题（页面在首轮发送后旁路调用）。
+   *
+   * 这是异步旁路：await 模型期间用户可能新建/打开别的会话，因此调用方把
+   * 发起时的 sessionId 传进来，写回前必须复核当前会话仍是它 —— 否则丢弃结果，
+   * 绝不把 A 会话的标题写到 B 会话上。任何失败都静默降级：send() 已先写入
+   * 短兜底标题，标题栏永远有值。
+   *
+   * @returns 精炼后的短标题；无需精炼 / 失败 / 会话已切换时返回 null
+   */
+  async refineSessionTitle(userText: string, sessionId: string): Promise<string | null> {
+    const refined = await generateSessionTitle(this.gateway, userText);
+    if (!refined) return null;
+    if (this.history.getCurrentSession()?.sessionId !== sessionId) return null;
+    await this.history.setCurrentSessionTitle(refined);
+    return refined;
+  }
+
   /** 发送一条用户消息 */
   async send(text: string, options?: SendOptions): Promise<void> {
     if (isSlashCommand(text)) {
@@ -159,9 +178,10 @@ export class ChatUseCase {
       content: userText,
       ...(local.attachments.length > 0 ? { attachments: local.attachments } : {}),
     });
-    // 首条消息生成会话摘要/标题
+    // 首条消息先落一个即时可用的短兜底标题（0 网络请求、不打断对话）。
+    // 模型精炼由页面拿到 gateway 后旁路执行，覆盖这里的值。
     if (this.history.getMessages().filter((m) => m.role === 'user').length === 1) {
-      await this.history.setCurrentSessionTitle(summarizeSession(this.history.getMessages()));
+      await this.history.setCurrentSessionTitle(clampTitle(userText));
     }
 
     // 选了插件角色但插件系统没装上：给明确提示，不静默降级成闲聊

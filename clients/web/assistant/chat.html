@@ -263,6 +263,12 @@
             border-radius: 8px; font-size: 10px; font-weight: 600;
             background: #f0efff; color: #4b43a8; vertical-align: middle;
         }
+        /* 标题栏：标题过长时单行省略，不与右侧角色/菜单按钮互挤。
+           模型精炼后标题本就很短，这里是 CSS 层的最后一道兜底。 */
+        #chatTitle {
+            flex: 1; min-width: 0; overflow: hidden;
+            text-overflow: ellipsis; white-space: nowrap;
+        }
     </style>
 </head>
 <body>

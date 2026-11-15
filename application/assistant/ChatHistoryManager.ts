@@ -4,6 +4,7 @@
  */
 import type { IFavoriteService } from '../../services/favorite/IFavoriteService';
 import type { ChatAttachment } from '../chat/ChatAttachment';
+import { clampTitle } from '../chat/SessionTitle';
 /** 聊天消息 */
 export interface ChatMessage {
   /** 角色 */
@@ -100,13 +101,33 @@ export class ChatHistoryManager {
     return sessionId;
   }
   /**
-   * 获取当前会话
+   * 获取当前会话（同步，只有 id + 内存消息，不读存储）
    */
   getCurrentSession(): { sessionId: string; messages: ChatMessage[] } | null {
     if (!this.currentSessionId) return null;
     return {
       sessionId: this.currentSessionId,
       messages: this.currentMessages,
+    };
+  }
+  /**
+   * 获取当前会话（含已持久化的标题）
+   *
+   * 标题以会话数据里的 title 为准：模型精炼后的短标题写在这里，
+   * 页面显示时不再从消息里重算，否则「写了 title 却没读」会让精炼白做。
+   */
+  async getCurrentSessionWithTitle(): Promise<{
+    sessionId: string; messages: ChatMessage[]; title: string;
+  } | null> {
+    if (!this.currentSessionId) return null;
+    const favorite = await this.favoriteService.getFavorite(this.category, this.currentSessionId);
+    const stored = favorite?.data as unknown as ChatSessionData | undefined;
+    const title = stored?.title?.trim()
+      || clampTitle(this.currentMessages.find((m) => m.role === 'user')?.content ?? '');
+    return {
+      sessionId: this.currentSessionId,
+      messages: this.currentMessages,
+      title: clampTitle(title),
     };
   }
   /**
@@ -282,16 +303,13 @@ export class ChatHistoryManager {
     if (this.currentMessages.length === 0) {
       return '新对话';
     }
-    // 用第一条用户消息作为标题（最多20字）
+    // 用第一条用户消息作为兜底标题，长度统一走 clampTitle（会话标题展示上限）
     const firstUserMsg = this.currentMessages.find(m => m.role === 'user');
-    if (firstUserMsg) {
-      return firstUserMsg.content.slice(0, 20) + (firstUserMsg.content.length > 20 ? '...' : '');
-    }
-    return '新对话';
+    return firstUserMsg ? clampTitle(firstUserMsg.content) : '新对话';
   }
   /**
-   * 设置当前会话标题（对话页在写入首条消息后用「第一条 user 消息截断」更新）。
-   * 保留 createdAt，避免改变会话排序。
+   * 设置当前会话标题（首轮先写短兜底，随后由模型精炼结果覆盖）。
+   * 保留 createdAt 与 updatedAt，避免改标题影响会话排序。写入前统一压到展示上限。
    */
   async setCurrentSessionTitle(title: string): Promise<void> {
     if (!this.currentSessionId) return;
@@ -301,10 +319,11 @@ export class ChatHistoryManager {
       this.category,
       this.currentSessionId,
       {
-        title,
+        title: clampTitle(title),
         messages: this.currentMessages,
         createdAt: existingData?.createdAt || Date.now(),
-        updatedAt: Date.now(),
+        // 标题精炼是展示层旁路操作，不应把会话顶到历史列表最前面
+        updatedAt: existingData?.updatedAt ?? Date.now(),
         ...(existingData?.role ? { role: existingData.role } : {}),
       },
     );

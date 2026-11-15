@@ -3,7 +3,7 @@
  *
  * 只验证放行/拒绝的边界，不发起真实网络请求：
  * - 未知 task 直接抛错，且不读凭据、不构造客户端
- * - chat.reply 与 plugin.generate 都放行，走同一套 chat completions
+ * - chat.reply / plugin.generate / chat.title 都放行，走同一套 chat completions
  * - jsonMode 默认 false（对话/插件生成都是纯文本），显式传 true 时透传
  */
 
@@ -68,6 +68,14 @@ describe('OpenAIModelGateway 能力闸门', () => {
     const gw = new OpenAIModelGateway();
     const r = await gw.execute(req('plugin.generate'));
     expect(r.text).toBe('ok');
+    expect(mocks.chat.mock.calls[0]![1]).toEqual({ jsonMode: false });
+  });
+
+  it('chat.title 放行（标题精炼走纯文本链路，默认非 JSON 模式）', async () => {
+    const gw = new OpenAIModelGateway();
+    const r = await gw.execute(req('chat.title'));
+    expect(r.text).toBe('ok');
+    expect(mocks.chat).toHaveBeenCalledTimes(1);
     expect(mocks.chat.mock.calls[0]![1]).toEqual({ jsonMode: false });
   });
 

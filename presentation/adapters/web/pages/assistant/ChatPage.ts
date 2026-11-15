@@ -27,6 +27,7 @@ import { IndexedDBAdapter } from '../../../../../infrastructure/storage/adapters
 import { WebFileExporter } from '../../../../../infrastructure/utils/export/WebFileExporter';
 import { WebDialog } from '../../components/Dialog';
 import { ChatUseCase, type LocalFileInput } from '../../../../../application/chat/ChatUseCase';
+import { clampTitle } from '../../../../../application/chat/SessionTitle';
 import { describeAttachment } from '../../../../../application/chat/ChatAttachment';
 import { OpenAIModelGateway } from '../../../../../infrastructure/llm/OpenAIModelGateway';
 import { loadLLMConfig, DEFAULT_LLM_TIMEOUT_MS } from '../../../../../infrastructure/llm/LLMCredentialStore';
@@ -290,10 +291,26 @@ export class ChatPage {
     this.autoResize(input);
     this.pendingFiles = [];
     this.renderAttachPreview();
-    await this.useCase.send(text || '请阅读我附加的文件并说明其内容。', {
+    // 会话标题：首轮发送后旁路请模型概括成短标题。
+    // 发起前记下 sessionId —— 模型返回前用户可能切走，写回时必须复核。
+    const isFirstUserTurn = (this.history.getCurrentSession()?.messages ?? [])
+      .filter((m) => m.role === 'user').length === 0;
+    const titleSessionId = this.history.getCurrentSession()?.sessionId;
+    const titleSourceText = text || '请阅读我附加的文件并说明其内容。';
+    await this.useCase.send(titleSourceText, {
       ...(files.length > 0 ? { files } : {}),
       pdfMode,
     });
+    if (isFirstUserTurn && titleSessionId) {
+      // 先立刻刷新一次：send() 已写入短兜底标题，短输入（无需精炼）也要能看到。
+      void this.updateTitle();
+      // 刻意 fire-and-forget：标题只是展示增强，不该拖慢主流程，更不能让一个
+      // 可能挂起的模型请求卡住 handleSend 收尾。精炼结果由 refineSessionTitle
+      // 直接写进会话存储，页面离开只是少一次即时刷新，数据不会丢；失败静默降级。
+      void this.useCase.refineSessionTitle(titleSourceText, titleSessionId)
+        .then((refined) => { if (refined) void this.updateTitle(); })
+        .catch(() => { /* 标题精炼失败不影响对话 */ });
+    }
     // Agent 可能在本轮里启停/新建/删除插件。若面板正开着，立即重列，
     // 避免用户看到的是发送前的旧状态（「模型说已启用，面板仍禁用」的一半成因）。
     // 面板没打开时 refreshPluginPanel 会因找不到 root 直接返回，成本为零。
@@ -480,7 +497,7 @@ export class ChatPage {
         (lastBubble ?? container)?.append(holder);
       }
     }
-    this.updateTitle();
+    void this.updateTitle();
     this.scrollToBottom();
   }
 
@@ -492,7 +509,7 @@ export class ChatPage {
     await this.writeSessionRole(this.currentRole);
     if (clearUI) {
       this.renderer.clearMessages();
-      this.updateTitle();
+      void this.updateTitle();
     }
     // 新会话不该把上一个会话里没发的附件带过去
     this.pendingFiles = [];
@@ -502,20 +519,24 @@ export class ChatPage {
     this.syncReadyState();
   }
 
-  private updateTitle(): void {
+  /**
+   * 标题栏显示会话数据里的 title（模型精炼后的短标题写在这里）。
+   * 此前这里从消息里重算，导致 ChatUseCase 写进存储的 title 根本没被读到。
+   * 统一再过一次 clampTitle，保证任何来源的标题都不超展示上限。
+   */
+  private async updateTitle(): Promise<void> {
     const el = document.getElementById('chatTitle');
     if (!el) return;
-    const meta = this.history.getCurrentSession();
-    el.textContent = meta ? this.sessionTitle(meta) : '新对话';
+    const stored = await this.history.getCurrentSessionWithTitle();
+    const title = stored ? clampTitle(stored.title) : '新对话';
+    el.textContent = title;
+    el.setAttribute('title', title); // 桌面端悬停可看全（精炼后本就很短）
   }
 
-  /** 会话标题 = 第一条 user 消息截断（用户确认的「聊天摘要」口径） */
+  /** 兜底标题：第一条 user 消息压平后截断到展示上限（不碰附件/base64） */
   private sessionTitle(meta: { sessionId: string; messages: ChatMessage[] }): string {
     const first = meta.messages.find((m) => m.role === 'user');
-    if (!first) return '新对话';
-    const flat = first.content.replace(/\s+/g, ' ').trim();
-    if (!flat) return '新对话';
-    return flat.length > 30 ? flat.slice(0, 30) + '...' : flat;
+    return first ? clampTitle(first.content) : '新对话';
   }
 
   private scrollToBottom(): void {
@@ -581,7 +602,10 @@ export class ChatPage {
   }
 
   private sessionTitleFromSession(s: ChatSession): string {
-    return this.sessionTitle({ sessionId: s.sessionId, messages: s.data.messages ?? [] });
+    const stored = s.data.title?.trim();
+    return stored
+      ? clampTitle(stored)
+      : this.sessionTitle({ sessionId: s.sessionId, messages: s.data.messages ?? [] });
   }
 
   // ---------- 导出 / 清空（仅当前会话） ----------
@@ -593,11 +617,12 @@ export class ChatPage {
       await this.renderer.renderMessage('当前会话暂无消息可导出。', false, null, null, undefined, undefined, false);
       return;
     }
+    const stored = await this.history.getCurrentSessionWithTitle();
     const filename = `weiqi-chat-${new Date().toISOString().slice(0, 10)}.json`;
     const result = await this.exporter.exportJSON(
       {
         sessionId: meta.sessionId,
-        title: this.sessionTitle(meta),
+        title: clampTitle(stored?.title ?? this.sessionTitle(meta)),
         // 角色是会话固有属性，导出一并带上，避免回灌后角色丢失
         role: this.currentRole,
         messages: meta.messages,
@@ -618,7 +643,7 @@ export class ChatPage {
     this.toggleMenu(false);
     await this.history.clearCurrentSession();
     this.renderer.clearMessages();
-    this.updateTitle();
+    void this.updateTitle();
     this.pendingFiles = [];
     this.renderAttachPreview();
     // 清空后没有聊天记录了，角色解锁（按钮由 🔒 变回 ▾）

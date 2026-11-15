@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildConversationMessages, summarizeSession, CONVERSATION_SYSTEM_PROMPT, CONTEXT_LIMITS,
+  buildConversationMessages, CONVERSATION_SYSTEM_PROMPT, CONTEXT_LIMITS,
 } from '../ConversationPrompt';
 
 describe('buildConversationMessages', () => {
@@ -47,22 +47,5 @@ describe('buildConversationMessages', () => {
   });
 });
 
-describe('summarizeSession', () => {
-  it('取第一条 user 消息，压平空白', () => {
-    expect(summarizeSession([
-      { role: 'user', content: '  柯洁和\n申真谞  交战如何  ' },
-      { role: 'assistant', content: '略' },
-    ])).toBe('柯洁和 申真谞 交战如何');
-  });
-
-  it('超过 30 字截断加省略号', () => {
-    const s = summarizeSession([{ role: 'user', content: '啊'.repeat(50) }]);
-    expect(s.endsWith('...')).toBe(true);
-    expect(s.length).toBe(33);
-  });
-
-  it('没有 user 消息时回落「新对话」', () => {
-    expect(summarizeSession([{ role: 'assistant', content: 'hi' }])).toBe('新对话');
-    expect(summarizeSession([])).toBe('新对话');
-  });
-});
+// 会话标题口径已移到 SessionTitle.test.ts（模型精炼 + 统一上限），
+// 本文件不再测标题。

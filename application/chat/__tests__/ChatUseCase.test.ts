@@ -47,10 +47,12 @@ function makeHistory(messages: Array<{ role: 'user' | 'assistant'; content: stri
   return {
     store,
     getMessages: vi.fn(() => store),
+    getCurrentSession: vi.fn(() => ({ sessionId: 's1', messages: store })),
     addMessage: vi.fn(async (m: { role: 'user' | 'assistant'; content: string }) => { store.push(m); }),
     setCurrentSessionTitle: vi.fn().mockResolvedValue(undefined),
   } as unknown as ChatHistoryManager & {
     getMessages: ReturnType<typeof vi.fn>;
+    getCurrentSession: ReturnType<typeof vi.fn>;
     addMessage: ReturnType<typeof vi.fn>;
     setCurrentSessionTitle: ReturnType<typeof vi.fn>;
   };
@@ -355,5 +357,50 @@ describe('ChatUseCase.send — 过程块懒建与兜底（统一 loop 版）', (
     const h = make({ renderer });
     await h.useCase.send('你好');
     expect(h.history.addMessage).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * 会话标题精炼：旁路调用的会话归属与静默降级
+ * （接入 2026-11-15：标题由模型概括成短标题，不再硬截 30 字）
+ */
+describe('ChatUseCase.refineSessionTitle', () => {
+  const long = '请帮我详细分析一下柯洁和申真谞最近十盘对局里的布局变化';
+
+  it('长输入走一次 chat.title 请求，成功后把短标题写回当前会话', async () => {
+    const gw = makeGateway(true, '柯洁申真谞布局');
+    const h = make({ gateway: gw });
+    const refined = await h.useCase.refineSessionTitle(long, 's1');
+    expect(refined).toBe('柯洁申真谞布局');
+    expect(h.history.setCurrentSessionTitle).toHaveBeenCalledWith('柯洁申真谞布局');
+    const req = gw.execute.mock.calls[0]![0];
+    expect(req.task).toBe('chat.title');
+    expect(req.tools).toBeUndefined();
+  });
+
+  it('短输入不发请求，返回 null（保留 send() 已写入的兜底标题）', async () => {
+    const gw = makeGateway(true, ' whatever');
+    const h = make({ gateway: gw });
+    expect(await h.useCase.refineSessionTitle('你好', 's1')).toBeNull();
+    expect(gw.execute).not.toHaveBeenCalled();
+    expect(h.history.setCurrentSessionTitle).not.toHaveBeenCalled();
+  });
+
+  it('模型失败时静默降级，不抛、不写标题', async () => {
+    const gw = makeGateway(true, '');
+    gw.execute.mockRejectedValueOnce(new Error('timeout'));
+    const h = make({ gateway: gw });
+    expect(await h.useCase.refineSessionTitle(long, 's1')).toBeNull();
+    expect(h.history.setCurrentSessionTitle).not.toHaveBeenCalled();
+  });
+
+  it('异步期间会话已切换 → 丢弃结果，绝不把旧标题写到新会话', async () => {
+    const gw = makeGateway(true, '柯洁申真谞布局');
+    const h = make({ gateway: gw });
+    // 发起时是 s1；等模型返回时当前会话已变成别的 id
+    (h.history as unknown as { getCurrentSession: ReturnType<typeof vi.fn> })
+      .getCurrentSession = vi.fn(() => ({ sessionId: 's2', messages: [] }));
+    expect(await h.useCase.refineSessionTitle(long, 's1')).toBeNull();
+    expect(h.history.setCurrentSessionTitle).not.toHaveBeenCalled();
   });
 });

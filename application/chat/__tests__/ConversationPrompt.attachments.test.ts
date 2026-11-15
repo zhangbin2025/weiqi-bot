@@ -3,12 +3,11 @@
  * - 附件不计入文本字符预算（否则 base64 图片必被裁成半张）
  * - 附件随所在消息受 maxMessages 窗口约束
  * - PDF 文字附件原样给模型，不被 maxCharsPerMessage 截断
- * - 摘要/标题不碰附件（不会截到一串 base64）
+ * - 标题不碰附件（不会截到一串 base64），见 SessionTitle.test.ts
  */
 import { describe, it, expect } from 'vitest';
 import {
-  buildConversationMessages, summarizeSession, CONTEXT_LIMITS,
-  CONVERSATION_SYSTEM_PROMPT,
+  buildConversationMessages, CONTEXT_LIMITS, CONVERSATION_SYSTEM_PROMPT,
 } from '../ConversationPrompt';
 import type { ChatAttachment } from '../ChatAttachment';
 import type { ModelPart } from '../../model/IModelGateway';
@@ -77,13 +76,4 @@ describe('buildConversationMessages 附件重放', () => {
   });
 });
 
-describe('summarizeSession', () => {
-  it('附件不进标题，纯附件消息回退「新对话」而不是截 base64', () => {
-    expect(summarizeSession([
-      { role: 'user', content: '', attachments: [imageAttachment('board.png')] },
-    ])).toBe('新对话');
-    expect(summarizeSession([
-      { role: 'user', content: '帮我看这张棋谱', attachments: [imageAttachment('board.png')] },
-    ])).toBe('帮我看这张棋谱');
-  });
-});
+// 标题口径（含「附件不进标题」）已移到 SessionTitle.test.ts
