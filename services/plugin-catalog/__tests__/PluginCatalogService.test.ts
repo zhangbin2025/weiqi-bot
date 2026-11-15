@@ -108,9 +108,8 @@ describe('PluginCatalogService.browse', () => {
   it('默认源恒在首位且只读；tool 条目只展示不安装', async () => {
     const { service, sources } = setup(CODE_V1);
     const list = await sources.list();
-    expect(list[0]).toEqual({ url: DEFAULT_REGISTRY_URL, official: true });
-    await sources.remove(DEFAULT_REGISTRY_URL);
-    expect((await sources.list())[0]?.official).toBe(true);
+    expect(list).toEqual([{ url: DEFAULT_REGISTRY_URL, official: true }]);
+    expect((await sources.current()).official).toBe(true);
 
     const result = await service.browse();
     expect(result.failures).toHaveLength(0);
@@ -279,16 +278,25 @@ describe('PluginCatalogService.install', () => {
   });
 });
 
-describe('PluginCatalogSources 自定义源', () => {
-  it('可添加/删除自定义源；http 与私网地址被拒', async () => {
+describe('PluginCatalogSources 单源模型', () => {
+  it('当前源默认官方；可替换为自定义源，可恢复默认', async () => {
     const { sources } = setup(CODE_V1);
-    await expect(sources.add('http://example.com/registry.json')).rejects.toThrow('https');
-    await expect(sources.add('http://127.0.0.1/registry.json')).rejects.toThrow();
-    await sources.add('https://mirror.example.com/registry.json');
-    const list = await sources.list();
-    expect(list).toHaveLength(2);
-    expect(list[1]).toEqual({ url: 'https://mirror.example.com/registry.json', official: false });
-    await sources.remove('https://mirror.example.com/registry.json');
-    expect(await sources.list()).toHaveLength(1);
+    expect(await sources.current()).toEqual({ url: DEFAULT_REGISTRY_URL, official: true });
+
+    await sources.setCurrent('https://mirror.example.com/registry.json');
+    expect(await sources.current()).toEqual({
+      url: 'https://mirror.example.com/registry.json', official: false,
+    });
+    expect(await sources.list()).toHaveLength(1); // 单源，不做多源合并
+
+    await sources.reset();
+    expect(await sources.current()).toEqual({ url: DEFAULT_REGISTRY_URL, official: true });
+  });
+
+  it('http 与私网地址被拒，且不改变当前源', async () => {
+    const { sources } = setup(CODE_V1);
+    await expect(sources.setCurrent('http://example.com/registry.json')).rejects.toThrow('https');
+    await expect(sources.setCurrent('http://127.0.0.1/registry.json')).rejects.toThrow();
+    expect((await sources.current()).official).toBe(true);
   });
 });

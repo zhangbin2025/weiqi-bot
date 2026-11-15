@@ -155,25 +155,16 @@
         }
         .plugin-panel__sources-head {
             display: flex; align-items: center; justify-content: space-between;
-            gap: 8px; margin-bottom: 6px;
+            gap: 8px;
         }
-        .plugin-panel__sources-title { font-weight: 600; color: #333; }
-        .plugin-panel__source-list { margin-bottom: 2px; }
-        .plugin-panel__source {
-            display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-            padding: 4px 0; border-bottom: 1px dashed #e8e8f2;
-        }
-        .plugin-panel__source-config { margin-top: 8px; padding-top: 8px; border-top: 1px solid #e8e8f2; }
-        .plugin-panel__source-config[hidden] { display: none; }
-        .plugin-panel__source-url {
+        .plugin-panel__source-current {
             font-family: monospace; font-size: 11px; color: #4b43a8;
             word-break: break-all; flex: 1; min-width: 0;
         }
-        .plugin-panel__source-tag {
-            font-size: 11px; color: #07a35a; background: #e6f7ed;
-            padding: 1px 7px; border-radius: 10px; white-space: nowrap;
-        }
-        .plugin-panel__source-add { display: flex; gap: 6px; margin-top: 8px; }
+        .plugin-panel__source-config { margin-top: 8px; padding-top: 8px; border-top: 1px solid #e8e8f2; }
+        .plugin-panel__source-config[hidden] { display: none; }
+        .plugin-panel__source-add { display: flex; gap: 6px; }
+        .plugin-panel__sources .plugin-panel__source-config > button { margin-top: 8px; }
         .plugin-panel__source-input {
             flex: 1; min-width: 0; border: 1px solid #dcdcf0; border-radius: 6px;
             padding: 5px 8px; font-size: 12px; font-family: monospace;
@@ -211,7 +202,7 @@
         }
         .plugin-panel__actions .plugin-panel__primary:hover { background: #5a6fd8; }
         .plugin-panel__actions .plugin-panel__danger { color: #c23b3b; border-color: #f0d4d4; background: #fff6f6; }
-        /* 「添加源」/「删除」按钮复用面板按钮样式（源管理在 actions 容器外） */
+        /* 「修改」/「保存」/「恢复默认」按钮复用面板按钮样式（源面板在 actions 容器外） */
         .plugin-panel__sources button {
             border: 1px solid #dcdcf0; background: #f7f6ff; color: #5546a8;
             border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer;

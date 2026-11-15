@@ -718,7 +718,7 @@ export class ChatPage {
     this.applyFlash(body);
   }
 
-  /** 在线插件标签：源管理 + 逐源条目。browse 走网络，用 seq 防竞态 */
+  /** 在线插件标签：当前源 + 插件列表。browse 走网络，用 seq 防竞态 */
   private async refreshOnlinePanel(body: HTMLElement, seq: number): Promise<void> {
     body.replaceChildren();
     const catalog = this.catalog;
@@ -729,9 +729,9 @@ export class ChatPage {
     body.appendChild(this.pluginPanelMessage('正在读取插件源…'));
 
     let result: CatalogBrowseResult;
-    let sources: CatalogSource[];
+    let source: CatalogSource;
     try {
-      [result, sources] = await Promise.all([catalog.browse(), catalog.listSources()]);
+      [result, source] = await Promise.all([catalog.browse(), catalog.currentSource()]);
     } catch (error) {
       if (seq !== this.pluginPanelSeq || !body.isConnected) return;
       body.replaceChildren();
@@ -746,157 +746,99 @@ export class ChatPage {
 
     body.replaceChildren();
     for (const failure of result.failures) {
-      const tip = this.pluginPanelMessage(
-        `源不可达：${failure.registryUrl}（${failure.reason}），已尽量显示上次缓存。`,
-      );
+      const tip = this.pluginPanelMessage(`源不可达：${failure.reason}`);
       tip.style.color = '#c23b3b';
       body.appendChild(tip);
     }
-    body.appendChild(this.buildSourceManager(catalog, sources));
-    // 插件管理里只显示插件：type: tool 是声明镜像（执行器由宿主内置），
-    // 服务层仍返回它们，这里在 UI 层滤掉，避免噪音。
+    body.appendChild(this.buildSourceManager(catalog, source));
+
+    // 插件管理里只显示插件：type: tool 是声明镜像（执行器由宿主内置）。
     const plugins = result.entries.filter((e) => e.kind === 'plugin');
     if (plugins.length === 0) {
       body.appendChild(this.pluginPanelMessage(
         result.failures.length > 0
-          ? '插件源不可达，暂时没有可显示的插件。'
-          : '当前插件源里没有可安装的插件。',
+          ? '暂时没有可显示的插件。'
+          : '当前源里没有插件。',
       ));
     } else {
-      // 按源分组，保持 browse 的原有顺序
-      const groups = new Map<string, CatalogEntry[]>();
       for (const entry of plugins) {
-        const list = groups.get(entry.registryUrl) ?? [];
-        list.push(entry);
-        groups.set(entry.registryUrl, list);
-      }
-      for (const [url, entries] of groups) {
-        const official = entries.some((e) => e.official);
-        body.appendChild(this.buildCatalogGroup(url, official, entries, catalog));
+        body.appendChild(this.buildCatalogCard(entry, catalog));
       }
     }
     this.applyFlash(body);
   }
 
   /**
-   * 插件源面板：默认只展示当前源列表（含地址），配置区（增删/提示）默认收起。
-   * 点「修改」才展开；展开状态只活在当前面板 DOM 里，不写 localStorage。
-   * 全部动态文本用 textContent。
+   * 当前源面板：默认只显示一行「当前源 + 地址」，点「修改」展开配置。
+   * 单源模型：替换当前源 / 恢复官方默认，没有「添加源」、没有多源列表。
    */
-  private buildSourceManager(
-    catalog: PluginCatalogService,
-    sources: CatalogSource[],
-  ): HTMLElement {
+  private buildSourceManager(catalog: PluginCatalogService, source: CatalogSource): HTMLElement {
     const box = document.createElement('div');
     box.className = 'plugin-panel__sources';
 
     const head = document.createElement('div');
     head.className = 'plugin-panel__sources-head';
-    const title = document.createElement('span');
-    title.className = 'plugin-panel__sources-title';
-    title.textContent = '插件源';
+    const info = document.createElement('span');
+    info.className = 'plugin-panel__source-current';
+    info.textContent = source.official ? `官方 · ${source.url}` : source.url;
     const editBtn = this.pluginAction('修改', () => {
-      const expanded = config.hidden;
-      config.hidden = !expanded;
-      editBtn.textContent = expanded ? '收起' : '修改';
+      config.hidden = !config.hidden;
+      editBtn.textContent = config.hidden ? '修改' : '收起';
+      if (!config.hidden) input.focus();
     }, 'plugin-panel__primary');
-    head.appendChild(title);
+    head.appendChild(info);
     head.appendChild(editBtn);
     box.appendChild(head);
 
-    // 常显：当前源列表，每条都带完整地址
-    const list = document.createElement('div');
-    list.className = 'plugin-panel__source-list';
-    for (const source of sources) {
-      const row = document.createElement('div');
-      row.className = 'plugin-panel__source';
-      const url = document.createElement('span');
-      url.className = 'plugin-panel__source-url';
-      url.textContent = source.url;
-      row.appendChild(url);
-      const tag = document.createElement('span');
-      tag.className = 'plugin-panel__source-tag';
-      tag.textContent = source.official ? '官方 · 只读（由 git 发布）' : '自定义源';
-      row.appendChild(tag);
-      list.appendChild(row);
-    }
-    box.appendChild(list);
-
-    // 默认隐藏：配置区（删除 / 添加 / 提示）
     const config = document.createElement('div');
     config.className = 'plugin-panel__source-config';
     config.hidden = true;
 
-    for (const source of sources) {
-      if (source.official) continue; // 官方源不可删
-      const row = document.createElement('div');
-      row.className = 'plugin-panel__source';
-      const label = document.createElement('span');
-      label.className = 'plugin-panel__source-url';
-      label.textContent = source.url;
-      row.appendChild(label);
-      row.appendChild(this.pluginAction('删除', () => {
-        void (async () => {
-          try {
-            await catalog.removeSource(source.url);
-            this.pluginPanelFlash = { text: '已删除自定义源', error: false };
-            await this.refreshPluginPanel();
-          } catch (error) {
-            this.showPluginError(`删除源失败：${error instanceof Error ? error.message : String(error)}`);
-          }
-        })();
-      }, 'plugin-panel__danger'));
-      config.appendChild(row);
-    }
-
-    const addRow = document.createElement('div');
-    addRow.className = 'plugin-panel__source-add';
+    const row = document.createElement('div');
+    row.className = 'plugin-panel__source-add';
     const input = document.createElement('input');
     input.type = 'url';
-    input.placeholder = 'https://…/registry.json';
+    input.value = source.url;
     input.className = 'plugin-panel__source-input';
-    const addBtn = this.pluginAction('添加源', () => {
+    const saveBtn = this.pluginAction('保存', () => {
       const raw = input.value.trim();
       if (!raw) return;
       void (async () => {
         try {
-          await catalog.addSource(raw);
-          this.pluginPanelFlash = { text: '已添加自定义源', error: false };
+          await catalog.setSource(raw);
+          this.pluginPanelFlash = { text: '插件源已更新', error: false };
           await this.refreshPluginPanel();
         } catch (error) {
-          this.showPluginError(`添加源失败：${error instanceof Error ? error.message : String(error)}`);
+          this.showPluginError(`保存失败：${error instanceof Error ? error.message : String(error)}`);
         }
       })();
-    });
-    addRow.appendChild(input);
-    addRow.appendChild(addBtn);
-    config.appendChild(addRow);
+    }, 'plugin-panel__primary');
+    row.appendChild(input);
+    row.appendChild(saveBtn);
+    config.appendChild(row);
+
+    if (!source.official) {
+      const resetBtn = this.pluginAction('恢复官方默认源', () => {
+        void (async () => {
+          try {
+            await catalog.resetSource();
+            this.pluginPanelFlash = { text: '已恢复官方默认源', error: false };
+            await this.refreshPluginPanel();
+          } catch (error) {
+            this.showPluginError(`恢复失败：${error instanceof Error ? error.message : String(error)}`);
+          }
+        })();
+      });
+      config.appendChild(resetBtn);
+    }
 
     const hint = document.createElement('div');
     hint.className = 'plugin-panel__sources-hint';
-    hint.textContent = '自定义源内容未经官方审核，安装前可查看源码；默认源只读，发布由仓库 git 权限控制。';
+    hint.textContent = '自定义源内容未经官方审核，安装前可查看源码；官方源由仓库 git 权限发布。';
     config.appendChild(hint);
 
     box.appendChild(config);
     return box;
-  }
-
-  private buildCatalogGroup(
-    url: string,
-    official: boolean,
-    entries: CatalogEntry[],
-    catalog: PluginCatalogService,
-  ): HTMLElement {
-    const group = document.createElement('div');
-    group.className = 'plugin-panel__group';
-    const head = document.createElement('div');
-    head.className = 'plugin-panel__group-title';
-    head.textContent = `${official ? '官方默认源' : '自定义源'} · ${url}`;
-    group.appendChild(head);
-    for (const entry of entries) {
-      group.appendChild(this.buildCatalogCard(entry, catalog));
-    }
-    return group;
   }
 
   /** 在线条目卡片。安装/更新按钮只在 new / update 时出现；tool 只展示 */
@@ -923,22 +865,16 @@ export class ChatPage {
     head.appendChild(state);
     card.appendChild(head);
 
-    const meta = document.createElement('div');
-    meta.className = 'plugin-panel__meta';
-    const bits = [entry.resourceId];
-    if (entry.pointId !== undefined) bits.push(entry.pointId);
-    if (entry.specVersion !== undefined) bits.push(`spec v${entry.specVersion}`);
-    if (entry.cached) bits.push('离线缓存');
-    meta.textContent = bits.join(' · ');
-    card.appendChild(meta);
-
     const desc = document.createElement('div');
     desc.className = 'plugin-panel__intent';
     if (entry.reason !== undefined) {
-      desc.textContent = `${entry.summary}（${entry.reason}）`;
+      desc.textContent = entry.reason;
       desc.style.color = '#c23b3b';
     } else {
       desc.textContent = entry.summary;
+    }
+    if (entry.cached && desc.textContent !== '') {
+      desc.textContent = `${desc.textContent}（离线缓存）`;
     }
     card.appendChild(desc);
 

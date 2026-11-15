@@ -76,13 +76,14 @@ export class PluginCatalogService {
     this.validator = deps.validator ?? new PluginValidator();
   }
 
-  /** 源管理直接透传，UI 只跟本服务打交道 */
+  /** 源管理直接透传（单源：当前源 + 替换 + 恢复默认） */
   listSources(): Promise<CatalogSource[]> { return this.sources.list(); }
-  addSource(rawUrl: string): Promise<string> { return this.sources.add(rawUrl); }
-  removeSource(url: string): Promise<void> { return this.sources.remove(url); }
+  currentSource(): Promise<CatalogSource> { return this.sources.current(); }
+  setSource(rawUrl: string): Promise<string> { return this.sources.setCurrent(rawUrl); }
+  resetSource(): Promise<void> { return this.sources.reset(); }
 
   /**
-   * 浏览全部源：逐源取清单、逐条取 manifest + 源码，合并本地工件状态。
+   * 浏览当前源：取清单、逐条取 manifest + 源码，合并本地工件状态。
    * 单源失败：记录 failure，并回放该源上次成功的静态缓存（标 cached）。
    * 单条失败：把该条标 unavailable，绝不影响其它条目。
    */
