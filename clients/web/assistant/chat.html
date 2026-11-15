@@ -134,6 +134,50 @@
         /* 插件管理面板（WebDialog 内容，class 挂在 dialog 内的容器上） */
         .plugin-panel { max-height: 60vh; overflow-y: auto; font-size: 13px; }
         .plugin-panel__empty { color: #999; text-align: center; padding: 20px 0; }
+        /* 两个标签页：本地插件 / 在线插件 */
+        .plugin-panel__tabs {
+            display: flex; gap: 4px; border-bottom: 1px solid #e8e8ee;
+            margin-bottom: 10px; position: sticky; top: 0; background: #fff; z-index: 1;
+        }
+        .plugin-panel__tab {
+            flex: 1; border: none; background: transparent; color: #777;
+            padding: 8px 4px; font-size: 13px; font-family: inherit; cursor: pointer;
+            border-bottom: 2px solid transparent;
+        }
+        .plugin-panel__tab--active {
+            color: #5546a8; font-weight: 600; border-bottom-color: #667eea;
+        }
+        .plugin-panel__body { padding-bottom: 4px; }
+        /* 插件源管理 */
+        .plugin-panel__sources {
+            border: 1px solid #e8e8f2; border-radius: 10px;
+            padding: 10px 12px; margin-bottom: 12px; background: #fafaff;
+        }
+        .plugin-panel__sources-title { font-weight: 600; color: #333; margin-bottom: 6px; }
+        .plugin-panel__source {
+            display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+            padding: 4px 0; border-bottom: 1px dashed #e8e8f2;
+        }
+        .plugin-panel__source-url {
+            font-family: monospace; font-size: 11px; color: #4b43a8;
+            word-break: break-all; flex: 1; min-width: 0;
+        }
+        .plugin-panel__source-tag {
+            font-size: 11px; color: #07a35a; background: #e6f7ed;
+            padding: 1px 7px; border-radius: 10px; white-space: nowrap;
+        }
+        .plugin-panel__source-add { display: flex; gap: 6px; margin-top: 8px; }
+        .plugin-panel__source-input {
+            flex: 1; min-width: 0; border: 1px solid #dcdcf0; border-radius: 6px;
+            padding: 5px 8px; font-size: 12px; font-family: monospace;
+        }
+        .plugin-panel__sources-hint {
+            color: #999; font-size: 11px; line-height: 1.5; margin-top: 8px;
+        }
+        .plugin-panel__group { margin-bottom: 14px; }
+        .plugin-panel__group-title {
+            color: #888; font-size: 11px; margin-bottom: 6px; word-break: break-all;
+        }
         .plugin-panel__card {
             border: 1px solid #e8e8e8; border-radius: 10px;
             padding: 10px 12px; margin-bottom: 10px; background: #fff;
@@ -153,7 +197,23 @@
             border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer;
         }
         .plugin-panel__actions button:hover { background: #ece9ff; }
+        .plugin-panel__actions button:disabled { opacity: .55; cursor: default; }
+        .plugin-panel__actions .plugin-panel__primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff; border-color: transparent; font-weight: 600;
+        }
+        .plugin-panel__actions .plugin-panel__primary:hover { background: #5a6fd8; }
         .plugin-panel__actions .plugin-panel__danger { color: #c23b3b; border-color: #f0d4d4; background: #fff6f6; }
+        /* 「添加源」/「删除」按钮复用面板按钮样式（源管理在 actions 容器外） */
+        .plugin-panel__sources button {
+            border: 1px solid #dcdcf0; background: #f7f6ff; color: #5546a8;
+            border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+            font-family: inherit;
+        }
+        .plugin-panel__sources button:hover { background: #ece9ff; }
+        .plugin-panel__sources .plugin-panel__danger {
+            color: #c23b3b; border-color: #f0d4d4; background: #fff6f6;
+        }
         .plugin-panel__code {
             margin: 8px 0 0; padding: 8px 10px; max-height: 260px; overflow: auto;
             background: #f6f6fa; border-radius: 6px; font-family: monospace;

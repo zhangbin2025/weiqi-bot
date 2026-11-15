@@ -32,6 +32,10 @@ import { OpenAIModelGateway } from '../../../../../infrastructure/llm/OpenAIMode
 import { loadLLMConfig, DEFAULT_LLM_TIMEOUT_MS } from '../../../../../infrastructure/llm/LLMCredentialStore';
 import { createPluginSystem, type PluginSystem } from '../../../../../application/plugin/PluginSystem';
 import type { PluginArtifact } from '../../../../../domain/plugin/types';
+import { PluginCatalogService } from '../../../../../services/plugin-catalog/PluginCatalogService';
+import type {
+  CatalogBrowseResult, CatalogEntry, CatalogSource,
+} from '../../../../../services/plugin-catalog/PluginCatalogTypes';
 import {
   CHAT_ROLES, DEFAULT_ROLE_ID, ROLE_STORAGE_KEY,
   getRole, parseRoleId, type ChatRoleId,
@@ -50,6 +54,12 @@ export class ChatPage {
   private history!: ChatHistoryManager;
   private useCase!: ChatUseCase;
   private plugin: PluginSystem | undefined;
+  /** 在线插件平台：复用同一套工件服务与沙箱运行时，装配失败时降级为不可用 */
+  private catalog: PluginCatalogService | undefined;
+  /** 插件面板当前标签页；默认本地插件（不改变原有入口行为） */
+  private pluginPanelTab: 'local' | 'online' = 'local';
+  /** 一次性操作反馈，随下一次面板渲染出现后清空 */
+  private pluginPanelFlash: { text: string; error: boolean } | undefined;
   /** 面板刷新序号：异步 list() 期间用户可能关掉/重开面板，旧结果必须丢弃 */
   private pluginPanelSeq = 0;
   /** 当前会话的模型角色。角色绑定会话，切换角色会新建会话。 */
@@ -73,8 +83,16 @@ export class ChatPage {
     // 任何装配异常都不阻塞对话页：降级为纯聊天是设计内的兜底，不是错误吞掉。
     try {
       this.plugin = await createPluginSystem();
+      // 在线平台与本地插件共用同一个工件服务 + 沙箱运行时：
+      // 安装 = create（写前先 QuickJS 试跑）、更新 = revise，
+      // 绝不绕过「默认停用」的人工闸门与 QuickJS 隔离。
+      this.catalog = new PluginCatalogService({
+        artifacts: this.plugin.artifacts,
+        runtime: this.plugin.runtime,
+      });
     } catch {
       this.plugin = undefined;
+      this.catalog = undefined;
     }
     // 网络工具依赖：代理地址由入口注入（三端分流，线上只给纯 Web），超时
     // 沿用已配置的 LLM timeoutMs —— 不引入任何新数值。chat 角色才用得到。
@@ -619,24 +637,56 @@ export class ChatPage {
     this.toggleMenu(false);
     // show() 是阻塞式 Promise（点关闭才 resolve），DOM 同步插入；
     // 先发起显示再填充内容，与 showHistory 同一套路。
+    // 两个标签页共用同一个 dialog：本地工件 + 在线插件源。
     void this.dialog.show({
       type: 'custom',
       title: '插件管理',
-      content: '<div class="plugin-panel" id="pluginPanelRoot"></div>',
+      content:
+        '<div class="plugin-panel" id="pluginPanelRoot">'
+        + '<div class="plugin-panel__tabs" id="pluginPanelTabs">'
+        + '<button type="button" class="plugin-panel__tab" data-tab="local">本地插件</button>'
+        + '<button type="button" class="plugin-panel__tab" data-tab="online">在线插件</button>'
+        + '</div>'
+        + '<div class="plugin-panel__body" id="pluginPanelBody"></div>'
+        + '</div>',
       buttons: [{ id: 'close', text: '关闭' }],
     });
+    // show() 内部同步把 DOM 挂到 document.body，此处可直接绑定标签切换。
+    document.getElementById('pluginPanelTabs')
+      ?.querySelectorAll<HTMLButtonElement>('.plugin-panel__tab')
+      .forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const tab = btn.dataset['tab'];
+          if (tab === 'local' || tab === 'online') {
+            this.pluginPanelTab = tab;
+            void this.refreshPluginPanel();
+          }
+        });
+      });
     await this.refreshPluginPanel();
   }
 
   private async refreshPluginPanel(): Promise<void> {
     const seq = ++this.pluginPanelSeq;
     const root = document.getElementById('pluginPanelRoot');
-    if (!root) return;
-    root.replaceChildren();
+    const body = document.getElementById('pluginPanelBody');
+    if (!root || !body) return;
 
+    // 标签高亮与当前选择一致（切页/重开都同步）
+    root.querySelectorAll<HTMLButtonElement>('.plugin-panel__tab').forEach((btn) => {
+      btn.classList.toggle('plugin-panel__tab--active', btn.dataset['tab'] === this.pluginPanelTab);
+    });
+
+    if (this.pluginPanelTab === 'online') {
+      await this.refreshOnlinePanel(body, seq);
+      return;
+    }
+
+    body.replaceChildren();
     const plugin = this.plugin;
     if (!plugin) {
-      root.appendChild(this.pluginPanelMessage('插件系统未就绪（当前只能自由聊天）。'));
+      body.appendChild(this.pluginPanelMessage('插件系统未就绪（当前只能自由聊天）。'));
+      this.applyFlash(body);
       return;
     }
 
@@ -645,24 +695,279 @@ export class ChatPage {
       artifacts = await plugin.artifacts.list();
     } catch (error) {
       if (seq !== this.pluginPanelSeq || !root.isConnected) return;
-      root.appendChild(this.pluginPanelMessage(
+      body.appendChild(this.pluginPanelMessage(
         `读取插件失败：${error instanceof Error ? error.message : String(error)}`,
       ));
+      this.applyFlash(body);
       return;
     }
     // await 期间面板可能被关掉/重开：确认 root 仍挂载且是最新一次刷新
     if (seq !== this.pluginPanelSeq || !root.isConnected) return;
-    if (document.getElementById('pluginPanelRoot') !== root) return;
+    if (document.getElementById('pluginPanelBody') !== body) return;
 
     if (artifacts.length === 0) {
-      root.appendChild(this.pluginPanelMessage(
-        '当前没有插件。切到「插件开发」角色即可让智能体编写 / 启停插件；生成候选后在这里确认启用。',
+      body.appendChild(this.pluginPanelMessage(
+        '当前没有插件。切到「在线插件」标签可浏览并安装远程插件；或切到「插件开发」角色让智能体编写。',
       ));
+      this.applyFlash(body);
       return;
     }
     for (const artifact of artifacts) {
-      root.appendChild(this.buildPluginCard(artifact, plugin));
+      body.appendChild(this.buildPluginCard(artifact, plugin));
     }
+    this.applyFlash(body);
+  }
+
+  /** 在线插件标签：源管理 + 逐源条目。browse 走网络，用 seq 防竞态 */
+  private async refreshOnlinePanel(body: HTMLElement, seq: number): Promise<void> {
+    body.replaceChildren();
+    const catalog = this.catalog;
+    if (!catalog) {
+      body.appendChild(this.pluginPanelMessage('插件系统未就绪，在线插件不可用。'));
+      return;
+    }
+    body.appendChild(this.pluginPanelMessage('正在读取插件源…'));
+
+    let result: CatalogBrowseResult;
+    let sources: CatalogSource[];
+    try {
+      [result, sources] = await Promise.all([catalog.browse(), catalog.listSources()]);
+    } catch (error) {
+      if (seq !== this.pluginPanelSeq || !body.isConnected) return;
+      body.replaceChildren();
+      body.appendChild(this.pluginPanelMessage(
+        `读取插件源失败：${error instanceof Error ? error.message : String(error)}`,
+      ));
+      this.applyFlash(body);
+      return;
+    }
+    if (seq !== this.pluginPanelSeq || !body.isConnected) return;
+    if (document.getElementById('pluginPanelBody') !== body) return;
+
+    body.replaceChildren();
+    for (const failure of result.failures) {
+      const tip = this.pluginPanelMessage(
+        `源不可达：${failure.registryUrl}（${failure.reason}），已尽量显示上次缓存。`,
+      );
+      tip.style.color = '#c23b3b';
+      body.appendChild(tip);
+    }
+    body.appendChild(this.buildSourceManager(catalog, sources));
+    if (result.entries.length === 0 && result.failures.length > 0) {
+      body.appendChild(this.pluginPanelMessage('没有可显示的插件条目。'));
+    } else {
+      // 按源分组，保持 browse 的原有顺序
+      const groups = new Map<string, CatalogEntry[]>();
+      for (const entry of result.entries) {
+        const list = groups.get(entry.registryUrl) ?? [];
+        list.push(entry);
+        groups.set(entry.registryUrl, list);
+      }
+      for (const [url, entries] of groups) {
+        const official = entries.some((e) => e.official);
+        body.appendChild(this.buildCatalogGroup(url, official, entries, catalog));
+      }
+    }
+    this.applyFlash(body);
+  }
+
+  /** 源管理：官方默认源只读、自定义源可增删；全部动态文本用 textContent */
+  private buildSourceManager(
+    catalog: PluginCatalogService,
+    sources: CatalogSource[],
+  ): HTMLElement {
+    const box = document.createElement('div');
+    box.className = 'plugin-panel__sources';
+
+    const title = document.createElement('div');
+    title.className = 'plugin-panel__sources-title';
+    title.textContent = '插件源';
+    box.appendChild(title);
+
+    for (const source of sources) {
+      const row = document.createElement('div');
+      row.className = 'plugin-panel__source';
+      const url = document.createElement('span');
+      url.className = 'plugin-panel__source-url';
+      url.textContent = source.url;
+      row.appendChild(url);
+      if (source.official) {
+        const tag = document.createElement('span');
+        tag.className = 'plugin-panel__source-tag';
+        tag.textContent = '官方 · 只读（由 git 发布）';
+        row.appendChild(tag);
+      } else {
+        row.appendChild(this.pluginAction('删除', () => {
+          void (async () => {
+            try {
+              await catalog.removeSource(source.url);
+              this.pluginPanelFlash = { text: '已删除自定义源', error: false };
+              await this.refreshPluginPanel();
+            } catch (error) {
+              this.showPluginError(`删除源失败：${error instanceof Error ? error.message : String(error)}`);
+            }
+          })();
+        }, 'plugin-panel__danger'));
+      }
+      box.appendChild(row);
+    }
+
+    const addRow = document.createElement('div');
+    addRow.className = 'plugin-panel__source-add';
+    const input = document.createElement('input');
+    input.type = 'url';
+    input.placeholder = 'https://…/registry.json';
+    input.className = 'plugin-panel__source-input';
+    const addBtn = this.pluginAction('添加源', () => {
+      const raw = input.value.trim();
+      if (!raw) return;
+      void (async () => {
+        try {
+          await catalog.addSource(raw);
+          this.pluginPanelFlash = { text: '已添加自定义源', error: false };
+          await this.refreshPluginPanel();
+        } catch (error) {
+          this.showPluginError(`添加源失败：${error instanceof Error ? error.message : String(error)}`);
+        }
+      })();
+    });
+    addRow.appendChild(input);
+    addRow.appendChild(addBtn);
+    box.appendChild(addRow);
+
+    const hint = document.createElement('div');
+    hint.className = 'plugin-panel__sources-hint';
+    hint.textContent = '自定义源内容未经官方审核，安装前可查看源码；默认源只读，发布由仓库 git 权限控制。';
+    box.appendChild(hint);
+    return box;
+  }
+
+  private buildCatalogGroup(
+    url: string,
+    official: boolean,
+    entries: CatalogEntry[],
+    catalog: PluginCatalogService,
+  ): HTMLElement {
+    const group = document.createElement('div');
+    group.className = 'plugin-panel__group';
+    const head = document.createElement('div');
+    head.className = 'plugin-panel__group-title';
+    head.textContent = `${official ? '官方默认源' : '自定义源'} · ${url}`;
+    group.appendChild(head);
+    for (const entry of entries) {
+      group.appendChild(this.buildCatalogCard(entry, catalog));
+    }
+    return group;
+  }
+
+  /** 在线条目卡片。安装/更新按钮只在 new / update 时出现；tool 只展示 */
+  private buildCatalogCard(entry: CatalogEntry, catalog: PluginCatalogService): HTMLElement {
+    const card = document.createElement('div');
+    card.className = 'plugin-panel__card';
+
+    const head = document.createElement('div');
+    head.className = 'plugin-panel__head';
+    const name = document.createElement('span');
+    name.className = 'plugin-panel__name';
+    name.textContent = entry.name;
+    const state = document.createElement('span');
+    state.className = 'plugin-panel__state';
+    const stateText: Record<CatalogEntry['state'], string> = {
+      new: '未安装', update: '有更新', installed: '已安装',
+      incompatible: '不兼容', unavailable: '不可用', 'tool-only': '仅声明',
+    };
+    state.textContent = stateText[entry.state];
+    if (entry.state === 'installed' || entry.state === 'update') {
+      state.classList.add('plugin-panel__state--on');
+    }
+    head.appendChild(name);
+    head.appendChild(state);
+    card.appendChild(head);
+
+    const meta = document.createElement('div');
+    meta.className = 'plugin-panel__meta';
+    const bits = [entry.resourceId];
+    if (entry.pointId !== undefined) bits.push(entry.pointId);
+    if (entry.specVersion !== undefined) bits.push(`spec v${entry.specVersion}`);
+    if (entry.cached) bits.push('离线缓存');
+    meta.textContent = bits.join(' · ');
+    card.appendChild(meta);
+
+    const desc = document.createElement('div');
+    desc.className = 'plugin-panel__intent';
+    if (entry.reason !== undefined) {
+      desc.textContent = `${entry.summary}（${entry.reason}）`;
+      desc.style.color = '#c23b3b';
+    } else {
+      desc.textContent = entry.summary;
+    }
+    card.appendChild(desc);
+
+    const actions = document.createElement('div');
+    actions.className = 'plugin-panel__actions';
+
+    // 远程源码与本地工件一样只用 textContent 展示，绝不拼进 innerHTML
+    if (entry.kind === 'plugin' && entry.remoteCode !== undefined) {
+      const viewBtn = this.pluginAction('查看源码', () => {
+        const existing = card.querySelector('.plugin-panel__code');
+        if (existing) {
+          existing.remove();
+          viewBtn.textContent = '查看源码';
+          return;
+        }
+        const pre = document.createElement('pre');
+        pre.className = 'plugin-panel__code';
+        pre.textContent = entry.remoteCode ?? '';
+        card.appendChild(pre);
+        viewBtn.textContent = '收起源码';
+      });
+      actions.appendChild(viewBtn);
+    }
+
+    const installable = entry.kind === 'plugin'
+      && (entry.state === 'new' || entry.state === 'update');
+    if (installable) {
+      const label = entry.state === 'update' ? '更新' : '安装';
+      const btn = this.pluginAction(label, () => {
+        void (async () => {
+          btn.disabled = true;
+          btn.textContent = '处理中…';
+          try {
+            const out = await catalog.install(entry);
+            const text = out.warning === undefined
+              ? out.message
+              : `${out.message}（${out.warning}）`;
+            this.pluginPanelFlash = { text, error: !out.ok };
+            await this.refreshPluginPanel();
+          } catch (error) {
+            btn.disabled = false;
+            btn.textContent = label;
+            this.showPluginError(`操作失败：${error instanceof Error ? error.message : String(error)}`);
+          }
+        })();
+      }, 'plugin-panel__primary');
+      actions.appendChild(btn);
+    } else if (entry.kind === 'plugin') {
+      const disabled = this.pluginAction(
+        entry.state === 'installed' ? '已安装' : '不可安装',
+        () => { /* 状态不允许安装 */ },
+      );
+      disabled.disabled = true;
+      actions.appendChild(disabled);
+    }
+    // type: tool 的声明镜像不提供任何安装按钮
+    card.appendChild(actions);
+    return card;
+  }
+
+  /** 一次性操作反馈：随下一次面板渲染出现，随后清空 */
+  private applyFlash(body: HTMLElement): void {
+    const flash = this.pluginPanelFlash;
+    this.pluginPanelFlash = undefined;
+    if (flash === undefined) return;
+    const tip = this.pluginPanelMessage(flash.text);
+    if (flash.error) tip.style.color = '#c23b3b';
+    body.prepend(tip);
   }
 
   private pluginPanelMessage(text: string): HTMLElement {
@@ -788,13 +1093,14 @@ export class ChatPage {
   }
 
   private showPluginError(message: string): void {
-    const root = document.getElementById('pluginPanelRoot');
-    if (!root) return;
+    const body = document.getElementById('pluginPanelBody')
+      ?? document.getElementById('pluginPanelRoot');
+    if (!body) return;
     const tip = document.createElement('div');
     tip.className = 'plugin-panel__empty';
     tip.style.color = '#c23b3b';
     tip.textContent = message;
-    root.prepend(tip);
+    body.prepend(tip);
     setTimeout(() => tip.remove(), 3000);
   }
 

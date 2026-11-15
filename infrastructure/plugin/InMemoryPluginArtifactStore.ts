@@ -16,6 +16,7 @@ import type {
   PluginArtifact,
   PluginRevision,
   PluginSpec,
+  PluginCatalogRef,
 } from '../../domain/plugin/types';
 
 /** 作用域可选字段。单独抽出来，避免在 exactOptionalPropertyTypes 下写出 undefined 值 */
@@ -29,6 +30,10 @@ function cloneScope(scope: PluginArtifactScope): PluginArtifactScope {
     copy.eventId = scope.eventId;
   }
   return copy;
+}
+
+function cloneCatalogRef(ref: PluginCatalogRef): PluginCatalogRef {
+  return { registryUrl: ref.registryUrl, resourceId: ref.resourceId };
 }
 
 function cloneSpec(spec: PluginSpec): PluginSpec {
@@ -78,6 +83,9 @@ export function clonePluginArtifact(artifact: PluginArtifact): PluginArtifact {
   if (artifact.conversationRef !== undefined) {
     copy.conversationRef = artifact.conversationRef;
   }
+  if (artifact.catalogRef !== undefined) {
+    copy.catalogRef = cloneCatalogRef(artifact.catalogRef);
+  }
   return copy;
 }
 
@@ -107,6 +115,7 @@ export function mergePluginArtifact(
   if (patch.history !== undefined) merged.history = patch.history.map(cloneRevision);
   if (patch.scope !== undefined) merged.scope = cloneScope(patch.scope);
   if (patch.conversationRef !== undefined) merged.conversationRef = patch.conversationRef;
+  if (patch.catalogRef !== undefined) merged.catalogRef = cloneCatalogRef(patch.catalogRef);
   return merged;
 }
 

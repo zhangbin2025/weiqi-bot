@@ -26,5 +26,9 @@ export const WEIQI_ASSETS_BASE_URL = 'https://weiqi-dev.github.io/weiqi-assets/'
  */
 export const WEIQI_SHARE_DECODE_URL = `${WEIQI_ASSETS_BASE_URL}share/`;
 
-/** 顶层资源清单入口（扩展资源下载用，当前宿主尚未接入） */
+/**
+ * 顶层资源清单入口（在线插件平台默认源）。
+ * 宿主 services/plugin-catalog/ 已接入：取清单 → 只装 type:plugin → 写入工件存储。
+ * 默认源只读、由本仓库 git 发布；用户可另加自定义源，但不能覆盖/删除这一条。
+ */
 export const WEIQI_ASSETS_REGISTRY_URL = `${WEIQI_ASSETS_BASE_URL}registry.json`;

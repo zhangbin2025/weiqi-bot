@@ -10,6 +10,7 @@ import type {
   ExtensionPointId,
   IPluginArtifactStore,
   PluginArtifact,
+  PluginCatalogRef,
   PluginRevision,
   PluginSpec,
 } from '../../domain/plugin/types';
@@ -23,6 +24,8 @@ export interface CreatePluginArtifactInput {
   spec: PluginSpec;
   scope?: { eventId?: number };
   conversationRef?: string;
+  /** 在线插件安装时写入来源标记，供后续比对更新；LLM/手工新建时为 undefined */
+  catalogRef?: PluginCatalogRef;
 }
 
 export interface RevisePluginArtifactInput {
@@ -96,6 +99,12 @@ export class PluginArtifactService {
     }
     if (input.conversationRef !== undefined) {
       artifact.conversationRef = input.conversationRef;
+    }
+    if (input.catalogRef !== undefined) {
+      artifact.catalogRef = {
+        registryUrl: input.catalogRef.registryUrl,
+        resourceId: input.catalogRef.resourceId,
+      };
     }
     await this.store.create(artifact);
     return artifact;

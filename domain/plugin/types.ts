@@ -107,6 +107,19 @@ export const RANKING_SPEC: PluginSpec = {
   limits: DEFAULT_PLUGIN_LIMITS,
 };
 
+/**
+ * 在线插件来源标记。写入工件后即可识别「远程这个资源 == 本地哪个工件」，
+ * 用来把安装按钮切换为更新按钮。放在工件里而不是另建映射表，
+ * 是为了让「工件是唯一真相」继续成立：删除工件时来源标记随之消失，
+ * 不会出现孤儿映射。来源：weiqi-assets/registry.json 的条目与所在清单 URL。
+ */
+export interface PluginCatalogRef {
+  /** 取到该资源的 registry 绝对 URL */
+  registryUrl: string;
+  /** registry.resources[].id，发布后稳定不变 */
+  resourceId: string;
+}
+
 /** 一次修订的留痕 */
 export interface PluginRevision {
   version: number;
@@ -134,6 +147,8 @@ export interface PluginArtifact {
   updatedAt: number;
   history: PluginRevision[];
   conversationRef?: string;
+  /** 从在线插件源安装的工件才带；LLM/手工新建的工件没有此字段 */
+  catalogRef?: PluginCatalogRef;
 }
 
 /** 注入 system prompt 的插件清单条目 */
