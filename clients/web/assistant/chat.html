@@ -153,11 +153,18 @@
             border: 1px solid #e8e8f2; border-radius: 10px;
             padding: 10px 12px; margin-bottom: 12px; background: #fafaff;
         }
-        .plugin-panel__sources-title { font-weight: 600; color: #333; margin-bottom: 6px; }
+        .plugin-panel__sources-head {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 8px; margin-bottom: 6px;
+        }
+        .plugin-panel__sources-title { font-weight: 600; color: #333; }
+        .plugin-panel__source-list { margin-bottom: 2px; }
         .plugin-panel__source {
             display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
             padding: 4px 0; border-bottom: 1px dashed #e8e8f2;
         }
+        .plugin-panel__source-config { margin-top: 8px; padding-top: 8px; border-top: 1px solid #e8e8f2; }
+        .plugin-panel__source-config[hidden] { display: none; }
         .plugin-panel__source-url {
             font-family: monospace; font-size: 11px; color: #4b43a8;
             word-break: break-all; flex: 1; min-width: 0;
@@ -208,9 +215,14 @@
         .plugin-panel__sources button {
             border: 1px solid #dcdcf0; background: #f7f6ff; color: #5546a8;
             border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer;
-            font-family: inherit;
+            font-family: inherit; white-space: nowrap;
         }
         .plugin-panel__sources button:hover { background: #ece9ff; }
+        .plugin-panel__sources .plugin-panel__primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff; border-color: transparent; font-weight: 600;
+        }
+        .plugin-panel__sources .plugin-panel__primary:hover { background: #5a6fd8; }
         .plugin-panel__sources .plugin-panel__danger {
             color: #c23b3b; border-color: #f0d4d4; background: #fff6f6;
         }

@@ -753,12 +753,19 @@ export class ChatPage {
       body.appendChild(tip);
     }
     body.appendChild(this.buildSourceManager(catalog, sources));
-    if (result.entries.length === 0 && result.failures.length > 0) {
-      body.appendChild(this.pluginPanelMessage('没有可显示的插件条目。'));
+    // 插件管理里只显示插件：type: tool 是声明镜像（执行器由宿主内置），
+    // 服务层仍返回它们，这里在 UI 层滤掉，避免噪音。
+    const plugins = result.entries.filter((e) => e.kind === 'plugin');
+    if (plugins.length === 0) {
+      body.appendChild(this.pluginPanelMessage(
+        result.failures.length > 0
+          ? '插件源不可达，暂时没有可显示的插件。'
+          : '当前插件源里没有可安装的插件。',
+      ));
     } else {
       // 按源分组，保持 browse 的原有顺序
       const groups = new Map<string, CatalogEntry[]>();
-      for (const entry of result.entries) {
+      for (const entry of plugins) {
         const list = groups.get(entry.registryUrl) ?? [];
         list.push(entry);
         groups.set(entry.registryUrl, list);
@@ -771,7 +778,11 @@ export class ChatPage {
     this.applyFlash(body);
   }
 
-  /** 源管理：官方默认源只读、自定义源可增删；全部动态文本用 textContent */
+  /**
+   * 插件源面板：默认只展示当前源列表（含地址），配置区（增删/提示）默认收起。
+   * 点「修改」才展开；展开状态只活在当前面板 DOM 里，不写 localStorage。
+   * 全部动态文本用 textContent。
+   */
   private buildSourceManager(
     catalog: PluginCatalogService,
     sources: CatalogSource[],
@@ -779,11 +790,23 @@ export class ChatPage {
     const box = document.createElement('div');
     box.className = 'plugin-panel__sources';
 
-    const title = document.createElement('div');
+    const head = document.createElement('div');
+    head.className = 'plugin-panel__sources-head';
+    const title = document.createElement('span');
     title.className = 'plugin-panel__sources-title';
     title.textContent = '插件源';
-    box.appendChild(title);
+    const editBtn = this.pluginAction('修改', () => {
+      const expanded = config.hidden;
+      config.hidden = !expanded;
+      editBtn.textContent = expanded ? '收起' : '修改';
+    }, 'plugin-panel__primary');
+    head.appendChild(title);
+    head.appendChild(editBtn);
+    box.appendChild(head);
 
+    // 常显：当前源列表，每条都带完整地址
+    const list = document.createElement('div');
+    list.className = 'plugin-panel__source-list';
     for (const source of sources) {
       const row = document.createElement('div');
       row.className = 'plugin-panel__source';
@@ -791,25 +814,39 @@ export class ChatPage {
       url.className = 'plugin-panel__source-url';
       url.textContent = source.url;
       row.appendChild(url);
-      if (source.official) {
-        const tag = document.createElement('span');
-        tag.className = 'plugin-panel__source-tag';
-        tag.textContent = '官方 · 只读（由 git 发布）';
-        row.appendChild(tag);
-      } else {
-        row.appendChild(this.pluginAction('删除', () => {
-          void (async () => {
-            try {
-              await catalog.removeSource(source.url);
-              this.pluginPanelFlash = { text: '已删除自定义源', error: false };
-              await this.refreshPluginPanel();
-            } catch (error) {
-              this.showPluginError(`删除源失败：${error instanceof Error ? error.message : String(error)}`);
-            }
-          })();
-        }, 'plugin-panel__danger'));
-      }
-      box.appendChild(row);
+      const tag = document.createElement('span');
+      tag.className = 'plugin-panel__source-tag';
+      tag.textContent = source.official ? '官方 · 只读（由 git 发布）' : '自定义源';
+      row.appendChild(tag);
+      list.appendChild(row);
+    }
+    box.appendChild(list);
+
+    // 默认隐藏：配置区（删除 / 添加 / 提示）
+    const config = document.createElement('div');
+    config.className = 'plugin-panel__source-config';
+    config.hidden = true;
+
+    for (const source of sources) {
+      if (source.official) continue; // 官方源不可删
+      const row = document.createElement('div');
+      row.className = 'plugin-panel__source';
+      const label = document.createElement('span');
+      label.className = 'plugin-panel__source-url';
+      label.textContent = source.url;
+      row.appendChild(label);
+      row.appendChild(this.pluginAction('删除', () => {
+        void (async () => {
+          try {
+            await catalog.removeSource(source.url);
+            this.pluginPanelFlash = { text: '已删除自定义源', error: false };
+            await this.refreshPluginPanel();
+          } catch (error) {
+            this.showPluginError(`删除源失败：${error instanceof Error ? error.message : String(error)}`);
+          }
+        })();
+      }, 'plugin-panel__danger'));
+      config.appendChild(row);
     }
 
     const addRow = document.createElement('div');
@@ -833,12 +870,14 @@ export class ChatPage {
     });
     addRow.appendChild(input);
     addRow.appendChild(addBtn);
-    box.appendChild(addRow);
+    config.appendChild(addRow);
 
     const hint = document.createElement('div');
     hint.className = 'plugin-panel__sources-hint';
     hint.textContent = '自定义源内容未经官方审核，安装前可查看源码；默认源只读，发布由仓库 git 权限控制。';
-    box.appendChild(hint);
+    config.appendChild(hint);
+
+    box.appendChild(config);
     return box;
   }
 
