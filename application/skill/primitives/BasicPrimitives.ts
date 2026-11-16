@@ -17,7 +17,7 @@ import type { ModelToolDefinition } from '@application/model/IModelGateway';
 import type { SkillPrimitive, PrimitiveResult } from '@application/skill/SkillTypes';
 import {
   buildNavigateToPath, isValidNavigateToPath, sanitizeNavigateToQuery,
-  navigateToObservation,
+  registerNavigateToPath, navigateToObservation,
 } from './NavigateToPath';
 
 /** navigate_to 工具名（与 definition.name 一致） */
@@ -94,11 +94,13 @@ export function createBasicPrimitives(webDeps: WebFetchToolDeps): SkillPrimitive
           const observation = 'navigate_to：路径不合法，请给出以 / 开头的站内绝对路径（不含 :// 或 ..）。';
           return { observation, ok: false, detail: '路径不合法' };
         }
-        // 查询串由宿主编码；模型只给语义值，不接触 %XX / and-or 语法
+        // 查询串由宿主编码；真实带参路径只留在宿主内存，模型拿到的是无 & 的短链
+        // （safeReply 会把整条回复里的 & 转成 &amp;，复述真实 URL 必然污染 href）。
         const finalPath = buildNavigateToPath(path, query);
+        const token = registerNavigateToPath(finalPath);
         const safeLabel = label || path;
         return {
-          observation: navigateToObservation(safeLabel, finalPath),
+          observation: navigateToObservation(safeLabel, token),
           ok: true,
           detail: `指路 ${finalPath}`,
         };
