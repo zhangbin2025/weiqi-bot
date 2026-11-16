@@ -24,6 +24,12 @@ export interface PrimitiveResult {
   ok: boolean;
   /** 一行人话摘要，过程块显示 */
   detail: string;
+  /**
+   * 结构化展示链接：由宿主直接渲染/落历史，绝不写进模型回复文本。
+   * 用途见 ChatUseCase / ToolLoop：规避「模型复述 URL → safeReply 转义 →
+   * 历史里留下 &amp; → 下一轮照抄旧链接」的多轮退化。
+   */
+  actionLink?: { url: string; label: string };
 }
 
 /** 一条技能 = 纯 JSON 配方，只引用宿主原语，不含任何可执行代码 */

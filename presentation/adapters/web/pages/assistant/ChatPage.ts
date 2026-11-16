@@ -536,7 +536,7 @@ export class ChatPage {
       // 历史恢复不用打字机，避免刷新后逐字动画
       await this.renderer.renderMessage(
         msg.content, msg.role === 'user', null, null,
-        undefined, undefined, false, undefined, msg.timestamp,
+        msg.actionUrl, msg.actionText, false, undefined, msg.timestamp,
       );
       // 附件摘要跟在该条气泡后面：只显示文件名/类型，绝不打印 base64。
       // 资源本体由 buildConversationMessages 重放进模型上下文（多轮追问）。

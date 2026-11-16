@@ -457,3 +457,39 @@ describe('runToolLoop 总调用轮数 guard（2026-11-15：删掉连续延续封
     expect(r.reply).toContain('最大决策次数');
   });
 });
+
+
+/**
+ * 回归（2026-11-16）：宿主注入链接通过 ToolOutcome.actionLink 汇总到
+ * ToolLoopResult，供 ChatUseCase 直接渲染 + 落历史；模型回复文本里不含链接。
+ */
+describe('runToolLoop actionLink（宿主注入链接）', () => {
+  it('工具产出的 actionLink 汇总进结果，取本轮最后一个', async () => {
+    const gw = gatewayWith([
+      { text: '', toolCalls: [{ id: 'c1', name: 'nav', arguments: '{}' }], truncated: false },
+      { text: '引导语', truncated: false },
+    ]);
+    const kit: ToolKit = {
+      tools: [{ name: 'nav', description: '', parameters: { type: 'object' } }],
+      executors: {
+        nav: async () => ({
+          observation: '宿主已放好链接', ok: true, detail: '指路',
+          actionLink: { url: '/puzzle/index.html?type=x&difficulty=3K', label: '做题' },
+        }),
+      },
+    };
+    const r = await runToolLoop({ gateway: gw, ...kit }, { messages: baseMessages() });
+    expect(r.reply).toBe('引导语');
+    expect(r.actionLink).toEqual({
+      url: '/puzzle/index.html?type=x&difficulty=3K', label: '做题',
+    });
+  });
+
+  it('工具没产出 actionLink 时结果里不带该字段', async () => {
+    const r = await runToolLoop(
+      { gateway: gatewayWith([{ text: '纯闲聊', truncated: false }]), ...echoKit() },
+      { messages: baseMessages() },
+    );
+    expect(r.actionLink).toBeUndefined();
+  });
+});

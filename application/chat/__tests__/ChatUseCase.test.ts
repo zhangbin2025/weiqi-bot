@@ -21,6 +21,9 @@ import type { ChatRoleId } from '../ChatRole';
 import type { IModelGateway, ModelResult } from '../../model/IModelGateway';
 import type { ChatHistoryManager } from '../../assistant/ChatHistoryManager';
 import type { IMessageRenderer } from '../../assistant/IMessageRenderer';
+import { BUILTIN_SKILLS } from '../../skill/BuiltinSkills';
+import { createSkillRegistry } from '../../skill/SkillRegistry';
+import { createBasicPrimitives } from '../../skill/primitives/BasicPrimitives';
 
 function makeRenderer() {
   return {
@@ -402,5 +405,111 @@ describe('ChatUseCase.refineSessionTitle', () => {
       .getCurrentSession = vi.fn(() => ({ sessionId: 's2', messages: [] }));
     expect(await h.useCase.refineSessionTitle(long, 's1')).toBeNull();
     expect(h.history.setCurrentSessionTitle).not.toHaveBeenCalled();
+  });
+});
+
+
+/**
+ * 回归（2026-11-16 用户实测）：同一会话第二轮换难度，模型从历史照抄旧链接导致参数错。
+ * 根治方式是把链接作为结构化 actionUrl 由宿主直接渲染并落历史，
+ * assistant 历史文本里不含任何链接、URL 或 & 实体。
+ */
+describe('ChatUseCase.send — 做题链接由宿主注入', () => {
+  const webDeps = {
+    proxyUrl: 'https://api.weiqi.lol', timeoutMs: 60_000,
+    fetchImpl: vi.fn() as unknown as typeof fetch,
+  };
+
+  function makeSkillUseCase(
+    gw: IModelGateway,
+    r: ReturnType<typeof makeRenderer>,
+    hist: ReturnType<typeof makeHistory>,
+  ) {
+    const primitives = createSkillRegistry(createBasicPrimitives(webDeps));
+    const skills = { loadSkills: async () => BUILTIN_SKILLS, primitives };
+    return new ChatUseCase(gw, hist, r, undefined, () => 'chat' as ChatRoleId, webDeps, skills);
+  }
+
+  it('工具产出 actionLink → renderMessage 收到 actionUrl/actionText，历史里也只有结构化字段', async () => {
+    const gateway = {
+      isReady: vi.fn(() => true),
+      execute: vi.fn()
+        .mockResolvedValueOnce({
+          text: '', truncated: false,
+          toolCalls: [{ id: 'c1', name: 'navigate_to', arguments: JSON.stringify({
+            path: '/puzzle/index.html', label: '做3K官子题',
+            query: { type: '官子', difficulty: '3K' },
+          }) }],
+        })
+        .mockResolvedValueOnce({ text: '官子题要点是抢先手收束。', truncated: false }),
+    } as unknown as IModelGateway & { execute: ReturnType<typeof vi.fn> };
+
+    const r = makeRenderer();
+    const hist = makeHistory();
+    await makeSkillUseCase(gateway, r, hist).send('做3K官子题');
+
+    // 渲染：链接走 actionUrl 通道，回复文本里没有链接
+    const call = r.renderMessage.mock.calls.find(
+      (c: unknown[]) => c[4] !== undefined,
+    ) as unknown[] | undefined;
+    expect(call).toBeDefined();
+    expect(call![4]).toBe('/puzzle/index.html?type=%E5%AE%98%E5%AD%90&difficulty=3K');
+    expect(call![5]).toBe('做3K官子题');
+    expect(String(call![0])).not.toContain('http');
+    expect(String(call![0])).not.toContain('](');
+    expect(String(call![0])).not.toContain('&');
+
+    // 历史：assistant 文本里没有链接，链接只在 actionUrl/actionText 字段
+    const assistantMsg = hist.addMessage.mock.calls
+      .map((c: unknown[]) => c[0] as { role?: string; content?: string; actionUrl?: string; actionText?: string })
+      .find((m) => m.role === 'assistant');
+    expect(assistantMsg).toBeDefined();
+    expect(assistantMsg!.actionUrl).toBe('/puzzle/index.html?type=%E5%AE%98%E5%AD%90&difficulty=3K');
+    expect(assistantMsg!.actionText).toBe('做3K官子题');
+    expect(assistantMsg!.content).not.toContain('http');
+    expect(assistantMsg!.content).not.toContain('&');
+    expect(assistantMsg!.content).not.toContain('](');
+  });
+
+  it('多轮：第二轮条件只由本轮工具决定，历史里没有旧链接文本可抄', async () => {
+    const gateway = {
+      isReady: vi.fn(() => true),
+      execute: vi.fn()
+        // 第一轮 8K 手筋
+        .mockResolvedValueOnce({
+          text: '', truncated: false,
+          toolCalls: [{ id: 'c1', name: 'navigate_to', arguments: JSON.stringify({
+            path: '/puzzle/index.html', label: '做8K手筋题',
+            query: { type: '手筋', difficulty: '8K' },
+          }) }],
+        })
+        .mockResolvedValueOnce({ text: '手筋题要点是发现急所。', truncated: false })
+        // 第二轮 3K 官子
+        .mockResolvedValueOnce({
+          text: '', truncated: false,
+          toolCalls: [{ id: 'c2', name: 'navigate_to', arguments: JSON.stringify({
+            path: '/puzzle/index.html', label: '做3K官子题',
+            query: { type: '官子', difficulty: '3K' },
+          }) }],
+        })
+        .mockResolvedValueOnce({ text: '官子题要点是抢先手收束。', truncated: false }),
+    } as unknown as IModelGateway & { execute: ReturnType<typeof vi.fn> };
+
+    const r = makeRenderer();
+    const hist = makeHistory();
+    const uc = makeSkillUseCase(gateway, r, hist);
+    await uc.send('做8K手筋题');
+    await uc.send('做3K官子题');
+
+    const linkCalls = r.renderMessage.mock.calls.filter(
+      (c: unknown[]) => c[4] !== undefined,
+    ) as unknown[][];
+    expect(linkCalls.length).toBe(2);
+    expect(linkCalls[0]![4]).toBe('/puzzle/index.html?type=%E6%89%8B%E7%AD%8B&difficulty=8K');
+    expect(linkCalls[1]![4]).toBe('/puzzle/index.html?type=%E5%AE%98%E5%AD%90&difficulty=3K');
+
+    // 历史 assistant 文本里没有任何链接 / & 实体 —— 第二轮模型无从照抄旧链接
+    const stored = hist.store as Array<{ content: string }>;
+    expect(stored.every((m) => !m.content.includes('http') && !m.content.includes('&'))).toBe(true);
   });
 });

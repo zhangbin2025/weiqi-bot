@@ -2,8 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   isValidNavigateToPath, sanitizeNavigateToQuery, buildNavigateToPath,
-  registerNavigateToPath, resolveNavigateToPath, navigateToObservation,
-  NAVIGATE_LINK_SCHEME,
+  navigateToObservation,
 } from '../NavigateToPath';
 
 describe('sanitizeNavigateToQuery', () => {
@@ -59,38 +58,26 @@ describe('isValidNavigateToPath', () => {
   });
 });
 
-describe('短链注册表（修复 & 被 safeReply 转义导致参数丢失）', () => {
-  it('登记真实带参路径 → token 不含 & / % / 中文，可反解回原路径', () => {
-    const p = '/puzzle/index.html?type=%E5%AE%98%E5%AD%90&difficulty=3K';
-    const token = registerNavigateToPath(p);
-    expect(token).toMatch(/^[a-z0-9-]+$/);
-    expect(resolveNavigateToPath(token)).toBe(p);
-  });
-
-  it('未知 token 返回 null', () => {
-    expect(resolveNavigateToPath('never-registered')).toBeNull();
-  });
-
-  it('observation 只有 nav: 短链，绝不出现真实 URL 或裸 &', () => {
+describe('navigateToObservation（宿主注入，模型不接触 URL）', () => {
+  it('观察文本里没有任何链接 / 网址 / & / markdown 链接语法', () => {
     const p = '/puzzle/index.html?type=%E6%89%8B%E7%AD%8B&difficulty=8K';
-    const token = registerNavigateToPath(p);
-    const obs = navigateToObservation('做8K手筋题', token);
-    expect(obs).toContain(`[做8K手筋题](${NAVIGATE_LINK_SCHEME}${token})`);
+    const obs = navigateToObservation('做8K手筋题', p);
     expect(obs).not.toContain(p);
     expect(obs).not.toContain('&');
-    expect(obs).toContain('原样');
+    expect(obs).not.toContain('](');
+    expect(obs).not.toContain('http');
+    expect(obs).toContain('不要写任何链接');
+    expect(obs).toContain('做8K手筋题');
+  });
+
+  it('只写一句引导语：明确要求停笔、不复述说明', () => {
+    const obs = navigateToObservation('做题', '/puzzle/index.html');
+    expect(obs).toContain('停笔');
+    expect(obs).toContain('不要复述');
   });
 
   it('标签里的方括号/换行被剔除，空标签回落', () => {
-    const t = registerNavigateToPath('/puzzle/index.html');
-    expect(navigateToObservation('[a]\nb', t)).toContain('[ab](');
-    expect(navigateToObservation('  ', t)).toContain('[打开页面](');
-  });
-
-  it('回归：safeReply 对短链无害（不含 &，不会生成 &amp; 实体）', () => {
-    const t = registerNavigateToPath('/puzzle/index.html?type=x&difficulty=3K');
-    const obs = navigateToObservation('做题', t);
-    const safe = obs.replace(/&/g, '&amp;');
-    expect(safe).toBe(obs); // 没有任何 & 可转，短链天然免疫
+    expect(navigateToObservation('[a]\nb', '/puzzle/index.html')).toContain('「ab」');
+    expect(navigateToObservation('  ', '/puzzle/index.html')).toContain('「打开页面」');
   });
 });

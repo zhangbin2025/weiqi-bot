@@ -58,6 +58,12 @@ export interface ToolOutcome {
   /** 本轮涉及的完整源码，交给过程块「查看本轮代码」展示（可选） */
   code?: string;
   /**
+   * 宿主注入的展示链接（如做题页带筛选参数）。由 ChatUseCase 直接交给
+   * renderMessage 的 actionUrl/actionText 并落历史，不经过模型回复文本。
+   * 结构化数据不交给模型复述，避免多轮会话里被历史里的旧链接污染。
+   */
+  actionLink?: { url: string; label: string };
+  /**
    * 本轮观察是一次「确定性验收失败」（模型提交的源码没过试算，需重写）。
    * 语义：这是同一次自主决策的延续，不计入决策轮数上限；连续失败次数由
    * loop 按 maxTurns - 1（= maxAttempts）封顶。仅插件工具集在试算失败时置位，
@@ -108,6 +114,8 @@ export interface ToolLoopResult {
   reply: string;
   /** 完整过程记录（含未展示的步骤），不写会话历史 */
   trace: PluginTraceStep[];
+  /** 本轮工具产出的宿主注入链接（取最后一个），不写会话历史文本 */
+  actionLink?: { url: string; label: string };
   /** 本轮工具读到的资源附件，交给上层落到用户消息上（多轮追问） */
   attachments: ChatAttachment[];
   /** 实际决策轮数 */
@@ -163,8 +171,10 @@ export async function runToolLoop(
     try { req.onTrace?.(step); } catch { /* 纯展示，单步失败不影响主流程 */ }
   };
 
+  // 本轮工具产出的宿主注入链接；取最后一个（同一轮多次 navigate_to 以最后一次为准）
+  let actionLink: ToolLoopResult['actionLink'];
   const done = (reply: string, turns: number, exhausted: boolean): ToolLoopResult =>
-    ({ reply, trace, attachments, turns, exhausted });
+    ({ reply, trace, attachments, turns, exhausted, ...(actionLink ? { actionLink } : {}) });
 
   // 总调用轮数 guard：唯一防无限循环的硬约束，来源见头部口径（maxTurns × maxTurns）。
   // decisions 只数「实质动作」；repairable/preparatory 是同一次决策的延续，不推进 decisions，
@@ -221,6 +231,7 @@ export async function runToolLoop(
     for (const call of calls) {
       const outcome = await runOneTool(call, deps);
       push(decisionNo, 'observe', outcome.ok, `${call.name}：${outcome.detail}`, outcome.code);
+      if (outcome.actionLink) actionLink = outcome.actionLink;
       messages.push({
         role: 'tool',
         content: clipObservation(outcome.observation),

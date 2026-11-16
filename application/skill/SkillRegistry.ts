@@ -23,9 +23,11 @@ export interface ChatToolKitParts {
   executors: Record<string, (a: string) => Promise<ToolOutcome>>;
 }
 
-/** PrimitiveResult → ToolOutcome：只填三个必填字段，其余可选字段一律不设置 */
+/** PrimitiveResult → ToolOutcome：三个必填字段 + 可选的宿主注入链接 */
 function toToolOutcome(r: PrimitiveResult): ToolOutcome {
-  return { observation: r.observation, ok: r.ok, detail: r.detail };
+  const out: ToolOutcome = { observation: r.observation, ok: r.ok, detail: r.detail };
+  if (r.actionLink) out.actionLink = r.actionLink;
+  return out;
 }
 
 /**

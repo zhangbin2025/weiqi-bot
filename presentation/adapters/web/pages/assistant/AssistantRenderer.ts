@@ -5,7 +5,6 @@
 import type { IMessageRenderer } from '../../../../../application/assistant/IMessageRenderer';
 import type { PluginTraceStep } from '../../../../../domain/plugin/types';
 import { typewriterEffectHTML } from '../../../../../clients/web/assistant/typewriter';
-import { NAVIGATE_LINK_SCHEME, resolveNavigateToPath } from '../../../../../application/skill/primitives/NavigateToPath';
 import { INTENT_CONFIG } from '../../../../../domain/intent/intent-config';
 import {
   isLibUrl, describeLibUrl, isKatagoUrl, describeKatagoUrl,
@@ -76,10 +75,14 @@ export class AssistantRenderer implements IMessageRenderer {
    * 基于当前 URL 解析相对路径为绝对路径
    */
   private resolvePath(relativePath: string): string {
-    // 如果已经是完整 URL（http:// 或 https://），直接返回
+    // 完整 URL（http:// 或 https://）原样返回
     if (relativePath.startsWith('http:') || relativePath.startsWith('https:')) {
       return relativePath;
     }
+    // 站内绝对路径（含 query）原样返回 —— 聊天页在 /assistant/ 下，
+    // 旧实现按相对段拼接会把 /puzzle/index.html 变成 /assistant/puzzle/index.html。
+    // 宿主注入的 actionUrl 一律是 isValidNavigateToPath 校验过的站内绝对路径。
+    if (relativePath.startsWith('/')) return relativePath;
     const currentBase = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/'));
     const parts = currentBase.split('/').filter(p => p !== '');
     const relParts = relativePath.split('/');
@@ -195,29 +198,11 @@ export class AssistantRenderer implements IMessageRenderer {
    * 在 markdown 渲染完成后，遍历 DOM 进行后处理
    */
   private beautifyContent(container: Element): void {
-    // 0. 还原 navigate_to 短链：把 a[href^="nav:"] 换成真实站内路径。
-    //    必须用 DOM 属性赋值而非 innerHTML —— 真实路径里有裸 &，走 HTML 解析
-    //    会被 safeReply/marked 的 &amp; 实体污染（实测 URLSearchParams 会解出
-    //    键 amp;difficulty）。这里赋值的是 JS 字符串，浏览器解出的就是字面 &。
-    this.resolveNavigateLinks(container);
     // 1. 处理 <a> 标签：将独立 URL 链接转为卡片
     this.beautifyLinks(container);
     // 2. 处理 <code> / <pre> 中的 SGF 数据
     this.beautifySgfBlocks(container);
-    // 3. 处理纯文本中的裸 URL - 已由 beautifyLinks 覆盖，行内链接保留 <a> 标签即可
-  }
-
-  /**
-   * 还原 navigate_to 的 nav:<token> 短链为真实站内路径。
-   * 未知/失效 token 保留原 href（不制造死链文本），最多只在这轮页面生命周期内有效。
-   */
-  private resolveNavigateLinks(container: Element): void {
-    const links = container.querySelectorAll<HTMLAnchorElement>(`a[href^="${NAVIGATE_LINK_SCHEME}"]`);
-    links.forEach(link => {
-      const token = (link.getAttribute('href') ?? '').slice(NAVIGATE_LINK_SCHEME.length);
-      const path = resolveNavigateToPath(token);
-      if (path) link.setAttribute('href', path);
-    });
+    // 3. 纯文本中的裸 URL 已由 beautifyLinks 覆盖，行内链接保留 <a> 标签即可
   }
 
   /**

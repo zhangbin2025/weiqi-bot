@@ -17,7 +17,7 @@ import type { ModelToolDefinition } from '@application/model/IModelGateway';
 import type { SkillPrimitive, PrimitiveResult } from '@application/skill/SkillTypes';
 import {
   buildNavigateToPath, isValidNavigateToPath, sanitizeNavigateToQuery,
-  registerNavigateToPath, navigateToObservation,
+  navigateToObservation,
 } from './NavigateToPath';
 
 /** navigate_to 工具名（与 definition.name 一致） */
@@ -47,9 +47,14 @@ export const NAVIGATE_TO_TOOL: ModelToolDefinition = {
   },
 };
 
-/** tool 执行结果 → 原语结果：只取三个必填字段，其余可选字段一律不带 */
-function toPrimitiveResult(r: { observation: string; ok: boolean; detail: string }): PrimitiveResult {
-  return { observation: r.observation, ok: r.ok, detail: r.detail };
+/** tool 执行结果 → 原语结果：三个必填字段 + 可选宿主注入链接 */
+function toPrimitiveResult(r: {
+  observation: string; ok: boolean; detail: string;
+  actionLink?: { url: string; label: string };
+}): PrimitiveResult {
+  const out: PrimitiveResult = { observation: r.observation, ok: r.ok, detail: r.detail };
+  if (r.actionLink) out.actionLink = r.actionLink;
+  return out;
 }
 
 /**
@@ -94,15 +99,15 @@ export function createBasicPrimitives(webDeps: WebFetchToolDeps): SkillPrimitive
           const observation = 'navigate_to：路径不合法，请给出以 / 开头的站内绝对路径（不含 :// 或 ..）。';
           return { observation, ok: false, detail: '路径不合法' };
         }
-        // 查询串由宿主编码；真实带参路径只留在宿主内存，模型拿到的是无 & 的短链
-        // （safeReply 会把整条回复里的 & 转成 &amp;，复述真实 URL 必然污染 href）。
+        // 真实带参路径由宿主直接渲染成 <a> 并随消息落历史（actionLink）。
+        // 模型既看不到 URL，也不该在回复里写链接 —— 规避多轮会话里照抄历史旧链接。
         const finalPath = buildNavigateToPath(path, query);
-        const token = registerNavigateToPath(finalPath);
         const safeLabel = label || path;
         return {
-          observation: navigateToObservation(safeLabel, token),
+          observation: navigateToObservation(safeLabel, finalPath),
           ok: true,
           detail: `指路 ${finalPath}`,
+          actionLink: { url: finalPath, label: safeLabel },
         };
       },
     },

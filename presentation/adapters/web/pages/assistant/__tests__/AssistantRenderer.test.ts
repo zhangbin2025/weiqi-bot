@@ -316,50 +316,38 @@ describe('AssistantRenderer 用户消息 URL 复制边界', () => {
   });
 });
 
+
 /**
- * 回归：navigate_to 短链接必须还原成带字面 & 的真实站内路径。
- * 用户实测（2026-11-16）：[label](nav:xxx) 若不经还原，或还原时走 innerHTML，
- * href 里的 & 会被 safeReply/marked 变成 &amp; 实体，URLSearchParams 解出
- * 键 amp;difficulty，题型/难度参数全丢。这里用 jsdom（本文件 vitest 环境）
- * 锁住 DOM 属性赋值：短链不含 &（safeReply 无害）、还原后 href 是字面 &。
+ * 回归（2026-11-16 用户实测）：聊天页在 /assistant/ 下，宿主注入的站内绝对路径
+ * 若按相对段拼接会变成 /assistant/puzzle/index.html；且带 & 的 query 必须原样
+ * 保留。actionUrl 通道用 createElement('a') + href 赋值，不经过 marked/safeReply，
+ * 所以 href 里是字面 &，URLSearchParams 能正确解出 type/difficulty。
  */
-describe('AssistantRenderer 还原 navigate_to 短链接', () => {
-  it('a[href^="nav:"] 被换成真实路径，& 保持字面、参数可解析', async () => {
-    const { registerNavigateToPath, navigateToObservation, NAVIGATE_LINK_SCHEME } = await import(
-      '../../../../../application/skill/primitives/NavigateToPath'
-    );
+describe('AssistantRenderer 的 actionUrl 宿主注入链接', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="chatContainer"></div>';
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it('站内绝对路径 + query 原样渲染成可点的 <a>，参数不丢', async () => {
+    const renderer = new AssistantRenderer();
     const realPath = '/puzzle/index.html?type=%E5%AE%98%E5%AD%90&difficulty=3K';
-    const token = registerNavigateToPath(realPath);
-    const obs = navigateToObservation('做3K官子题', token);
-
-    // 本文件顶部 vi.mock('marked')，这里不重复走 marked；直接构造渲染层
-    // 实际会拿到的 DOM 输入（marked 输出的 <a>，短链不含 &，safeReply 无害）。
-    // 顺带锁住 observation 本身不含 & —— 这才是 bug 的根。
-    expect(obs).not.toContain('&');
-    expect(obs).toContain(NAVIGATE_LINK_SCHEME + token);
-    const box = document.createElement('div');
-    box.className = 'markdown-content';
-    box.innerHTML = `<p><a href="${NAVIGATE_LINK_SCHEME}${token}">做3K官子题</a></p>`;
-
-    const before = box.querySelector('a')!.getAttribute('href')!;
-    expect(before).toBe(NAVIGATE_LINK_SCHEME + token);
-    expect(before).not.toContain('&amp;');
-
-    // 渲染层还原（DOM 属性赋值，不经 HTML 解析）
-    const renderer = new AssistantRenderer() as unknown as {
-      resolveNavigateLinks: (c: Element) => void;
-    };
-    renderer.resolveNavigateLinks(box);
-
-    const a = box.querySelector('a')!;
+    await renderer.renderMessage('官子题要点是抢先手收束。', false, null, null,
+      realPath, '做3K官子题', false);
+    const a = document.querySelector('#chatContainer a.action-btn') as HTMLAnchorElement;
+    expect(a).not.toBeNull();
+    expect(a.textContent).toBe('做3K官子题');
     expect(a.getAttribute('href')).toBe(realPath);
     expect(a.getAttribute('href')).not.toContain('&amp;');
     const params = new URL(a.getAttribute('href')!, 'https://x.com').searchParams;
     expect(params.get('type')).toBe('官子');
     expect(params.get('difficulty')).toBe('3K');
+  });
 
-    // beautifyLinks 只认 http/lib/katago，还原后的站内路径不该被转成 URL 卡片
-    (renderer as unknown as { beautifyLinks: (c: Element) => void }).beautifyLinks(box);
-    expect(box.querySelector('.url-card')).toBeNull();
+  it('回复文本里没有链接时，模型回复仍正常渲染（两者互不干扰）', async () => {
+    const renderer = new AssistantRenderer();
+    await renderer.renderMessage('随便聊两句。', false, null, null,
+      undefined, undefined, false);
+    expect(document.querySelector('#chatContainer a.action-btn')).toBeNull();
   });
 });

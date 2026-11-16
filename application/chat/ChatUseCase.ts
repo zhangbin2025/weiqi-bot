@@ -304,11 +304,21 @@ export class ChatUseCase {
         await this.renderHint('模型没有返回内容，请稍后重试或更换模型。');
         return;
       }
+      // 宿主注入链接：不经过模型回复文本，直接走渲染器的 actionUrl 通道。
+      // 这样历史里没有任何链接文本可供下一轮模型「照抄改字」，从根上消除
+      // 「第一次对、第二次换条件就错」的多轮退化。
+      const link = result.actionLink;
       await this.renderer.renderMessage(
-        safe, false, null, null, undefined, undefined, true,
+        safe, false, null, null,
+        link?.url, link?.label,
+        true,
       );
-      // 历史里只有干净的 user/assistant 文本，trace 与 tool 消息永远不进来
-      await this.history.addMessage({ role: 'assistant', content: safe });
+      // 历史里只有干净的 user/assistant 文本 + 结构化 actionUrl/actionText，
+      // trace 与 tool 消息永远不进来；链接可随会话恢复重现。
+      await this.history.addMessage({
+        role: 'assistant', content: safe,
+        ...(link ? { actionUrl: link.url, actionText: link.label } : {}),
+      });
     } catch (error) {
       this.renderer.hideTyping();
       traceFailed = true;
