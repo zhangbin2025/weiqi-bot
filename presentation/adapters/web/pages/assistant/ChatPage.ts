@@ -30,6 +30,7 @@ import { ChatUseCase, type LocalFileInput, type SkillDeps } from '../../../../..
 import { createSkillRegistry } from '../../../../../application/skill/SkillRegistry';
 import { createBasicPrimitives } from '../../../../../application/skill/primitives/BasicPrimitives';
 import { EVENT_PRIMITIVES } from '../../../../../application/skill/primitives/EventImportPrimitives';
+import { openEventTableDialog } from './EventTableDialog';
 import { createDefaultSkillCatalog } from '../../../../../services/skill-catalog/SkillCatalogService';
 import { clampTitle } from '../../../../../application/chat/SessionTitle';
 import { describeAttachment } from '../../../../../application/chat/ChatAttachment';
@@ -135,10 +136,51 @@ export class ChatPage {
 
     this.bindUI();
     this.bindLifecycle();
+    this.bindEventTableLinks();
     // 先恢复上次会话（它会顺带定下该会话的角色），再刷新角色 UI 与输入状态
     await this.restoreLastSession();
     this.syncRoleUI();
     this.syncReadyState();
+  }
+
+  /**
+   * 「表格编辑」工具返回的 event-table: 链接 → 打开可编辑对阵表弹框。
+   *
+   * 用 document 上的事件委托而非在渲染器里逐个 a 标签绑 click：回复走 marked +
+   * 打字机异步注入 DOM，渲染完成时链接可能还没出现；委托也能覆盖历史消息恢复
+   * （prependMessage）里重新渲染出来的旧链接。
+   *
+   * 弹框「导入」校验通过后回调这里，走的是**正常 send() 路径**：
+   * - ChatUseCase.send 会调 beginUserTurn() 推进人工确认闸门，因此 LLM 可以在
+   *   这一轮调 event_commit_draft 写库（同一条消息里自动写库仍被硬闸门拒绝）；
+   * - 历史里仍带图片附件，selectSkills 继续命中 event.import* 技能，commit 工具
+   *   保持挂载。
+   * 用户看到的是自己发出的一条确认消息，不是宿主偷偷替他说话。
+   */
+  private bindEventTableLinks(): void {
+    document.addEventListener('click', (event) => {
+      const target = event.target as HTMLElement | null;
+      const link = target?.closest('a[href^="event-table:"]') as HTMLAnchorElement | null;
+      if (!link) return;
+      event.preventDefault();
+      const token = link.getAttribute('href')?.slice('event-table:'.length) ?? '';
+      if (!token) return;
+      openEventTableDialog(token, () => {
+        void this.sendEventTableImport();
+      });
+    });
+  }
+
+  /** 弹框点「导入」后发出的确认消息：只描述意图，不复述数据 */
+  private async sendEventTableImport(): Promise<void> {
+    // 「导入赛事」是技能触发词：图片通道靠 hasImagePart 挂载，纯文字/历史窗口
+    // 滑出图片时靠触发词兜底，保证这一轮 event_commit_draft 一定可用。
+    const text =
+      '导入赛事：我已在对阵表弹框里核对并确认（可能已修改）全部场次，请调用 event_commit_draft 把这份草稿写入赛事库。';
+    // 直接走用例：send() 内部负责渲染用户气泡、落盘、beginUserTurn 闸门推进。
+    // 不复用 handleSend()，避免清空用户尚未发送的草稿文字、误带待发附件、
+    // 或触发一次无意义的标题精炼。
+    await this.useCase.send(text);
   }
 
   /**

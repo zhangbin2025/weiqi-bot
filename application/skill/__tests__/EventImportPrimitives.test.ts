@@ -9,7 +9,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { PdfEvent } from '@services/event/PdfEventTypes';
 import type { SkillPrimitive } from '@application/skill/SkillTypes';
-import { EVENT_PRIMITIVES } from '../primitives/EventImportPrimitives';
+import {
+  EVENT_PRIMITIVES,
+  getTableDraft,
+  applyTableEdits,
+} from '../primitives/EventImportPrimitives';
 import { beginUserTurn } from '../SkillTurn';
 
 const mocks = vi.hoisted(() => ({
@@ -42,6 +46,7 @@ function primitive(name: string): SkillPrimitive {
 }
 
 const parse = primitive('event_parse_draft');
+const editTable = primitive('event_edit_table');
 const commit = primitive('event_commit_draft');
 
 /** 第 1 轮编排表：赛前双方累计分都是 0（这是真实图片里的形态） */
@@ -83,6 +88,13 @@ function makeEvent(rounds: PdfEvent['groups'][number]['rounds'] = []): PdfEvent 
 function extractToken(observation: string): string {
   const m = /draftToken：(\S+)/.exec(observation);
   if (!m || !m[1]) throw new Error(`observation 里没有 draftToken：${observation}`);
+  return m[1];
+}
+
+/** 从 edit_table 的 observation 里取出表格链接里的 token */
+function extractTableToken(observation: string): string {
+  const m = /event-table:(\S+?)\)/.exec(observation);
+  if (!m || !m[1]) throw new Error(`observation 里没有表格链接：${observation}`);
   return m[1];
 }
 
@@ -161,6 +173,106 @@ describe('event_parse_draft', () => {
     const r = await parse.execute(JSON.stringify(bye));
     expect(r.ok).toBe(true);
     expect(r.observation).toContain('轮空');
+  });
+});
+
+describe('event_edit_table — 可编辑表格草稿', () => {
+  it('返回表格链接而非文本预览，并要求模型禁止逐台复述', async () => {
+    const r = await editTable.execute(JSON.stringify(validDraft));
+    expect(r.ok).toBe(true);
+    expect(r.observation).toContain('event-table:');
+    expect(r.observation).toContain('📋 打开对阵表核对 / 修改 / 导入');
+    expect(r.observation).toContain('禁止在本条消息里逐台复述');
+    // 全量数据只在表格里，不靠文字摘要；观察里不出现「第1台：」这类逐场文本
+    expect(r.observation).not.toContain('第1台：');
+    expect(mocks.importRound).not.toHaveBeenCalled();
+    expect(mocks.write).not.toHaveBeenCalled();
+  });
+
+  it('全量逐场数据（含累计积分）可按 token 读出，供弹框逐格编辑', async () => {
+    const r = await editTable.execute(JSON.stringify(secondRoundDraft));
+    const token = extractTableToken(r.observation);
+    const draft = getTableDraft(token);
+    expect(draft?.title).toBe(secondRoundDraft.title);
+    expect(draft?.groupName).toBe(secondRoundDraft.groupName);
+    expect(draft?.round).toBe(2);
+    expect(draft?.matches).toHaveLength(2);
+    // 这里是累计积分（2/2、0/0），不是胜负分；与 EventDraft.matches 里的 0/0 不同
+    expect(draft?.matches[0]).toEqual({
+      table: 1, p1Name: '王可汗', p1Score: 2, p2Name: '李子恩', p2Score: 2,
+    });
+    expect(draft?.matches[1]).toEqual({
+      table: 2, p1Name: '申云豪', p1Score: 0, p2Name: '刘海洋', p2Score: 0,
+    });
+  });
+
+  it('省略台号时按下标 +1 补齐，与 validateEventDraft 规则一致', async () => {
+    const noTable = { ...validDraft, matches: [
+      { p1Name: '甲', p1Score: 0, p2Name: '乙', p2Score: 0 },
+      { p1Name: '丙', p1Score: 0, p2Name: '丁', p2Score: 0 },
+    ] };
+    const r = await editTable.execute(JSON.stringify(noTable));
+    const draft = getTableDraft(extractTableToken(r.observation));
+    expect(draft?.matches.map((m) => m.table)).toEqual([1, 2]);
+  });
+
+  it('非法草稿被拒且不产生可编辑表格', async () => {
+    const bad = { ...validDraft, matches: [{ p1Name: '甲', p1Score: -1, p2Name: '乙', p2Score: 0 }] };
+    const r = await editTable.execute(JSON.stringify(bad));
+    expect(r.ok).toBe(false);
+    expect(r.observation).toContain('非负数字');
+    expect(r.observation).not.toContain('event-table:');
+  });
+
+  it('弹框编辑结果覆盖待确认草稿：commit 写入的是改过的版本', async () => {
+    const r = await editTable.execute(JSON.stringify(secondRoundDraft));
+    const token = extractTableToken(r.observation);
+    const edited = {
+      ...secondRoundDraft,
+      title: '用户改过的比赛名',
+      matches: [
+        { table: 1, p1Name: '王可汗', p1Score: 4, p2Name: '李子恩', p2Score: 2 },
+        { table: 2, p1Name: '申云豪', p1Score: 0, p2Name: '刘海洋', p2Score: 0 },
+      ],
+    };
+    expect(applyTableEdits(token, edited).ok).toBe(true);
+    expect(getTableDraft(token)?.matches[0]?.p1Score).toBe(4);
+
+    beginUserTurn(); // 用户点「导入」→ 宿主发来新的确认消息
+    const c = await commit.execute(JSON.stringify({ confirm: true }));
+    expect(c.ok).toBe(true);
+    const args = mocks.importRound.mock.calls[0] as unknown[];
+    expect(args[0]).toBe('用户改过的比赛名');
+    expect(args[4]).toEqual({ 王可汗: 4, 李子恩: 2, 申云豪: 0, 刘海洋: 0 });
+  });
+
+  it('非法编辑被拒且不写坏原草稿，用户可原地修正后重试', async () => {
+    const r = await editTable.execute(JSON.stringify(validDraft));
+    const token = extractTableToken(r.observation);
+    const badEdit = { ...validDraft, matches: [{ p1Name: '', p1Score: 0, p2Name: '乙', p2Score: 0 }] };
+    const result = applyTableEdits(token, badEdit);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.join(' ')).toContain('黑方姓名');
+    expect(getTableDraft(token)?.matches).toHaveLength(2);
+    expect(mocks.importRound).not.toHaveBeenCalled();
+  });
+
+  it('失效 / 未知 token 的编辑被明确拒绝', async () => {
+    const r = await editTable.execute(JSON.stringify(validDraft));
+    const token = extractTableToken(r.observation);
+    beginUserTurn();
+    await commit.execute(JSON.stringify({ confirm: true })); // 写库后 token 一次性失效
+    const result = applyTableEdits(token, validDraft);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.join(' ')).toContain('失效');
+  });
+
+  it('新一次 edit_table 覆盖旧草稿，旧 token 的表格数据立即不可读', async () => {
+    const first = await editTable.execute(JSON.stringify(validDraft));
+    const oldToken = extractTableToken(first.observation);
+    await editTable.execute(JSON.stringify({ ...validDraft, title: '新版' }));
+    expect(getTableDraft(oldToken)).toBeUndefined();
+    expect(applyTableEdits(oldToken, validDraft).ok).toBe(false);
   });
 });
 
