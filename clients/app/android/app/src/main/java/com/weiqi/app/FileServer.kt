@@ -7,7 +7,11 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.IOException
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.locks.ReentrantLock
 import java.util.zip.ZipInputStream
+import kotlin.concurrent.withLock
 
 /**
  * 文件服务器
@@ -41,6 +45,20 @@ class FileServer(
     var onDemandCallback: AssetServer.OnDemandCallback? = null
 
     /**
+     * 按目标文件路径分发的下载锁。
+     *
+     * 运行时按需回源是「写 <dest>.tmp -> rename 到 <dest>」：两个业务同时首次
+     * 请求同一文件（如定式探索与做题同时打开，都要 trie-index.json.gz）会并发，
+     * 写同一个临时文件、互相覆盖字节流，且两次 rename 抢同一个目标 —— 后者的
+     * 临时文件已被移走，rename 直接失败。按 destFile.canonicalPath 分锁，
+     * 让同一文件的下载串行；不同文件仍可并行，不拖慢批量下载。
+     */
+    private val downloadLocks = ConcurrentHashMap<String, ReentrantLock>()
+
+    private fun lockFor(destFile: File): ReentrantLock =
+        downloadLocks.computeIfAbsent(destFile.canonicalPath) { ReentrantLock() }
+
+    /**
      * 从文件创建 HTTP 响应
      */
     fun serveFile(file: File): NanoHTTPD.Response {
@@ -69,6 +87,19 @@ class FileServer(
      * @param notifyOnDemand 是否通知 onDemandCallback（预下载时为 false）
      */
     fun downloadFile(url: String, destFile: File, notifyOnDemand: Boolean = true) {
+        // 同一目标文件的并发下载串行化。锁内二次检查：拿到锁时文件可能已被
+        // 前一个并发请求下载完成，此时直接返回，不再重复写临时文件 / rename。
+        lockFor(destFile).withLock {
+            if (destFile.exists() && destFile.length() > 0) {
+                Logger.d(TAG, "Concurrent download already finished, skip: ${destFile.name}")
+                return
+            }
+            downloadFileLocked(url, destFile, notifyOnDemand)
+        }
+    }
+
+    /** 实际下载体：调用方必须已持有 lockFor(destFile)。 */
+    private fun downloadFileLocked(url: String, destFile: File, notifyOnDemand: Boolean) {
         val request = Request.Builder()
             .url(url)
             .header("Accept-Encoding", "identity")  // 禁止透明解压，保存原始 gzip 文件
@@ -82,8 +113,10 @@ class FileServer(
             // 确保父目录存在
             destFile.parentFile?.mkdirs()
 
-            // 先下载到临时文件
-            val tempFile = File(destFile.parentFile, destFile.name + ".tmp")
+            // 先下载到【唯一命名】的临时文件。
+            // 固定名 "<dest>.tmp" 在并发（甚至跨进程、上次崩溃残留）时会互相覆盖；
+            // 唯一名保证即便锁之外还有并发写入，也不会写坏彼此的字节流。
+            val tempFile = File(destFile.parentFile, "${destFile.name}.${UUID.randomUUID()}.tmp")
             val totalLength = response.body?.contentLength() ?: -1L
             
             try {
@@ -122,10 +155,15 @@ class FileServer(
                     throw IOException("Download incomplete: expected $totalLength bytes, got ${tempFile.length()}")
                 }
 
-                // 校验通过，重命名到正式文件
+                // 校验通过，重命名到正式文件。
+                // 若 rename 失败但目标已存在（另一路已写好完整文件），视为成功，
+                // 避免并发下把一个本可正常服务的请求误判为失败。
                 if (!tempFile.renameTo(destFile)) {
                     tempFile.delete()
-                    throw IOException("Failed to rename temp file to ${destFile.name}")
+                    if (!destFile.exists()) {
+                        throw IOException("Failed to rename temp file to ${destFile.name}")
+                    }
+                    Logger.d(TAG, "rename lost race, target already present: ${destFile.name}")
                 }
 
                 Logger.d(TAG, "Downloaded: $url -> ${destFile.path}")
@@ -185,7 +223,8 @@ class FileServer(
                 callback?.onProgress("下载资源包 (0 / $totalMB MB)", 5)
 
                 zipFile.parentFile?.mkdirs()
-                val tempFile = File(zipFile.parentFile, zipFile.name + ".tmp")
+                // 唯一临时名：即便预加载被并发触发，也不会与另一路写同一份 .tmp
+                val tempFile = File(zipFile.parentFile, "${zipFile.name}.${UUID.randomUUID()}.tmp")
 
                 response.body?.byteStream()?.use { input ->
                     tempFile.outputStream().use { output ->

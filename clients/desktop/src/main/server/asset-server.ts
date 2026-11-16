@@ -15,6 +15,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as url from 'url';
 import { app } from 'electron';
+import { randomUUID } from 'crypto';
 import { AppConfig } from '../config';
 import { VersionManager } from '../version-manager';
 const AdmZip = require('adm-zip');
@@ -57,6 +58,33 @@ export class AssetServer {
   private cacheDir: string;
   private remoteBase: string;
   private versionManager: VersionManager;
+
+  /**
+   * 同一目标文件正在进行的下载（key = 目标文件绝对路径）。
+   *
+   * 运行时按需回源是「写 <dest>.tmp -> rename 到 <dest>」：两个业务同时首次
+   * 请求同一文件会并发写同一个临时文件、互相覆盖字节流，且两次 rename 抢
+   * 同一个目标（第二次 renameSync 时源文件已被移走而抛 ENOENT）。这里把同一
+   * destFile 的并发请求合并到同一个 Promise —— 即「每个文件一把锁」，只有
+   * 第一次真正下载，其余等待它完成后直接读缓存；不同文件仍可并发。
+   */
+  private readonly downloadFlights = new Map<string, Promise<void>>();
+
+  /**
+   * 内置库【库级】下载锁：同一时刻同一库只允许一个全量下载在跑。
+   * 多个业务并发首次用到同一库时，其余请求共享同一个 Promise、等待首个下载
+   * 完成后直接读本地缓存，不再各自发起一轮下载。不同库各自独立，互不阻塞。
+   */
+  private readonly libraryFlights = new Map<string, Promise<void>>();
+
+  /** 库目录前缀 -> 库名。清单由 scripts/build-assets.mjs 生成，不进 web-resources.zip。 */
+  private readonly libraryDirs: ReadonlyArray<{ prefix: string; name: string }> = [
+    { prefix: 'shared/assets/data/joseki', name: 'joseki-trie' },
+    { prefix: 'shared/assets/data/games/life-and-death', name: 'life-and-death' },
+    { prefix: 'shared/assets/data/games/ai-review', name: 'ai-review' },
+  ];
+
+  private static readonly LIBRARY_MANIFEST = 'library-files.json';
 
   // 按需下载回调
   onDemandCallback: {
@@ -164,6 +192,31 @@ export class AssetServer {
     }
 
     console.log(`[AssetServer] Cache miss: ${filePath}, downloading...`);
+
+    // 内置库：触发一次即整库全量串行下载（不再是只拉命中的那个文件）。
+    const lib = this.matchLibrary(filePath);
+    if (lib) {
+      this.ensureLibrary(lib.prefix, lib.name)
+        .then(() => {
+          if (fs.existsSync(cachedFile)) {
+            this.serveFile(cachedFile, res);
+          } else {
+            // 清单里不含该文件（如 quiz-* 被排除）：退回单文件按需下载
+            this.downloadAndServe(filePath, res);
+          }
+        })
+        .catch((err) => {
+          console.error(`[AssetServer] Library download failed (${lib.name}):`, err);
+          if (!res.headersSent) {
+            res.writeHead(404, { 'Content-Type': 'text/plain' });
+            res.end(`404 Not Found: ${filePath}`);
+          } else {
+            res.end();
+          }
+        });
+      return;
+    }
+
     this.downloadAndServe(filePath, res);
   }
 
@@ -185,6 +238,80 @@ export class AssetServer {
       console.error(`[AssetServer] Error serving file:`, err);
       res.end();
     });
+  }
+
+  /** 请求路径是否落在某个内置库目录内（按最长前缀匹配，题库与棋谱库分开）。 */
+  private matchLibrary(filePath: string): { prefix: string; name: string } | null {
+    const normalized = filePath.replace(/^\/+/, '').split('?')[0].replace(/\\/g, '/');
+    // 定式题库 quiz-* 与 trie 树同目录，但不纳入全量下载（用户 2026-11-17 明确排除）
+    if (path.basename(normalized).startsWith('quiz-')) return null;
+    const hit = this.libraryDirs
+      .filter(l => normalized === l.prefix || normalized.startsWith(l.prefix + '/'))
+      .sort((a, b) => b.prefix.length - a.prefix.length)[0];
+    return hit ?? null;
+  }
+
+  /**
+   * 确保某内置库已全量下载到本地（清单驱动补齐）。
+   *
+   * 只有缓存未命中才会走到这里，因此不能用「完成标记」短路——那样恰好会漏掉
+   * 触发本次请求的那个缺失文件。改为按清单逐个检查、缺哪个补哪个：
+   *   首次触发  -> 全部缺失，串行拉全（即「全量下载」）
+   *   下载中断  -> 下次只补剩下的，不重复下
+   *   库有新增  -> 补齐新文件
+   *   已完整    -> 仅本地 stat 检查，零网络请求
+   *
+   * 库级锁保证同一时刻该库只有一个补齐任务在跑；并发的其它业务共享同一个
+   * Promise、等待它完成后直接读本地缓存。库内【串行】await 逐个下载，绝不并发。
+   * 清单由 scripts/build-assets.mjs 生成，不进 web-resources.zip。
+   */
+  private ensureLibrary(prefix: string, name: string): Promise<void> {
+    const inFlight = this.libraryFlights.get(name);
+    if (inFlight) return inFlight;
+
+    const flight = this.doEnsureLibrary(prefix, name)
+      .finally(() => this.libraryFlights.delete(name));
+    this.libraryFlights.set(name, flight);
+    return flight;
+  }
+
+  private async doEnsureLibrary(prefix: string, name: string): Promise<void> {
+    const libDir = path.join(this.cacheDir, prefix);
+    console.log(`[AssetServer] Library ensure start: ${name}`);
+    const filename = `内置库 ${name}`;
+    this.onDemandCallback?.onDownloadStart(filename, -1);
+    try {
+      fs.mkdirSync(libDir, { recursive: true });
+
+      // 清单本身也按需下载
+      const manifestFile = path.join(libDir, AssetServer.LIBRARY_MANIFEST);
+      if (!fs.existsSync(manifestFile) || fs.statSync(manifestFile).size === 0) {
+        await this.downloadFileWithProgress(
+          `${this.remoteBase}/${prefix}/${AssetServer.LIBRARY_MANIFEST}`, manifestFile);
+      }
+      const payload = JSON.parse(fs.readFileSync(manifestFile, 'utf-8')) as { files?: string[] };
+      const files = (payload.files ?? []).filter(
+        f => f && !f.includes('..') && !f.startsWith('/'));
+      console.log(`[AssetServer] Library ${name} manifest: ${files.length} files`);
+
+      // 【关键】串行：await 逐个下载，绝不并发
+      let downloaded = 0;
+      for (let i = 0; i < files.length; i++) {
+        const rel = files[i];
+        const dest = path.join(libDir, rel);
+        if (fs.existsSync(dest) && fs.statSync(dest).size > 0) continue;
+        const encoded = rel.split('/').map(encodeURIComponent).join('/');
+        await this.downloadFileWithProgress(`${this.remoteBase}/${prefix}/${encoded}`, dest);
+        downloaded++;
+        console.log(`[AssetServer] Library ${name}: ${i + 1}/${files.length} ${rel}`);
+      }
+      console.log(`[AssetServer] Library ensure done: ${name} (${downloaded} downloaded, ${files.length} total)`);
+    } catch (err) {
+      console.error(`[AssetServer] Library ensure failed: ${name}`, err);
+      throw err;
+    } finally {
+      this.onDemandCallback?.onDownloadComplete(filename);
+    }
   }
 
   /**
@@ -220,10 +347,32 @@ export class AssetServer {
    * 带进度的下载文件
    */
   private async downloadFileWithProgress(
-    url: string, 
-    destFile: string, 
+    url: string,
+    destFile: string,
     progressCallback?: (loaded: number, total: number) => void
   ): Promise<void> {
+    // 每个目标文件一个 in-flight 下载：并发请求共享同一个 Promise，
+    // 不再各写一份 <dest>.tmp、各 rename 一次（这正是冲突来源）。
+    const key = path.resolve(destFile);
+    const inFlight = this.downloadFlights.get(key);
+    if (inFlight) return inFlight;
+
+    const flight = this.doDownloadFileWithProgress(url, destFile, progressCallback)
+      .finally(() => this.downloadFlights.delete(key));
+    this.downloadFlights.set(key, flight);
+    return flight;
+  }
+
+  /** 实际下载体：仅由 downloadFileWithProgress 取得「文件锁」后调用。 */
+  private async doDownloadFileWithProgress(
+    url: string,
+    destFile: string,
+    progressCallback?: (loaded: number, total: number) => void
+  ): Promise<void> {
+    // 二次检查：排队等待期间文件可能已被前一个下载写好，直接读缓存即可。
+    // 只认「非空」的已有文件：0 字节多半是上次中断留下的残 file，必须重下。
+    if (fs.existsSync(destFile) && fs.statSync(destFile).size > 0) return;
+
     const parentDir = path.dirname(destFile);
     if (!fs.existsSync(parentDir)) {
       fs.mkdirSync(parentDir, { recursive: true });
@@ -231,7 +380,8 @@ export class AssetServer {
 
     return new Promise((resolve, reject) => {
       const client = url.startsWith('https') ? https : http;
-      const tempFile = destFile + '.tmp';
+      // 唯一临时文件名：并发（或跨进程 / 上次崩溃残留）不会互相覆盖同一份 .tmp
+      const tempFile = `${destFile}.${process.pid}.${randomUUID()}.tmp`;
       const file = fs.createWriteStream(tempFile);
       let loadedBytes = 0;
       let totalBytes = 0;
@@ -243,7 +393,8 @@ export class AssetServer {
             file.close();
             fs.unlinkSync(tempFile);
             const fullUrl = location.startsWith('http') ? location : new URL(location, url).toString();
-            this.downloadFileWithProgress(fullUrl, destFile, progressCallback).then(resolve).catch(reject);
+            // 递归走实际体，绕开锁外壳：否则会命中当前 flight 自己而死锁
+            this.doDownloadFileWithProgress(fullUrl, destFile, progressCallback).then(resolve).catch(reject);
             return;
           }
         }
@@ -268,7 +419,20 @@ export class AssetServer {
 
         file.on('finish', () => {
           file.close();
-          fs.renameSync(tempFile, destFile);
+          try {
+            fs.renameSync(tempFile, destFile);
+          } catch (err) {
+            // 并发（或另一进程刚写好）时 rename 可能失败；若目标已是完整文件
+            // 则视为成功，避免把一个本可正常服务的请求误判为下载失败。
+            try {
+              if (!(fs.existsSync(destFile) && fs.statSync(destFile).size > 0)) throw err;
+              try { fs.unlinkSync(tempFile); } catch {}
+              console.log(`[AssetServer] rename lost race, target already present: ${destFile}`);
+            } catch (e2) {
+              reject(e2);
+              return;
+            }
+          }
           resolve();
         });
       }).on('error', (err) => {
@@ -279,50 +443,9 @@ export class AssetServer {
     });
   }
 
+  /** 不带进度的下载：直接复用带锁的下载路径，避免两套临时文件逻辑各自为政。 */
   private async downloadFile(url: string, destFile: string): Promise<void> {
-    const parentDir = path.dirname(destFile);
-    if (!fs.existsSync(parentDir)) {
-      fs.mkdirSync(parentDir, { recursive: true });
-    }
-
-    return new Promise((resolve, reject) => {
-      const client = url.startsWith('https') ? https : http;
-      const tempFile = destFile + '.tmp';
-      const file = fs.createWriteStream(tempFile);
-
-      client.get(url, { headers: { 'Accept-Encoding': 'identity' } }, (response) => {
-        if (response.statusCode === 301 || response.statusCode === 302 || response.statusCode === 307 || response.statusCode === 308) {
-          const location = response.headers.location;
-          if (location) {
-            file.close();
-            fs.unlinkSync(tempFile);
-            const fullUrl = location.startsWith('http') ? location : new URL(location, url).toString();
-            this.downloadFile(fullUrl, destFile).then(resolve).catch(reject);
-            return;
-          }
-        }
-
-        if (response.statusCode !== 200) {
-          file.close();
-          fs.unlinkSync(tempFile);
-          reject(new Error(`HTTP ${response.statusCode}`));
-          return;
-        }
-
-        response.pipe(file);
-
-        file.on('finish', () => {
-          file.close();
-          fs.renameSync(tempFile, destFile);
-          console.log(`[AssetServer] Downloaded: ${destFile}`);
-          resolve();
-        });
-      }).on('error', (err) => {
-        file.close();
-        try { fs.unlinkSync(tempFile); } catch {}
-        reject(err);
-      });
-    });
+    return this.downloadFileWithProgress(url, destFile);
   }
 
   /**
@@ -598,7 +721,8 @@ export class AssetServer {
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       const client = zipUrl.startsWith('https') ? https : http;
-      const tempFile = destFile + '.downloading';
+      // 唯一临时名：即便预加载被并发触发，也不会与另一路写同一份临时文件
+      const tempFile = `${destFile}.${process.pid}.${randomUUID()}.downloading`;
       const file = fs.createWriteStream(tempFile);
 
       client.get(zipUrl, { headers: { 'Accept-Encoding': 'identity' } }, (response) => {

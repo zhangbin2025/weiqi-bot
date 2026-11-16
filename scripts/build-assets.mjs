@@ -248,6 +248,82 @@ function listFilesRecursively(dir, baseDir = dir) {
 }
 
 /**
+ * 生成「内置库全量下载清单」（2026-11-17）
+ *
+ * 这些库仍是【运行时按需下载】——不进 web-resources.zip（见 PRELOAD_EXCLUDE_DIRS）。
+ * 但触发一次不再只拉命中的那一个文件，而是按本清单把整个库【串行】拉全：
+ * 多个业务并发首次用到同一库时，各自发起一轮单文件下载、写同名 <dest>.tmp
+ * 再 rename，会互相覆盖字节流 / 抢同一目标。全量 + 串行 + 库级锁解决该冲突。
+ *
+ * 三个库彼此独立触发（棋谱库 ≠ 题库 ≠ 定式 trie 树），不混在一起：
+ *   - games/ai-review       棋谱库
+ *   - games/life-and-death  题库
+ *   - joseki 的 trie 树     仅 trie-*.json.gz + trie-meta.json，排除 quiz-*
+ * 不处理：quiz-*、rankings、其余按需资源。
+ *
+ * 为何另出一份清单而不是直接复用现有 index：
+ *   games 的 index.json.gz + <date>.meta.json.gz 要解压两处才能拼出分块名；
+ *   joseki 的 trie 树是层层嵌套引用（trie-index 只引用 2 个，其余 60 个散在
+ *   子树里），没有中心清单。构建期直接列目录生成扁平文件名数组最可靠，
+ *   纯 JSON 免解压，体积只有几百字节，远低于服务器单文件限制。
+ *
+ * 清单落在各库目录内，而这些目录整体在 PRELOAD_EXCLUDE_DIRS 中，
+ * 因此不会混进 web-resources.zip —— 预加载包保持精简。
+ */
+const LIBRARIES = [
+  {
+    id: 'joseki-trie',
+    dir: 'shared/assets/data/joseki',
+    include: (name) => name.startsWith('trie-') || name === 'trie-meta.json',
+    note: '定式 trie 树（排除 quiz-*）',
+  },
+  {
+    id: 'life-and-death',
+    dir: 'shared/assets/data/games/life-and-death',
+    include: () => true,
+    note: '题库',
+  },
+  {
+    id: 'ai-review',
+    dir: 'shared/assets/data/games/ai-review',
+    include: () => true,
+    note: '棋谱库',
+  },
+];
+
+const LIBRARY_MANIFEST = 'library-files.json';
+
+function generateLibraryManifests() {
+  console.log('\n📋 生成内置库全量下载清单...\n');
+
+  const distDir = resolve(ROOT, 'dist-web');
+  let total = 0;
+
+  for (const lib of LIBRARIES) {
+    const root = join(distDir, lib.dir);
+    const files = listFilesRecursively(root)
+      .map(f => f.path)
+      .filter(name => name !== LIBRARY_MANIFEST && lib.include(name))
+      .sort();
+    if (files.length === 0) {
+      console.warn(`⚠️  [${lib.id}] 目录为空，跳过`);
+      continue;
+    }
+    const payload = {
+      id: lib.id,
+      dir: lib.dir,
+      generatedAt: new Date().toISOString(),
+      count: files.length,
+      files,
+    };
+    writeFileSync(join(root, LIBRARY_MANIFEST), JSON.stringify(payload, null, 2) + '\n');
+    console.log(`✅ [${lib.id}] ${lib.note}: ${files.length} 个文件 -> ${lib.dir}/${LIBRARY_MANIFEST}`);
+    total += files.length;
+  }
+  console.log(`✅ 清单生成完成，共 ${total} 个文件（不进 web-resources.zip）\n`);
+}
+
+/**
  * 生成 web-resources.zip
  * 
  * 将 dist-web/ 下需要预下载的文件（排除 models/、tfjs/、定式库、题库、
@@ -324,4 +400,5 @@ function generateWebResourcesZip() {
 copyResources();
 const version = generateVersionJson();
 addCacheBusting(version);
+generateLibraryManifests();
 generateWebResourcesZip();

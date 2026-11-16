@@ -5,7 +5,10 @@ import com.weiqi.app.util.Logger
 import fi.iki.elonen.NanoHTTPD
 import okhttp3.OkHttpClient
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 /**
  * AssetServer - HTTP 服务器
@@ -42,6 +45,21 @@ class AssetServer(
     private val fileServer = FileServer(context, client, cacheDir)
     private val proxyHandler = ProxyHandler(client, cacheDir)
 
+    /**
+     * 内置库【库级】下载锁：同一时刻同一库只允许一个全量下载在跑。
+     * 多个业务并发首次用到同一库（如定式探索 + 做题）时，其余请求在此等待，
+     * 等首个下载完成后直接读本地缓存，不再各自发起一轮下载。
+     * 不同库各自独立，互不阻塞。
+     */
+    private val libraryLocks = ConcurrentHashMap<String, ReentrantLock>()
+
+    /** 库目录前缀 -> 库名。清单由 scripts/build-assets.mjs 生成，不进 web-resources.zip。 */
+    private val libraryDirs = mapOf(
+        "shared/assets/data/joseki" to "joseki-trie",
+        "shared/assets/data/games/life-and-death" to "life-and-death",
+        "shared/assets/data/games/ai-review" to "ai-review"
+    )
+
     var onDemandCallback: OnDemandCallback?
         get() = fileServer.onDemandCallback
         set(value) {
@@ -62,6 +80,7 @@ class AssetServer(
     companion object {
         private const val TAG = "AssetServer"
         val DEFAULT_PORT: Int get() = AppConfig.localPort
+        private const val LIBRARY_MANIFEST = "library-files.json"
     }
 
     override fun serve(session: IHTTPSession): Response {
@@ -141,22 +160,120 @@ class AssetServer(
 
         val fileName = uri.substringAfterLast('/').substringBefore('?')
 
-        try {
+        // 内置库：触发一次即整库全量串行下载（不再是只拉命中的那个文件）。
+        // 库级锁保证同一库只有一个全量下载；不同库互不影响。
+        val lib = matchLibrary(uri)
+        if (lib != null) {
+            try {
+                ensureLibrary(lib.dirPrefix, lib.name)
+                if (cachedFile.exists()) return fileServer.serveFile(cachedFile)
+                // 清单里不含该文件（如 quiz-* 被排除）：退回单文件按需下载
+                return downloadSingle(uri, cachedFile, fileName)
+            } catch (e: Exception) {
+                Logger.e(TAG, "Error ensuring library ${lib.name} for $uri", e)
+                // 提示收尾已由 ensureLibrary 的 finally 负责
+                return newFixedLengthResponse(
+                    Response.Status.NOT_FOUND,
+                    "text/plain",
+                    "404 Not Found: $uri"
+                )
+            }
+        }
+
+        return downloadSingle(uri, cachedFile, fileName)
+    }
+
+    private data class Library(val dirPrefix: String, val name: String)
+
+    /** 请求路径是否落在某个内置库目录内（按最长前缀匹配，题库与棋谱库分开）。 */
+    private fun matchLibrary(uri: String): Library? {
+        val normalized = uri.trimStart('/').substringBefore('?')
+        // 定式题库 quiz-* 与 trie 树同目录，但不纳入全量下载（用户 2026-11-17 明确排除），
+        // 让它走原来的单文件按需下载即可。
+        if (normalized.substringAfterLast('/').startsWith("quiz-")) return null
+        return libraryDirs.entries
+            .filter { (prefix, _) -> normalized == prefix || normalized.startsWith("$prefix/") }
+            .maxByOrNull { it.key.length }
+            ?.let { Library(it.key, it.value) }
+    }
+
+    /** 单文件按需下载（非库资源，或库清单未收录的兜底路径）。 */
+    private fun downloadSingle(uri: String, cachedFile: File, fileName: String): NanoHTTPD.Response {
+        return try {
             val remoteUrl = AppConfig.remoteUrl(uri)
             onDemandCallback?.onDownloadStart(fileName, -1)
             fileServer.downloadFile(remoteUrl, cachedFile)
             onDemandCallback?.onDownloadComplete(fileName)
-            return fileServer.serveFile(cachedFile)
+            fileServer.serveFile(cachedFile)
         } catch (e: Exception) {
             Logger.e(TAG, "Error serving $uri", e)
             onDemandCallback?.onDownloadComplete(fileName)
-            return newFixedLengthResponse(
+            newFixedLengthResponse(
                 Response.Status.NOT_FOUND,
                 "text/plain",
                 "404 Not Found: $uri"
             )
         }
     }
+
+    /**
+     * 确保某内置库已全量下载到本地（清单驱动补齐）。
+     *
+     * 只有缓存未命中才会走到这里，因此不能用「完成标记」短路——那样恰好会漏掉
+     * 触发本次请求的那个缺失文件。改为按清单逐个检查、缺哪个补哪个：
+     *   首次触发  -> 全部缺失，串行拉全（即「全量下载」）
+     *   下载中断  -> 下次只补剩下的，不重复下
+     *   库有新增  -> 补齐新文件
+     *   已完整    -> 仅本地 stat 检查，零网络请求
+     *
+     * 库级锁保证同一时刻该库只有一个补齐任务在跑；并发的其它业务等待它完成后
+     * 直接读本地缓存。库内【串行】await 逐个下载，绝不并发。
+     * 清单由 scripts/build-assets.mjs 生成，不进 web-resources.zip。
+     */
+    private fun ensureLibrary(dirPrefix: String, name: String) {
+        val libDir = File(cacheDir, dirPrefix)
+        val lock = libraryLocks.computeIfAbsent(name) { ReentrantLock() }
+        lock.withLock {
+            Logger.i(TAG, "Library ensure start: $name")
+            onDemandCallback?.onDownloadStart("内置库 $name", -1)
+            try {
+                // 清单本身也按需下载
+                val manifestFile = File(libDir, LIBRARY_MANIFEST)
+                if (!manifestFile.exists() || manifestFile.length() == 0L) {
+                    fileServer.downloadFile(
+                        AppConfig.remoteUrl("$dirPrefix/$LIBRARY_MANIFEST"), manifestFile, false)
+                }
+                val files = parseManifest(manifestFile)
+                Logger.i(TAG, "Library $name manifest: ${files.size} files")
+
+                // 【关键】串行：一个文件下完再下下一个，绝不并发
+                var downloaded = 0
+                for ((i, rel) in files.withIndex()) {
+                    val dest = File(libDir, rel)
+                    if (dest.exists() && dest.length() > 0) continue
+                    val remotePath = "$dirPrefix/${encodePath(rel)}"
+                    fileServer.downloadFile(AppConfig.remoteUrl(remotePath), dest, false)
+                    downloaded++
+                    Logger.d(TAG, "Library $name: ${i + 1}/${files.size} $rel")
+                }
+                Logger.i(TAG, "Library ensure done: $name ($downloaded downloaded, ${files.size} total)")
+            } finally {
+                onDemandCallback?.onDownloadComplete("内置库 $name")
+            }
+        }
+    }
+
+    /** 解析 library-files.json（org.json 为 Android 内置，无需额外依赖）。 */
+    private fun parseManifest(file: File): List<String> {
+        val json = org.json.JSONObject(file.readText())
+        val arr = json.getJSONArray("files")
+        return (0 until arr.length()).map { arr.getString(it) }
+            .filter { it.isNotBlank() && !it.contains("..") && !it.startsWith("/") }
+    }
+
+    /** 逐段 URL 编码（保留 / 分隔符，兼容中文文件名）。 */
+    private fun encodePath(rel: String): String =
+        rel.split("/").joinToString("/") { java.net.URLEncoder.encode(it, "UTF-8") }
 
     /**
      * 启动时初始化：检查版本 + 预下载资源
