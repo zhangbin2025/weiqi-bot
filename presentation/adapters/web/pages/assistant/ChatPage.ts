@@ -5,9 +5,9 @@
  * 独立页面 assistant/chat.html 的控制器：
  * 复用功能助手的渲染器、会话存储、凭据与共享 CSS，不引入旧意图/命令体系。
  *
- * 页面由「模型角色」驱动（见 ChatRole）：默认闲聊，用户可在标题栏切换到
- * 插件开发。两个角色共用同一个标准 tool-calling agent loop：闲聊挂网页/PDF/
- * 图片工具，插件角色挂插件工具集（列/查/写/试算/启停/删除/应用/回滚等）。
+ * 页面由「模型角色」驱动（见 ChatRole）：默认闲聊，可切到插件开发 / 技能开发。
+ * 三个角色共用同一个标准 tool-calling agent loop：闲聊挂网页/PDF/图片工具，
+ * 插件角色挂插件工具集，技能开发是闲聊超集（额外挂 skill_list / skill_write）。
  * 角色只决定挂哪套工具与 system，不再按每句话猜意图，也没有两套循环。
  *
  * 角色固化在会话数据里（ChatSessionData.role），历史会话列表显示角色标识，
@@ -16,8 +16,9 @@
  * 插件数据来自独立工件存储，不来自会话历史 —— 新会话、老会话、会话清空后
  * LLM 都能看到并修改插件。装配失败时降级为「闲聊可用、插件角色给提示」。
  *
- * 右上角菜单五项：新建会话 / 历史会话 / 导出会话 / 清空会话 / 插件。
+ * 右上角菜单六项：新建会话 / 历史会话 / 导出会话 / 清空会话 / 插件 / 技能。
  * 「插件」是人工确认闸门：查看完整源码、复制、启停、删除都由用户显式操作。
+ * 「技能」列出本机自建与当前在线源的技能配方，可启停/删除/配置技能源。
  */
 
 import { AssistantRenderer } from './AssistantRenderer';
@@ -28,10 +29,17 @@ import { WebFileExporter } from '../../../../../infrastructure/utils/export/WebF
 import { WebDialog } from '../../components/Dialog';
 import { ChatUseCase, type LocalFileInput, type SkillDeps } from '../../../../../application/chat/ChatUseCase';
 import { createSkillRegistry } from '../../../../../application/skill/SkillRegistry';
+import type { SkillPrimitive, SkillRecipe } from '../../../../../application/skill/SkillTypes';
 import { createBasicPrimitives } from '../../../../../application/skill/primitives/BasicPrimitives';
 import { EVENT_PRIMITIVES } from '../../../../../application/skill/primitives/EventImportPrimitives';
+import { UserSkillStore, type UserSkillEntry } from '../../../../../application/skill/dev/UserSkillStore';
+import { createSkillDevKit } from '../../../../../application/skill/dev/SkillDevTools';
 import { openEventTableDialog } from './EventTableDialog';
-import { createDefaultSkillCatalog } from '../../../../../services/skill-catalog/SkillCatalogService';
+import {
+  createDefaultSkillCatalog, type SkillCatalogService,
+  type SkillCatalogBrowseResult,
+} from '../../../../../services/skill-catalog/SkillCatalogService';
+import { SkillCatalogSources, type SkillSource } from '../../../../../services/skill-catalog/SkillCatalogSources';
 import { clampTitle } from '../../../../../application/chat/SessionTitle';
 import { describeAttachment } from '../../../../../application/chat/ChatAttachment';
 import { OpenAIModelGateway } from '../../../../../infrastructure/llm/OpenAIModelGateway';
@@ -68,6 +76,14 @@ export class ChatPage {
   private pluginPanelFlash: { text: string; error: boolean } | undefined;
   /** 面板刷新序号：异步 list() 期间用户可能关掉/重开面板，旧结果必须丢弃 */
   private pluginPanelSeq = 0;
+  /** 技能编排服务：loadSkills / browse / 源管理 / 自建技能库共用同一实例 */
+  private skillCatalog: SkillCatalogService | undefined;
+  /** 宿主原语注册表：面板标注「在线技能引用了没有的原语」时复用 */
+  private skillPrimitives: ReadonlyMap<string, SkillPrimitive> | undefined;
+  /** 技能面板当前标签页；默认「我的技能」 */
+  private skillPanelTab: 'local' | 'online' = 'local';
+  private skillPanelFlash: { text: string; error: boolean } | undefined;
+  private skillPanelSeq = 0;
   /** 当前会话的模型角色。角色绑定会话，切换角色会新建会话。 */
   private currentRole: ChatRoleId = DEFAULT_ROLE_ID;
   /** 待发送的本地附件（发送瞬间清空；不进 DOM 的 base64） */
@@ -109,18 +125,24 @@ export class ChatPage {
       proxyUrl,
       timeoutMs: config?.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS,
     };
-    // 在线技能配方（仅闲聊角色生效）：
+    // 技能配方三层：内置兜底 + 当前在线源 + 本机自建（纯声明 JSON，零远程代码）。
     // - primitives 是宿主内置且固定的执行器注册表（基础 web 原语 + 赛事导入两阶段原语）；
-    // - catalog 只取 JSON 描述，配方引用的原语必须已在上表，缺一项整条跳过；
+    // - 自建技能库 / 在线源管理 / 面板 / 开发工具共用同一批实例；
     // - 取不到在线清单时自动回落内置配方，装配失败也不阻塞对话页。
     // 绝不在运行时加载 / 执行远程 JS。
-    const skillCatalog = createDefaultSkillCatalog();
+    const userSkills = new UserSkillStore();
+    const skillSources = new SkillCatalogSources();
+    this.skillCatalog = createDefaultSkillCatalog({ users: userSkills, sources: skillSources });
+    const skillPrimitives = createSkillRegistry([
+      ...createBasicPrimitives(webTools),
+      ...EVENT_PRIMITIVES,
+    ]);
+    this.skillPrimitives = skillPrimitives;
     const skillDeps: SkillDeps = {
-      loadSkills: () => skillCatalog.loadSkills(),
-      primitives: createSkillRegistry([
-        ...createBasicPrimitives(webTools),
-        ...EVENT_PRIMITIVES,
-      ]),
+      loadSkills: () => this.skillCatalog!.loadSkills(),
+      primitives: skillPrimitives,
+      // 只有「技能开发」角色会挂这俩工具；闲聊角色完全不接触
+      devKit: createSkillDevKit({ users: userSkills, primitives: skillPrimitives }),
     };
     this.useCase = new ChatUseCase(
       gateway,
@@ -219,6 +241,7 @@ export class ChatPage {
     document.getElementById('miExport')?.addEventListener('click', () => void this.exportCurrent());
     document.getElementById('miClear')?.addEventListener('click', () => void this.clearCurrent());
     document.getElementById('miPlugin')?.addEventListener('click', () => void this.showPluginPanel());
+    document.getElementById('miSkill')?.addEventListener('click', () => void this.showSkillPanel());
 
     // 标题栏角色选择器
     document.getElementById('roleBtn')?.addEventListener('click', (e) => {
@@ -1155,6 +1178,323 @@ export class ChatPage {
   private showPluginError(message: string): void {
     const body = document.getElementById('pluginPanelBody')
       ?? document.getElementById('pluginPanelRoot');
+    if (!body) return;
+    const tip = document.createElement('div');
+    tip.className = 'plugin-panel__empty';
+    tip.style.color = '#c23b3b';
+    tip.textContent = message;
+    body.prepend(tip);
+    setTimeout(() => tip.remove(), 3000);
+  }
+
+  // ---------- 技能管理面板 ----------
+  // 复用插件面板的 DOM helper（pluginAction / pluginPanelMessage 都是纯展示、无状态）
+  // 与 plugin-panel__* CSS，避免两套样式。配方全部用 textContent，绝不拼 innerHTML。
+
+  /** ⋮ →「🧠 技能」：两个标签共用同一个 dialog，默认「我的技能」 */
+  private async showSkillPanel(): Promise<void> {
+    this.toggleMenu(false);
+    void this.dialog.show({
+      type: 'custom',
+      title: '技能管理',
+      content:
+        '<div class="plugin-panel" id="skillPanelRoot">'
+        + '<div class="plugin-panel__tabs" id="skillPanelTabs">'
+        + '<button type="button" class="plugin-panel__tab" data-tab="local">我的技能</button>'
+        + '<button type="button" class="plugin-panel__tab" data-tab="online">在线技能</button>'
+        + '</div>'
+        + '<div class="plugin-panel__body" id="skillPanelBody"></div>'
+        + '</div>',
+      buttons: [{ id: 'close', text: '关闭' }],
+    });
+    document.getElementById('skillPanelTabs')
+      ?.querySelectorAll<HTMLButtonElement>('.plugin-panel__tab')
+      .forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const tab = btn.dataset['tab'];
+          if (tab === 'local' || tab === 'online') {
+            this.skillPanelTab = tab;
+            void this.refreshSkillPanel();
+          }
+        });
+      });
+    await this.refreshSkillPanel();
+  }
+
+  private async refreshSkillPanel(): Promise<void> {
+    const seq = ++this.skillPanelSeq;
+    const root = document.getElementById('skillPanelRoot');
+    const body = document.getElementById('skillPanelBody');
+    if (!root || !body) return;
+    root.querySelectorAll<HTMLButtonElement>('.plugin-panel__tab').forEach((btn) => {
+      btn.classList.toggle('plugin-panel__tab--active', btn.dataset['tab'] === this.skillPanelTab);
+    });
+    if (this.skillPanelTab === 'online') {
+      await this.refreshSkillOnlinePanel(body, seq);
+      return;
+    }
+    body.replaceChildren();
+    const catalog = this.skillCatalog;
+    if (!catalog) {
+      body.appendChild(this.pluginPanelMessage('技能系统未就绪。'));
+      this.applySkillFlash(body);
+      return;
+    }
+    let entries: UserSkillEntry[];
+    try {
+      entries = await catalog.userStore().list();
+    } catch (error) {
+      if (seq !== this.skillPanelSeq || !root.isConnected) return;
+      body.appendChild(this.pluginPanelMessage(
+        `读取自建技能失败：${error instanceof Error ? error.message : String(error)}`,
+      ));
+      this.applySkillFlash(body);
+      return;
+    }
+    if (seq !== this.skillPanelSeq || !root.isConnected) return;
+    if (document.getElementById('skillPanelBody') !== body) return;
+    if (entries.length === 0) {
+      body.appendChild(this.pluginPanelMessage(
+        '还没有本机自建技能。切到标题栏「🧠 技能开发」角色，用一句话描述需求即可让智能体创建。',
+      ));
+      this.applySkillFlash(body);
+      return;
+    }
+    for (const entry of entries) {
+      body.appendChild(this.buildUserSkillCard(entry, catalog));
+    }
+    this.applySkillFlash(body);
+  }
+
+  /** 在线技能标签：当前源 + 配方只读列表。browse 走网络，用 seq 防竞态 */
+  private async refreshSkillOnlinePanel(body: HTMLElement, seq: number): Promise<void> {
+    body.replaceChildren();
+    const catalog = this.skillCatalog;
+    if (!catalog) {
+      body.appendChild(this.pluginPanelMessage('技能系统未就绪。'));
+      return;
+    }
+    body.appendChild(this.pluginPanelMessage('正在读取技能源…'));
+    let result: SkillCatalogBrowseResult;
+    try {
+      result = await catalog.browse();
+    } catch (error) {
+      if (seq !== this.skillPanelSeq || !body.isConnected) return;
+      body.replaceChildren();
+      body.appendChild(this.pluginPanelMessage(
+        `读取技能源失败：${error instanceof Error ? error.message : String(error)}`,
+      ));
+      return;
+    }
+    if (seq !== this.skillPanelSeq || !body.isConnected) return;
+    if (document.getElementById('skillPanelBody') !== body) return;
+
+    body.replaceChildren();
+    if (result.error !== undefined) {
+      const tip = this.pluginPanelMessage(`源不可达：${result.error}`);
+      tip.style.color = '#c23b3b';
+      body.appendChild(tip);
+    }
+    body.appendChild(this.buildSkillSourceManager(catalog, result.source));
+    if (result.skills.length === 0) {
+      body.appendChild(this.pluginPanelMessage(
+        result.error !== undefined ? '暂时没有可显示的配方。' : '当前源里没有技能配方。',
+      ));
+    } else {
+      for (const recipe of result.skills) {
+        body.appendChild(this.buildOnlineSkillCard(recipe, result.source));
+      }
+    }
+    this.applySkillFlash(body);
+  }
+
+  /** 当前技能源面板：默认只显示一行，点「修改」展开配置（单源，可恢复官方默认） */
+  private buildSkillSourceManager(catalog: SkillCatalogService, source: SkillSource): HTMLElement {
+    const box = document.createElement('div');
+    box.className = 'plugin-panel__sources';
+    const head = document.createElement('div');
+    head.className = 'plugin-panel__sources-head';
+    const info = document.createElement('span');
+    info.className = 'plugin-panel__source-current';
+    info.textContent = source.official ? `官方 · ${source.url}` : source.url;
+    const editBtn = this.pluginAction('修改', () => {
+      config.hidden = !config.hidden;
+      editBtn.textContent = config.hidden ? '修改' : '收起';
+      if (!config.hidden) input.focus();
+    }, 'plugin-panel__primary');
+    head.append(info, editBtn);
+    box.appendChild(head);
+
+    const config = document.createElement('div');
+    config.className = 'plugin-panel__source-config';
+    config.hidden = true;
+    const row = document.createElement('div');
+    row.className = 'plugin-panel__source-add';
+    const input = document.createElement('input');
+    input.type = 'url';
+    input.value = source.url;
+    input.className = 'plugin-panel__source-input';
+    const saveBtn = this.pluginAction('保存', () => {
+      const raw = input.value.trim();
+      if (!raw) return;
+      void (async () => {
+        try {
+          await catalog.setSource(raw);
+          this.skillPanelFlash = { text: '技能源已更新', error: false };
+          await this.refreshSkillPanel();
+        } catch (error) {
+          this.showSkillError(`保存失败：${error instanceof Error ? error.message : String(error)}`);
+        }
+      })();
+    }, 'plugin-panel__primary');
+    row.append(input, saveBtn);
+    config.appendChild(row);
+    if (!source.official) {
+      config.appendChild(this.pluginAction('恢复官方默认源', () => {
+        void (async () => {
+          try {
+            await catalog.resetSource();
+            this.skillPanelFlash = { text: '已恢复官方默认源', error: false };
+            await this.refreshSkillPanel();
+          } catch (error) {
+            this.showSkillError(`恢复失败：${error instanceof Error ? error.message : String(error)}`);
+          }
+        })();
+      }));
+    }
+    const hint = document.createElement('div');
+    hint.className = 'plugin-panel__sources-hint';
+    hint.textContent = '自定义源内容未经官方审核；技能配方只声明宿主已有的原语，绝不执行远程代码。';
+    config.appendChild(hint);
+    box.appendChild(config);
+    return box;
+  }
+
+  /** 配方卡片共用部分：名称 / 状态 / 元信息 / 触发词 / 原语 / 摘要 */
+  private buildSkillCardHead(recipe: SkillRecipe, state: { text: string; on: boolean }): HTMLElement {
+    const card = document.createElement('div');
+    card.className = 'plugin-panel__card';
+    const head = document.createElement('div');
+    head.className = 'plugin-panel__head';
+    const name = document.createElement('span');
+    name.className = 'plugin-panel__name';
+    name.textContent = recipe.name;
+    const badge = document.createElement('span');
+    badge.className = `plugin-panel__state${state.on ? ' plugin-panel__state--on' : ''}`;
+    badge.textContent = state.text;
+    head.append(name, badge);
+    card.appendChild(head);
+
+    const meta = document.createElement('div');
+    meta.className = 'plugin-panel__meta';
+    meta.textContent = `${recipe.id} · v${recipe.version} · 原语：${recipe.primitives.join('、')}`;
+    card.appendChild(meta);
+    const triggers = document.createElement('div');
+    triggers.className = 'plugin-panel__meta';
+    triggers.textContent = `触发词：${recipe.triggers.join('、')}`;
+    card.appendChild(triggers);
+    const intent = document.createElement('div');
+    intent.className = 'plugin-panel__intent';
+    intent.textContent = recipe.summary;
+    card.appendChild(intent);
+    return card;
+  }
+
+  /** 本机自建卡片：查看配方 / 启停 / 删除（内联二次确认） */
+  private buildUserSkillCard(entry: UserSkillEntry, catalog: SkillCatalogService): HTMLElement {
+    const recipe = entry.recipe;
+    const unknown = recipe.primitives.filter((n) => !this.skillPrimitives?.has(n));
+    const state = unknown.length > 0
+      ? { text: `不可用（缺原语 ${unknown.join('、')}）`, on: false }
+      : { text: entry.enabled ? '已启用' : '停用', on: entry.enabled };
+    const card = this.buildSkillCardHead(recipe, state);
+    const actions = document.createElement('div');
+    actions.className = 'plugin-panel__actions';
+
+    actions.appendChild(this.pluginAction('查看配方', () => {
+      const existing = card.querySelector('.plugin-panel__code');
+      if (existing) {
+        existing.remove();
+        return;
+      }
+      const pre = document.createElement('pre');
+      pre.className = 'plugin-panel__code';
+      pre.textContent = JSON.stringify(recipe, null, 2);
+      card.appendChild(pre);
+    }));
+
+    actions.appendChild(this.pluginAction(entry.enabled ? '停用' : '启用', () => {
+      void (async () => {
+        try {
+          await catalog.userStore().setEnabled(recipe.id, !entry.enabled);
+          await this.refreshSkillPanel();
+        } catch (error) {
+          this.showSkillError(`操作失败：${error instanceof Error ? error.message : String(error)}`);
+        }
+      })();
+    }));
+
+    actions.appendChild(this.pluginAction('删除', () => {
+      actions.replaceChildren();
+      const tip = document.createElement('span');
+      tip.textContent = '确认删除该自建技能？';
+      tip.style.cssText = 'color:#c23b3b;font-size:12px;align-self:center;';
+      actions.appendChild(tip);
+      actions.appendChild(this.pluginAction('确认删除', () => {
+        void (async () => {
+          try {
+            await catalog.userStore().remove(recipe.id);
+            this.skillPanelFlash = { text: '已删除自建技能', error: false };
+            await this.refreshSkillPanel();
+          } catch (error) {
+            this.showSkillError(`删除失败：${error instanceof Error ? error.message : String(error)}`);
+          }
+        })();
+      }, 'plugin-panel__danger'));
+      actions.appendChild(this.pluginAction('取消', () => void this.refreshSkillPanel()));
+    }, 'plugin-panel__danger'));
+
+    card.appendChild(actions);
+    return card;
+  }
+
+  /** 在线源里的配方：只读，标注「可用 / 引用了宿主没有的原语→不可用」与来源 */
+  private buildOnlineSkillCard(recipe: SkillRecipe, source: SkillSource): HTMLElement {
+    const unknown = recipe.primitives.filter((n) => !this.skillPrimitives?.has(n));
+    const origin = source.official ? '官方源' : '自定义源';
+    const state = unknown.length > 0
+      ? { text: `不可用 · 缺 ${unknown.join('、')}`, on: false }
+      : { text: `可用 · ${origin}`, on: true };
+    const card = this.buildSkillCardHead(recipe, state);
+    const actions = document.createElement('div');
+    actions.className = 'plugin-panel__actions';
+    actions.appendChild(this.pluginAction('查看配方', () => {
+      const existing = card.querySelector('.plugin-panel__code');
+      if (existing) {
+        existing.remove();
+        return;
+      }
+      const pre = document.createElement('pre');
+      pre.className = 'plugin-panel__code';
+      pre.textContent = JSON.stringify(recipe, null, 2);
+      card.appendChild(pre);
+    }));
+    card.appendChild(actions);
+    return card;
+  }
+
+  private applySkillFlash(body: HTMLElement): void {
+    const flash = this.skillPanelFlash;
+    this.skillPanelFlash = undefined;
+    if (flash === undefined) return;
+    const tip = this.pluginPanelMessage(flash.text);
+    if (flash.error) tip.style.color = '#c23b3b';
+    body.prepend(tip);
+  }
+
+  private showSkillError(message: string): void {
+    const body = document.getElementById('skillPanelBody')
+      ?? document.getElementById('skillPanelRoot');
     if (!body) return;
     const tip = document.createElement('div');
     tip.className = 'plugin-panel__empty';

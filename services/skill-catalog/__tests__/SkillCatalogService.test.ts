@@ -12,6 +12,19 @@ import {
   parseSkillRegistry,
 } from '@application/skill/SkillRecipe';
 import { SkillCatalogService } from '../SkillCatalogService';
+import { UserSkillStore } from '@application/skill/dev/UserSkillStore';
+import type { SkillRecipe } from '@application/skill/SkillTypes';
+
+/** 内存版 localStorage 桩，供三层合并测试注入（不碰真实 localStorage） */
+function memLocalStorage() {
+  const data = new Map<string, unknown>();
+  return {
+    initialize: async () => {},
+    read: async <T>(key: string) => (data.has(key) ? (data.get(key) as T) : null),
+    write: async <T>(key: string, value: T) => { data.set(key, value); },
+    delete: async (key: string) => { data.delete(key); },
+  };
+}
 
 /** 注入的在线源：公网 https，能通过 validateRegistryUrl（不打真实网络） */
 const ONLINE_URL = 'https://assets.example.com/skills/registry.json';
@@ -58,6 +71,24 @@ function fetchReturning(body: unknown): typeof fetch {
 
 function catalogWith(fetchImpl: typeof fetch): SkillCatalogService {
   return new SkillCatalogService({ fetchImpl, onlineUrl: ONLINE_URL });
+}
+
+/** 三层合并用的本地库：内存 localStorage 桩，不碰真实存储 */
+function usersWithMem(): UserSkillStore {
+  return new UserSkillStore({ localStorage: memLocalStorage() as never });
+}
+
+/** 以内置模板构造一条自建配方（user. 前缀，宿主合法原语名） */
+function userRecipe(overrides: Record<string, unknown> = {}): SkillRecipe {
+  return recipe({
+    id: 'user.mine', name: '我的技能', summary: '自建摘要',
+    triggers: ['我的'], primitives: ['web_fetch'], prompt: '自建提示',
+    ...overrides,
+  }) as unknown as SkillRecipe;
+}
+
+function catalogWithUsers(fetchImpl: typeof fetch, users: UserSkillStore): SkillCatalogService {
+  return new SkillCatalogService({ fetchImpl, onlineUrl: ONLINE_URL, users });
 }
 
 describe('SkillCatalogService.loadSkills — 内置兜底', () => {
@@ -209,5 +240,77 @@ describe('parseSkillRegistry 拒绝非法配方', () => {
     expect(parseSkillRegistry({ schemaVersion: 1, name: 'x', skills: [] }).ok).toBe(false);
     expect(parseSkillRegistry(registryOf([recipe({ prompt: 42 })])).ok).toBe(false);
     expect(parseSkillRecipe(null).ok).toBe(false);
+  });
+});
+
+/**
+ * 三层合并：内置 → 在线 → 本地自建（用户自己的优先、即时生效）。
+ * 在线用 fetchImpl 打桩，本地库用内存 localStorage 桩，都不触碰真实资源。
+ */
+describe('SkillCatalogService.loadSkills — 三层合并（内置/在线/本地自建）', () => {
+  const emptyOnline = fetchReturning(registryOf([]));
+
+  it('本地自建技能叠加在内置之上，内置两条仍在', async () => {
+    const users = usersWithMem();
+    const parsed = parseSkillRecipe(userRecipe());
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) await users.save(parsed.skill);
+
+    const skills = await catalogWithUsers(emptyOnline, users).loadSkills();
+    const ids = skills.map((s) => s.id);
+    expect(ids).toContain('event.import-pairing-image');
+    expect(ids).toContain('puzzle.tsumego');
+    expect(ids).toContain('user.mine');
+    expect(skills.find((s) => s.id === 'user.mine')?.summary).toBe('自建摘要');
+  });
+
+  it('停用的自建技能不进入合并结果，内置/在线照常工作', async () => {
+    const users = usersWithMem();
+    const parsed = parseSkillRecipe(userRecipe());
+    if (parsed.ok) await users.save(parsed.skill);
+    await users.setEnabled('user.mine', false);
+
+    const skills = await catalogWithUsers(emptyOnline, users).loadSkills();
+    expect(skills.map((s) => s.id)).not.toContain('user.mine');
+    expect(skills.map((s) => s.id)).toContain('event.import-pairing-image');
+  });
+
+  it('本地自建同 id 优先于在线/内置的高版本（用户自己的即时生效）', async () => {
+    const users = usersWithMem();
+    const parsed = parseSkillRecipe(userRecipe({ id: 'user.mine', version: 1 }));
+    if (parsed.ok) await users.save(parsed.skill);
+    // 在线源故意给同一 id 一个更高版本
+    const online = fetchReturning(registryOf([
+      recipe({ id: 'user.mine', version: 99, summary: '在线覆盖版', primitives: ['web_fetch'] }),
+    ]));
+
+    const skills = await catalogWithUsers(online, users).loadSkills();
+    expect(skills.find((s) => s.id === 'user.mine')?.summary).toBe('自建摘要');
+  });
+
+  it('在线源失败（抛错）时本地自建仍然生效，静默降级不抛到调用方', async () => {
+    const users = usersWithMem();
+    const parsed = parseSkillRecipe(userRecipe());
+    if (parsed.ok) await users.save(parsed.skill);
+    const offline = (async () => { throw new Error('offline'); }) as unknown as typeof fetch;
+
+    const skills = await catalogWithUsers(offline, users).loadSkills();
+    expect(skills.map((s) => s.id)).toContain('user.mine');
+    expect(skills.map((s) => s.id)).toContain('event.import-pairing-image');
+  });
+
+  it('browse() 只读列出当前在线源配方；源不可达时给中文 reason', async () => {
+    const online = fetchReturning(registryOf([
+      recipe({ id: 'online.a', name: '在线 A', primitives: ['web_fetch'] }),
+    ]));
+    const ok = await catalogWithUsers(online, usersWithMem()).browse();
+    expect(ok.error).toBeUndefined();
+    expect(ok.source.official).toBe(true);
+    expect(ok.skills.map((s) => s.id)).toEqual(['online.a']);
+
+    const offline = (async () => { throw new Error('DNS 挂了'); }) as unknown as typeof fetch;
+    const bad = await catalogWithUsers(offline, usersWithMem()).browse();
+    expect(bad.skills).toEqual([]);
+    expect(bad.error).toContain('DNS 挂了');
   });
 });

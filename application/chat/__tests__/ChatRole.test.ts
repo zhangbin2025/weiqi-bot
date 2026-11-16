@@ -25,6 +25,16 @@ describe('CHAT_ROLES 角色表', () => {
     expect(plugin.label).toBe('插件开发');
   });
 
+  it('技能开发角色是闲聊超集：不挂插件工具、开启开发能力', () => {
+    const dev = getRole('skill-dev');
+    expect(dev.agent).toBe(false);      // 不误走 plugin ToolKit
+    expect(dev.skillDev).toBe(true);   // 挂 skill_list / skill_write
+    expect(dev.trace).toBe(false);     // 沿用闲聊，不改过程块语义
+    expect(dev.label).toBe('技能开发');
+    expect(getRole('chat').skillDev).toBe(false);
+    expect(getRole('plugin').skillDev).toBe(false);
+  });
+
   it('每个角色都有完整的展示信息（选择器直接用，不散落硬编码）', () => {
     for (const r of CHAT_ROLES) {
       expect(r.id).toBeTruthy();
@@ -56,6 +66,7 @@ describe('getRole / parseRoleId', () => {
   it('parseRoleId 只接受表里的合法 id', () => {
     expect(parseRoleId('chat')).toBe('chat');
     expect(parseRoleId('plugin')).toBe('plugin');
+    expect(parseRoleId('skill-dev')).toBe('skill-dev');
     expect(parseRoleId('CHAT')).toBeUndefined();
     expect(parseRoleId('')).toBeUndefined();
     expect(parseRoleId(undefined)).toBeUndefined();

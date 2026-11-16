@@ -22,7 +22,7 @@
  * - 过程块懒建：纯闲聊、plugin 角色纯问答（无工具调用）都不挂空壳。
  */
 
-import type { IModelGateway, ModelMessage, ModelPart } from '../model/IModelGateway';
+import type { IModelGateway, ModelMessage, ModelPart, ModelToolDefinition } from '../model/IModelGateway';
 import type { ChatHistoryManager } from '../assistant/ChatHistoryManager';
 import type { IMessageRenderer } from '../assistant/IMessageRenderer';
 import type { ChatAttachment } from './ChatAttachment';
@@ -38,6 +38,7 @@ import { createWebToolKit } from './WebToolLoop';
 import type { WebFetchToolDeps } from './WebFetchTool';
 import { safeReply } from './safeReply';
 import type { SkillPrimitive, SkillRecipe } from '../skill/SkillTypes';
+import type { SkillDevKit } from '../skill/dev/SkillDevTools';
 import { selectSkills } from '../skill/SkillSelector';
 import { buildSkillToolParts } from '../skill/SkillRegistry';
 import { buildSkillSystemPrompt } from '../skill/SkillSystemPrompt';
@@ -63,10 +64,15 @@ export function isSlashCommand(text: string): boolean {
  * 由 selectSkills 整条跳过（在线允许领先宿主版本）。
  */
 export interface SkillDeps {
-  /** 每条用户消息调用一次，返回内置 + 在线合并后的配方清单；失败应自行回落内置 */
+  /** 每条用户消息调用一次，返回内置 + 在线 + 本地自建合并后的配方清单；失败应自行回落内置 */
   loadSkills(): Promise<SkillRecipe[]>;
   /** 宿主原语注册表：name → 声明 + 执行器 */
   primitives: ReadonlyMap<string, SkillPrimitive>;
+  /**
+   * 可选：技能开发角色的增量工具集（skill_list / skill_write + 开发 system 片段）。
+   * 只有当前角色是 skill-dev 时才挂；闲聊角色完全不接触（零额外 token）。
+   */
+  devKit?: SkillDevKit;
 }
 
 /** 本地附件的宿主输入形状（只用到 File 的这三个成员，便于测试注入） */
@@ -205,8 +211,10 @@ export class ChatUseCase {
       : text;
 
     // 角色在发送这一刻确定，整条消息只走这一条路径。
+    // skill-dev 是闲聊超集：usePlugin=false，但多挂一套开发工具与开发 system。
     const role = getRole(this.roleProvider?.() ?? 'chat');
     const usePlugin = role.agent;
+    const devMode = role.skillDev;
 
     // 本地附件：宿主在发送瞬间预处理，不劳模型「决定」读取。
     const local = options?.files?.length
@@ -276,7 +284,7 @@ export class ChatUseCase {
 
     this.renderer.showTyping();
     try {
-      const result = await this.runTurn(usePlugin, local.parts, onTrace);
+      const result = await this.runTurn(usePlugin, devMode, local.parts, onTrace);
 
       // 工具这一轮读到的资源落进用户消息，下一轮追问能重放。
       // 用 duck typing 兼容旧实现 / 测试替身：没有该方法就跳过，不抛错。
@@ -339,6 +347,7 @@ export class ChatUseCase {
    */
   private async runTurn(
     usePlugin: boolean,
+    devMode: boolean,
     localParts: ModelPart[],
     onTrace?: (step: PluginTraceStep) => void,
   ): Promise<ToolLoopResult> {
@@ -374,7 +383,7 @@ export class ChatUseCase {
     const kit: ToolKit = usePlugin
       ? this.pluginToolKit!
       : this.skills
-        ? await this.buildChatToolKit(messages, localParts.length > 0)
+        ? await this.buildChatToolKit(messages, localParts.length > 0, devMode)
         : createWebToolKit(this.webTools!);
     const source: PluginTraceStep['source'] = usePlugin ? 'plugin' : 'web';
 
@@ -396,15 +405,21 @@ export class ChatUseCase {
   }
 
   /**
-   * 拼装 chat 角色本轮的工具集：
+   * 拼装 chat / skill-dev 角色本轮的工具集：
    * - 基础 web 工具（3 个）恒定挂载，行为与旧版一致；
    * - 命中技能引用的原语按 name 去重后追加（基础工具优先，避免同名执行器被覆盖）；
    * - system 由 buildSkillSystemPrompt 在 CONVERSATION_SYSTEM_PROMPT 之上补本轮技能说明；
-   *   无命中时原样返回基础 system，模型看到的上下文与旧版逐字相同。
+   *   闲聊无命中时原样返回基础 kit（无 systemPrompt，模型上下文与旧版逐字相同）。
+   * - skill-dev 是闲聊超集：在上面之上再追加 skill_list / skill_write 与一段开发说明，
+   *   并始终返回拼接后的完整 system（ToolLoop 的 systemPrompt 是替换制）。
    *
    * 在线清单取用失败不阻塞对话：loadSkills 内部已回落内置，外层再兜一次异常。
    */
-  private async buildChatToolKit(messages: ModelMessage[], hasNewParts: boolean): Promise<ToolKit> {
+  private async buildChatToolKit(
+    messages: ModelMessage[],
+    hasNewParts: boolean,
+    devMode: boolean,
+  ): Promise<ToolKit> {
     const base = createWebToolKit(this.webTools!);
     let recipes: readonly SkillRecipe[] = [];
     try {
@@ -417,23 +432,29 @@ export class ChatUseCase {
     // 20 条消息窗口（沿用既有 maxMessages，不另设过期时间/阈值）。
     const contextHasImage = hasNewParts || hasImagePart(messages);
     const active = selectSkills(lastUserText(messages), contextHasImage, recipes, this.skills!.primitives);
-    if (active.length === 0) return base;
+    const dev = devMode ? this.skills?.devKit : undefined;
+
+    // 闲聊且无命中：逐字返回基础 kit（零额外 token、无 systemPrompt 覆盖）
+    if (active.length === 0 && !dev) return base;
 
     const parts = buildSkillToolParts(active, this.skills!.primitives);
     const tools = [...base.tools];
     const executors: Record<string, ToolExecutor> = { ...base.executors };
-    for (const t of parts.tools) {
-      const exec = parts.executors[t.name];
+    const appendTool = (t: ModelToolDefinition, exec: ToolExecutor | undefined): void => {
       if (exec && !executors[t.name]) {
         tools.push(t);
         executors[t.name] = exec;
       }
-    }
-    return {
-      tools,
-      executors,
-      systemPrompt: buildSkillSystemPrompt(CONVERSATION_SYSTEM_PROMPT, active),
     };
+    for (const t of parts.tools) appendTool(t, parts.executors[t.name]);
+
+    // 基础 system：闲聊 system + 本轮命中技能说明（active 为空时就是闲聊 system 本身）
+    let systemPrompt = buildSkillSystemPrompt(CONVERSATION_SYSTEM_PROMPT, active);
+    if (dev) {
+      for (const t of dev.tools) appendTool(t, dev.executors[t.name]);
+      systemPrompt = `${systemPrompt}\n\n${dev.systemSuffix}`;
+    }
+    return { tools, executors, systemPrompt };
   }
 
   /** 提示类消息：只渲染，绝不写历史 */

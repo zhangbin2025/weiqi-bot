@@ -13,6 +13,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ChatPage } from '../ChatPage';
+import { CHAT_ROLES } from '@application/chat/ChatRole';
 
 interface Harness {
   page: ChatPage & Record<string, unknown>;
@@ -169,8 +170,10 @@ describe('角色 UI：锁定态与历史列表徽标', () => {
     expect(btn.classList.contains('role-btn--locked')).toBe(true);
     expect(doc.querySelector('.role-menu__hint')).not.toBeNull();
     const opts = [...doc.querySelectorAll('.role-option')];
-    expect(opts).toHaveLength(2);
-    expect(opts.filter((o) => (o as HTMLButtonElement).disabled)).toHaveLength(1);
+    // 角色数量来自唯一来源 CHAT_ROLES，不再硬编码「两个角色」
+    expect(opts).toHaveLength(CHAT_ROLES.length);
+    // 锁定态：除当前角色外全部禁用
+    expect(opts.filter((o) => (o as HTMLButtonElement).disabled)).toHaveLength(CHAT_ROLES.length - 1);
   });
 
   it('空会话按钮是 ▾、无锁定提示、所有角色可选', () => {

@@ -24,6 +24,7 @@ import type { IMessageRenderer } from '../../assistant/IMessageRenderer';
 import { BUILTIN_SKILLS } from '../../skill/BuiltinSkills';
 import { createSkillRegistry } from '../../skill/SkillRegistry';
 import { createBasicPrimitives } from '../../skill/primitives/BasicPrimitives';
+import type { SkillDevKit } from '../../skill/dev/SkillDevTools';
 
 function makeRenderer() {
   return {
@@ -511,5 +512,98 @@ describe('ChatUseCase.send — 做题链接由宿主注入', () => {
     // 历史 assistant 文本里没有任何链接 / & 实体 —— 第二轮模型无从照抄旧链接
     const stored = hist.store as Array<{ content: string }>;
     expect(stored.every((m) => !m.content.includes('http') && !m.content.includes('&'))).toBe(true);
+  });
+});
+
+/**
+ * 技能开发角色 = 闲聊超集：同一个 tool-calling loop，只在 chat 工具集上
+ * 追加 skill_list / skill_write 与一段开发 system；闲聊角色零开发能力。
+ */
+describe('ChatUseCase.send — 技能开发角色（闲聊超集）', () => {
+  const webDeps = {
+    proxyUrl: 'https://api.weiqi.lol', timeoutMs: 60_000,
+    fetchImpl: vi.fn() as unknown as typeof fetch,
+  };
+
+  function devKitStub(): SkillDevKit {
+    return {
+      tools: [
+        { name: 'skill_list', description: '列出自建技能', parameters: { type: 'object' } },
+        { name: 'skill_write', description: '写自建技能', parameters: { type: 'object' } },
+      ],
+      executors: {
+        skill_list: async () => ({ observation: '空', ok: true, detail: '列出' }),
+        skill_write: async () => ({ observation: '已保存', ok: true, detail: '保存' }),
+      },
+      systemSuffix: '【技能开发能力】测试片段',
+    };
+  }
+
+  function makeWithRole(gw: IModelGateway, roleId: ChatRoleId) {
+    const r = makeRenderer();
+    const hist = makeHistory();
+    const primitives = createSkillRegistry(createBasicPrimitives(webDeps));
+    const skills = {
+      loadSkills: async () => BUILTIN_SKILLS,
+      primitives,
+      devKit: devKitStub(),
+    };
+    return {
+      r,
+      uc: new ChatUseCase(gw, hist, r, undefined, () => roleId, webDeps, skills),
+    };
+  }
+
+  function firstRequest(gw: ReturnType<typeof makeGateway>) {
+    return gw.execute.mock.calls[0]![0] as {
+      tools?: Array<{ name: string }>;
+      messages: Array<{ role: string; content: string }>;
+    };
+  }
+
+  it('闲聊角色：不挂开发两工具，system 是纯闲聊 system', async () => {
+    const gw = makeGateway();
+    const { uc } = makeWithRole(gw, 'chat');
+    await uc.send('你好');
+    const req = firstRequest(gw);
+    const names = (req.tools ?? []).map((t) => t.name);
+    expect(names).not.toContain('skill_list');
+    expect(names).not.toContain('skill_write');
+    expect(req.messages[0]!.content).toBe(CONVERSATION_SYSTEM_PROMPT);
+  });
+
+  it('技能开发角色：闲聊 3 个 web 工具仍在，且多出 skill_list / skill_write', async () => {
+    const gw = makeGateway();
+    const { uc } = makeWithRole(gw, 'skill-dev');
+    await uc.send('帮我造个技能');
+    const req = firstRequest(gw);
+    const names = (req.tools ?? []).map((t) => t.name);
+    expect(names).toContain('web_fetch');
+    expect(names).toContain('web_read_pdf');
+    expect(names).toContain('web_read_image');
+    expect(names).toContain('skill_list');
+    expect(names).toContain('skill_write');
+  });
+
+  it('技能开发角色：system 拼接了闲聊 system + 开发片段（替换制，不丢闲聊上下文）', async () => {
+    const gw = makeGateway();
+    const { uc } = makeWithRole(gw, 'skill-dev');
+    await uc.send('帮我造个技能');
+    const sys = firstRequest(gw).messages[0]!.content;
+    expect(sys.startsWith(CONVERSATION_SYSTEM_PROMPT)).toBe(true);
+    expect(sys).toContain('【技能开发能力】测试片段');
+  });
+
+  it('技能开发角色命中配方时：原语 + 开发工具都挂上，system 三段齐全', async () => {
+    const gw = makeGateway();
+    const { uc } = makeWithRole(gw, 'skill-dev');
+    await uc.send('做3K官子题'); // 命中内置 puzzle.tsumego
+    const req = firstRequest(gw);
+    const names = (req.tools ?? []).map((t) => t.name);
+    expect(names).toContain('navigate_to'); // 命中配方引用的原语
+    expect(names).toContain('skill_write'); // 开发工具仍在
+    const sys = req.messages[0]!.content;
+    expect(sys.startsWith(CONVERSATION_SYSTEM_PROMPT)).toBe(true);
+    expect(sys).toContain('【技能开发能力】测试片段');
   });
 });

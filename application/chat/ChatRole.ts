@@ -10,13 +10,15 @@
  * - chat（默认）：挂网页/PDF/图片工具，model 自主决定是否访问网络，没有插件写权限。
  * - plugin：挂插件工具集，注入实时插件清单 + 沙箱契约，能真实执行查看/编写/
  *   试算/启停/删除/应用/回滚等动作（全部是标准 tool_calls）。
+ * - skill-dev：闲聊的超集，额外挂 skill_list / skill_write 两个开发工具与一段
+ *   开发说明，可在本机会话里创建/修订技能配方并当场验收；不常用。
  *
  * 扩展性：新增角色只需在 ROLES 里加一项（id / label / hint / 能力开关）并给
  * ChatUseCase 配一套 ToolKit，不需要再堆 if/else 猜措辞，也不需要新循环。
  */
 
 /** 角色 id。字符串枚举便于持久化到 localStorage / 会话元数据。 */
-export type ChatRoleId = 'chat' | 'plugin';
+export type ChatRoleId = 'chat' | 'plugin' | 'skill-dev';
 
 export interface ChatRoleConfig {
   id: ChatRoleId;
@@ -33,7 +35,9 @@ export interface ChatRoleConfig {
    * 为 false 时该角色完全不接触插件系统。
    */
   agent: boolean;
-  /** 是否展示过程日志（两个角色都按「真的执行过工具」懒建） */
+  /** 是否为「技能开发」角色（闲聊超集，额外挂 skill_list / skill_write） */
+  skillDev: boolean;
+  /** 是否展示过程日志（各角色都按「真的执行过工具」懒建） */
   trace: boolean;
 }
 
@@ -45,10 +49,11 @@ export const CHAT_ROLES: readonly ChatRoleConfig[] = [
   {
     id: 'chat',
     label: '闲聊',
-    description: '围棋与日常聊天，纯对话，不接触插件系统',
+    description: '围棋与日常聊天，纯对话，不接触插件/技能开发',
     icon: '💬',
     placeholder: '继续对话…',
     agent: false,
+    skillDev: false,
     trace: false,
   },
   {
@@ -58,7 +63,18 @@ export const CHAT_ROLES: readonly ChatRoleConfig[] = [
     icon: '🧩',
     placeholder: '描述插件需求，或直接说「启用」…',
     agent: true,
+    skillDev: false,
     trace: true,
+  },
+  {
+    id: 'skill-dev',
+    label: '技能开发',
+    description: '闲聊的超集，可用 LLM 创建/修订本机技能配方并当场验收',
+    icon: '🧠',
+    placeholder: '描述想要的技能，或直接说触发词验收…',
+    agent: false,
+    skillDev: true,
+    trace: false,
   },
 ] as const;
 
