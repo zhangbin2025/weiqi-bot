@@ -329,8 +329,11 @@ describe('event_commit_draft', () => {
       groupId: 'grp-1',
     });
     expect(r.observation).toContain('已导入《第四届孙子兵法杯》');
-    expect(r.observation).toContain('../event/detail.html?source=pdf&title=');
-    expect(r.observation).toContain(encodeURIComponent(validDraft.title));
+    // 详情入口是短标签的 markdown 站内链接，marked 会渲染成可点的 <a>
+    expect(r.observation).toContain('[📊 打开赛事详情](../event/detail.html?source=pdf)');
+    // 不再把编码后的中文标题拼进 URL（详情页 source=pdf 不读 title）
+    expect(r.observation).not.toContain('&title=');
+    expect(r.observation).not.toContain(encodeURIComponent(validDraft.title));
     expect(r.observation).toContain('赛事 → 最近');
   });
 

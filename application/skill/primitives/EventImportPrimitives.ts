@@ -162,7 +162,7 @@ const PARSE_DEFINITION: SkillPrimitive['definition'] = {
 
 const COMMIT_DEFINITION: SkillPrimitive['definition'] = {
   name: 'event_commit_draft',
-  description: '用户在下一条消息里明确确认预览后，把待确认草稿写入本地赛事库、按累计分差分回算已能确定的轮次胜负，并返回详情入口。draftToken 可省略，省略时提交最近一次预览的草稿。同一条消息内生成预览后立即调用会被宿主拒绝。',
+  description: '用户在下一条消息里明确确认预览后，把待确认草稿写入本地赛事库、按累计分差分回算已能确定的轮次胜负，并返回详情入口。draftToken 可省略，省略时提交最近一次预览的草稿。同一条消息内生成预览后立即调用会被宿主拒绝。返回的详情入口是一条 markdown 站内链接：回复里必须原样带上它（会渲染成可点击的页面），禁止把地址字符串念出来或改写成别的形式。',
   parameters: {
     type: 'object',
     properties: {
@@ -385,11 +385,18 @@ async function commitDraftInner(argsJson: string): Promise<PrimitiveResult> {
     TABLE_STORE.delete(token);
     if (pendingToken === token) pendingToken = undefined;
 
-    const entry = `../event/detail.html?source=pdf&title=${encodeURIComponent(draft.title)}`;
+    // 详情页在 source=pdf 时靠 sessionStorage 的 pdf-event-detail 定位，不读 URL 上的
+    // title；此前把编码后的中文标题拼进 URL 只会得到一长串谁也不想看的裸地址。
+    // 这里给一条**短标签的 markdown 站内链接**：marked 会渲染成可点的 <a>，
+    // 用户看到的是「打开赛事详情」而不是 URL 字符串。相对路径与页面原来的指路一致。
+    const entry = '../event/detail.html?source=pdf';
+    const detailLink = `[📊 打开赛事详情](${entry})`;
+    // observation 会被模型复述给用户，所以这里只放**用户该看到的内容**，不夹带
+    // 给模型的指令（那类话术放 COMMIT_DEFINITION.description）。
     const observation = [
       `已导入《${draft.title}》/ 分组「${draft.groupName}」/ 第${draft.round}轮（${draft.matches.length}场）。`,
-      `详情入口：${entry}`,
-      '也可从 赛事 → 最近 打开（同标签页跳转时详情入口直达生效）。',
+      `详情入口：${detailLink}`,
+      '也可从 赛事 → 最近 打开。',
     ].join('\n');
     return {
       observation,
