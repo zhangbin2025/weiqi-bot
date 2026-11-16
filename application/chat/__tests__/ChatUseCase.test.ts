@@ -21,10 +21,22 @@ import type { ChatRoleId } from '../ChatRole';
 import type { IModelGateway, ModelResult } from '../../model/IModelGateway';
 import type { ChatHistoryManager } from '../../assistant/ChatHistoryManager';
 import type { IMessageRenderer } from '../../assistant/IMessageRenderer';
-import { BUILTIN_SKILLS } from '../../skill/BuiltinSkills';
 import { createSkillRegistry } from '../../skill/SkillRegistry';
+import type { SkillRecipe } from '../../skill/SkillTypes';
 import { createBasicPrimitives } from '../../skill/primitives/BasicPrimitives';
 import type { SkillDevKit } from '../../skill/dev/SkillDevTools';
+
+/** 测试用的本地配方：等价于一条「已安装」的做题技能（安装制下不再有内置常量） */
+const TEST_SKILLS: SkillRecipe[] = [{
+  schemaVersion: 1,
+  id: 'puzzle.tsumego',
+  version: 4,
+  name: '做题练习',
+  summary: '用户想做题时由宿主生成带参数的做题页链接。',
+  triggers: ['死活题', '做一道', '做题', '手筋', '官子'],
+  primitives: ['navigate_to'],
+  prompt: '调用 navigate_to 生成做题页链接；链接由宿主按钮呈现，回复里不要写网址。',
+}];
 
 function makeRenderer() {
   return {
@@ -427,7 +439,7 @@ describe('ChatUseCase.send — 做题链接由宿主注入', () => {
     hist: ReturnType<typeof makeHistory>,
   ) {
     const primitives = createSkillRegistry(createBasicPrimitives(webDeps));
-    const skills = { loadSkills: async () => BUILTIN_SKILLS, primitives };
+    const skills = { loadSkills: async () => TEST_SKILLS, primitives };
     return new ChatUseCase(gw, hist, r, undefined, () => 'chat' as ChatRoleId, webDeps, skills);
   }
 
@@ -544,7 +556,7 @@ describe('ChatUseCase.send — 技能开发角色（闲聊超集）', () => {
     const hist = makeHistory();
     const primitives = createSkillRegistry(createBasicPrimitives(webDeps));
     const skills = {
-      loadSkills: async () => BUILTIN_SKILLS,
+      loadSkills: async () => TEST_SKILLS,
       primitives,
       devKit: devKitStub(),
     };
@@ -597,7 +609,7 @@ describe('ChatUseCase.send — 技能开发角色（闲聊超集）', () => {
   it('技能开发角色命中配方时：原语 + 开发工具都挂上，system 三段齐全', async () => {
     const gw = makeGateway();
     const { uc } = makeWithRole(gw, 'skill-dev');
-    await uc.send('做3K官子题'); // 命中内置 puzzle.tsumego
+    await uc.send('做3K官子题'); // 命中本地已安装的做题配方
     const req = firstRequest(gw);
     const names = (req.tools ?? []).map((t) => t.name);
     expect(names).toContain('navigate_to'); // 命中配方引用的原语

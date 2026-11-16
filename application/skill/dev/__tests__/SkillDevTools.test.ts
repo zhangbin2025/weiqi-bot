@@ -46,6 +46,8 @@ describe('createSkillDevKit', () => {
     expect(dev.systemSuffix).toContain('web_fetch');
     expect(dev.systemSuffix).toContain('navigate_to');
     expect(dev.systemSuffix).toContain('技能开发');
+    expect(dev.systemSuffix).toContain('在线技能');
+    expect(dev.systemSuffix).toContain('只读');
   });
 
   it('回归：引用 navigate_to 时，写配方指引把「宿主注入链接 / 绝不写网址」契约前移到开发 system', () => {
@@ -70,6 +72,29 @@ describe('createSkillDevKit', () => {
     const out = await exec('skill_list', {});
     expect(out.ok).toBe(true);
     expect(out.observation).toContain('没有任何');
+  });
+
+  it('回归（安装制）：skill_list 标出来源，在线安装条目只读不可被 skill_write 改写', async () => {
+    const { users, exec } = kit();
+    const online = {
+      schemaVersion: 1, id: 'puzzle.tsumego', version: 4, name: '做题',
+      summary: '在线摘要', triggers: ['做题'], primitives: ['navigate_to'], prompt: 'p',
+    };
+    await users.install(online as never);
+    const listOut = await exec('skill_list', {});
+    expect(listOut.observation).toContain('source=online');
+    expect(listOut.observation).toContain('只读');
+
+    const writeOut = await exec('skill_write', {
+      id: 'puzzle.tsumego', name: '想改', summary: 's', triggers: ['x'],
+      primitives: ['web_fetch'], prompt: 'p',
+    });
+    // 非 user. 前缀在 id 校验阶段就被挡住；即便绕过，store 里也有第二道只读保护
+    expect(writeOut.ok).toBe(false);
+    expect(writeOut.observation).toContain('user.');
+    const stored = await users.list();
+    expect(stored[0]?.recipe.name).toBe('做题');
+    expect(stored[0]?.source).toBe('online');
   });
 
   it('skill_write 新建：宿主补 id/version，保存即时启用', async () => {

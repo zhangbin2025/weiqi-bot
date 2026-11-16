@@ -1,16 +1,20 @@
 /**
- * 用户自建技能配方库（浏览器本地，零网络）
+ * 本机技能配方库（浏览器本地，零网络）
  * @module application/skill/dev/UserSkillStore
  *
  * 边界：
- * - 只存 SkillRecipe 纯声明 JSON + enabled 开关，绝不存可执行代码；
+ * - 只存 SkillRecipe 纯声明 JSON + enabled 开关 + 来源标记，绝不存可执行代码；
  * - 存储用 LocalStorageAdapter('weiqi-bot')，与插件源配置同一命名空间；
  * - 读时逐条过 parseSkillRecipe：脏数据 / 半损坏只跳过坏条目，不整库清空；
- * - 只认 `user.` 前缀的 id（自建技能），避免历史上误写入的内置/在线配方混进来；
+ * - 本地库是技能生效的唯一来源：对话不读内置常量、不自动叠加在线源；
  * - 任何存储异常静默降级（隐私模式 / 配额满不抛穿到对话页）。
  *
- * 新建即启用：技能是纯声明、不执行代码，不需要插件那道「默认停用 → 人工启用」
- * 闸门；用户要的是「写完就在同一会话说一句触发词当场验收」。
+ * 条目两类，用 source 区分：
+ * - custom：技能开发角色 skill_write 造的，id 一律 `user.` 前缀，version 由宿主递增；
+ * - online：面板「在线技能」点安装落下来的，id / version 原样取远端，只读（模型不可改写）。
+ *
+ * 安装即启用、自建也即时生效：技能是纯声明、不执行代码，不需要插件那道
+ * 「默认停用 → 人工启用」闸门；安装本身与写完当场验收都是明确的用户动作。
  */
 
 import { LocalStorageAdapter } from '@infrastructure/storage/adapters/web/LocalStorageAdapter';
@@ -19,9 +23,13 @@ import type { SkillRecipe } from '@application/skill/SkillTypes';
 
 const STORAGE_KEY = 'skill-user:entries';
 
+export type UserSkillSource = 'custom' | 'online';
+
 export interface UserSkillEntry {
   recipe: SkillRecipe;
   enabled: boolean;
+  /** 自建 / 在线安装；在线条目只读，不允许 skill_write 改写 */
+  source: UserSkillSource;
   /** 最后修改时刻（ms），仅用于面板展示；来源是 Date.now()，不是阈值 */
   updatedAt: number;
 }
@@ -42,7 +50,7 @@ export class UserSkillStore {
     this.store = deps.localStorage ?? new LocalStorageAdapter('weiqi-bot');
   }
 
-  /** 全部自建条目（含停用）。存储不可用 / 数据损坏 → 空数组，绝不抛穿。 */
+  /** 全部本地条目（含停用）。存储不可用 / 数据损坏 → 空数组，绝不抛穿。 */
   async list(): Promise<UserSkillEntry[]> {
     let raw: unknown;
     try {
@@ -57,11 +65,11 @@ export class UserSkillStore {
     for (const item of items) {
       if (!isRecord(item)) continue;
       const parsed = parseSkillRecipe(item['recipe']);
-      if (!parsed.ok) continue;                          // 坏条目跳过，其余保留
-      if (!parsed.skill.id.startsWith('user.')) continue; // 只认自建前缀
+      if (!parsed.ok) continue; // 坏条目跳过，其余保留
       out.push({
         recipe: parsed.skill,
-        enabled: item['enabled'] !== false,               // 缺省视为启用
+        enabled: item['enabled'] !== false, // 缺省视为启用
+        source: item['source'] === 'online' ? 'online' : 'custom',
         updatedAt: typeof item['updatedAt'] === 'number' ? item['updatedAt'] : 0,
       });
     }
@@ -69,22 +77,49 @@ export class UserSkillStore {
   }
 
   /**
-   * 新建 / 修订（按 id upsert）。version 由宿主按同 id 现有版本 +1 维护：
+   * 新建 / 修订自建技能（按 id upsert）。version 由宿主按同 id 现有版本 +1 维护：
    * 模型永远不写版本号，避免它编造或倒退版本。
+   * 在线安装的条目是只读的：即便模型显式填了同 id，也拒绝改写，
+   * 更新/删除只能走面板（一次明确的人工动作）。
    * 写入失败（隐私模式 / 配额满）抛错，由调用方如实回执；不谎报「已保存」。
    */
   async save(recipe: SkillRecipe): Promise<UserSkillEntry> {
     const entries = await this.list();
     const existing = entries.find((e) => e.recipe.id === recipe.id);
+    if (existing?.source === 'online') {
+      throw new Error('这条是在线安装的技能，属于只读配方；请到「🧠 技能」面板更新或删除，不能由技能开发工具改写。');
+    }
     const next: UserSkillEntry = {
       recipe: { ...recipe, version: (existing?.recipe.version ?? 0) + 1 },
       enabled: existing?.enabled ?? true,
+      source: 'custom',
       updatedAt: Date.now(),
     };
     const merged = entries.filter((e) => e.recipe.id !== recipe.id);
     merged.push(next);
     const ok = await this.write(merged);
     if (!ok) throw new Error('浏览器本地存储不可用，技能未保存（隐私模式或配额已满）');
+    return next;
+  }
+
+  /**
+   * 安装 / 更新在线配方（按 id upsert）。id 与 version 原样取远端，不递增：
+   * 版本号由配方发布方维护，宿主无权改动；「有更新」判据就是远端与本地 version 不等。
+   * 更新保留用户已设的启停状态（沿用现有 enabled），新装默认启用。
+   */
+  async install(recipe: SkillRecipe): Promise<UserSkillEntry> {
+    const entries = await this.list();
+    const existing = entries.find((e) => e.recipe.id === recipe.id);
+    const next: UserSkillEntry = {
+      recipe: { ...recipe },
+      enabled: existing?.enabled ?? true,
+      source: 'online',
+      updatedAt: Date.now(),
+    };
+    const merged = entries.filter((e) => e.recipe.id !== recipe.id);
+    merged.push(next);
+    const ok = await this.write(merged);
+    if (!ok) throw new Error('浏览器本地存储不可用，技能未安装（隐私模式或配额已满）');
     return next;
   }
 

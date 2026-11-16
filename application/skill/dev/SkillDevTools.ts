@@ -4,13 +4,15 @@
  *
  * 技能开发 = 闲聊的超集：基础 web 工具 + 本轮命中技能的原语（沿用）
  * 之外，再挂两个开发工具：
- * - skill_list：查看本机已有的自建技能（含 id / 版本 / 完整配方，供修订）
+ * - skill_list：查看本地技能（自建 + 在线安装，含 id / 版本 / 来源 / 完整配方）
  * - skill_write：模型只提交纯声明字段，宿主补 id/version/schemaVersion、
  *   过 parseSkillRecipe 结构校验 + 原语注册表存在性校验，然后落本地库。
  *
  * 边界：
  * - 模型只写声明，绝不生成可执行代码；
  * - primitives 只能引用宿主注册表里已有的原语名，未知原语直接拒绝并回执可选清单；
+ * - 只能创建 / 修订 `user.` 前缀的自建技能；在线安装的配方只读，
+ *   更新 / 删除由用户在「🧠 技能」面板操作，模型不得改写；
  * - 修订 = 对同一 id 再 write 一次（整份配方，不是 diff）；
  * - 保存即时生效（纯声明零代码，不需要插件那道人工启用闸门），
  *   用户可在同一会话里说一句触发词当场验收。
@@ -45,8 +47,8 @@ export interface SkillDevKit {
 const SKILL_LIST_TOOL: ModelToolDefinition = {
   name: 'skill_list',
   description:
-    '列出本机已保存的所有自建技能，返回每条的 id、名称、版本、启用状态与完整配方 JSON。'
-    + '修订前先用它拿到目标 id 和当前内容。',
+    '列出本地已保存的所有技能（自建 + 在线安装），返回每条的 id、名称、版本、来源、启用状态与完整配方 JSON。'
+    + '修订前先用它拿到目标 id 和当前内容；只有来源为自建（user. 开头 id）的条目可修订。',
   parameters: { type: 'object', properties: {}, additionalProperties: false },
 };
 
@@ -55,7 +57,7 @@ const SKILL_WRITE_TOOL: ModelToolDefinition = {
   description:
     '创建或修订一条本机自建技能配方（纯声明 JSON，不含任何代码）。保存后立即生效。'
     + '新建时不填 id（宿主生成 user. 前缀的稳定 id）；修订时填 skill_list 查到的同一 id，'
-    + '并给出整份配方。primitives 只能引用系统提示里「可用原语」列出的名字。',
+    + '并给出整份配方。在线安装的技能是只读的，不能改写；primitives 只能引用系统提示里「可用原语」列出的名字。',
   parameters: {
     type: 'object',
     properties: {
@@ -137,7 +139,7 @@ function buildSystemSuffix(primitives: ReadonlyMap<string, SkillPrimitive>): str
     '可用原语（primitives 只能从这里挑，填原语名）：',
     renderPrimitives(primitives),
     '',
-    '用 skill_list 查看本机已有自建技能（含 id、版本、启用状态、完整配方）；用 skill_write 创建/修订。',
+    '用 skill_list 查看本地技能（含 id、版本、来源、启用状态、完整配方）；用 skill_write 创建/修订自建技能。',
     'skill_write 字段：name / summary / triggers（触发词数组，至少 1 条）/ primitives（原语名数组，'
       + '至少 1 条，必须来自上表）/ prompt（命中后追加的自然语言指令，纯文本）；'
       + 'id 可选，修订时填 skill_list 查到的同一 id（user. 开头），新建时省略。',
@@ -146,7 +148,9 @@ function buildSystemSuffix(primitives: ReadonlyMap<string, SkillPrimitive>): str
     '- 只写声明 JSON，绝不生成代码；primitives 出现上表以外的名字会被宿主拒绝。',
     '- 每次提交都是整份配方（不是 diff）；修订时把全部字段重新给全。',
     '- 保存后可让用户直接说一句触发词，在同一会话里当场验收；不满意就按同一 id 再写一次修订。',
-    '- 自建技能只保存在当前浏览器，可在右上角 ⋮ →「🧠 技能」里启停 / 删除 / 配置在线技能源。',
+    '- 技能只保存在当前浏览器；在线技能要在 ⋮ →「🧠 技能」→「在线技能」里点安装，装进本地库后才会生效，模型不负责安装。',
+    '- skill_list 里来源为「在线安装」的条目只读，不要拿它当自建技能去 skill_write 修订；更新 / 删除由用户在面板操作。',
+    '- 自建技能可在同一面板里启停 / 删除 / 配置在线技能源。',
     ...navigateAuthoringHint(primitives),
   ].join('\n');
 }
@@ -161,22 +165,22 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
       const entries = await users.list();
       if (entries.length === 0) {
         return {
-          observation: '当前没有任何本机自建技能。你可以用 skill_write 创建第一条。',
-          ok: true, detail: '列出自建技能（空）',
+          observation: '当前本地没有任何技能。可以用 skill_write 自建，或在「🧠 技能」→「在线技能」安装官方配方。',
+          ok: true, detail: '列出本地技能（空）',
         };
       }
       const lines = entries.map((e) => JSON.stringify({
         id: e.recipe.id, name: e.recipe.name, version: e.recipe.version,
-        enabled: e.enabled, triggers: e.recipe.triggers,
+        source: e.source, enabled: e.enabled, triggers: e.recipe.triggers,
         primitives: e.recipe.primitives, summary: e.recipe.summary,
         prompt: e.recipe.prompt,
       }));
       const observation = [
-        `当前有 ${entries.length} 条本机自建技能：`,
+        `当前有 ${entries.length} 条本地技能（source=custom 为可修订的自建，source=online 为在线安装只读）：`,
         ...lines,
-        '修订某条时把它的 id 原样填进 skill_write，并给出完整配方。',
+        '修订某条自建技能时把它的 id 原样填进 skill_write，并给出完整配方；在线安装的条目不要改写。',
       ].join('\n');
-      return { observation, ok: true, detail: `列出 ${entries.length} 条自建技能` };
+      return { observation, ok: true, detail: `列出 ${entries.length} 条本地技能` };
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       return { observation: `读取自建技能失败：${reason}`, ok: false, detail: '读取自建技能失败' };
@@ -200,7 +204,7 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
     if (typeof rawId === 'string' && rawId.trim() !== '') {
       if (!rawId.startsWith('user.')) {
         return {
-          observation: 'id 必须以 user. 开头（本机自建技能专用前缀），不能用它覆盖内置或在线技能。',
+          observation: 'id 必须以 user. 开头（本机自建技能专用前缀），不能用它覆盖在线安装的技能。',
           ok: false, detail: '技能 id 不合法',
         };
       }
