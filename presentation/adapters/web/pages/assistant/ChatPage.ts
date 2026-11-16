@@ -651,8 +651,11 @@ export class ChatPage {
         const roleLabel = stored ? `${role.icon} ${role.label}` : `${role.icon} ${role.label}（旧）`;
         const roleBadge = `<span class="session-card__role">${this.escapeHtml(roleLabel)}</span>`;
         return `<div class="session-card${active}" data-session-id="${this.escapeHtml(s.sessionId)}">
-          <div class="session-card__time">${time}${roleBadge}</div>
-          <div class="session-card__summary">${summary}</div>
+          <div class="session-card__body">
+            <div class="session-card__time">${time}${roleBadge}</div>
+            <div class="session-card__summary">${summary}</div>
+          </div>
+          <button type="button" class="session-card__delete" title="删除会话" aria-label="删除会话">🗑</button>
         </div>`;
       }).join('');
 
@@ -670,7 +673,9 @@ export class ChatPage {
 
   private bindSessionCards(): void {
     document.querySelectorAll<HTMLElement>('.session-card').forEach((card) => {
-      card.addEventListener('click', async () => {
+      card.addEventListener('click', async (event) => {
+        // 删除按钮在卡片内，冒泡上来的点击不能顺手把会话又打开一遍
+        if ((event.target as HTMLElement).closest('.session-card__delete')) return;
         this.dialog.close();
         const id = card.getAttribute('data-session-id');
         if (!id) return;
@@ -684,7 +689,93 @@ export class ChatPage {
         this.syncRoleUI();
         this.syncReadyState();
       });
+      const deleteBtn = card.querySelector<HTMLButtonElement>('.session-card__delete');
+      deleteBtn?.addEventListener('click', (event) => {
+        event.stopPropagation();
+        void this.confirmDeleteSession(card);
+      });
     });
+  }
+
+  /**
+   * 删除会话走卡片内联二次确认：WebDialog 是单例，不能嵌套弹确认框；
+   * window.confirm 在 WebView 里行为不可控，与插件面板的删除保持一致。
+   * 卡片上的会话标题只用于确认文案，textContent 写入防注入。
+   */
+  private async confirmDeleteSession(card: HTMLElement): Promise<void> {
+    const id = card.getAttribute('data-session-id');
+    if (!id || card.querySelector('.session-card__confirm')) return;
+
+    const summary = card.querySelector('.session-card__summary')?.textContent ?? '';
+    const bar = document.createElement('div');
+    bar.className = 'session-card__confirm';
+    // 整个确认栏的点击都不得冒泡到卡片（卡片 click = 打开该会话）
+    bar.addEventListener('click', (e) => e.stopPropagation());
+    const tip = document.createElement('span');
+    tip.textContent = summary ? `确认删除「${summary}」？` : '确认删除该会话？';
+    const yes = document.createElement('button');
+    yes.type = 'button';
+    yes.className = 'session-card__confirm-yes';
+    yes.textContent = '确认删除';
+    const no = document.createElement('button');
+    no.type = 'button';
+    no.textContent = '取消';
+    no.addEventListener('click', () => bar.remove());
+    yes.addEventListener('click', () => void (async () => {
+      // deleteSession 会清空当前会话指针，是否删掉当前会话必须在调用前判定
+      const wasCurrent = this.history.getCurrentSession()?.sessionId === id;
+      try {
+        await this.history.deleteSession(id);
+        bar.remove();
+        await this.afterSessionDeleted(id, wasCurrent);
+      } catch (error) {
+        tip.textContent = `删除失败：${error instanceof Error ? error.message : String(error)}`;
+      }
+    })());
+    bar.append(tip, yes, no);
+    card.append(bar);
+  }
+
+  /**
+   * 删除后的页面收尾：列表即时刷新（不重开 dialog），若删的是当前会话，
+   * 视图不能停在一个已删除的会话上 —— 切到剩余最近会话，没有就新建空会话。
+   * 角色始终跟随实际打开的会话，避免用旧角色解释新会话。
+   */
+  private async afterSessionDeleted(sessionId: string, wasCurrent: boolean): Promise<void> {
+    const list = document.querySelector('.session-list');
+    const card = Array.from(document.querySelectorAll<HTMLElement>('.session-card'))
+      .find((c) => c.getAttribute('data-session-id') === sessionId);
+    card?.remove();
+    if (list && !list.querySelector('.session-card')) {
+      const empty = document.createElement('div');
+      empty.className = 'session-empty';
+      empty.textContent = '暂无历史会话';
+      list.append(empty);
+    }
+
+    if (!wasCurrent) return;
+    if (sessionId === localStorage.getItem(LAST_SESSION_KEY)) {
+      localStorage.removeItem(LAST_SESSION_KEY);
+    }
+    // 防御：存储层是异步的，个别实现可能仍列出刚删的 id，显式排除
+    const remaining = (await this.history.getAllSessions())
+      .filter((item) => item.sessionId !== sessionId)
+      .sort((a, b) => b.data.updatedAt - a.data.updatedAt);
+    const next = remaining[0];
+    if (next) {
+      const messages = await this.history.loadSession(next.sessionId);
+      if (messages) {
+        localStorage.setItem(LAST_SESSION_KEY, next.sessionId);
+        this.currentRole = await this.readSessionRole(next.sessionId);
+        await this.renderSession(messages);
+      } else {
+        await this.newSession();
+      }
+    } else {
+      await this.newSession();
+    }
+    this.syncRoleUI();
+    this.syncReadyState();
   }
 
   private sessionTitleFromSession(s: ChatSession): string {

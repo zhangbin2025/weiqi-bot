@@ -69,11 +69,36 @@
             cursor: pointer;
             background: #fff;
             transition: border-color .15s, background .15s;
+            /* 主体 + 右侧删除按钮；确认栏换行独占一行 */
+            display: flex; align-items: flex-start; flex-wrap: wrap; gap: 10px;
         }
         .session-card:hover { border-color: #667eea; background: #f7f7ff; }
         .session-card--active { border-color: #667eea; background: #f3f2ff; }
+        /* 卡片主体 + 右侧删除按钮：删除是卡片内独立操作，点击不应触发打开会话 */
+        .session-card__body { flex: 1; min-width: 0; }
         .session-card__time { font-size: 12px; color: #999; margin-bottom: 4px; }
         .session-card__summary { font-size: 14px; color: #333; line-height: 1.4; word-break: break-word; }
+        .session-card__delete {
+            flex: 0 0 auto; border: 1px solid #f0d4d4; background: #fff6f6;
+            color: #c23b3b; border-radius: 6px; padding: 4px 8px;
+            font-size: 12px; line-height: 1; cursor: pointer; font-family: inherit;
+        }
+        .session-card__delete:hover { background: #ffecec; }
+        /* 删除内联二次确认：不嵌套 WebDialog、不依赖 window.confirm */
+        .session-card__confirm {
+            display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+            margin-top: 8px; padding-top: 8px; border-top: 1px solid #f0d4d4;
+            width: 100%; font-size: 12px; color: #c23b3b; cursor: default;
+        }
+        .session-card__confirm > span { flex: 1; min-width: 120px; word-break: break-word; }
+        .session-card__confirm button {
+            border: 1px solid #dcdcf0; background: #f7f6ff; color: #5546a8;
+            border-radius: 6px; padding: 4px 10px; font-size: 12px;
+            cursor: pointer; font-family: inherit; white-space: nowrap;
+        }
+        .session-card__confirm .session-card__confirm-yes {
+            background: #fff6f6; color: #c23b3b; border-color: #f0d4d4; font-weight: 600;
+        }
         .session-empty { color: #999; font-size: 14px; text-align: center; padding: 20px 0; }
 
         /* 复用渲染器 showTyping 需要的类名（功能页 CSS 里未定义） */
