@@ -119,13 +119,16 @@ describe('SkillCatalogService.loadSkills — 内置兜底', () => {
 
 describe('SkillCatalogService.loadSkills — 在线叠加', () => {
   it('在线 version 高于内置 → 覆盖该条，其余内置保留', async () => {
+    // 夹具模板 event.import-pairing-image 的内置版本会随功能升级（如图片表格
+    // 链路升到 2），这里用内置版本 +1 才真是「高于」，不写死数字。
+    const higher = (BUILTIN_SKILLS[0]?.version ?? 0) + 1;
     const online = registryOf([
-      recipe({ version: 2, summary: '在线高版本摘要' }),
+      recipe({ version: higher, summary: '在线高版本摘要' }),
     ]);
     const skills = await catalogWith(fetchReturning(online)).loadSkills();
 
     const updated = skills.find((s) => s.id === 'event.import-pairing-image');
-    expect(updated?.version).toBe(2);
+    expect(updated?.version).toBe(higher);
     expect(updated?.summary).toBe('在线高版本摘要');
     expect(skills.find((s) => s.id === 'puzzle.tsumego')).toEqual(BUILTIN_SKILLS[1]);
   });
@@ -142,8 +145,9 @@ describe('SkillCatalogService.loadSkills — 在线叠加', () => {
     expect(merged?.summary).toBe('高版本');
   });
 
-  it('在线 version 等于内置（1）→ 按 >= 规则覆盖', async () => {
-    const online = registryOf([recipe({ version: 1, summary: '同版本覆盖' })]);
+  it('在线 version 等于内置 → 按 >= 规则覆盖', async () => {
+    const same = BUILTIN_SKILLS[0]?.version ?? 1;
+    const online = registryOf([recipe({ version: same, summary: '同版本覆盖' })]);
     const skills = await catalogWith(fetchReturning(online)).loadSkills();
     const merged = skills.find((s) => s.id === 'event.import-pairing-image');
     expect(merged?.summary).toBe('同版本覆盖');

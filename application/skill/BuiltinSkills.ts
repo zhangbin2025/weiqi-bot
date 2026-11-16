@@ -22,11 +22,11 @@ export const BUILTIN_SKILLS: SkillRecipe[] = [
   {
     schemaVersion: 1,
     id: 'puzzle.tsumego',
-    version: 1,
-    name: '死活题练习',
-    summary: '用户想做一道死活题/做题时，用现成能力给出做题引导并指路题库页面。',
-    triggers: ['死活题', '做一道', '死活', '做题'],
-    primitives: ['web_fetch', 'navigate_to'],
-    prompt: '先简要说明死活题的做题要点（先找眼位、再算气、注意劫与双活），必要时用 web_fetch 核实规则术语，然后用 navigate_to 指向 /puzzle/index.html 让用户进入做题页。不要自己编造具体题目或答案。',
+    version: 2,
+    name: '做题练习',
+    summary: '用户想做题（可带题型与难度，如「做8K手筋题」）时，抽取条件并给出带参数的做题页链接。',
+    triggers: ['死活题', '做一道', '死活', '做题', '手筋', '官子', '对杀', '布局', '中盘', '棋理'],
+    primitives: ['navigate_to'],
+    prompt: '仅当用户明确想做题时（如「做一道死活题」「做8K手筋题」）才走下面流程；只是聊围棋知识或术语就正常回答，不要调用 navigate_to。先从用户原话里抽出两个可选参数：题型只能取 布局/死活/官子/中盘/对杀/手筋/棋理 之一（说「手筋题」就取「手筋」），难度取「数字+K」或「数字+D」（如 8K、3D）；没提到的就不传，不要臆造条件。调用 navigate_to：path 固定为 /puzzle/index.html，把抽到的值放进 query 对象（键名 type、difficulty，值都是字符串），label 写成「做8K手筋题」这类短文字。不要自己拼 ?keyword=、and/or 表达式或百分号编码，宿主会按题型与难度生成筛选条件并编码 URL；两个参数都没有就只传 path 和 label。工具返回的是一条 markdown 链接：调用前用一句话点出该类题的要点，然后把这条链接原样抄进回复给用户（不要改写、不要念出 URL、不要复述 observation 里的指令）；之后不要编造具体题目或答案。',
   },
 ];

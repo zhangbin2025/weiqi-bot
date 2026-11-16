@@ -58,6 +58,71 @@ export function defaultPuzzleFilterState(): PuzzleFilterState {
   return { types: [], difficulties: [] };
 }
 
+// ==================== URL 筛选参数解析 ====================
+/**
+ * 做题页 URL 参数 → 筛选条件（技能配方 navigate_to 的约定入口）
+ *
+ * 契约：
+ * - type：题型，逗号/中文逗号分隔可多个；只放行 PUZZLE_FILTER_TYPES 的规范值，
+ *   输入尾部的「题」「类」先剥离再查表（「手筋题」→「手筋」）；未知值静默丢弃。
+ * - difficulty：难度，逗号分隔可多个；只放行 /^\d+[KD]\+?$/i 的原子
+ *   （与 evaluateFilter 的难度原子同一口径，见下方 splitPuzzleTags 的注释），
+ *   统一大写；不套 PUZZLE_FILTER_DIFFICULTIES 选项表 —— 题库标签里本就存在
+ *   2D+ 这类带 + 的难度，格式合法即可交给筛选器求值。
+ * - keyword：完整表达式兼容入参，仅在没有 type/difficulty 时原样返回。
+ *
+ * 返回值：
+ * - keyword：交给 listPuzzles 的筛选表达式（空串 = 不筛选）；
+ * - filter：可落盘的筛选条件；只有 type/difficulty 能反解出结构化条件时非空，
+ *   keyword 兼容入参无法反解，返回 null（仅本次生效）。
+ *
+ * 为什么不让模型直接拼 keyword：and/or 语法、括号与百分号编码都是宿主口径
+ * （buildPuzzleKeyword / URLSearchParams），配方只该给语义值，避免脏表达式注入。
+ */
+const PUZZLE_URL_DIFFICULTY_RE = /^\d+[KD]\+?$/i;
+const PUZZLE_KNOWN_TYPES: ReadonlySet<string> = new Set(PUZZLE_FILTER_TYPES.map(t => t.value));
+
+/** 题型归一：剥离尾部「题/类」后查规范值表，查不到返回 null */
+function normalizePuzzleUrlType(raw: string): string | null {
+  if (PUZZLE_KNOWN_TYPES.has(raw)) return raw;
+  const stem = raw.replace(/[题类]$/, '');
+  return PUZZLE_KNOWN_TYPES.has(stem) ? stem : null;
+}
+
+function dedupePuzzleUrlAtoms(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+export function parsePuzzleUrlFilter(
+  params: Record<string, string>,
+): { keyword: string; filter: PuzzleFilterState | null } {
+  const split = (raw: string): string[] =>
+    raw.split(/[,，]/).map(s => s.trim()).filter(s => s.length > 0);
+
+  const types = dedupePuzzleUrlAtoms(
+    split(params['type'] ?? '')
+      .map(normalizePuzzleUrlType)
+      .filter((v): v is string => v !== null),
+  );
+  const difficulties = dedupePuzzleUrlAtoms(
+    split(params['difficulty'] ?? '')
+      .map(s => s.toUpperCase())
+      .filter(s => PUZZLE_URL_DIFFICULTY_RE.test(s)),
+  );
+
+  if (types.length > 0 || difficulties.length > 0) {
+    return {
+      keyword: buildPuzzleKeyword(types, difficulties),
+      filter: { types, difficulties },
+    };
+  }
+
+  // 兼容旧入参：完整表达式。调用方（PuzzlePage）只把它当本次条件、不落盘，
+  // 这里不做解析，保持既有语义。
+  const keyword = (params['keyword'] ?? '').trim();
+  return { keyword, filter: null };
+}
+
 /**
  * 归一化难度入参为数组
  * @description 兼容历史单值字符串（旧版偏好里存的是 '3D'）；空串/空数组视为「全部难度」。

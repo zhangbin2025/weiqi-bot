@@ -76,6 +76,10 @@ async function main() {
   const params: Record<string, string> = {};
   urlParams.forEach((value, key) => { params[key] = value; });
   await page.handleParams(params);
+  // 参数已消费，清出 URL：Android（GeckoView）不支持 bfcache，返回即整页重载，
+  // 残留的 type/difficulty/keyword 会让 handleParams 再跑一遍筛选。
+  // 返回后的恢复交给 initialize() 的偏好/会话恢复路径。
+  if (urlParams.toString()) window.history.replaceState({}, '', window.location.pathname);
 
   // 9. 渲染
   page.render();

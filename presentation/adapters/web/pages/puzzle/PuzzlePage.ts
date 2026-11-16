@@ -27,6 +27,7 @@ import { PuzzleHistoryPanel } from './ui/PuzzleHistoryPanel';
 import { PuzzleStatsDialog } from './ui/PuzzleStatsDialog';
 import type { PuzzleInitialStone } from '../../../../../application/puzzle/PuzzleHistoryManager';
 import { Select } from '@ui';
+import { parsePuzzleUrlFilter } from '../../../../../services/game/providers/library/puzzleFilter';
 
 /** 在线来源每批拉取的题目数（只取一页，避免换题时反复翻页） */
 const ONLINE_BATCH = 20;
@@ -222,10 +223,27 @@ export class PuzzlePage implements IPage {
       return;
     }
 
-    if (p['keyword']) {
-      this.keyword = p['keyword'];
+    // URL 显式筛选：技能配方用 navigate_to 传 type/difficulty（或旧版 keyword）。
+    // 由宿主按既有口径合成表达式，模型不碰 and/or 语法与 URL 编码。
+    const { keyword: urlKeyword, filter: urlFilter } = parsePuzzleUrlFilter(p);
+    if (urlFilter) {
+      // 结构化题型/难度：标签只有内置题库有，显式条件即隐含「切回内置题库」；
+      // 否则上次停留在在线来源时 resolveKeyword 会把条件算成空串。
+      this.source = 'lib-life-death';
+      this.preferences.setSource(this.source);
+      Select.get('#source-select')?.setValue(this.source, true);
+      // 条件落盘，刷新/返回都保持本次选择；并清掉会话当前题，让新条件
+      // 优先于「回到上次那道题」（restoreFromSession 在本次加载跳过）。
+      this.preferences.setFilter(urlFilter);
+      this.sessionStore.clearCurrent();
+      this.restoredFromSession = true;
+    }
+    if (urlKeyword) {
+      this.keyword = urlKeyword;
       this.ui.setKeyword(this.keyword);
     }
+    // 旧 keyword 兼容入参（filter 为 null）沿用既有行为：只设本次 keyword，
+    // 不改来源、不动会话缓存，不把「source=在线 + keyword」的深链语义改坏。
     this.applySourceUiState();
 
     // 返回恢复优先：从打谱页（或任何整页返回）回来时，先试着回到刚才那道题。

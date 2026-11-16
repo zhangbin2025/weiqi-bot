@@ -15,6 +15,10 @@ import {
 } from '@application/chat/WebResourceTools';
 import type { ModelToolDefinition } from '@application/model/IModelGateway';
 import type { SkillPrimitive, PrimitiveResult } from '@application/skill/SkillTypes';
+import {
+  buildNavigateToPath, isValidNavigateToPath, sanitizeNavigateToQuery,
+  navigateToObservation,
+} from './NavigateToPath';
 
 /** navigate_to 工具名（与 definition.name 一致） */
 export const NAVIGATE_TO_TOOL_NAME = 'navigate_to';
@@ -22,22 +26,26 @@ export const NAVIGATE_TO_TOOL_NAME = 'navigate_to';
 /** §7.7：站内绝对路径指路，不自动跳转 */
 export const NAVIGATE_TO_TOOL: ModelToolDefinition = {
   name: NAVIGATE_TO_TOOL_NAME,
-  description: '生成一个站内页面链接文本，供回复里指路（不自动跳转）。',
+  description:
+    '生成一个站内页面链接文本，供回复里指路（不自动跳转）。' +
+    '需要给目标页传条件时用 query 传语义化键值对，宿主负责 URL 编码。',
   parameters: {
     type: 'object',
     properties: {
       path: { type: 'string', description: '站内绝对路径，如 /puzzle/index.html' },
       label: { type: 'string', description: '链接显示文字' },
+      query: {
+        type: 'object',
+        description:
+          '可选：站内链接的查询参数，键与值都必须是字符串；宿主负责 URL 编码。' +
+          '例：{"type":"手筋","difficulty":"8K"}',
+        additionalProperties: { type: 'string' },
+      },
     },
     required: ['path', 'label'],
     additionalProperties: false,
   },
 };
-
-/** 只放行以 '/' 开头、不含 '://'、不含 '..' 的站内绝对路径 */
-function isValidPath(path: string): boolean {
-  return path.startsWith('/') && !path.includes('://') && !path.includes('..');
-}
 
 /** tool 执行结果 → 原语结果：只取三个必填字段，其余可选字段一律不带 */
 function toPrimitiveResult(r: { observation: string; ok: boolean; detail: string }): PrimitiveResult {
@@ -71,22 +79,28 @@ export function createBasicPrimitives(webDeps: WebFetchToolDeps): SkillPrimitive
       execute: async (argsJson): Promise<PrimitiveResult> => {
         let path = '';
         let label = '';
+        let query: Record<string, string> = {};
         try {
-          const args = JSON.parse(argsJson) as { path?: unknown; label?: unknown };
+          const args = JSON.parse(argsJson) as {
+            path?: unknown; label?: unknown; query?: unknown;
+          };
           if (typeof args.path === 'string') path = args.path.trim();
           if (typeof args.label === 'string') label = args.label.trim();
+          query = sanitizeNavigateToQuery(args.query);
         } catch {
           // 交给下面的合法性判定统一报「路径不合法」
         }
-        if (!isValidPath(path)) {
+        if (!isValidNavigateToPath(path)) {
           const observation = 'navigate_to：路径不合法，请给出以 / 开头的站内绝对路径（不含 :// 或 ..）。';
           return { observation, ok: false, detail: '路径不合法' };
         }
+        // 查询串由宿主编码；模型只给语义值，不接触 %XX / and-or 语法
+        const finalPath = buildNavigateToPath(path, query);
         const safeLabel = label || path;
         return {
-          observation: `「${safeLabel}」请打开：${path}`,
+          observation: navigateToObservation(safeLabel, finalPath),
           ok: true,
-          detail: `指路 ${path}`,
+          detail: `指路 ${finalPath}`,
         };
       },
     },

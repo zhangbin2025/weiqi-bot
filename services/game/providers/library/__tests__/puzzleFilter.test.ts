@@ -11,6 +11,7 @@ import {
   normalizePuzzleFilterState,
   splitPuzzleTags,
   evaluateFilter,
+  parsePuzzleUrlFilter,
 } from '../puzzleFilter';
 
 describe('puzzleFilter', () => {
@@ -187,5 +188,58 @@ describe('evaluateFilter', () => {
   it('连续原子默认视为 and', () => {
     expect(evaluateFilter('死活 5D', tags('死活题·5D'))).toBe(true);
     expect(evaluateFilter('死活 2D', tags('死活题·5D'))).toBe(false);
+  });
+});
+
+
+describe('parsePuzzleUrlFilter', () => {
+  it('题型 + 难度合成 and 表达式，并返回可落盘条件', () => {
+    expect(parsePuzzleUrlFilter({ type: '手筋', difficulty: '8K' })).toEqual({
+      keyword: '手筋 and 8K',
+      filter: { types: ['手筋'], difficulties: ['8K'] },
+    });
+  });
+
+  it('「手筋题」归一为规范题型，难度大小写归一', () => {
+    expect(parsePuzzleUrlFilter({ type: '手筋题', difficulty: '8k' })).toEqual({
+      keyword: '手筋 and 8K',
+      filter: { types: ['手筋'], difficulties: ['8K'] },
+    });
+  });
+
+  it('多个题型/难度（含中文逗号）生成 or 括号', () => {
+    expect(parsePuzzleUrlFilter({ type: '死活，官子', difficulty: '3D,4D' }).keyword)
+      .toBe('(死活 or 官子) and (3D or 4D)');
+  });
+
+  it('只给题型 / 只给难度 / 带 + 的难度', () => {
+    expect(parsePuzzleUrlFilter({ type: '死活' }).keyword).toBe('死活');
+    expect(parsePuzzleUrlFilter({ difficulty: '2D+' }).keyword).toBe('2D+');
+  });
+
+  it('未知题型与非法难度静默丢弃', () => {
+    expect(parsePuzzleUrlFilter({ type: '瞎写', difficulty: 'abc' }))
+      .toEqual({ keyword: '', filter: null });
+  });
+
+  it('表达式注入（括号 / and / or）不会进入 keyword', () => {
+    expect(parsePuzzleUrlFilter({ type: '(手筋 or 官子)', difficulty: '8K' }).keyword)
+      .toBe('8K');
+    expect(parsePuzzleUrlFilter({ type: '手筋', difficulty: '8K and 1=1' }).keyword)
+      .toBe('手筋');
+  });
+
+  it('空参数返回不筛选', () => {
+    expect(parsePuzzleUrlFilter({})).toEqual({ keyword: '', filter: null });
+  });
+
+  it('兼容旧 keyword 入参：原样返回且不可落盘', () => {
+    expect(parsePuzzleUrlFilter({ keyword: '手筋 and 8K' }))
+      .toEqual({ keyword: '手筋 and 8K', filter: null });
+  });
+
+  it('type/difficulty 优先于 keyword', () => {
+    expect(parsePuzzleUrlFilter({ type: '官子', difficulty: '3D', keyword: '死活 and 9K' }))
+      .toEqual({ keyword: '官子 and 3D', filter: { types: ['官子'], difficulties: ['3D'] } });
   });
 });
