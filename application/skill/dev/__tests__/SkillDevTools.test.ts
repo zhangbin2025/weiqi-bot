@@ -6,6 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import { createSkillDevKit, makeUserSkillId } from '../SkillDevTools';
 import { UserSkillStore } from '../UserSkillStore';
+import { NAVIGATE_TO_TOOL } from '@application/skill/primitives/BasicPrimitives';
 import type { SkillPrimitive } from '@application/skill/SkillTypes';
 
 function memAdapter() {
@@ -45,6 +46,23 @@ describe('createSkillDevKit', () => {
     expect(dev.systemSuffix).toContain('web_fetch');
     expect(dev.systemSuffix).toContain('navigate_to');
     expect(dev.systemSuffix).toContain('技能开发');
+  });
+
+  it('回归：引用 navigate_to 时，写配方指引把「宿主注入链接 / 绝不写网址」契约前移到开发 system', () => {
+    // 2026-11-16 用户实测：自建「对弈」技能让模型自己拼出 https://example.com/play/index.html。
+    // 契约原先只在工具执行后的 observation 里，写配方那一刻模型看不到。
+    const { dev } = kit();
+    expect(dev.systemSuffix).toContain('配方引用 navigate_to 时');
+    // 文案直接派生自工具定义（单一出处），不是抄第二份
+    expect(dev.systemSuffix).toContain(NAVIGATE_TO_TOOL.description);
+    expect(dev.systemSuffix).toContain('不要编造域名');
+  });
+
+  it('没有 navigate_to 原语时不多写那段指引（不凭空造规则）', () => {
+    const users = new UserSkillStore({ localStorage: memAdapter() as never });
+    const primitives = new Map<string, SkillPrimitive>([['web_fetch', prim('web_fetch')]]);
+    const suffix = createSkillDevKit({ users, primitives }).systemSuffix;
+    expect(suffix).not.toContain('配方引用 navigate_to 时');
   });
 
   it('skill_list 空库给出明确提示', async () => {

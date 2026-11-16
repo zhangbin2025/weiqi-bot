@@ -24,6 +24,7 @@ import type { ModelToolDefinition } from '@application/model/IModelGateway';
 import type { ToolExecutor, ToolOutcome } from '@application/chat/ToolLoop';
 import type { SkillPrimitive } from '@application/skill/SkillTypes';
 import { parseSkillRecipe } from '@application/skill/SkillRecipe';
+import { NAVIGATE_TO_TOOL_NAME, NAVIGATE_TO_TOOL } from '@application/skill/primitives/BasicPrimitives';
 import type { UserSkillStore } from './UserSkillStore';
 
 export interface SkillDevDeps {
@@ -112,6 +113,19 @@ function renderPrimitives(primitives: ReadonlyMap<string, SkillPrimitive>): stri
   return lines.join('\n');
 }
 
+/**
+ * 引用了 navigate_to 时，写配方的人（模型）必须知道「宿主注入链接」契约。
+ * 文案直接派生自工具定义本身（单一出处），不在这里抄第二份、也不会漂移。
+ */
+function navigateAuthoringHint(primitives: ReadonlyMap<string, SkillPrimitive>): string[] {
+  if (!primitives.has(NAVIGATE_TO_TOOL_NAME)) return [];
+  return [
+    `- 配方引用 ${NAVIGATE_TO_TOOL_NAME} 时，prompt 里也要写清这条契约（照工具定义原话）：`,
+    `  ${NAVIGATE_TO_TOOL.description}`,
+    '  别在 prompt 里让模型「把链接贴给用户」或给出任何网址模板；链接一律由宿主按钮呈现。',
+  ];
+}
+
 /** 开发角色追加到 system 的说明片段 */
 function buildSystemSuffix(primitives: ReadonlyMap<string, SkillPrimitive>): string {
   return [
@@ -133,6 +147,7 @@ function buildSystemSuffix(primitives: ReadonlyMap<string, SkillPrimitive>): str
     '- 每次提交都是整份配方（不是 diff）；修订时把全部字段重新给全。',
     '- 保存后可让用户直接说一句触发词，在同一会话里当场验收；不满意就按同一 id 再写一次修订。',
     '- 自建技能只保存在当前浏览器，可在右上角 ⋮ →「🧠 技能」里启停 / 删除 / 配置在线技能源。',
+    ...navigateAuthoringHint(primitives),
   ].join('\n');
 }
 
