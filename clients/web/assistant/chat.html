@@ -86,7 +86,10 @@
         @keyframes chatDot { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
 
         /* 插件调试过程：默认折叠，纯展示、不写历史 */
-        .plugin-trace { margin: 8px 12px 14px; }
+        /* 与助手历史消息气泡同宽：左 12px = .message 的 padding；
+           右侧 46px = .message.assistant 的 padding-right（头像位）。
+           过程块直接挂在 chatContainer 下，用 margin 对齐而非 padding。 */
+        .plugin-trace { margin: 8px 46px 14px 12px; }
         .plugin-trace__details {
             border: 1px solid #e3e0f3; border-radius: 10px;
             background: #faf9ff; overflow: hidden;
