@@ -23,6 +23,13 @@
 
     <!-- 本页独有：未配置提示、会话列表卡片、打字指示器 -->
     <style>
+        /* 消息块不再预留 46px 头像位（时间已能区分用户/AI），但仍保留普通左右留白：
+           覆盖 shared/assistant.css 的 46px，回到 .message 基线的 12px，左右对称，
+           与「AI助手已就绪」状态条（margin: 8px 12px）边缘一致。
+           AI 气泡仍 width:100% 铺满内容盒；用户气泡按需占用、靠右自适应。 */
+        .message.assistant { padding-right: 12px; }
+        .message.user { padding-left: 12px; }
+
         #notReady {
             margin: 8px 12px;
             padding: 10px 12px;
@@ -111,10 +118,9 @@
         @keyframes chatDot { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
 
         /* 插件调试过程：默认折叠，纯展示、不写历史 */
-        /* 与助手历史消息气泡同宽：左 12px = .message 的 padding；
-           右侧 46px = .message.assistant 的 padding-right（头像位）。
-           过程块直接挂在 chatContainer 下，用 margin 对齐而非 padding。 */
-        .plugin-trace { margin: 8px 46px 14px 12px; }
+        /* 过程块直接挂在 chatContainer 下，用 margin 对齐消息气泡：
+           左右各 12px = 去掉头像位后消息块的左右留白（不再留 46px）。 */
+        .plugin-trace { margin: 8px 12px 14px; }
         .plugin-trace__details {
             border: 1px solid #e3e0f3; border-radius: 10px;
             background: #faf9ff; overflow: hidden;

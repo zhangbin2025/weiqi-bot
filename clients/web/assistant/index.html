@@ -7,6 +7,15 @@
     
     <link rel="stylesheet" href="../shared/assistant.css">
 
+    <style>
+        /* 消息块不再预留 46px 头像位（时间已能区分用户/AI），但仍保留普通左右留白：
+           覆盖 shared/assistant.css 的 46px，回到 .message 基线的 12px，左右对称，
+           与「AI助手已就绪」状态条（margin: 8px 12px）边缘一致。
+           AI 气泡仍 width:100% 铺满内容盒；用户气泡按需占用、靠右自适应。 */
+        .message.assistant { padding-right: 12px; }
+        .message.user { padding-left: 12px; }
+    </style>
+
     <!-- Favicon -->
     <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
