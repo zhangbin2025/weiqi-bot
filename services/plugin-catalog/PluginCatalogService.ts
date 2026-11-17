@@ -16,6 +16,9 @@
  */
 
 import { PluginValidator, validatePluginOutput } from '@domain/plugin/PluginValidator';
+import {
+  validateLlmToolContract, llmToolTrialCases, deepEqual, contractsEqual,
+} from '@application/plugin/LlmToolContract';
 import { resolvePluginSpec, PLUGIN_SPECS } from '@domain/plugin/types';
 import type { PluginArtifact, IPluginRuntime, PluginRunResult, PluginSpec } from '@domain/plugin/types';
 import { SAMPLE_RANKING_INPUT } from '@domain/ranking/sampleInput';
@@ -232,19 +235,20 @@ export class PluginCatalogService {
   ): Promise<{ rejected?: string; warning?: string }> {
     if (this.runtime === undefined) return {};
     // ranking 用代表性对阵样例；llm-tool 逐条跑资源声明的 smoke[]，比对 expect。
+    const contract = entry.exposes !== undefined && entry.smoke !== undefined
+      ? { exposes: entry.exposes, smoke: entry.smoke }
+      : undefined;
+    const trialCases = contract === undefined ? [] : llmToolTrialCases(contract);
     const cases = spec.pointId === 'ranking'
-      ? [SAMPLE_RANKING_INPUT]
-      : (entry.smoke ?? []).map((s) => ({
-        method: s.method ?? firstMethod(entry.exposes),
-        args: s.args,
-      }));
+      ? [{ input: SAMPLE_RANKING_INPUT as unknown, expect: undefined as unknown }]
+      : trialCases.map((c) => ({ input: { method: c.method, args: c.args } as unknown, expect: c.expect }));
     if (cases.length === 0) {
       return { rejected: 'llm-tool 资源缺少 smoke[] 自检样例，无法验证' };
     }
-    for (const [index, input] of cases.entries()) {
+    for (const [index, c] of cases.entries()) {
       let result: PluginRunResult;
       try {
-        result = await this.runtime.run(code, input, spec);
+        result = await this.runtime.run(code, c.input, spec);
       } catch (error) {
         return { warning: `沙箱未能启动，已跳过试跑：${messageOf(error)}` };
       }
@@ -262,10 +266,9 @@ export class PluginCatalogService {
         return { rejected: `输出不符合契约：${check.missingFields.join('、') || '未知原因'}` };
       }
       // llm-tool：结果还要与资源声明的 expect 逐字段相等，防止装进一个「能跑但算错」的库。
-      const expected = (entry.smoke ?? [])[index]?.expect;
-      if (expected !== undefined && !deepEqual(result.output, expected)) {
+      if (c.expect !== undefined && !deepEqual(result.output, c.expect)) {
         return {
-          rejected: `自检样例 ${index + 1} 结果不符：期望 ${JSON.stringify(expected)}，实际 ${JSON.stringify(result.output)}`,
+          rejected: `自检样例 ${index + 1} 结果不符：期望 ${JSON.stringify(c.expect)}，实际 ${JSON.stringify(result.output)}`,
         };
       }
     }
@@ -374,7 +377,7 @@ function checkCompatibility(entry: CatalogEntry, validator: PluginValidator): st
     return `源码未声明入口函数 ${spec.entry}`;
   }
   if (spec.pointId === 'llm-tool') {
-    const bad = checkLlmToolContract(entry);
+    const bad = validateLlmToolContract({ exposes: entry.exposes, smoke: entry.smoke });
     if (bad !== undefined) return bad;
   }
   const result = validator.validate(entry.remoteCode, spec);
@@ -383,64 +386,6 @@ function checkCompatibility(entry: CatalogEntry, validator: PluginValidator): st
 }
 
 /** llm-tool 资源契约快筛：方法白名单与自检样例必须齐全且形状合法 */
-function checkLlmToolContract(entry: CatalogEntry): string | undefined {
-  const exposes = entry.exposes;
-  if (!Array.isArray(exposes) || exposes.length === 0) return 'llm-tool 资源缺少 exposes[] 方法白名单';
-  const names = new Set<string>();
-  for (const e of exposes) {
-    if (!e || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(e.name)) return `exposes[].name 不是合法方法标识符：${String(e?.name)}`;
-    if (names.has(e.name)) return `exposes[] 方法名重复：${e.name}`;
-    names.add(e.name);
-    if (!e.description.trim()) return `exposes[].description 为空：${e.name}`;
-    if (typeof e.params !== 'object' || e.params === null || Array.isArray(e.params)) {
-      return `exposes[].params 不是对象：${e.name}`;
-    }
-  }
-  const smoke = entry.smoke;
-  if (!Array.isArray(smoke) || smoke.length === 0) return 'llm-tool 资源缺少 smoke[] 自检样例';
-  for (const s of smoke) {
-    if (!Array.isArray(s.args) || s.args.length !== 1) return 'smoke[].args 必须是含一个参数对象的数组';
-    if (s.expect === undefined) return 'smoke[].expect 缺失';
-    if (s.method !== undefined && !names.has(s.method)) {
-      return `smoke[].method 不在 exposes[] 白名单里：${s.method}`;
-    }
-  }
-  return undefined;
-}
-
-function firstMethod(exposes: CatalogEntry['exposes']): string {
-  return exposes?.[0]?.name ?? '';
-}
-
-/** 资源契约是否相等：纯 JSON 结构，复用 deepEqual（undefined 表示「没有契约」） */
-function contractsEqual(
-  a: PluginArtifact['llmTool'],
-  b: PluginArtifact['llmTool'],
-): boolean {
-  if (a === undefined && b === undefined) return true;
-  if (a === undefined || b === undefined) return false;
-  return deepEqual(a, b);
-}
-
-/** 自检结果比对：纯 JSON 值逐字段相等（ArrayBuffer/Date 之类不会出现，沙箱只出 JSON） */
-function deepEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (typeof a !== typeof b || a === null || b === null) return false;
-  if (Array.isArray(a) || Array.isArray(b)) {
-    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
-    return a.every((v, i) => deepEqual(v, b[i]));
-  }
-  if (typeof a === 'object') {
-    const ka = Object.keys(a as Record<string, unknown>).sort();
-    const kb = Object.keys(b as Record<string, unknown>).sort();
-    if (ka.length !== kb.length || ka.some((k, i) => k !== kb[i])) return false;
-    return ka.every((k) => deepEqual(
-      (a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k],
-    ));
-  }
-  return false;
-}
-
 function fromStatic(
   s: StaticCatalogEntry,
   source: CatalogSource,
