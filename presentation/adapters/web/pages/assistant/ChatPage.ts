@@ -166,6 +166,12 @@ export class ChatPage {
     await this.restoreLastSession();
     this.syncRoleUI();
     this.syncReadyState();
+
+    // 深链：赛事详情页 ⚙️ 菜单的「管理插件 →」带 ?panel=plugins 进来，
+    // 初始化完成后直接打开插件管理面板，用户不用再点一次右上角菜单。
+    if (new URLSearchParams(window.location.search).get('panel') === 'plugins') {
+      void this.showPluginPanel();
+    }
   }
 
   /**

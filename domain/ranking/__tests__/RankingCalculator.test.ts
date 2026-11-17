@@ -2,13 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { RankingCalculator } from '../RankingCalculator';
 import { computeRanking, BuiltinRanking } from '../RankingPipeline';
 import { validateRankingOutput, formatRankingCell } from '../RankingTable';
-import type { MatchData, RankingTable, RankingMode } from '../types';
+import type { MatchData, RankingTable } from '../types';
 
 const calculator = new RankingCalculator();
 
 /** 经统一管线：内置实现 → 结构校验 → 派生轮次 */
-async function table(matches: MatchData[], mode: RankingMode = 'default'): Promise<RankingTable> {
-  return computeRanking(matches, new BuiltinRanking(mode, calculator));
+async function table(matches: MatchData[]): Promise<RankingTable> {
+  return computeRanking(matches, new BuiltinRanking(calculator));
 }
 
 /** 取某选手某列的 cells 值 */
@@ -108,31 +108,6 @@ describe('RankingCalculator（统一管线里的内置实现）', () => {
       const t = await table(matches);
       expect(t.totalRounds).toBe(2);
       expect(t.completedRounds).toBe(1);
-    });
-  });
-
-  describe('simple 口径', () => {
-    const matches: MatchData[] = [
-      { bout: 1, p1Id: 1, p1Name: 'A', p1Score: 2, p2Id: 2, p2Name: 'B', p2Score: 0 },
-      { bout: 1, p1Id: 3, p1Name: 'C', p1Score: 2, p2Id: 4, p2Name: 'D', p2Score: 0 },
-      { bout: 2, p1Id: 1, p1Name: 'A', p1Score: 2, p2Id: 3, p2Name: 'C', p2Score: 0 },
-      { bout: 2, p1Id: 2, p1Name: 'B', p1Score: 2, p2Id: 4, p2Name: 'D', p2Score: 0 },
-    ];
-    it('不产累进分列，但仍覆盖 4 人', async () => {
-      const t = await table(matches, 'simple');
-      expect(t.rows.length).toBe(4);
-      expect(t.columns.map((c) => c.key)).not.toContain('progressiveScore');
-    });
-  });
-
-  describe('directWin 口径', () => {
-    it('追加「直胜」列，值为纯数值 1/0/-1', async () => {
-      const matches: MatchData[] = [
-        { bout: 1, p1Id: 1, p1Name: 'A', p1Score: 2, p2Id: 2, p2Name: 'B', p2Score: 0 },
-      ];
-      const t = await table(matches, 'directWin');
-      expect(t.columns.map((c) => c.label)).toContain('直胜');
-      expect(typeof cell(t, 1, 'directWin')).toBe('number');
     });
   });
 

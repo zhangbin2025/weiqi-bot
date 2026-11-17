@@ -8,7 +8,7 @@
 
 export type {
   MatchData, RankingInput, RankingColumn, RankingRow, RankingOutput,
-  RankingTable, RankingMode, PlayerGame, InternalPlayer, RankingCellValue,
+  RankingTable, PlayerGame, InternalPlayer, RankingCellValue,
 } from './types';
 export type { IRankingCalculator } from './IRankingCalculator';
 export { RankingCalculator } from './RankingCalculator';

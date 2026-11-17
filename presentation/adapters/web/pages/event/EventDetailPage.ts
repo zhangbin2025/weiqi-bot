@@ -4,7 +4,7 @@ import type { IPageCache } from '../../../../core/interfaces/IPageCache';
 import type { EventQuerier, EventDetail } from '../../../../../application/event';
 import type { IEventFormatter } from './IEventFormatter';
 import type { Group, PlayerListResult, AgainstPlanResult, Match } from '../../../../../services/event/types';
-import type { RankingTable, RankingMode, MatchData } from '../../../../../domain/ranking';
+import type { RankingTable, MatchData } from '../../../../../domain/ranking';
 import {
   computeRanking, BuiltinRanking, GroupSelector,
   buildPlayerGames, buildScoreMap, buildRankMap,
@@ -45,8 +45,6 @@ interface Cache {
   playersTabAvailable: boolean;
   /** 生成该缓存时选中的排名插件口径（undefined=内置）；恢复时据此判断是否需重算 */
   rankingPluginId?: string;
-  /** 缓存时的内置口径；不同则重算 */
-  rankingMode?: RankingMode;
   timestamp: number;
 }
 
@@ -72,8 +70,6 @@ export class EventDetailPage implements IPage {
   private curRound = 1; private totRounds = 1;
   private curTab: 'ranking' | 'matches' | 'players' = 'ranking';
   private init = false; private renderer: EventDetailRenderer;
-  /** 内置实现的预设口径（mode 只是内置参数，不是契约版本，PDF 也不锁死） */
-  private rankingMode: RankingMode = 'default';
   private pdfService = new PdfEventService();
   private readonly sessionStore = new SessionStorageAdapter('weiqi-bot');
   private readonly localStore = new LocalStorageAdapter('weiqi-bot');
@@ -97,7 +93,6 @@ export class EventDetailPage implements IPage {
       onNextRound: () => { if (this.curRound < this.totRounds && this.selGid) { this.curRound++; this.loadRound(); } },
       onPlayerClick: (n) => { if (this.pcFn) this.pcFn(n); },
       onShowOpponents: (n) => this.showOpp(n),
-      onRankingModeChange: (mode) => { this.rankingMode = mode; if (this.selGid) this.selectGroup(String(this.selGid), true); },
       onRankingPluginChange: (id) => void this.setRankingPlugin(id),
       onRefresh: () => this.refresh(),
     }, c.adapterFactory, c.formatter);
@@ -107,8 +102,6 @@ export class EventDetailPage implements IPage {
     if (this.init) return;
     await this.renderer.initialize(); this.renderer.bindActions();
     await this.pdfService.init();
-    // 内置口径由 renderer 从 localStorage 恢复，同步到页面（避免 PDF/API 口径不一致）
-    this.rankingMode = this.renderer.getRankingMode();
     // 恢复上次选中的排名插件（用户明确要求：只要上次选了插件，下次默认仍用它排序）。
     // 清单加载完会校验该 id 是否仍存在/启用；失效时自动清除并回落内置。
     try {
@@ -152,7 +145,7 @@ export class EventDetailPage implements IPage {
     void this.refreshRankingPluginMenu();
     if (p['source'] === 'pdf') {
       // PDF 导入的也只是「对阵表」，与 API 走同一条算分排名管线；
-      // 不再把口径锁死成 directWin，也不叠加任何内置特例。
+      // 内置只有标准口径，不再叠加任何内置特例。
       this.source = 'pdf';
       this.loadPdfData();
       return;
@@ -282,12 +275,12 @@ export class EventDetailPage implements IPage {
    * 插件不再叠加在内置结果之上：它从对阵表自己算出全部列与值。
    */
   private async computeForCurrentImpl(matches: MatchData[]): Promise<RankingTable> {
-    const builtin = (): Promise<RankingTable> => computeRanking(matches, new BuiltinRanking(this.rankingMode));
+    const builtin = (): Promise<RankingTable> => computeRanking(matches, new BuiltinRanking());
     if (!this.selectedRankingPluginId) return builtin();
     try {
       const sys = await this.ensurePluginSystem();
       if (!sys) return builtin();
-      return await sys.applyRanking(matches, this.selectedRankingPluginId, this.rankingMode);
+      return await sys.applyRanking(matches, this.selectedRankingPluginId);
     } catch {
       return builtin();
     }
@@ -304,7 +297,6 @@ export class EventDetailPage implements IPage {
       matchData: this.matchData, playerData: this.playerData,
       playersTabAvailable: this.playersTabAvailable,
       ...(this.selectedRankingPluginId ? { rankingPluginId: this.selectedRankingPluginId } : {}),
-      rankingMode: this.rankingMode,
       timestamp: Date.now(),
     } as Cache));
   }
@@ -329,9 +321,9 @@ export class EventDetailPage implements IPage {
       this.renderer.renderGroupSelect(this.groups, this.selGid);
       this.renderContent();
       this.renderer.showContainer();
-      // 缓存是「当时选中口径」下的结果。若当前选择的插件/内置口径与缓存不一致
-      // （跨版本旧缓存、插件被停用/删除、内置口径改变），异步按当前口径重新加载。
-      if (c.rankingPluginId !== this.selectedRankingPluginId || c.rankingMode !== this.rankingMode) {
+      // 缓存是「当时选中实现」下的结果。若当前选择的插件与缓存不一致
+      // （插件被停用/删除/换选），异步按当前实现重新加载。
+      if (c.rankingPluginId !== this.selectedRankingPluginId) {
         void this.recomputeForCurrentRankingPlugin();
       }
       return true;

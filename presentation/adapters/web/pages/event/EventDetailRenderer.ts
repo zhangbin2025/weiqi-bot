@@ -4,10 +4,9 @@
 import type { ICard, IToast, IAdapterFactory, IOverlay } from '../../../../core/interfaces';
 import type { IEventFormatter } from './IEventFormatter';
 import type { Group, Player, PlayerListResult, AgainstPlanResult } from '../../../../../services/event/types';
-import type { RankingTable, RankingMode, PlayerGame } from '../../../../../domain/ranking';
+import type { RankingTable, PlayerGame } from '../../../../../domain/ranking';
 import { GroupSelector } from '../../../../../domain/ranking/GroupSelector';
 import { SessionStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/SessionStorageAdapter';
-import { LocalStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/LocalStorageAdapter';
 import { Select, type SelectInstance } from '@ui';
 /**
  * 取棋手的展示名，需与 HtmlEventFormatter 里排名表行 id 用的规则一致，
@@ -26,7 +25,6 @@ export interface EventDetailRendererCallbacks {
   onNextRound: () => void;
   onPlayerClick: (playerName: string) => void;
   onShowOpponents: (playerName: string) => void;
-  onRankingModeChange: (mode: RankingMode) => void;
   /** 选中某个 rank 实现：插件从对阵表自行算全部列；undefined = 回到内置实现 */
   onRankingPluginChange: (artifactId: string | undefined) => void;
   onRefresh?: () => Promise<void>;
@@ -53,7 +51,6 @@ export class EventDetailRenderer {
   private groups: Group[] = [];
   private activeGroupId: string = '';
   private highlightedPlayerName: string = '';
-  private rankingMode: RankingMode = 'default';
   /** ⚙️ 菜单里可选择的排名插件清单 + 当前选中的插件 id（undefined = 内置排序） */
   private rankingPlugins: RankingPluginMenuItem[] = [];
   private activeRankingPluginId: string | undefined;
@@ -62,7 +59,6 @@ export class EventDetailRenderer {
   /** 内容渲染完成的一次性回调（供弹窗恢复等待数据就绪） */
   private contentReadyOnce: Array<() => void> = [];
   private readonly sessionStore = new SessionStorageAdapter('weiqi-bot');
-  private readonly localStore = new LocalStorageAdapter('weiqi-bot');
   private selectInstance?: SelectInstance | undefined;
   constructor(
     private readonly cb: EventDetailRendererCallbacks,
@@ -99,14 +95,6 @@ export class EventDetailRenderer {
         // 否则返回后表格会滚到对手行，和弹窗标题（xx 的对手）对不上。
         // 必须在 renderRanking 之前设置，因为它在 rAF 里才真正执行高亮+滚动。
         this.highlightedPlayerName = cleanPlayerName(savedModal.host);
-      }
-    } catch { /* ignore */ }
-    // 从 localStorage 恢复上次选择的排名模式
-    try {
-      await this.localStore.initialize();
-      const savedMode = await this.localStore.read<string>('event-ranking-mode');
-      if (savedMode === 'default' || savedMode === 'directWin' || savedMode === 'simple') {
-        this.rankingMode = savedMode;
       }
     } catch { /* ignore */ }
     // 全局拦截跳转到等级分页面的链接，保存高亮信息
@@ -477,16 +465,10 @@ export class EventDetailRenderer {
     this.activeTab = tab;
     this.renderTabs(); // 重新渲染标签按钮
   }
-  /** 切换排名模式下拉菜单 */
+  /** 切换排名实现下拉菜单：内置只留「标准」，其余口径由插件提供 */
   private toggleModeMenu(anchor: HTMLElement): void {
     const existing = document.getElementById('ranking-mode-menu');
     if (existing) { existing.remove(); return; }
-
-    const MODES: Array<{ value: RankingMode; label: string; desc: string }> = [
-      { value: 'default', label: '标准', desc: '积分→对手分→累进分→逆减分' },
-      { value: 'directWin', label: '直胜', desc: '积分→对手分→直胜→逆减分' },
-      { value: 'simple', label: '简易', desc: '积分→对手分→逆减分' },
-    ];
 
     const menu = document.createElement('div');
     menu.id = 'ranking-mode-menu';
@@ -498,41 +480,39 @@ export class EventDetailRenderer {
       el.style.cssText = 'padding:6px 14px 2px;font-size:0.72em;color:#999;letter-spacing:0.5px;';
       return el;
     };
+    const divider = (): HTMLElement => {
+      const el = document.createElement('div');
+      el.style.cssText = 'height:1px;background:#eee;margin:4px 0;';
+      return el;
+    };
     menu.appendChild(sectionTitle('内置排名实现'));
 
-    MODES.forEach(m => {
-      const item = document.createElement('div');
-      // 只有在「未选择插件」时，内置模式才高亮为当前生效口径
-      const isActive = this.activeRankingPluginId === undefined && m.value === this.rankingMode;
-      item.style.cssText = `padding:10px 14px;cursor:pointer;transition:background 0.15s;${isActive ? 'background:rgba(59,130,246,0.1);' : ''}`;
-      item.innerHTML = `<div style="font-weight:${isActive ? '600' : '400'};color:${isActive ? '#3b82f6' : '#333'};font-size:0.9em;">${m.label}${isActive ? ' ✓' : ''}</div><div style="font-size:0.75em;color:#999;margin-top:2px;">${m.desc}</div>`;
-      item.addEventListener('click', (e) => {
-        e.stopPropagation();
-        menu.remove();
-        document.removeEventListener('click', closeHandler);
-        this.rankingMode = m.value;
-        this.activeRankingPluginId = undefined;
-        this.localStore.write('event-ranking-mode', m.value).catch(() => { /* ignore */ });
-        this.cb.onRankingPluginChange(undefined);
-        this.cb.onRankingModeChange(m.value);
-      });
-      item.addEventListener('mouseenter', () => { item.style.background = 'rgba(59,130,246,0.08)'; });
-      item.addEventListener('mouseleave', () => { item.style.background = isActive ? 'rgba(59,130,246,0.1)' : ''; });
-      menu.appendChild(item);
+    // 唯一内置口径：标准。点它即回到内置实现（清掉当前插件选择）。
+    const standard = document.createElement('div');
+    const isActive = this.activeRankingPluginId === undefined;
+    standard.style.cssText = `padding:10px 14px;cursor:pointer;transition:background 0.15s;${isActive ? 'background:rgba(59,130,246,0.1);' : ''}`;
+    standard.innerHTML = `<div style="font-weight:${isActive ? '600' : '400'};color:${isActive ? '#3b82f6' : '#333'};font-size:0.9em;">标准${isActive ? ' ✓' : ''}</div><div style="font-size:0.75em;color:#999;margin-top:2px;">积分→对手分→累进分→逆减分</div>`;
+    standard.addEventListener('click', (e) => {
+      e.stopPropagation();
+      menu.remove();
+      document.removeEventListener('click', closeHandler);
+      this.activeRankingPluginId = undefined;
+      this.cb.onRankingPluginChange(undefined);
     });
+    standard.addEventListener('mouseenter', () => { standard.style.background = 'rgba(59,130,246,0.08)'; });
+    standard.addEventListener('mouseleave', () => { standard.style.background = isActive ? 'rgba(59,130,246,0.1)' : ''; });
+    menu.appendChild(standard);
 
     // 插件组：仅在有可用（已启用）的排名插件时展示，避免无插件用户看到空分组
     if (this.rankingPlugins.length > 0) {
-      const divider = document.createElement('div');
-      divider.style.cssText = 'height:1px;background:#eee;margin:4px 0;';
-      menu.appendChild(divider);
+      menu.appendChild(divider());
       menu.appendChild(sectionTitle('插件排名实现'));
 
       const pluginItem = (id: string, label: string, desc: string): HTMLElement => {
         const item = document.createElement('div');
-        const isActive = this.activeRankingPluginId === id;
-        item.style.cssText = `padding:10px 14px;cursor:pointer;transition:background 0.15s;${isActive ? 'background:rgba(59,130,246,0.1);' : ''}`;
-        item.innerHTML = `<div style="font-weight:${isActive ? '600' : '400'};color:${isActive ? '#3b82f6' : '#333'};font-size:0.9em;">${this.escapeMenuText(label)}${isActive ? ' ✓' : ''}</div><div style="font-size:0.75em;color:#999;margin-top:2px;">${desc}</div>`;
+        const pActive = this.activeRankingPluginId === id;
+        item.style.cssText = `padding:10px 14px;cursor:pointer;transition:background 0.15s;${pActive ? 'background:rgba(59,130,246,0.1);' : ''}`;
+        item.innerHTML = `<div style="font-weight:${pActive ? '600' : '400'};color:${pActive ? '#3b82f6' : '#333'};font-size:0.9em;">${this.escapeMenuText(label)}${pActive ? ' ✓' : ''}</div><div style="font-size:0.75em;color:#999;margin-top:2px;">${desc}</div>`;
         item.addEventListener('click', (e) => {
           e.stopPropagation();
           menu.remove();
@@ -541,16 +521,24 @@ export class EventDetailRenderer {
           this.cb.onRankingPluginChange(id);
         });
         item.addEventListener('mouseenter', () => { item.style.background = 'rgba(59,130,246,0.08)'; });
-        item.addEventListener('mouseleave', () => { item.style.background = isActive ? 'rgba(59,130,246,0.1)' : ''; });
+        item.addEventListener('mouseleave', () => { item.style.background = pActive ? 'rgba(59,130,246,0.1)' : ''; });
         return item;
       };
 
-      // 不单列「回到内置」项：上面的内置排序三项就是切回默认的入口
-      // （点任一项都会把 activeRankingPluginId 置回 undefined），不必重复列一个。
       for (const p of this.rankingPlugins) {
         menu.appendChild(pluginItem(p.id, `🧩 ${p.name}`, '从对阵表自行算分与列'));
       }
     }
+
+    // 底部小链接：跳转到对话页的插件管理面板，方便安装/启用/停用排名插件
+    menu.appendChild(divider());
+    const manage = document.createElement('a');
+    manage.href = '../assistant/chat.html?panel=plugins';
+    manage.textContent = '管理插件 →';
+    manage.style.cssText = 'display:block;padding:8px 14px;font-size:0.78em;color:#6b7280;text-decoration:none;';
+    manage.addEventListener('mouseenter', () => { manage.style.background = 'rgba(59,130,246,0.08)'; });
+    manage.addEventListener('mouseleave', () => { manage.style.background = ''; });
+    menu.appendChild(manage);
 
     anchor.style.position = 'relative';
     anchor.appendChild(menu);
@@ -560,11 +548,6 @@ export class EventDetailRenderer {
       if (!menu.contains(ev.target as Node)) { menu.remove(); document.removeEventListener('click', closeHandler); }
     };
     setTimeout(() => document.addEventListener('click', closeHandler), 0);
-  }
-
-  /** 获取当前排名模式 */
-  getRankingMode(): RankingMode {
-    return this.rankingMode;
   }
 
   /**
@@ -590,11 +573,6 @@ export class EventDetailRenderer {
     return raw
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-  }
-
-  /** 设置排名模式 */
-  setRankingMode(mode: RankingMode): void {
-    this.rankingMode = mode;
   }
 
   destroy(): void {

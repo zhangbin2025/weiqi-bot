@@ -62,7 +62,7 @@ function sys(overrides: Parameters<typeof createPluginSystem>[0] = {}) {
   });
 }
 
-/** 内置结果的列标签（mode=default） */
+/** 内置（标准口径）结果的列标签 */
 const BUILTIN_LABELS = ['积分', '对手分', '累进分', '逆减'];
 
 describe('createPluginSystem', () => {

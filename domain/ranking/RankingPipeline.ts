@@ -12,7 +12,7 @@
  */
 
 import type {
-  MatchData, RankingInput, RankingOutput, RankingTable, RankingMode,
+  MatchData, RankingInput, RankingOutput, RankingTable,
 } from './types';
 import { validateRankingOutput, toRankingTable } from './RankingTable';
 import { RankingCalculator } from './RankingCalculator';
@@ -47,14 +47,13 @@ export async function computeRanking(
   return toRankingTable(output, matches);
 }
 
-/** 内置实现：把 RankingCalculator 包装成统一管线里的一个 impl。mode 只是内置预设口径。 */
+/** 内置实现：把 RankingCalculator（标准口径）包装成统一管线里的一个 impl。 */
 export class BuiltinRanking implements IRankingImplementation {
   constructor(
-    private readonly mode: RankingMode = 'default',
     private readonly calculator: IRankingCalculator = new RankingCalculator(),
   ) {}
 
   rank(input: RankingInput): RankingOutput {
-    return this.calculator.rank(input, this.mode);
+    return this.calculator.rank(input);
   }
 }

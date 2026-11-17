@@ -80,7 +80,7 @@ describe('normalizePlayerIds', () => {
     normalizePlayerIds(rounds);
 
     const rows = new RankingCalculator().rank(
-      { matches: rounds.flatMap(r => r.matches) }, 'default',
+      { matches: rounds.flatMap(r => r.matches) },
     ).rows;
     expect(rows).toHaveLength(4);
     expect(rows.every(r => r.cells['score'] !== 4)).toBe(true);
@@ -96,7 +96,7 @@ describe('normalizePlayerIds', () => {
       mk(2, 2, 'X', 3, 0, 'Y', 4, 0),
     ];
     normalizePlayerIds([{ matches }]);
-    const rows = new RankingCalculator().rank({ matches }, 'default').rows;
+    const rows = new RankingCalculator().rank({ matches }).rows;
     expect(rows).toHaveLength(4);
     expect(rows.every(r => r.cells['score'] !== 4)).toBe(true);
   });
@@ -143,7 +143,7 @@ describe('normalizePlayerIds', () => {
     recalcWinLoss({ rounds: before });
     oldFix(before);
     const beforeRows = new RankingCalculator().rank(
-      { matches: before.flatMap(r => r.matches) }, 'default',
+      { matches: before.flatMap(r => r.matches) },
     ).rows;
     // 修复前：两个临时 id 相同的赢家被合并 → 4 分 / 累进分 14
     expect(beforeRows.some(r => r.cells['score'] === 4 && r.cells['progressiveScore'] === 14)).toBe(true);
@@ -152,7 +152,7 @@ describe('normalizePlayerIds', () => {
     recalcWinLoss({ rounds: after });
     normalizePlayerIds(after);
     const afterRows = new RankingCalculator().rank(
-      { matches: after.flatMap(r => r.matches) }, 'default',
+      { matches: after.flatMap(r => r.matches) },
     ).rows;
     expect(afterRows.some(r => r.cells['score'] === 4)).toBe(false);
     expect(afterRows.some(r => r.cells['progressiveScore'] === 14)).toBe(false);

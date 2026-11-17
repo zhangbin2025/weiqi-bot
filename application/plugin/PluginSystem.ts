@@ -17,7 +17,7 @@
 import type { IModelGateway } from '@application/model/IModelGateway';
 import type { IPluginRuntime, PluginArtifact } from '@domain/plugin/types';
 import { RANKING_SPEC } from '@domain/plugin/types';
-import type { MatchData, RankingTable, RankingMode } from '@domain/ranking/types';
+import type { MatchData, RankingTable } from '@domain/ranking/types';
 import { computeRanking, BuiltinRanking } from '@domain/ranking/RankingPipeline';
 import { OpenAIModelGateway } from '@infrastructure/llm/OpenAIModelGateway';
 import { QuickJsRuntime } from '@infrastructure/plugin-vm/QuickJsRuntime';
@@ -94,10 +94,9 @@ export interface PluginSystem {
    * 给排名页用：把同一份原始对阵表交给唯一管线 computeRanking。
    * - 只有显式传入选中的插件 id 时才构造插件 impl（否则一律内置，避免加载 wasm）
    * - 插件「已启用」只是可用性闸门，不等于「当前正在使用」——由页面菜单决定
-   * - 插件执行/校验失败一律回落内置结果，保证页面不白屏
-   * - mode 只影响内置实现的预设口径，插件忽略
+   * - 插件执行/校验失败一律回落内置（标准口径）结果，保证页面不白屏
    */
-  applyRanking(matches: MatchData[], selectedArtifactId?: string, mode?: RankingMode): Promise<RankingTable>;
+  applyRanking(matches: MatchData[], selectedArtifactId?: string): Promise<RankingTable>;
   /** 渲染前安全处理 LLM 文本 */
   safeReply(text: string): string;
   dispose(): Promise<void>;
@@ -145,8 +144,8 @@ export async function createPluginSystem(options: PluginSystemOptions = {}): Pro
     snapshot,
     toolKit,
     maxAttempts,
-    applyRanking: async (matches: MatchData[], selectedArtifactId?: string, mode: RankingMode = 'default') => {
-      const builtin = (): Promise<RankingTable> => computeRanking(matches, new BuiltinRanking(mode));
+    applyRanking: async (matches: MatchData[], selectedArtifactId?: string) => {
+      const builtin = (): Promise<RankingTable> => computeRanking(matches, new BuiltinRanking());
       if (!selectedArtifactId) return builtin();
       let active: PluginArtifact | undefined;
       try {

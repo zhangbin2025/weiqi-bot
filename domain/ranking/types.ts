@@ -3,7 +3,7 @@
  * @module domain/ranking/types
  *
  * 唯一原始数据源是「对阵表」(MatchData[])。
- * 内置实现与插件实现都只吃这份对阵，产出同一张 RankingTable：
+ * 内置（标准）实现与插件实现都只吃这份对阵，产出同一张 RankingTable：
  * 积分、对手分、累进分等一切中间量都由实现自行计算，宿主不代算、不预置字段。
  */
 
@@ -73,9 +73,6 @@ export interface RankingTable extends RankingOutput {
   completedRounds: number;
 }
 
-/** 内置实现的排序口径（插件不受此约束，规则由插件自己写） */
-export type RankingMode = 'default' | 'simple' | 'directWin';
-
 /** 对手弹窗的一局（从原始对阵派生，不属于排名表字段） */
 export interface PlayerGame {
   bout: number;
@@ -91,15 +88,10 @@ export interface InternalPlayer {
   score: number;
   opponentScore: number;
   progressiveScore: number;
-  wins: number;
-  losses: number;
-  draws: number;
   opponents: number[];
   progressive: number[];
   roundOpponents: Array<{ bout: number; opponentId: number; opponentName: string }>;
   reverseMinus: number[];
   /** 破同分时用于展示的逐轮逆减数值数组（旧版 "3-12" 字符串的数值化形态） */
   reverseMinusValue: number[];
-  /** 直胜结果：opponentId → 1(胜)/-1(负)/0.5(和) */
-  directWinResults: Map<number, number>;
 }

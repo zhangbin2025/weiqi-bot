@@ -94,12 +94,11 @@ const RANKING_HELP = `
 event ranking - 查询分组排名
 
 用法:
-  event ranking --eventId <id> --groupId <id> [--mode <模式>]
+  event ranking --eventId <id> --groupId <id>
 
 参数:
   --eventId <id>                 赛事 ID（必填）
   --groupId <id>                 分组 ID（必填）
-  --mode <模式>                  排名模式（默认: default）
 
 选项:
   --format json|text            输出格式（默认 json）
@@ -112,7 +111,6 @@ event ranking - 查询分组排名
 
 示例:
   event ranking --eventId 66261 --groupId 327319
-  event ranking --eventId 66261 --groupId 327319 --mode default --format text
 `;
 
 /** matches 子命令帮助 */
@@ -299,26 +297,23 @@ function parseDetailArgs(args: string[]): { eventId?: number; title?: string; er
 }
 
 /** 解析 event ranking 参数 */
-function parseRankingArgs(args: string[]): { eventId?: number; groupId?: number; mode?: string; error?: string } {
-  const knownParams = ['--eventId', '--groupId', '--mode'];
+function parseRankingArgs(args: string[]): { eventId?: number; groupId?: number; error?: string } {
+  const knownParams = ['--eventId', '--groupId'];
   const unknownErr = detectUnknownArgs(args, knownParams);
   if (unknownErr) return { error: unknownErr };
 
   let eventId: number | undefined;
   let groupId: number | undefined;
-  let mode: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--eventId' && args[i + 1]) {
       eventId = parseInt(args[++i], 10);
     } else if (args[i] === '--groupId' && args[i + 1]) {
       groupId = parseInt(args[++i], 10);
-    } else if (args[i] === '--mode' && args[i + 1]) {
-      mode = args[++i];
     }
   }
 
-  return { eventId, groupId, mode };
+  return { eventId, groupId };
 }
 
 /** 解析 event matches 参数 */
@@ -405,13 +400,12 @@ async function eventDetail(eventId: number, title: string | undefined, ctx: CliC
 async function eventRanking(
   eventId: number,
   groupId: number,
-  mode: string | undefined,
   ctx: CliContext,
 ): Promise<CliResult> {
   const { eventQuerier } = ctx;
 
   try {
-    const result = await eventQuerier.getGroupRanking(eventId, groupId, mode as 'default' | 'simple' | 'directWin' | undefined);
+    const result = await eventQuerier.getGroupRanking(eventId, groupId);
     return { ok: true, command: 'event-ranking', data: result };
   } catch (e) {
     return { ok: false, command: 'event-ranking', error: `分组排名查询失败: ${e instanceof Error ? e.message : String(e)}` };
@@ -597,7 +591,7 @@ export async function runEventCommand(args: string[], ctx: CliContext): Promise<
       if (missing.length > 0) {
         return { ok: false, command: 'event-ranking', error: `缺少参数: ${missing.join(', ')}` };
       }
-      return eventRanking(parsed.eventId, parsed.groupId, parsed.mode, ctx);
+      return eventRanking(parsed.eventId, parsed.groupId, ctx);
     }
 
     case 'matches': {

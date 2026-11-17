@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EventQuerier } from '../EventQuerier';
 import type { IEventService, EventListResult, GroupListResult, AgainstPlanResult, AllRoundsResult } from '../../../services/event/types';
-import type { IRankingCalculator, RankingOutput, RankingMode, MatchData } from '../../../domain/ranking';
+import type { IRankingCalculator, RankingOutput, MatchData } from '../../../domain/ranking';
 import type { IFavoriteService, IFavoriteItem } from '../../../services/favorite';
 // Mock factories
 const createMockEventService = (): IEventService => ({
@@ -128,20 +128,9 @@ describe('EventQuerier', () => {
       // 轮次元信息由管线从原始对阵派生（不是照抄 allRounds 里的字段）
       expect(result.totalRounds).toBe(2);
       expect(result.completedRounds).toBe(2);
-      // 内置实现收到 { matches }（唯一原始数据源），默认口径 default
+      // 内置实现收到 { matches }（唯一原始数据源），标准口径
       expect(mockRankingCalculator.rank).toHaveBeenCalledWith(
         { matches: mockAllRounds.matches },
-        'default',
-      );
-    });
-    it('应该支持指定内置口径', async () => {
-      vi.mocked(mockEventService.getAllRounds).mockResolvedValue(mockAllRounds);
-      vi.mocked(mockRankingCalculator.rank).mockReturnValue(mockRankingOutput);
-      const querier = new EventQuerier(mockEventService, mockRankingCalculator);
-      await querier.getGroupRanking(12345, 100, 'simple');
-      expect(mockRankingCalculator.rank).toHaveBeenCalledWith(
-        { matches: mockAllRounds.matches },
-        'simple',
       );
     });
     it('应该支持进度回调', async () => {
@@ -149,7 +138,7 @@ describe('EventQuerier', () => {
       vi.mocked(mockRankingCalculator.rank).mockReturnValue(mockRankingOutput);
       const onProgress = vi.fn();
       const querier = new EventQuerier(mockEventService, mockRankingCalculator);
-      await querier.getGroupRanking(12345, 100, undefined, onProgress);
+      await querier.getGroupRanking(12345, 100, onProgress);
       expect(mockEventService.getAllRounds).toHaveBeenCalledWith(100, onProgress, false);
     });
     it('输出不符合契约时抛错（不静默返回坏表）', async () => {
