@@ -11,7 +11,7 @@
  */
 
 import { LocalStorageAdapter } from '@infrastructure/storage/adapters/web/LocalStorageAdapter';
-import type { CatalogEntry } from './PluginCatalogTypes';
+import type { CatalogEntry, LlmToolExposure, LlmToolSmokeCase } from './PluginCatalogTypes';
 
 const CACHE_KEY = 'plugin-catalog:cache';
 
@@ -28,6 +28,8 @@ export interface StaticCatalogEntry {
   remoteCode?: string;
   intent?: string;
   origin?: 'llm' | 'manual';
+  exposes?: LlmToolExposure[];
+  smoke?: LlmToolSmokeCase[];
 }
 
 export interface PluginCatalogCacheDeps {
@@ -87,6 +89,8 @@ function toStatic(entry: CatalogEntry): StaticCatalogEntry {
   if (entry.remoteCode !== undefined) s.remoteCode = entry.remoteCode;
   if (entry.intent !== undefined) s.intent = entry.intent;
   if (entry.origin !== undefined) s.origin = entry.origin;
+  if (entry.exposes !== undefined) s.exposes = entry.exposes;
+  if (entry.smoke !== undefined) s.smoke = entry.smoke;
   return s;
 }
 
@@ -97,5 +101,7 @@ function isStaticEntry(v: unknown): v is StaticCatalogEntry {
     && typeof o['resourceId'] === 'string'
     && typeof o['name'] === 'string'
     && typeof o['summary'] === 'string'
-    && (o['kind'] === 'plugin' || o['kind'] === 'tool');
+    && (o['kind'] === 'plugin' || o['kind'] === 'tool')
+    && (o['exposes'] === undefined || Array.isArray(o['exposes']))
+    && (o['smoke'] === undefined || Array.isArray(o['smoke']));
 }

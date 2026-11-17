@@ -6,7 +6,8 @@
  *
  * 分流依据不是「猜这句话属于哪个意图」，而是用户显式选定的模型角色（ChatRole）。
  * 两个角色共用**同一个**标准 tool-calling agent loop（ToolLoop.ts）：
- * - chat 角色：挂网页 / PDF / 图片工具，system 用 CONVERSATION_SYSTEM_PROMPT，source='web'。
+ * - chat 角色：挂网页 / PDF / 图片工具，system 用 CONVERSATION_SYSTEM_PROMPT，source='web'；
+ *   装了 llm-tool 能力库时再追加一个 llm_tool_call 工具与动态能力库清单。
  * - plugin 角色：挂插件开发工具集（列/查/写/试算/启停/删除/应用/回滚），
  *   system 由工具集动态生成（实时插件清单 + 沙箱契约），source='plugin'。
  *
@@ -37,6 +38,7 @@ import { runToolLoop, type ToolKit, type ToolLoopResult, type ToolExecutor } fro
 import { createWebToolKit } from './WebToolLoop';
 import type { WebFetchToolDeps } from './WebFetchTool';
 import { safeReply } from './safeReply';
+import type { createLlmToolKit } from '../plugin/LlmToolKit';
 import type { SkillPrimitive, SkillRecipe } from '../skill/SkillTypes';
 import type { SkillDevKit } from '../skill/dev/SkillDevTools';
 import { selectSkills } from '../skill/SkillSelector';
@@ -165,6 +167,8 @@ export class ChatUseCase {
     private readonly webTools?: WebFetchToolDeps,
     /** 可选：在线技能配方（仅 chat 角色生效）。不传则行为与旧版完全一致。 */
     private readonly skills?: SkillDeps,
+    /** 可选：模型能力插件工具集（chat / skill-dev 角色）。不传则完全不挂，行为与旧版一致。 */
+    private readonly llmToolKit?: ReturnType<typeof createLlmToolKit>,
   ) {}
 
   isReady(): boolean {
@@ -380,9 +384,11 @@ export class ChatUseCase {
     // chat 角色：基础 web 工具恒定挂载；装了技能系统时，按「当前句 + 上下文里是否
     // 仍带图片附件」挑出命中的配方，只把配方引用的原语追加进本轮 tools[]。
     // 未命中任何技能时 buildChatToolKit 直接返回基础 kit，零额外 token。
+    // chat 角色：技能系统与 llm-tool 能力库只要装了任一个，就走拼装路径。
+    // 两者都没装才逐字返回基础 web kit（保持旧行为、零额外 token）。
     const kit: ToolKit = usePlugin
       ? this.pluginToolKit!
-      : this.skills
+      : (this.skills || this.llmToolKit)
         ? await this.buildChatToolKit(messages, localParts.length > 0, devMode)
         : createWebToolKit(this.webTools!);
     const source: PluginTraceStep['source'] = usePlugin ? 'plugin' : 'web';
@@ -407,6 +413,7 @@ export class ChatUseCase {
   /**
    * 拼装 chat / skill-dev 角色本轮的工具集：
    * - 基础 web 工具（3 个）恒定挂载，行为与旧版一致；
+   * - llm-tool 能力库只要在装配时注入就恒定追加，不依赖技能系统是否可用；
    * - 命中技能引用的原语按 name 去重后追加（基础工具优先，避免同名执行器被覆盖）；
    * - system 由 buildSkillSystemPrompt 在 CONVERSATION_SYSTEM_PROMPT 之上补本轮技能说明；
    *   闲聊无命中时原样返回基础 kit（无 systemPrompt，模型上下文与旧版逐字相同）。
@@ -420,10 +427,24 @@ export class ChatUseCase {
     hasNewParts: boolean,
     devMode: boolean,
   ): Promise<ToolKit> {
-    const base = createWebToolKit(this.webTools!);
+    let base = createWebToolKit(this.webTools!);
+    // llm-tool 是 chat 超集：基础 web 工具之上恒定追加，skill-dev 自动继承。
+    // 工具声明按 name 去重（基础工具优先），与技能原语同一套 append 口径。
+    const llm = this.llmToolKit;
+    if (llm) {
+      const tools = [...base.tools];
+      const executors: Record<string, ToolExecutor> = { ...base.executors };
+      for (const t of llm.tools) {
+        if (llm.executors[t.name] && !executors[t.name]) {
+          tools.push(t);
+          executors[t.name] = llm.executors[t.name]!;
+        }
+      }
+      base = { ...base, tools, executors };
+    }
     let recipes: readonly SkillRecipe[] = [];
     try {
-      recipes = await this.skills!.loadSkills();
+      recipes = this.skills ? await this.skills.loadSkills() : [];
     } catch {
       recipes = [];
     }
@@ -431,13 +452,23 @@ export class ChatUseCase {
     // 但历史里的图片附件仍随上下文重放。用它保持导入技能挂载，直到图片滑出
     // 20 条消息窗口（沿用既有 maxMessages，不另设过期时间/阈值）。
     const contextHasImage = hasNewParts || hasImagePart(messages);
-    const active = selectSkills(lastUserText(messages), contextHasImage, recipes, this.skills!.primitives);
+    const active = this.skills
+      ? selectSkills(lastUserText(messages), contextHasImage, recipes, this.skills.primitives)
+      : [];
     const dev = devMode ? this.skills?.devKit : undefined;
 
-    // 闲聊且无命中：逐字返回基础 kit（零额外 token、无 systemPrompt 覆盖）
-    if (active.length === 0 && !dev) return base;
+    // 闲聊且无命中、也没有 llm-tool 能力库：逐字返回基础 kit
+    //（零额外 token、无 systemPrompt 覆盖）。挂了 llm 时继续往下走，
+    // 以保证能力库清单进入 system。
+    let llmSuffix = '';
+    if (llm) {
+      try { llmSuffix = await llm.buildSystemSuffix(); } catch { llmSuffix = ''; }
+    }
+    if (active.length === 0 && !dev && !llmSuffix) return base;
 
-    const parts = buildSkillToolParts(active, this.skills!.primitives);
+    const parts = this.skills
+      ? buildSkillToolParts(active, this.skills.primitives)
+      : { tools: [] as ModelToolDefinition[], executors: {} as Record<string, ToolExecutor> };
     const tools = [...base.tools];
     const executors: Record<string, ToolExecutor> = { ...base.executors };
     const appendTool = (t: ModelToolDefinition, exec: ToolExecutor | undefined): void => {
@@ -454,6 +485,10 @@ export class ChatUseCase {
       for (const t of dev.tools) appendTool(t, dev.executors[t.name]);
       systemPrompt = `${systemPrompt}\n\n${dev.systemSuffix}`;
     }
+    // llm-tool 的能力库清单是动态片段（每次请求读工件存储，启用/停用即时生效）。
+    // ToolLoop.systemPrompt 是替换制，因此必须追加到已拼好的完整 system 尾部，
+    // 不能单独返回片段，否则会冲掉闲聊 / 技能 / 技能开发说明。
+    if (llmSuffix) systemPrompt = `${systemPrompt}\n\n${llmSuffix}`;
     return { tools, executors, systemPrompt };
   }
 

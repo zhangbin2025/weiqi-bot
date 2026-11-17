@@ -3,21 +3,21 @@
  * @module services/plugin-catalog/PluginCatalogService
  *
  * 边界：
- * - 只安装 `type: plugin` 且 `pointId === RANKING_SPEC.pointId`、
- *   `specVersion === RANKING_SPEC.version`、`entry === RANKING_SPEC.entry` 的条目；
+ * - 只安装 `type: plugin` 且 pointId 命中宿主 PLUGIN_SPECS 注册表、
+ *   `specVersion === spec.version`、`entry === spec.entry` 的条目；
  *   `type: tool` 只展示（宿主内置执行器，不引入远程执行器）。
  * - 安装 = PluginArtifactService.create(enabled:false) + catalogRef 记录来源，
  *   绝不自作主张启用；更新 = revise(trigger:'manual') 保留 history，不新建副本。
  * - 「同一个插件」判据 = 工件 catalogRef.registryUrl + resourceId 同时相等。
  *   「有更新」判据 = 远端 code 与本地 code 字符串不等（全量源码，无 magic number）。
  * - 校验在安装前由 PluginValidator 快筛；真正输出契约由 QuickJS 试跑 +
- *   validateRankingOutput 完成（注入 runtime，测试可换 mock）。
+ *   validatePluginOutput 完成（按 pointId 分派：ranking 验排名表、llm-tool 比对 smoke.expect）。
  * - 任何一步失败都不抛到 UI 层炸弹框：逐条降级为 unavailable / incompatible。
  */
 
 import { PluginValidator, validatePluginOutput } from '@domain/plugin/PluginValidator';
-import { RANKING_SPEC } from '@domain/plugin/types';
-import type { PluginArtifact, IPluginRuntime, PluginRunResult } from '@domain/plugin/types';
+import { resolvePluginSpec, PLUGIN_SPECS } from '@domain/plugin/types';
+import type { PluginArtifact, IPluginRuntime, PluginRunResult, PluginSpec } from '@domain/plugin/types';
 import { SAMPLE_RANKING_INPUT } from '@domain/ranking/sampleInput';
 import type { PluginArtifactService } from '@application/plugin/PluginArtifactService';
 import { PluginCatalogClient } from './PluginCatalogClient';
@@ -139,22 +139,39 @@ export class PluginCatalogService {
     }
     // 试跑返回的 rejected 是「代码本身不合格」，硬拒绝；
     // warning 是「沙箱环境不可用」，只提示、不拦安装（工件仍默认停用）。
-    const trial = await this.tryRun(entry.remoteCode);
+    const spec = resolvePluginSpec(entry.pointId)!; // checkCompatibility 已确认存在
+    const trial = await this.tryRun(entry.remoteCode, spec, entry);
     if (trial.rejected !== undefined) {
       return { ok: false, action: 'rejected', message: trial.rejected };
     }
 
     const local = await this.findLocal(entry);
     const code = entry.remoteCode;
+    // llm-tool 的契约（exposes[]/smoke[]）也是工件的一部分：远端只改 manifest、
+    // 源码不变时仍要同步，否则模型侧工具声明会停在旧版本。新建与更新共用这一份。
+    const nextContract = entry.exposes !== undefined && entry.smoke !== undefined
+      ? { exposes: entry.exposes, smoke: entry.smoke }
+      : undefined;
     if (local !== undefined) {
-      if (local.code === code) {
+      const contractChanged = !contractsEqual(local.llmTool, nextContract);
+      if (local.code === code && !contractChanged) {
         return { ok: true, action: 'unchanged', artifact: local, message: '已是最新，无需更新' };
+      }
+      if (local.code === code) {
+        await this.artifacts.syncLlmToolContract(local.id, nextContract);
+        return {
+          ok: true, action: 'updated', artifact: local,
+          message: '已同步资源契约（方法白名单 / 自检样例）',
+        };
       }
       const updated = await this.artifacts.revise(local.id, {
         code,
         trigger: 'manual',
         feedback: `在线插件源更新：${entry.resourceId}（${entry.registryUrl}）`,
       });
+      // manifest 的 exposes[]/smoke[] 变了也要同步，否则工具声明会停在旧版本。
+      // revise 只改 code/version/history，这里按新契约覆盖（没有则清空旧值）。
+      await this.artifacts.syncLlmToolContract(local.id, nextContract);
       const result: InstallResult = {
         ok: true, action: 'updated', artifact: updated,
         message: '已更新源码（保留历史版本）',
@@ -167,10 +184,11 @@ export class PluginCatalogService {
       name: entry.name,
       intent: entry.intent ?? entry.summary,
       code,
-      pointId: RANKING_SPEC.pointId,
+      pointId: spec.pointId,
       origin: entry.origin ?? 'manual',
-      spec: RANKING_SPEC,
+      spec,
       catalogRef: { registryUrl: entry.registryUrl, resourceId: entry.resourceId },
+      ...(nextContract ? { llmTool: nextContract } : {}),
     });
     const installed: InstallResult = {
       ok: true,
@@ -207,26 +225,49 @@ export class PluginCatalogService {
    * 与被测源码无关；compile/runtime/contract 才来自源码执行。
    * 工件始终默认停用，启用时排名管线会再校验一次，这里放行不会绕过安全闸门。
    */
-  private async tryRun(code: string): Promise<{ rejected?: string; warning?: string }> {
+  private async tryRun(
+    code: string,
+    spec: PluginSpec,
+    entry: CatalogEntry,
+  ): Promise<{ rejected?: string; warning?: string }> {
     if (this.runtime === undefined) return {};
-    let result: PluginRunResult;
-    try {
-      result = await this.runtime.run(code, SAMPLE_RANKING_INPUT, RANKING_SPEC);
-    } catch (error) {
-      return { warning: `沙箱未能启动，已跳过试跑：${messageOf(error)}` };
+    // ranking 用代表性对阵样例；llm-tool 逐条跑资源声明的 smoke[]，比对 expect。
+    const cases = spec.pointId === 'ranking'
+      ? [SAMPLE_RANKING_INPUT]
+      : (entry.smoke ?? []).map((s) => ({
+        method: s.method ?? firstMethod(entry.exposes),
+        args: s.args,
+      }));
+    if (cases.length === 0) {
+      return { rejected: 'llm-tool 资源缺少 smoke[] 自检样例，无法验证' };
     }
-    if (!result.ok) {
-      const detail = `${result.phase}：${result.error?.message ?? '未知错误'}`;
-      const envFailure = result.phase === 'crash'
-        || result.phase === 'timeout'
-        || result.phase === 'oom';
-      return envFailure
-        ? { warning: `沙箱环境不可用，已跳过试跑（${detail}）` }
-        : { rejected: `试跑失败（${detail}）` };
-    }
-    const check = validatePluginOutput(result.output, RANKING_SPEC, SAMPLE_RANKING_INPUT);
-    if (!check.entryFound) {
-      return { rejected: `输出不符合契约：${check.missingFields.join('、') || '未知原因'}` };
+    for (const [index, input] of cases.entries()) {
+      let result: PluginRunResult;
+      try {
+        result = await this.runtime.run(code, input, spec);
+      } catch (error) {
+        return { warning: `沙箱未能启动，已跳过试跑：${messageOf(error)}` };
+      }
+      if (!result.ok) {
+        const detail = `${result.phase}：${result.error?.message ?? '未知错误'}`;
+        const envFailure = result.phase === 'crash'
+          || result.phase === 'timeout'
+          || result.phase === 'oom';
+        return envFailure
+          ? { warning: `沙箱环境不可用，已跳过试跑（${detail}）` }
+          : { rejected: `试跑失败（${detail}）` };
+      }
+      const check = validatePluginOutput(result.output, spec, SAMPLE_RANKING_INPUT);
+      if (!check.entryFound) {
+        return { rejected: `输出不符合契约：${check.missingFields.join('、') || '未知原因'}` };
+      }
+      // llm-tool：结果还要与资源声明的 expect 逐字段相等，防止装进一个「能跑但算错」的库。
+      const expected = (entry.smoke ?? [])[index]?.expect;
+      if (expected !== undefined && !deepEqual(result.output, expected)) {
+        return {
+          rejected: `自检样例 ${index + 1} 结果不符：期望 ${JSON.stringify(expected)}，实际 ${JSON.stringify(result.output)}`,
+        };
+      }
     }
     return {};
   }
@@ -280,6 +321,8 @@ export class PluginCatalogService {
       intent: manifest.intent,
       origin: manifest.origin,
     };
+    if (manifest.exposes !== undefined) enriched.exposes = manifest.exposes;
+    if (manifest.smoke !== undefined) enriched.smoke = manifest.smoke;
 
     let code: string;
     try {
@@ -319,19 +362,83 @@ export class PluginCatalogService {
 
 /** 兼容 + 静态预检：返回人话原因，undefined 表示通过 */
 function checkCompatibility(entry: CatalogEntry, validator: PluginValidator): string | undefined {
-  if (entry.pointId !== RANKING_SPEC.pointId) {
-    return `扩展点不匹配：资源声明 ${entry.pointId ?? '（缺失）'}，宿主只支持 ${RANKING_SPEC.pointId}`;
+  const spec = resolvePluginSpec(entry.pointId);
+  if (spec === undefined) {
+    return `扩展点不匹配：资源声明 ${entry.pointId ?? '（缺失）'}，宿主注册了 ${Object.keys(PLUGIN_SPECS).join('、')}`;
   }
-  if (entry.specVersion !== RANKING_SPEC.version) {
-    return `spec 版本不匹配：资源声明 ${entry.specVersion ?? '（缺失）'}，宿主为 ${RANKING_SPEC.version}`;
+  if (entry.specVersion !== spec.version) {
+    return `spec 版本不匹配：资源声明 ${entry.specVersion ?? '（缺失）'}，宿主 ${spec.pointId} 为 ${spec.version}`;
   }
   if (entry.remoteCode === undefined) return '缺少源码';
-  if (!entryPattern(RANKING_SPEC.entry).test(entry.remoteCode)) {
-    return `源码未声明入口函数 ${RANKING_SPEC.entry}`;
+  if (!entryPattern(spec.entry).test(entry.remoteCode)) {
+    return `源码未声明入口函数 ${spec.entry}`;
   }
-  const result = validator.validate(entry.remoteCode, RANKING_SPEC);
+  if (spec.pointId === 'llm-tool') {
+    const bad = checkLlmToolContract(entry);
+    if (bad !== undefined) return bad;
+  }
+  const result = validator.validate(entry.remoteCode, spec);
   if (!result.ok) return result.reason ?? '静态预检未通过';
   return undefined;
+}
+
+/** llm-tool 资源契约快筛：方法白名单与自检样例必须齐全且形状合法 */
+function checkLlmToolContract(entry: CatalogEntry): string | undefined {
+  const exposes = entry.exposes;
+  if (!Array.isArray(exposes) || exposes.length === 0) return 'llm-tool 资源缺少 exposes[] 方法白名单';
+  const names = new Set<string>();
+  for (const e of exposes) {
+    if (!e || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(e.name)) return `exposes[].name 不是合法方法标识符：${String(e?.name)}`;
+    if (names.has(e.name)) return `exposes[] 方法名重复：${e.name}`;
+    names.add(e.name);
+    if (!e.description.trim()) return `exposes[].description 为空：${e.name}`;
+    if (typeof e.params !== 'object' || e.params === null || Array.isArray(e.params)) {
+      return `exposes[].params 不是对象：${e.name}`;
+    }
+  }
+  const smoke = entry.smoke;
+  if (!Array.isArray(smoke) || smoke.length === 0) return 'llm-tool 资源缺少 smoke[] 自检样例';
+  for (const s of smoke) {
+    if (!Array.isArray(s.args) || s.args.length !== 1) return 'smoke[].args 必须是含一个参数对象的数组';
+    if (s.expect === undefined) return 'smoke[].expect 缺失';
+    if (s.method !== undefined && !names.has(s.method)) {
+      return `smoke[].method 不在 exposes[] 白名单里：${s.method}`;
+    }
+  }
+  return undefined;
+}
+
+function firstMethod(exposes: CatalogEntry['exposes']): string {
+  return exposes?.[0]?.name ?? '';
+}
+
+/** 资源契约是否相等：纯 JSON 结构，复用 deepEqual（undefined 表示「没有契约」） */
+function contractsEqual(
+  a: PluginArtifact['llmTool'],
+  b: PluginArtifact['llmTool'],
+): boolean {
+  if (a === undefined && b === undefined) return true;
+  if (a === undefined || b === undefined) return false;
+  return deepEqual(a, b);
+}
+
+/** 自检结果比对：纯 JSON 值逐字段相等（ArrayBuffer/Date 之类不会出现，沙箱只出 JSON） */
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== typeof b || a === null || b === null) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((v, i) => deepEqual(v, b[i]));
+  }
+  if (typeof a === 'object') {
+    const ka = Object.keys(a as Record<string, unknown>).sort();
+    const kb = Object.keys(b as Record<string, unknown>).sort();
+    if (ka.length !== kb.length || ka.some((k, i) => k !== kb[i])) return false;
+    return ka.every((k) => deepEqual(
+      (a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k],
+    ));
+  }
+  return false;
 }
 
 function fromStatic(
@@ -354,11 +461,15 @@ function fromStatic(
   if (s.remoteCode !== undefined) entry.remoteCode = s.remoteCode;
   if (s.intent !== undefined) entry.intent = s.intent;
   if (s.origin !== undefined) entry.origin = s.origin;
+  if (s.exposes !== undefined) entry.exposes = s.exposes;
+  if (s.smoke !== undefined) entry.smoke = s.smoke;
 
   if (entry.kind === 'tool') {
     return { ...entry, state: 'tool-only', reason: '声明镜像：仅展示不安装（离线缓存）' };
   }
-  if (entry.remoteCode === undefined || !entryPattern(RANKING_SPEC.entry).test(entry.remoteCode)) {
+  const cachedSpec = resolvePluginSpec(entry.pointId);
+  if (entry.remoteCode === undefined || cachedSpec === undefined
+      || !entryPattern(cachedSpec.entry).test(entry.remoteCode)) {
     return { ...entry, state: 'unavailable', reason: '离线缓存无可用源码' };
   }
   const local = locals.find((a) =>
@@ -376,7 +487,8 @@ function fromStatic(
 
 /** 入口函数声明检查：正则由宿主 spec 的 entry 生成，不硬编码函数名 */
 function entryPattern(name: string): RegExp {
-  // name 来自 RANKING_SPEC.entry，本身是合法 JS 标识符（schema 已约束），无需转义
+  // name 来自宿主 spec.entry（由 resolvePluginSpec 查表得到），本身是合法 JS
+  // 标识符（资源侧 schema 已约束），无需转义
   return new RegExp(`\\b${name}\\s*\\(`);
 }
 

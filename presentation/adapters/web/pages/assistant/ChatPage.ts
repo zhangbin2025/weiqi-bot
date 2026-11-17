@@ -157,6 +157,8 @@ export class ChatPage {
       () => this.currentRole,
       webTools,
       skillDeps,
+      // llm-tool 能力库：与插件系统共用工件存储 + QuickJS 沙箱，装配失败时 undefined（降级为纯聊天）
+      this.plugin?.llmToolKit,
     );
 
     this.bindUI();

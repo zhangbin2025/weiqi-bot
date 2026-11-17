@@ -28,6 +28,7 @@ import { PluginValidator } from '@domain/plugin/PluginValidator';
 import { PluginArtifactService } from './PluginArtifactService';
 import { PluginContextProvider } from './PluginContextProvider';
 import { createPluginToolKit, type PluginToolKit } from './PluginTools';
+import { createLlmToolKit, type LlmToolKitDeps } from './LlmToolKit';
 import { createPluginRanking } from './RankingPluginAdapter';
 import { loadPluginMaxAttempts } from './PluginConfig';
 import { safeReply, DEFAULT_REPLY_MAX_CHARS } from '../chat/safeReply';
@@ -88,6 +89,8 @@ export interface PluginSystem {
   snapshot: PluginContextProvider;
   /** 挂到通用 ToolLoop 的插件工具集（plugin 角色唯一入口） */
   toolKit: PluginToolKit;
+  /** 模型能力插件工具集（chat / skill-dev 角色）；与 plugin 角色共用同一批 service */
+  llmToolKit: ReturnType<typeof createLlmToolKit>;
   /** 决策预算的同一来源：ToolLoop.maxTurns = maxAttempts + 1；修复/只读延续不占决策 */
   maxAttempts: number;
   /**
@@ -137,12 +140,17 @@ export async function createPluginSystem(options: PluginSystemOptions = {}): Pro
     maxAttempts,
   });
 
+  // llm-tool：同一批 artifacts / runtime，挂到闲聊与技能开发角色的工具表。
+  // 不新建存储、不新建沙箱、不新建下载链路；人工启用闸门由工件 enabled 承担。
+  const llmToolKit = createLlmToolKit({ artifacts, runtime });
+
   return {
     gateway,
     runtime,
     artifacts,
     snapshot,
     toolKit,
+    llmToolKit,
     maxAttempts,
     applyRanking: async (matches: MatchData[], selectedArtifactId?: string) => {
       const builtin = (): Promise<RankingTable> => computeRanking(matches, new BuiltinRanking());

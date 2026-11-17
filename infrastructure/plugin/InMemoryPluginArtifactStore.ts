@@ -36,6 +36,13 @@ function cloneCatalogRef(ref: PluginCatalogRef): PluginCatalogRef {
   return { registryUrl: ref.registryUrl, resourceId: ref.resourceId };
 }
 
+/** llmTool 契约是纯 JSON 值（exposes/smoke 里没有函数 / Date / ArrayBuffer），用 JSON 往返等价 structured clone */
+function cloneLlmToolContract(
+  c: NonNullable<PluginArtifact['llmTool']>,
+): NonNullable<PluginArtifact['llmTool']> {
+  return JSON.parse(JSON.stringify(c)) as NonNullable<PluginArtifact['llmTool']>;
+}
+
 function cloneSpec(spec: PluginSpec): PluginSpec {
   return {
     pointId: spec.pointId,
@@ -86,6 +93,9 @@ export function clonePluginArtifact(artifact: PluginArtifact): PluginArtifact {
   if (artifact.catalogRef !== undefined) {
     copy.catalogRef = cloneCatalogRef(artifact.catalogRef);
   }
+  if (artifact.llmTool !== undefined) {
+    copy.llmTool = cloneLlmToolContract(artifact.llmTool);
+  }
   return copy;
 }
 
@@ -116,6 +126,12 @@ export function mergePluginArtifact(
   if (patch.scope !== undefined) merged.scope = cloneScope(patch.scope);
   if (patch.conversationRef !== undefined) merged.conversationRef = patch.conversationRef;
   if (patch.catalogRef !== undefined) merged.catalogRef = cloneCatalogRef(patch.catalogRef);
+  // llmTool 用 `in` 判定：catalog 更新时可能显式传 undefined 表示「远端不再声明契约」，
+  // 此时要清掉旧值；不传该字段的其它 patch 一律原样保留。
+  if ('llmTool' in patch) {
+    if (patch.llmTool !== undefined) merged.llmTool = cloneLlmToolContract(patch.llmTool);
+    else delete merged.llmTool;
+  }
   return merged;
 }
 

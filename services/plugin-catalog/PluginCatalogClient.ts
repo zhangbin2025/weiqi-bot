@@ -92,6 +92,27 @@ export class PluginCatalogClient {
       origin: parsed['origin'] === 'llm' ? 'llm' : 'manual',
       intent: requireString(parsed, 'intent'),
     };
+    // llm-tool 的可选契约字段：宽松解析，逐条校验由 validate.mjs 在发布侧把关，
+    // 宿主侧使用时再逐项检查；未知字段一律不进类型。
+    const exposures = parsed['exposes'];
+    if (Array.isArray(exposures)) {
+      manifest.exposes = exposures.filter(isRecord).map((e) => ({
+        name: typeof e['name'] === 'string' ? e['name'] : '',
+        description: typeof e['description'] === 'string' ? e['description'] : '',
+        params: isRecord(e['params']) ? e['params'] : {},
+      }));
+    }
+    const smoke = parsed['smoke'];
+    if (Array.isArray(smoke)) {
+      manifest.smoke = smoke.filter(isRecord).map((s) => {
+        const c: { method?: string; args: unknown[]; expect: unknown } = {
+          args: Array.isArray(s['args']) ? s['args'] : [],
+          expect: s['expect'],
+        };
+        if (typeof s['method'] === 'string') c.method = s['method'];
+        return c;
+      });
+    }
     if (manifest.type !== 'plugin') throw new Error('type 不是 plugin');
     if (item.resource.id !== undefined && manifest.id !== item.resource.id) {
       throw new Error('manifest.id 与 registry 条目不一致');

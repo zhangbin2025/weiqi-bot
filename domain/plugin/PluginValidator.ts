@@ -8,6 +8,7 @@
  */
 
 import type { ContractCheck, PluginSpec } from '@domain/plugin/types';
+import { RANKING_POINT_ID } from '@domain/plugin/types';
 import type { RankingInput } from '@domain/ranking/types';
 import { validateRankingOutput } from '@domain/ranking/RankingTable';
 import { SAMPLE_RANKING_INPUT } from '@domain/ranking/sampleInput';
@@ -60,20 +61,44 @@ export class PluginValidator {
  */
 export function validatePluginOutput(
   output: unknown,
-  _spec: PluginSpec,
+  spec: PluginSpec,
   input: RankingInput = SAMPLE_RANKING_INPUT,
 ): ContractCheck {
-  const check = validateRankingOutput(output, input);
-  return {
-    entryFound: check.ok,
-    outputIsArray: false,
-    missingFields: check.missingFields,
-  };
+  // ranking 沿用原来的严格结构校验，逐字不动。
+  if (spec.pointId === RANKING_POINT_ID) {
+    const check = validateRankingOutput(output, input);
+    return {
+      entryFound: check.ok,
+      outputIsArray: false,
+      missingFields: check.missingFields,
+    };
+  }
+  // llm-tool 等通用扩展点：输出形状由资源自己声明，宿主只要求「可 JSON 序列化」。
+  // runtime.run 已经用 JSON.stringify 取过结果（QuickJsExecutor），这里再对
+  // unknown 值做一次纯函数检查，避免调用方绕过 runtime 时把不可序列化的值放过去。
+  return validateGenericOutput(output);
+}
+
+/** 通用扩展点输出校验：只验可 JSON 序列化，不解读业务语义 */
+export function validateGenericOutput(output: unknown): ContractCheck {
+  try {
+    const json = JSON.stringify(output);
+    if (json === undefined) {
+      return { entryFound: false, outputIsArray: false, missingFields: ['输出不是可 JSON 序列化的值'] };
+    }
+    return { entryFound: true, outputIsArray: false, missingFields: [] };
+  } catch {
+    return { entryFound: false, outputIsArray: false, missingFields: ['输出无法 JSON 序列化（含循环引用或 BigInt）'] };
+  }
 }
 
 /** 把 ContractCheck 转成可回喂 LLM 的人话提示 */
 export function contractCheckHint(check: ContractCheck): string {
   if (check.missingFields.length > 0) {
+    // ranking 的详细提示逐字保留（既有诊断文案与测试依赖它）；通用扩展点
+    // 的缺失字段来自 validateGenericOutput，用不带排名语义的短提示。
+    const generic = check.missingFields.some((f) => f.startsWith('输出'));
+    if (generic) return `输出不符合契约（${check.missingFields.join('、')}）`;
     return `排名表不符合契约（${check.missingFields.join('、')}）：必须返回 { columns, rows } 对象，列名为汉字，cells 只能是数值或数值数组`;
   }
   if (!check.entryFound) return '入口未返回合法的 { columns, rows } 对象，请检查 rank 是否被调用';

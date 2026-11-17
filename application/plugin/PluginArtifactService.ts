@@ -26,6 +26,8 @@ export interface CreatePluginArtifactInput {
   conversationRef?: string;
   /** 在线插件安装时写入来源标记，供后续比对更新；LLM/手工新建时为 undefined */
   catalogRef?: PluginCatalogRef;
+  /** llm-tool 安装时写入资源契约（exposes[]/smoke[]），随工件持久化 */
+  llmTool?: PluginArtifact['llmTool'];
 }
 
 export interface RevisePluginArtifactInput {
@@ -106,6 +108,9 @@ export class PluginArtifactService {
         resourceId: input.catalogRef.resourceId,
       };
     }
+    if (input.llmTool !== undefined) {
+      artifact.llmTool = JSON.parse(JSON.stringify(input.llmTool)) as NonNullable<PluginArtifact['llmTool']>;
+    }
     await this.store.create(artifact);
     return artifact;
   }
@@ -151,6 +156,26 @@ export class PluginArtifactService {
   async setEnabled(id: string, enabled: boolean): Promise<void> {
     await this.requireArtifact(id);
     await this.store.update(id, { enabled, updatedAt: this.clock() });
+  }
+
+  /**
+   * 在线源更新 llm-tool 工件时同步资源契约（exposes[]/smoke[]）。
+   * 与 revise 分开是因为 revise 是「模型/用户改源码」的通用语义，不该隐式改契约；
+   * 这里只由 catalog 安装链路调用。传 undefined 表示清掉旧契约（远端不再声明）。
+   */
+  async syncLlmToolContract(
+    id: string,
+    contract: NonNullable<PluginArtifact['llmTool']> | undefined,
+  ): Promise<void> {
+    await this.requireArtifact(id);
+    // IPluginArtifactStore.update 的 patch 是 Partial<PluginArtifact>：在
+    // exactOptionalPropertyTypes 下无法表达「显式把可选字段清空」这一语义。
+    // 端口类型不动（其它实现共享），只在这一处用 unknown 中转一次；
+    // mergePluginArtifact 用 'llmTool' in patch 判定，undefined 会 delete 掉旧值。
+    const patch = contract === undefined
+      ? { llmTool: undefined }
+      : { llmTool: JSON.parse(JSON.stringify(contract)) as NonNullable<PluginArtifact['llmTool']> };
+    await this.store.update(id, patch as unknown as Partial<PluginArtifact>);
   }
 
   async remove(id: string): Promise<void> {
