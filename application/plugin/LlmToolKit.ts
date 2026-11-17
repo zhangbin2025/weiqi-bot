@@ -19,6 +19,14 @@
  * 数值口径：不引入任何新阈值 / 经验常数。配额一律来自 LLM_TOOL_SPEC.limits，
  * 观察文本裁剪由 ToolLoop 按 CONTEXT_LIMITS.maxCharsPerMessage 统一处理。
  *
+ * 决策预算口径（2026-11-17）：能力库调用是「只读准备动作」，成功返回置
+ * `preparatory: true`，与 web_cache_read 同口径，不推进 ToolLoop 的 decisions。
+ * 依据：llm-tool 沙箱 hostApi:[]、零网络、不读运行时时钟，方法输出只由
+ * {method,args} 与工件源码决定，是确定性纯函数；一个意图摊成多步只读查询
+ * 不该被 maxTurns(=4) 掐断（实测月历配方连续 4 次 toLunar 就耗尽预算）。
+ * **失败一律不豁免**：ok:false 仍计一次实质决策，让依赖缺失/参数错误尽快
+ * 收敛到最终回复，避免模型反复重试把 maxModelCalls guard 耗光。
+ *
  * ⚠️ ToolLoop 的 systemPrompt 是「替换制」：本模块只产出能力库清单片段，
  * 由 ChatUseCase.buildChatToolKit 追加到已拼好的 system 尾部，避免冲掉闲聊 /
  * 技能 / 技能开发的 system 说明。
@@ -177,6 +185,9 @@ export function createLlmToolKit(deps: LlmToolKitDeps): ToolKit & {
       observation,
       ok: true,
       detail: `调用 ${picked.artifact.name}.${method}`,
+      // 只读确定性计算：同一次自主决策内的准备动作，不占决策轮数预算。
+      // fail() 路径刻意不置位，失败要让用户尽快看到明确提示。
+      preparatory: true,
     };
   };
 
