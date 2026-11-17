@@ -165,13 +165,18 @@
             word-break: break-all;
         }
 
-        /* 插件管理面板（WebDialog 内容，class 挂在 dialog 内的容器上） */
-        .plugin-panel { max-height: 60vh; overflow-y: auto; font-size: 13px; }
+        /* 插件/技能管理面板（WebDialog 内容，两个弹框共用这套 class）。
+           整体用 flex 定高、不滚动；滚动只发生在「条目列表」__body 上，
+           标签栏留在滚动区之外，滚动条不再贯穿到标签那一栏。 */
+        .plugin-panel {
+            display: flex; flex-direction: column;
+            max-height: 60vh; font-size: 13px;
+        }
         .plugin-panel__empty { color: #999; text-align: center; padding: 20px 0; }
         /* 两个标签页：本地插件 / 在线插件 */
         .plugin-panel__tabs {
             display: flex; gap: 4px; border-bottom: 1px solid #e8e8ee;
-            margin-bottom: 10px; position: sticky; top: 0; background: #fff; z-index: 1;
+            margin-bottom: 10px; background: #fff; flex: 0 0 auto;
         }
         .plugin-panel__tab {
             flex: 1; border: none; background: transparent; color: #777;
@@ -181,7 +186,18 @@
         .plugin-panel__tab--active {
             color: #5546a8; font-weight: 600; border-bottom-color: #667eea;
         }
-        .plugin-panel__body { padding-bottom: 4px; }
+        /* 仅条目列表区滚动：撑满剩余高度、显示滚动条（含 WebKit 常显轨道） */
+        .plugin-panel__body {
+            flex: 1 1 auto; min-height: 0;
+            overflow-y: scroll; padding-bottom: 4px;
+            scrollbar-width: thin; scrollbar-color: #c9c5e4 transparent;
+        }
+        .plugin-panel__body::-webkit-scrollbar { width: 8px; }
+        .plugin-panel__body::-webkit-scrollbar-track { background: #f4f3fb; border-radius: 4px; }
+        .plugin-panel__body::-webkit-scrollbar-thumb {
+            background: #c9c5e4; border-radius: 4px;
+        }
+        .plugin-panel__body::-webkit-scrollbar-thumb:hover { background: #a9a3d4; }
         /* 插件源管理 */
         .plugin-panel__sources {
             border: 1px solid #e8e8f2; border-radius: 10px;
