@@ -193,28 +193,14 @@ export class AssetServer {
 
     console.log(`[AssetServer] Cache miss: ${filePath}, downloading...`);
 
-    // 内置库：触发一次即整库全量串行下载（不再是只拉命中的那个文件）。
+    // 内置库：整库补齐放【后台】串行跑，绝不阻塞/连累当前请求。
+    // 原实现等整库下完才服务本文件，94 个文件里任一失败都会把本请求误判成 404。
+    // 现在先立即服务触发请求的这个文件，后台补齐失败只记日志。
     const lib = this.matchLibrary(filePath);
-    if (lib) {
-      this.ensureLibrary(lib.prefix, lib.name)
-        .then(() => {
-          if (fs.existsSync(cachedFile)) {
-            this.serveFile(cachedFile, res);
-          } else {
-            // 清单里不含该文件（如 quiz-* 被排除）：退回单文件按需下载
-            this.downloadAndServe(filePath, res);
-          }
-        })
-        .catch((err) => {
-          console.error(`[AssetServer] Library download failed (${lib.name}):`, err);
-          if (!res.headersSent) {
-            res.writeHead(404, { 'Content-Type': 'text/plain' });
-            res.end(`404 Not Found: ${filePath}`);
-          } else {
-            res.end();
-          }
-        });
-      return;
+    if (lib && !this.libraryFlights.has(lib.name)) {
+      this.ensureLibrary(lib.prefix, lib.name).catch((err) => {
+        console.error(`[AssetServer] Library background ensure failed (${lib.name}):`, err);
+      });
     }
 
     this.downloadAndServe(filePath, res);

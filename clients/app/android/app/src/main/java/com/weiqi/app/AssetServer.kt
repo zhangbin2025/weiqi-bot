@@ -160,24 +160,11 @@ class AssetServer(
 
         val fileName = uri.substringAfterLast('/').substringBefore('?')
 
-        // 内置库：触发一次即整库全量串行下载（不再是只拉命中的那个文件）。
-        // 库级锁保证同一库只有一个全量下载；不同库互不影响。
+        // 内置库：先立即响应触发请求的这个文件（不等整库），整库补齐放后台串行跑。
+        // 这样后台 94 个文件里任何一个失败/超时都不会把本请求误判成 404。
         val lib = matchLibrary(uri)
         if (lib != null) {
-            try {
-                ensureLibrary(lib.dirPrefix, lib.name)
-                if (cachedFile.exists()) return fileServer.serveFile(cachedFile)
-                // 清单里不含该文件（如 quiz-* 被排除）：退回单文件按需下载
-                return downloadSingle(uri, cachedFile, fileName)
-            } catch (e: Exception) {
-                Logger.e(TAG, "Error ensuring library ${lib.name} for $uri", e)
-                // 提示收尾已由 ensureLibrary 的 finally 负责
-                return newFixedLengthResponse(
-                    Response.Status.NOT_FOUND,
-                    "text/plain",
-                    "404 Not Found: $uri"
-                )
-            }
+            startLibraryBackground(lib.dirPrefix, lib.name)
         }
 
         return downloadSingle(uri, cachedFile, fileName)
@@ -214,6 +201,26 @@ class AssetServer(
                 "404 Not Found: $uri"
             )
         }
+    }
+
+    /**
+     * 后台触发整库补齐：不阻塞当前请求，失败只记日志。
+     * 库级锁在 ensureLibrary 内，重复触发只会有一个补齐任务在跑。
+     */
+    private fun startLibraryBackground(dirPrefix: String, name: String) {
+        // 已有补齐任务在跑就不必再起线程（库级锁本身也会挡住，这里省掉无谓线程创建）
+        val lock = libraryLocks[name] ?: run {
+            libraryLocks.putIfAbsent(name, ReentrantLock())
+            libraryLocks[name]!!
+        }
+        if (lock.isLocked) return
+        Thread({
+            try {
+                ensureLibrary(dirPrefix, name)
+            } catch (e: Exception) {
+                Logger.e(TAG, "Library background ensure failed: $name", e)
+            }
+        }, "lib-ensure-$name").apply { isDaemon = true }.start()
     }
 
     /**
