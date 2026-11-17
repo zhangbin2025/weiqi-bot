@@ -9,6 +9,7 @@
  * - 「有更新」判据 = 远端与本地同 id 的 version 不等（沿用插件「内容不等即更新」口径，
  *   不是阈值 / 打分）；更新按同 id 覆盖、保留用户已设的启停状态；
  * - 引用了宿主注册表里没有的原语的配方只展示、不可安装；
+ * - 声明了 requiredCapabilities 但缺已启用能力库方法的配方同样只展示、不可安装；
  * - 不缓存、不重试、不设超时（沿用浏览器 fetch 默认）；不执行任何远程代码；
  * - browse() / install() 失败都转成中文结果，绝不把异常抛到对话 / 面板炸弹框。
  */
@@ -20,6 +21,7 @@ import { SkillCatalogClient } from './SkillCatalogClient';
 import {
   SkillCatalogSources, DEFAULT_SKILL_REGISTRY_URL, type SkillSource,
 } from './SkillCatalogSources';
+import { hasAllCapabilities } from '@application/skill/SkillSelector';
 
 export interface SkillCatalogDeps {
   /** 可注入的 fetch（测试用）；默认 globalThis.fetch */
@@ -32,6 +34,13 @@ export interface SkillCatalogDeps {
   sources?: SkillCatalogSources;
   /** 宿主原语注册表；用于「缺原语 → 不可安装」判定 */
   primitives?: ReadonlyMap<string, SkillPrimitive>;
+  /**
+   * 当前已启用 llm-tool 能力库暴露的方法名（异步取，启用/停用即时生效）。
+   * 用于 requiredCapabilities 的「缺依赖 → unavailable / 拒装」判定。
+   * 不注入时**不检查能力依赖**（只做结构与原语校验），避免在拿不到清单时
+   * 把合法配方误标灰；对话侧 selectSkills 仍以空集做激活前硬检查。
+   */
+  capabilities?: () => Promise<readonly string[]>;
 }
 
 /** 在线条目相对本地库的状态 */
@@ -41,7 +50,7 @@ export type SkillInstallState = 'new' | 'installed' | 'update' | 'unavailable';
 export interface SkillBrowseItem {
   recipe: SkillRecipe;
   state: SkillInstallState;
-  /** unavailable 时给出原因（缺原语 / 单条配方不合法）；整份清单结构不合法则由 browse 的 error 承载 */
+  /** unavailable 时给出原因（缺原语 / 缺能力库方法 / 单条配方不合法）；整份清单结构不合法由 browse 的 error 承载 */
   reason?: string;
 }
 
@@ -67,6 +76,7 @@ export class SkillCatalogService {
   private readonly users: UserSkillStore;
   private readonly sources: SkillCatalogSources;
   private readonly primitives: ReadonlyMap<string, SkillPrimitive>;
+  private readonly capabilities: (() => Promise<readonly string[]>) | undefined;
 
   constructor(deps: SkillCatalogDeps = {}) {
     // exactOptionalPropertyTypes：可选字段条件展开，不直塞 undefined
@@ -77,6 +87,7 @@ export class SkillCatalogService {
     this.users = deps.users ?? new UserSkillStore();
     this.sources = deps.sources ?? new SkillCatalogSources();
     this.primitives = deps.primitives ?? new Map();
+    this.capabilities = deps.capabilities;
   }
 
   /**
@@ -121,13 +132,19 @@ export class SkillCatalogService {
     }
     const locals = await this.localEntries();
     const byId = new Map(locals.map((e) => [e.recipe.id, e]));
-    const items = remote.map((recipe) => this.stateOf(recipe, byId));
+    // 注入了 capabilities 就严格检查：取值失败按空集处理（有依赖一律 unavailable），
+    // 与对话侧 selectSkills 的空集口径一致；完全没注入才是 undefined = 不检查。
+    let caps: readonly string[] | undefined;
+    if (this.capabilities !== undefined) {
+      try { caps = await this.capabilities(); } catch { caps = []; }
+    }
+    const items = remote.map((recipe) => this.stateOf(recipe, byId, caps));
     return { source, items };
   }
 
   /**
    * 安装 / 更新一条在线配方：结构校验 + 原语存在性校验 → 写本地库。
-   * 与 browse() 用同一份判定，绝不绕过「缺原语不可装」。
+   * 与 browse() 用同一份判定，绝不绕过「缺原语 / 缺能力库方法不可装」。
    */
   async install(recipe: SkillRecipe): Promise<SkillInstallResult> {
     const parsed = parseSkillRecipe(recipe);
@@ -139,6 +156,13 @@ export class SkillCatalogService {
       return {
         ok: false, action: 'rejected',
         message: `宿主没有这些原语：${unknown.join('、')}，无法安装。`,
+      };
+    }
+    const missing = await this.missingCapabilities(parsed.skill);
+    if (missing.length > 0) {
+      return {
+        ok: false, action: 'rejected',
+        message: `缺少已启用的能力库方法：${missing.join('、')}。请到「插件」面板安装并启用对应能力库后再安装。`,
       };
     }
     const locals = await this.localEntries();
@@ -167,9 +191,20 @@ export class SkillCatalogService {
     }
   }
 
+  /** 缺哪些能力方法；未注入 capabilities 时返回空（不检查，见 deps 注释） */
+  private async missingCapabilities(skill: SkillRecipe): Promise<string[]> {
+    if (this.capabilities === undefined || skill.requiredCapabilities === undefined) return [];
+    let caps: readonly string[];
+    // 取值失败按空集处理：注入了检查器就绝不静默放行（与 browse 口径一致）。
+    try { caps = await this.capabilities(); } catch { caps = []; }
+    if (hasAllCapabilities(skill, caps)) return [];
+    return skill.requiredCapabilities.filter((n) => !caps.includes(n));
+  }
+
   private stateOf(
     recipe: SkillRecipe,
     byId: ReadonlyMap<string, { recipe: SkillRecipe }>,
+    caps?: readonly string[],
   ): SkillBrowseItem {
     const parsed = parseSkillRecipe(recipe);
     if (!parsed.ok) {
@@ -178,6 +213,12 @@ export class SkillCatalogService {
     const unknown = parsed.skill.primitives.filter((n) => !this.primitives.has(n));
     if (unknown.length > 0) {
       return { recipe, state: 'unavailable', reason: `缺原语：${unknown.join('、')}` };
+    }
+    if (caps !== undefined && parsed.skill.requiredCapabilities !== undefined) {
+      const missing = parsed.skill.requiredCapabilities.filter((n) => !caps.includes(n));
+      if (missing.length > 0) {
+        return { recipe, state: 'unavailable', reason: `缺能力库方法：${missing.join('、')}` };
+      }
     }
     const local = byId.get(parsed.skill.id);
     if (local === undefined) return { recipe: parsed.skill, state: 'new' };

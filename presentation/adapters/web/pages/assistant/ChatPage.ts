@@ -138,8 +138,15 @@ export class ChatPage {
       ...EVENT_PRIMITIVES,
     ]);
     this.skillPrimitives = skillPrimitives;
+    // 面板与对话侧共用同一份能力库清单：requiredCapabilities 的判定口径必须同源，
+    // 否则会出现「面板说能装、对话却不激活」的劈叉。llmToolKit 装配失败时 undefined
+    // = 不注入检查器（面板保守跳过依赖检查），对话侧仍以空集做激活前硬门槛。
+    const llmKit = this.plugin?.llmToolKit;
     this.skillCatalog = createDefaultSkillCatalog({
       users: userSkills, sources: skillSources, primitives: skillPrimitives,
+      ...(llmKit !== undefined
+        ? { capabilities: () => llmKit.listCapabilities() }
+        : {}),
     });
     const skillDeps: SkillDeps = {
       loadSkills: () => this.skillCatalog!.loadSkills(),

@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import type { ModelToolDefinition } from '@application/model/IModelGateway';
 import type { SkillPrimitive, SkillRecipe, PrimitiveResult } from '@application/skill/SkillTypes';
-import { selectSkills } from '../SkillSelector';
+import { selectSkills, hasAllCapabilities } from '../SkillSelector';
 import { buildSkillSystemPrompt } from '../SkillSystemPrompt';
 import { createSkillRegistry, buildSkillToolParts } from '../SkillRegistry';
 
@@ -114,6 +114,58 @@ describe('selectSkills', () => {
     const b = recipe({ id: 'x.b', triggers: ['乙'], primitives: ['p_b'] });
     const reg = registry(['p_a', 'p_b']);
     expect(selectSkills('甲和乙都要', false, [a, b], reg)).toEqual([a, b]);
+  });
+});
+
+describe('requiredCapabilities（激活前硬门槛）', () => {
+  /** recipe() 不透传可选字段，这里显式补上 */
+  function withCaps(requiredCapabilities: string[]): SkillRecipe {
+    return {
+      schemaVersion: 1,
+      id: 'x.calendar',
+      version: 1,
+      name: '月历',
+      summary: '需要 monthCalendar 能力',
+      triggers: ['月历'],
+      primitives: ['p_a'],
+      requiredCapabilities,
+      prompt: '生成月历表格',
+    };
+  }
+
+  it('缺任一依赖方法 → 整条跳过（与缺原语同一层）', () => {
+    const skill = withCaps(['monthCalendar', 'solarTerms']);
+    const reg = registry(['p_a']);
+    expect(selectSkills('看月历', false, [skill], reg, ['monthCalendar'])).toEqual([]);
+    expect(selectSkills('看月历', false, [skill], reg, [])).toEqual([]);
+    // ReadonlySet 形态也要能用
+    expect(selectSkills('看月历', false, [skill], reg, new Set(['monthCalendar']))).toEqual([]);
+  });
+
+  it('依赖全部齐备 → 正常激活', () => {
+    const skill = withCaps(['monthCalendar']);
+    const reg = registry(['p_a']);
+    expect(selectSkills('看月历', false, [skill], reg, ['monthCalendar'])).toEqual([skill]);
+    expect(selectSkills('看月历', false, [skill], reg, new Set(['monthCalendar', 'festivals'])))
+      .toEqual([skill]);
+  });
+
+  it('未注入能力清单（第 5 参省略）→ 有依赖的技能不激活，老配方不受影响', () => {
+    const old = recipe({ id: 'x.old', triggers: ['月历'], primitives: ['p_a'] });
+    const skill = withCaps(['monthCalendar']);
+    const reg = registry(['p_a']);
+    // 老配方无该字段：4 参数调用逐字兼容
+    expect(selectSkills('看月历', false, [old], reg)).toEqual([old]);
+    // 有依赖但没清单：宁可不激活，也不给半套能力
+    expect(selectSkills('看月历', false, [old, skill], reg)).toEqual([old]);
+  });
+
+  it('hasAllCapabilities：缺省字段恒真，空数组恒真，重复方法名不影响', () => {
+    expect(hasAllCapabilities(recipe())).toBe(true);
+    expect(hasAllCapabilities(withCaps([]))).toBe(true);
+    expect(hasAllCapabilities(withCaps(['monthCalendar']), ['monthCalendar', 'monthCalendar']))
+      .toBe(true);
+    expect(hasAllCapabilities(withCaps(['monthCalendar']), new Set())).toBe(false);
   });
 });
 

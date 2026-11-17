@@ -452,8 +452,17 @@ export class ChatUseCase {
     // 但历史里的图片附件仍随上下文重放。用它保持导入技能挂载，直到图片滑出
     // 20 条消息窗口（沿用既有 maxMessages，不另设过期时间/阈值）。
     const contextHasImage = hasNewParts || hasImagePart(messages);
+    // requiredCapabilities 的激活前硬检查：取当前已启用能力库暴露的方法名并集。
+    // 与 buildSystemSuffix 共用 listActive() 同一份工件存储读取，不另建清单；
+    // 装配失败 / 未注入 llm-tool 时按空集处理，有依赖的技能一律不激活。
+    let capabilities: string[] = [];
+    if (llm) {
+      try { capabilities = await llm.listCapabilities(); } catch { capabilities = []; }
+    }
     const active = this.skills
-      ? selectSkills(lastUserText(messages), contextHasImage, recipes, this.skills.primitives)
+      ? selectSkills(
+        lastUserText(messages), contextHasImage, recipes, this.skills.primitives, capabilities,
+      )
       : [];
     const dev = devMode ? this.skills?.devKit : undefined;
 

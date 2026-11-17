@@ -75,6 +75,12 @@ const SKILL_WRITE_TOOL: ModelToolDefinition = {
         type: 'array', items: { type: 'string' },
         description: '引用的宿主原语名数组，至少 1 条，必须来自「可用原语」清单',
       },
+      requiredCapabilities: {
+        type: 'array', items: { type: 'string' },
+        description: '可选。本技能依赖的 llm-tool 能力库方法名数组（如 ["monthCalendar"]），至少 1 条；'
+          + '只有已启用能力库暴露了全部这些方法时技能才激活。写方法名，不要写 libId（那是本机安装指纹，会跨机器失效）。'
+          + '不填表示不检查依赖。',
+      },
       prompt: {
         type: 'string',
         description: '命中后追加给对话的自然语言指令（纯文本，不写代码、不写网址模板）',
@@ -143,9 +149,13 @@ function buildSystemSuffix(primitives: ReadonlyMap<string, SkillPrimitive>): str
     'skill_write 字段：name / summary / triggers（触发词数组，至少 1 条）/ primitives（原语名数组，'
       + '至少 1 条，必须来自上表）/ prompt（命中后追加的自然语言指令，纯文本）；'
       + 'id 可选，修订时填 skill_list 查到的同一 id（user. 开头），新建时省略。',
+    'requiredCapabilities 可选：填本技能依赖的 llm-tool 能力库方法名数组（标识符，如 ["monthCalendar"]），'
+      + '至少 1 条；缺任一方法时整条技能不激活、面板也标「缺能力库方法」不可装。'
+      + '只写方法名，**不要写 libId**（本机安装指纹，跨机器不一致）。不填 = 不检查依赖。',
     '',
     '硬性规则：',
-    '- 只写声明 JSON，绝不生成代码；primitives 出现上表以外的名字会被宿主拒绝。',
+    '- 只写声明 JSON，绝不生成代码；primitives 出现上表以外的名字会被宿主拒绝；'
+      + 'requiredCapabilities 写错形状（空数组 / 非标识符）同样会被 parseSkillRecipe 拒绝。',
     '- 每次提交都是整份配方（不是 diff）；修订时把全部字段重新给全。',
     '- 保存后可让用户直接说一句触发词，在同一会话里当场验收；不满意就按同一 id 再写一次修订。',
     '- 技能只保存在当前浏览器；在线技能要在 ⋮ →「🧠 技能」→「在线技能」里点安装，装进本地库后才会生效，模型不负责安装。',
@@ -172,7 +182,11 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
       const lines = entries.map((e) => JSON.stringify({
         id: e.recipe.id, name: e.recipe.name, version: e.recipe.version,
         source: e.source, enabled: e.enabled, triggers: e.recipe.triggers,
-        primitives: e.recipe.primitives, summary: e.recipe.summary,
+        primitives: e.recipe.primitives,
+        ...(e.recipe.requiredCapabilities !== undefined
+          ? { requiredCapabilities: e.recipe.requiredCapabilities }
+          : {}),
+        summary: e.recipe.summary,
         prompt: e.recipe.prompt,
       }));
       const observation = [
@@ -240,6 +254,9 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
       summary: args['summary'],
       triggers: args['triggers'],
       primitives: args['primitives'],
+      ...(args['requiredCapabilities'] !== undefined
+        ? { requiredCapabilities: args['requiredCapabilities'] }
+        : {}),
       prompt: args['prompt'],
     });
     if (!parsed.ok) {
@@ -254,6 +271,9 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
       const observation = [
         `已保存技能「${entry.recipe.name}」（id=${entry.recipe.id}，v${entry.recipe.version}）。`,
         `触发词：${entry.recipe.triggers.join('、')}；引用原语：${entry.recipe.primitives.join('、')}。`,
+        ...(entry.recipe.requiredCapabilities !== undefined
+          ? [`依赖能力库方法：${entry.recipe.requiredCapabilities.join('、')}（缺任一则不激活）。`]
+          : []),
         '技能已即时生效。请让用户直接说一句触发词，就可以在同一会话里验收效果；',
         '若不满意，按同一 id 再次 skill_write 给出完整配方即可修订。',
       ].join('\n');

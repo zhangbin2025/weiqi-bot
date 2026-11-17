@@ -104,6 +104,8 @@ interface ActiveLib {
  */
 export function createLlmToolKit(deps: LlmToolKitDeps): ToolKit & {
   buildSystemSuffix: () => Promise<string>;
+  /** 当前已启用能力库暴露的方法名并集；供技能 requiredCapabilities 激活前判定 */
+  listCapabilities: () => Promise<string[]>;
 } {
   const contractOf = deps.contractOf ?? readLlmToolContract;
 
@@ -213,6 +215,15 @@ export function createLlmToolKit(deps: LlmToolKitDeps): ToolKit & {
     tools: [CALL_TOOL],
     executors: { [LLM_TOOL_CALL_NAME]: executor },
     buildSystemSuffix,
+    listCapabilities: async (): Promise<string[]> => {
+      const active = await listActive();
+      // 用 Set 去重：多个库暴露同名方法时只算一次，判定只关心「有没有」。
+      const names = new Set<string>();
+      for (const { contract } of active) {
+        for (const e of contract.exposes) names.add(e.name);
+      }
+      return [...names];
+    },
   };
 }
 
