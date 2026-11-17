@@ -88,7 +88,12 @@ export const DEFAULT_PLUGIN_LIMITS: PluginLimits = {
   timeoutMs: 2000,
   memoryBytes: 32 * 1024 * 1024,
   maxStackBytes: 512 * 1024,
-  maxCodeBytes: 32 * 1024,
+  // 放宽到 64KB（2026-11-17）：llm-tool.lunar 装入 1901–2100 全量节气事实表后，
+  // 可读源码实测约 40KB，旧 32KB 会卡在安装预检。此值不是扫描/拟合出来的阈值：
+  // 取 2 的幂上取整到「实测字节 + 余量」的自然边界，仅为「一份事实表源码放得下」。
+  // 真正防失控的是运行时 memoryBytes / maxStackBytes / timeoutMs / maxOutputBytes，
+  // maxCodeBytes 只做安装期静态预检，放宽不会扩大沙箱能力。
+  maxCodeBytes: 64 * 1024,
   maxOutputBytes: 256 * 1024,
   maxLogs: 50,
 };
