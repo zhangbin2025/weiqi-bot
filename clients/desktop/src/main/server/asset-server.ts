@@ -77,6 +77,13 @@ export class AssetServer {
    */
   private readonly libraryFlights = new Map<string, Promise<void>>();
 
+  /**
+   * 【全局】整库补齐队列：不同库的后台下载也不并发。
+   * 用户 2026-11-17 实测：多库后台异步下载进行中，首次请求定式 quiz 偶发 404，
+   * 重新打开（后台已结束）即成功。故所有库共用一条串行链，一次只跑一个。
+   */
+  private libraryQueue: Promise<void> = Promise.resolve();
+
   /** 库目录前缀 -> 库名。清单由 scripts/build-assets.mjs 生成，不进 web-resources.zip。 */
   private readonly libraryDirs: ReadonlyArray<{ prefix: string; name: string }> = [
     { prefix: 'shared/assets/data/joseki', name: 'joseki-trie' },
@@ -185,7 +192,9 @@ export class AssetServer {
 
     const cachedFile = path.join(this.cacheDir, filePath);
 
-    if (fs.existsSync(cachedFile)) {
+    // 只认「非空」缓存：0 字节多半是上次下载中断留下的残 file，
+    // 直接 serve 会让前端拿到空 gzip / 空 JSON 而报错。
+    if (fs.existsSync(cachedFile) && fs.statSync(cachedFile).size > 0) {
       console.log(`[AssetServer] Cache hit: ${filePath}`);
       this.serveFile(cachedFile, res);
       return;
@@ -255,9 +264,20 @@ export class AssetServer {
     const inFlight = this.libraryFlights.get(name);
     if (inFlight) return inFlight;
 
-    const flight = this.doEnsureLibrary(prefix, name)
-      .finally(() => this.libraryFlights.delete(name));
+    // 全局串行：把本库补齐挂到队列尾部，前一个库补完才轮到本库。
+    // 吞掉前一个任务的失败，避免一个库失败把后面全部短路。
+    const flight = this.libraryQueue
+      .catch(() => {})
+      .then(() => {
+        console.log(`[AssetServer] Library queue: start ${name}`);
+        return this.doEnsureLibrary(prefix, name);
+      })
+      .finally(() => {
+        this.libraryFlights.delete(name);
+        console.log(`[AssetServer] Library queue: release ${name}`);
+      });
     this.libraryFlights.set(name, flight);
+    this.libraryQueue = flight;
     return flight;
   }
 
@@ -306,27 +326,41 @@ export class AssetServer {
   private downloadAndServe(filePath: string, res: http.ServerResponse): void {
     const remoteUrl = `${this.remoteBase}/${filePath}`;
     const cachedFile = path.join(this.cacheDir, filePath);
-    
+
     const filename = path.basename(filePath);
     this.onDemandCallback?.onDownloadStart(filename, -1);
 
-    this.downloadFileWithProgress(remoteUrl, cachedFile, (loaded, total) => {
+    const progress = (loaded: number, total: number) =>
       this.onDemandCallback?.onDownloadProgress(filename, loaded, total);
-    })
-      .then(() => {
-        this.onDemandCallback?.onDownloadComplete(filename);
-        this.serveFile(cachedFile, res);
-      })
-      .catch((err) => {
-        console.error(`[AssetServer] Download failed:`, err);
-        this.onDemandCallback?.onDownloadComplete(filename);
-        if (!res.headersSent) {
-          res.writeHead(404, { 'Content-Type': 'text/plain' });
-          res.end(`404 Not Found: ${filePath}`);
-        } else {
-          res.end();
-        }
-      });
+
+    const attempt = (retryLeft: number): void => {
+      this.downloadFileWithProgress(remoteUrl, cachedFile, progress)
+        .then(() => {
+          this.onDemandCallback?.onDownloadComplete(filename);
+          this.serveFile(cachedFile, res);
+        })
+        .catch((err) => {
+          console.error(`[AssetServer] Download failed (${filePath}, retryLeft=${retryLeft}):`, err);
+          // 清掉可能损坏的缓存残 file 后重试一次，覆盖本地状态异常 / 瞬时网络
+          if (retryLeft > 0) {
+            try {
+              if (fs.existsSync(cachedFile)) fs.unlinkSync(cachedFile);
+            } catch (e) {
+              console.warn(`[AssetServer] Cannot clean ${cachedFile}:`, e);
+            }
+            attempt(retryLeft - 1);
+            return;
+          }
+          this.onDemandCallback?.onDownloadComplete(filename);
+          if (!res.headersSent) {
+            res.writeHead(404, { 'Content-Type': 'text/plain' });
+            res.end(`404 Not Found: ${filePath}`);
+          } else {
+            res.end();
+          }
+        });
+    };
+    attempt(1);
   }
 
   /**
@@ -358,6 +392,16 @@ export class AssetServer {
     // 二次检查：排队等待期间文件可能已被前一个下载写好，直接读缓存即可。
     // 只认「非空」的已有文件：0 字节多半是上次中断留下的残 file，必须重下。
     if (fs.existsSync(destFile) && fs.statSync(destFile).size > 0) return;
+    // 0 字节多半是上次中断留下的残 file；Windows 上 renameSync 覆盖已存在文件
+    // 可能失败（EPERM/EEXIST），先清掉再下。
+    if (fs.existsSync(destFile)) {
+      try {
+        fs.unlinkSync(destFile);
+        console.log(`[AssetServer] Removed stale empty file: ${destFile}`);
+      } catch (err) {
+        console.warn(`[AssetServer] Cannot remove stale file ${destFile}:`, err);
+      }
+    }
 
     const parentDir = path.dirname(destFile);
     if (!fs.existsSync(parentDir)) {
@@ -726,8 +770,8 @@ export class AssetServer {
 
         if (response.statusCode !== 200) {
           file.close();
-          fs.unlinkSync(tempFile);
-          reject(new Error(`HTTP ${response.statusCode}`));
+          try { fs.unlinkSync(tempFile); } catch {}
+          reject(new Error(`HTTP ${response.statusCode} for ${url}`));
           return;
         }
 

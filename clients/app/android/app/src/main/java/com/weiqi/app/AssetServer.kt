@@ -53,6 +53,17 @@ class AssetServer(
      */
     private val libraryLocks = ConcurrentHashMap<String, ReentrantLock>()
 
+    /**
+     * 【全局】整库补齐锁：不同库的后台下载也不并发。
+     * 用户 2026-11-17 实测：多库后台异步下载进行中，首次请求定式 quiz 偶发 404，
+     * 重新打开（后台已结束）即成功。故所有库共用一把锁，一次只补一个库。
+     */
+    private val globalLibraryLock = ReentrantLock()
+
+    /** 已排队/正在补齐的库名，用于跳过重复触发（避免无谓起线程） */
+    private val libraryQueued: MutableSet<String> =
+        java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
+
     /** 库目录前缀 -> 库名。清单由 scripts/build-assets.mjs 生成，不进 web-resources.zip。 */
     private val libraryDirs = mapOf(
         "shared/assets/data/joseki" to "joseki-trie",
@@ -150,7 +161,8 @@ class AssetServer(
 
         // 1. 尝试从缓存读取
         val cachedFile = File(cacheDir, uri)
-        if (cachedFile.exists()) {
+        // 只认「非空」缓存：0 字节残 file 直接 serve 会让前端拿到空 gzip / 空 JSON
+        if (cachedFile.exists() && cachedFile.length() > 0) {
             Logger.d(TAG, "Cache hit: $uri")
             return fileServer.serveFile(cachedFile)
         }
@@ -186,21 +198,28 @@ class AssetServer(
 
     /** 单文件按需下载（非库资源，或库清单未收录的兜底路径）。 */
     private fun downloadSingle(uri: String, cachedFile: File, fileName: String): NanoHTTPD.Response {
-        return try {
-            val remoteUrl = AppConfig.remoteUrl(uri)
-            onDemandCallback?.onDownloadStart(fileName, -1)
-            fileServer.downloadFile(remoteUrl, cachedFile)
-            onDemandCallback?.onDownloadComplete(fileName)
-            fileServer.serveFile(cachedFile)
-        } catch (e: Exception) {
-            Logger.e(TAG, "Error serving $uri", e)
-            onDemandCallback?.onDownloadComplete(fileName)
-            newFixedLengthResponse(
-                Response.Status.NOT_FOUND,
-                "text/plain",
-                "404 Not Found: $uri"
-            )
+        val remoteUrl = AppConfig.remoteUrl(uri)
+        onDemandCallback?.onDownloadStart(fileName, -1)
+        // 失败时清掉可能损坏的缓存残 file 后重试一次，覆盖本地状态异常 / 瞬时网络
+        var lastError: Exception? = null
+        repeat(2) { attempt ->
+            try {
+                if (attempt > 0 && cachedFile.exists()) cachedFile.delete()
+                fileServer.downloadFile(remoteUrl, cachedFile)
+                onDemandCallback?.onDownloadComplete(fileName)
+                return fileServer.serveFile(cachedFile)
+            } catch (e: Exception) {
+                lastError = e
+                Logger.w(TAG, "Download attempt ${attempt + 1}/2 failed for $uri", e)
+            }
         }
+        Logger.e(TAG, "Error serving $uri", lastError)
+        onDemandCallback?.onDownloadComplete(fileName)
+        return newFixedLengthResponse(
+            Response.Status.NOT_FOUND,
+            "text/plain",
+            "404 Not Found: $uri"
+        )
     }
 
     /**
@@ -208,17 +227,15 @@ class AssetServer(
      * 库级锁在 ensureLibrary 内，重复触发只会有一个补齐任务在跑。
      */
     private fun startLibraryBackground(dirPrefix: String, name: String) {
-        // 已有补齐任务在跑就不必再起线程（库级锁本身也会挡住，这里省掉无谓线程创建）
-        val lock = libraryLocks[name] ?: run {
-            libraryLocks.putIfAbsent(name, ReentrantLock())
-            libraryLocks[name]!!
-        }
-        if (lock.isLocked) return
+        // 已排队/正在补齐就直接跳过，不再无谓起线程
+        if (!libraryQueued.add(name)) return
         Thread({
             try {
                 ensureLibrary(dirPrefix, name)
             } catch (e: Exception) {
                 Logger.e(TAG, "Library background ensure failed: $name", e)
+            } finally {
+                libraryQueued.remove(name)
             }
         }, "lib-ensure-$name").apply { isDaemon = true }.start()
     }
@@ -238,35 +255,42 @@ class AssetServer(
      * 清单由 scripts/build-assets.mjs 生成，不进 web-resources.zip。
      */
     private fun ensureLibrary(dirPrefix: String, name: String) {
-        val libDir = File(cacheDir, dirPrefix)
-        val lock = libraryLocks.computeIfAbsent(name) { ReentrantLock() }
-        lock.withLock {
-            Logger.i(TAG, "Library ensure start: $name")
-            onDemandCallback?.onDownloadStart("内置库 $name", -1)
-            try {
-                // 清单本身也按需下载
-                val manifestFile = File(libDir, LIBRARY_MANIFEST)
-                if (!manifestFile.exists() || manifestFile.length() == 0L) {
-                    fileServer.downloadFile(
-                        AppConfig.remoteUrl("$dirPrefix/$LIBRARY_MANIFEST"), manifestFile, false)
-                }
-                val files = parseManifest(manifestFile)
-                Logger.i(TAG, "Library $name manifest: ${files.size} files")
+        // 【外层】全局串行：不同库的后台补齐也排队，一次只跑一个。
+        // 用户 2026-11-17 实测多库并发下载时首次请求 quiz 偶发 404。
+        globalLibraryLock.withLock {
+            Logger.i(TAG, "Library queue: start $name")
+            // 【内层】库级锁：同一库重复触发时只有一个任务在跑。
+            val lock = libraryLocks.computeIfAbsent(name) { ReentrantLock() }
+            lock.withLock {
+                val libDir = File(cacheDir, dirPrefix)
+                Logger.i(TAG, "Library ensure start: $name")
+                onDemandCallback?.onDownloadStart("内置库 $name", -1)
+                try {
+                    // 清单本身也按需下载
+                    val manifestFile = File(libDir, LIBRARY_MANIFEST)
+                    if (!manifestFile.exists() || manifestFile.length() == 0L) {
+                        fileServer.downloadFile(
+                            AppConfig.remoteUrl("$dirPrefix/$LIBRARY_MANIFEST"), manifestFile, false)
+                    }
+                    val files = parseManifest(manifestFile)
+                    Logger.i(TAG, "Library $name manifest: ${files.size} files")
 
-                // 【关键】串行：一个文件下完再下下一个，绝不并发
-                var downloaded = 0
-                for ((i, rel) in files.withIndex()) {
-                    val dest = File(libDir, rel)
-                    if (dest.exists() && dest.length() > 0) continue
-                    val remotePath = "$dirPrefix/${encodePath(rel)}"
-                    fileServer.downloadFile(AppConfig.remoteUrl(remotePath), dest, false)
-                    downloaded++
-                    Logger.d(TAG, "Library $name: ${i + 1}/${files.size} $rel")
+                    // 【关键】串行：一个文件下完再下下一个，绝不并发
+                    var downloaded = 0
+                    for ((i, rel) in files.withIndex()) {
+                        val dest = File(libDir, rel)
+                        if (dest.exists() && dest.length() > 0) continue
+                        val remotePath = "$dirPrefix/${encodePath(rel)}"
+                        fileServer.downloadFile(AppConfig.remoteUrl(remotePath), dest, false)
+                        downloaded++
+                        Logger.d(TAG, "Library $name: ${i + 1}/${files.size} $rel")
+                    }
+                    Logger.i(TAG, "Library ensure done: $name ($downloaded downloaded, ${files.size} total)")
+                } finally {
+                    onDemandCallback?.onDownloadComplete("内置库 $name")
                 }
-                Logger.i(TAG, "Library ensure done: $name ($downloaded downloaded, ${files.size} total)")
-            } finally {
-                onDemandCallback?.onDownloadComplete("内置库 $name")
             }
+            Logger.i(TAG, "Library queue: release $name")
         }
     }
 
