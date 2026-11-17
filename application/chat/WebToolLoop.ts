@@ -12,6 +12,7 @@ import type { PluginTraceStep } from '@domain/plugin/types';
 import type { ChatAttachment } from './ChatAttachment';
 import { WEB_FETCH_TOOL, WEB_FETCH_TOOL_NAME, executeWebFetch } from './WebFetchTool';
 import type { WebFetchToolDeps } from './WebFetchTool';
+import { WEB_CACHE_READ_TOOL, WEB_CACHE_READ_TOOL_NAME, executeWebCacheRead } from './WebFetchCache';
 import {
   WEB_READ_PDF_TOOL, WEB_READ_PDF_TOOL_NAME, WEB_READ_IMAGE_TOOL, WEB_READ_IMAGE_TOOL_NAME,
   executeWebReadPdf, executeWebReadImage,
@@ -41,6 +42,7 @@ export interface WebToolLoopResult extends ToolLoopResult {}
 /** 工具表：唯一的扩展点，新增网络能力在这里登记 */
 export const WEB_TOOLS = [
   WEB_FETCH_TOOL,
+  WEB_CACHE_READ_TOOL,
   WEB_READ_PDF_TOOL,
   WEB_READ_IMAGE_TOOL,
 ] as const;
@@ -52,6 +54,7 @@ export async function runWebToolLoop(
 ): Promise<WebToolLoopResult> {
   const executors: Record<string, (argsJson: string) => Promise<ToolOutcome>> = {
     [WEB_FETCH_TOOL_NAME]: (args) => executeWebFetch(args, deps.toolDeps),
+    [WEB_CACHE_READ_TOOL_NAME]: (args) => Promise.resolve(executeWebCacheRead(args, deps.toolDeps.cache)),
     [WEB_READ_PDF_TOOL_NAME]: (args) => executeWebReadPdf(args, deps.toolDeps),
     [WEB_READ_IMAGE_TOOL_NAME]: (args) => executeWebReadImage(args, deps.toolDeps),
   };
@@ -75,6 +78,7 @@ export function createWebToolKit(toolDeps: WebFetchToolDeps): ToolKit {
     tools: [...WEB_TOOLS],
     executors: {
       [WEB_FETCH_TOOL_NAME]: (args) => executeWebFetch(args, toolDeps),
+      [WEB_CACHE_READ_TOOL_NAME]: (args) => Promise.resolve(executeWebCacheRead(args, toolDeps.cache)),
       [WEB_READ_PDF_TOOL_NAME]: (args) => executeWebReadPdf(args, toolDeps),
       [WEB_READ_IMAGE_TOOL_NAME]: (args) => executeWebReadImage(args, toolDeps),
     },

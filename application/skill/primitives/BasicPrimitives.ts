@@ -1,5 +1,5 @@
 /**
- * 宿主通用原语：3 个既有 web 工具 + navigate_to 指路原语。
+ * 宿主通用原语：4 个 web 工具（含 web_cache_read）+ navigate_to 指路原语。
  * @module application/skill/primitives/BasicPrimitives
  *
  * 全部复用现有 web 工具的 definition 与执行器，不新造能力、不引入依赖。
@@ -20,6 +20,9 @@ import {
   WEB_READ_PDF_TOOL, WEB_READ_PDF_TOOL_NAME, WEB_READ_IMAGE_TOOL, WEB_READ_IMAGE_TOOL_NAME,
   executeWebReadPdf, executeWebReadImage,
 } from '@application/chat/WebResourceTools';
+import {
+  WEB_CACHE_READ_TOOL, WEB_CACHE_READ_TOOL_NAME, executeWebCacheRead,
+} from '@application/chat/WebFetchCache';
 import type { ModelToolDefinition } from '@application/model/IModelGateway';
 import type { SkillPrimitive, PrimitiveResult } from '@application/skill/SkillTypes';
 import {
@@ -57,18 +60,20 @@ export const NAVIGATE_TO_TOOL: ModelToolDefinition = {
   },
 };
 
-/** tool 执行结果 → 原语结果：三个必填字段 + 可选宿主注入链接 */
+/** tool 执行结果 → 原语结果：三个必填字段 + 可选宿主注入链接 + 只读准备标记 */
 function toPrimitiveResult(r: {
   observation: string; ok: boolean; detail: string;
   actionLink?: { url: string; label: string };
+  preparatory?: boolean;
 }): PrimitiveResult {
   const out: PrimitiveResult = { observation: r.observation, ok: r.ok, detail: r.detail };
   if (r.actionLink) out.actionLink = r.actionLink;
+  if (r.preparatory) out.preparatory = true;
   return out;
 }
 
 /**
- * 构造 4 个通用原语：web_fetch / web_read_pdf / web_read_image / navigate_to。
+ * 构造 5 个通用原语：web_fetch / web_cache_read / web_read_pdf / web_read_image / navigate_to。
  * webDeps 由上层（接线方）注入，与 createWebToolKit 用的是同一份依赖。
  */
 export function createBasicPrimitives(webDeps: WebFetchToolDeps): SkillPrimitive[] {
@@ -77,6 +82,13 @@ export function createBasicPrimitives(webDeps: WebFetchToolDeps): SkillPrimitive
       name: WEB_FETCH_TOOL_NAME,
       definition: WEB_FETCH_TOOL,
       execute: async (argsJson) => toPrimitiveResult(await executeWebFetch(argsJson, webDeps)),
+    },
+    {
+      name: WEB_CACHE_READ_TOOL_NAME,
+      definition: WEB_CACHE_READ_TOOL,
+      execute: async (argsJson) => toPrimitiveResult(
+        executeWebCacheRead(argsJson, webDeps.cache),
+      ),
     },
     {
       name: WEB_READ_PDF_TOOL_NAME,

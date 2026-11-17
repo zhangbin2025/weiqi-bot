@@ -6,6 +6,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { runWebToolLoop, type WebTraceStep } from '../WebToolLoop';
 import { DEFAULT_PLUGIN_MAX_ATTEMPTS } from '../../plugin/PluginConfig';
 import { WEB_FETCH_TOOL_NAME } from '../WebFetchTool';
+import { WEB_CACHE_READ_TOOL_NAME } from '../WebFetchCache';
 import { WEB_READ_PDF_TOOL_NAME, WEB_READ_IMAGE_TOOL_NAME } from '../WebResourceTools';
 import type { IModelGateway, ModelResult } from '../../model/IModelGateway';
 
@@ -128,9 +129,10 @@ describe('runWebToolLoop', () => {
     const gw = gatewayWith([{ text: 'ok', truncated: false }]);
     await runWebToolLoop({ gateway: gw, toolDeps: toolDeps() }, { messages: baseMessages() });
     const req = gw.calls[0] as { tools: Array<{ name: string }> };
-    // 工具表是唯一扩展点：web_fetch 保持原样，PDF / 图片作为独立能力登记
+    // 工具表是唯一扩展点：web_fetch 保持原样，缓存读取与 PDF / 图片作为独立能力登记
     expect(req.tools.map((t) => t.name)).toEqual([
-      WEB_FETCH_TOOL_NAME, WEB_READ_PDF_TOOL_NAME, WEB_READ_IMAGE_TOOL_NAME,
+      WEB_FETCH_TOOL_NAME, WEB_CACHE_READ_TOOL_NAME,
+      WEB_READ_PDF_TOOL_NAME, WEB_READ_IMAGE_TOOL_NAME,
     ]);
   });
 });

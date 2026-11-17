@@ -27,6 +27,7 @@ export interface ChatToolKitParts {
 function toToolOutcome(r: PrimitiveResult): ToolOutcome {
   const out: ToolOutcome = { observation: r.observation, ok: r.ok, detail: r.detail };
   if (r.actionLink) out.actionLink = r.actionLink;
+  if (r.preparatory) out.preparatory = true;
   return out;
 }
 

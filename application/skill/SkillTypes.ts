@@ -25,6 +25,12 @@ export interface PrimitiveResult {
   /** 一行人话摘要，过程块显示 */
   detail: string;
   /**
+   * 只读准备动作（如 web_cache_read 读缓存分页）：与 ToolOutcome.preparatory
+   * 同源，不消耗自主决策轮数。宿主内置原语才会置位；在线配方不含代码、
+   * 不参与此字段的构造，因此不存在远程代码借它绕过预算的路径。
+   */
+  preparatory?: boolean;
+  /**
    * 结构化展示链接：由宿主直接渲染/落历史，绝不写进模型回复文本。
    * 用途见 ChatUseCase / ToolLoop：规避「模型复述 URL → safeReply 转义 →
    * 历史里留下 &amp; → 下一轮照抄旧链接」的多轮退化。

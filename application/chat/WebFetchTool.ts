@@ -6,8 +6,11 @@
  * 链路：模型给出 URL → 本工具校验 → 透明代理 api.weiqi.lol?url=… → 文本回填。
  *
  * 边界（和已验收的 weiqi-proxy 一致）：
- * - 只做「把字节送到」，不搜索、不解析 HTML、不判语义、不缓存、不落日志。
- * - web_fetch 只回文本：HTML / JSON / 纯文本原样进上下文由模型自己归纳；
+ * - 只做「把字节送到」，不搜索、不解析 HTML、不判语义、不落日志。
+ * - 完整正文存入宿主缓存（WebFetchCache），观察只回元信息 + 预览 + 句柄；
+ *   其余部分由 web_cache_read 按字符分页 / 正则读取。这不为「省 token」，
+ *   而是因为 ToolLoop.clipObservation() 会把超长观察裁掉，塞得再多也进不了上下文。
+ * - web_fetch 只回文本：HTML / JSON / 纯文本由模型自己归纳；
  *   图片 / PDF 等二进制不往上下文塞。读 PDF / 图片请用独立工具
  *   web_read_pdf / web_read_image（见 WebResourceTools.ts），它们复用本文件的
  *   URL 校验与代理链路，把字节交给端侧抽取 / 多模态转换器。
@@ -20,6 +23,8 @@
  */
 
 import type { ModelToolDefinition } from '../model/IModelGateway';
+import { CONTEXT_LIMITS } from './ConversationPrompt';
+import { defaultWebFetchCache, type CachedWebResource, type WebFetchCache } from './WebFetchCache';
 
 /** 工具名：模型按这个名字发起调用，改动需同步 WEB_FETCH_TOOL.function.name */
 export const WEB_FETCH_TOOL_NAME = 'web_fetch';
@@ -27,8 +32,11 @@ export const WEB_FETCH_TOOL_NAME = 'web_fetch';
 export const WEB_FETCH_TOOL: ModelToolDefinition = {
   name: WEB_FETCH_TOOL_NAME,
   description:
-    '取回一个公开网页资源并返回其文本内容（HTML / JSON / 纯文本）。' +
-    '当你需要读取某个具体网页、核实资料或归纳用户给出的链接时调用。' +
+    '取回一个公开网页资源并把完整正文存入宿主缓存，返回的内容含 URL、状态、' +
+    '正文总字符数与一小段预览。' +
+    '⚠️ 预览只是一部分，未显示的正文绝不能凭猜测补写：' +
+    '用 web_cache_read（url 填本观察里的 URL）按 mode=slice 分页或 mode=grep 正则查找。' +
+    '同一个 URL 再次调用会重新取回并覆盖缓存。' +
     '只用于 GET；只传 http/https 绝对 URL。返回的是原始文本，不是搜索结果。',
   parameters: {
     type: 'object',
@@ -59,6 +67,8 @@ export interface WebFetchToolDeps {
   timeoutMs: number;
   /** 可替换的 fetch，默认 globalThis.fetch */
   fetchImpl?: typeof fetch;
+  /** 缓存注入；不传用进程内单例（与 web_cache_read 共享） */
+  cache?: WebFetchCache;
 }
 
 const NO_FETCH_BODY_METHOD = 'GET';
@@ -145,11 +155,39 @@ export async function executeWebFetch(argsJson: string, deps: WebFetchToolDeps):
         `该资源是二进制内容，web_fetch 只支持文本，未读取内容。${hint}`;
       return { observation, ok: false, detail: `二进制资源 ${response.status} ${contentType}` };
     }
-    const observation = `web_fetch：${url}\nHTTP ${response.status} ${response.statusText}\nContent-Type: ${contentType}\n\n${text}`;
+    // 完整正文留宿主侧：观察文本会被 ToolLoop.clipObservation() 裁到
+    // CONTEXT_LIMITS.maxCharsPerMessage，塞全量只会让后半截「从未进过上下文」。
+    // 预览长度由同一常量推导（预留元信息头与尾部提示的空间），不另造阈值。
+    const entry: CachedWebResource = {
+      url, status: response.status, statusText: response.statusText,
+      contentType, text, ok: response.ok,
+    };
+    (deps.cache ?? defaultWebFetchCache).put(url, entry);
+    const lineCount = text.split('\n').length;
+    const head = `web_fetch：${url}\n`
+      + `HTTP ${response.status} ${response.statusText}\n`
+      + `Content-Type: ${contentType}\n`
+      + `完整正文 ${text.length} 字符 / ${lineCount} 行，已存入宿主缓存。\n`
+      + `其余内容请用 web_cache_read 读取（url 填上面的 URL，mode=slice 分页 / mode=grep 查找）；`
+      + `不要凭预览猜测未显示的部分。\n\n`;
+    const foot = (n: number): string =>
+      `\n\n[预览 ${n} / ${text.length} 字符`
+      + (n < text.length ? '；未到末尾，用 web_cache_read 继续读]' : '；正文已全部显示]');
+    // footer 里含 n 本身，长度与 n 互相依赖。固定点迭代：先用 0 占位算长度，
+    // 再用真实 footer 重算，直到稳定（n 只会变短，单调收敛，最多几轮）。
+    // 全程只有 CONTEXT_LIMITS.maxCharsPerMessage 一个数值来源，不另造阈值。
+    let previewLength = Math.max(0, CONTEXT_LIMITS.maxCharsPerMessage - head.length - foot(0).length);
+    for (let i = 0; i < 8; i++) {
+      const next = Math.max(0, CONTEXT_LIMITS.maxCharsPerMessage - head.length - foot(previewLength).length);
+      if (next === previewLength) break;
+      previewLength = next;
+    }
+    const body = text.slice(0, previewLength);
+    const observation = head + body + foot(body.length);
     return {
       observation,
       ok: response.ok,
-      detail: `${url} → HTTP ${response.status}，${text.length} 字符`,
+      detail: `${url} → HTTP ${response.status}，${text.length} 字符（已缓存）`,
     };
   } catch (error) {
     const reason = error instanceof Error
