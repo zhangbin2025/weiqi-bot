@@ -19,6 +19,7 @@ import { DEFAULT_PLUGIN_MAX_ATTEMPTS } from '../../plugin/PluginConfig';
 import type { ToolKit } from '../ToolLoop';
 import type { ChatRoleId } from '../ChatRole';
 import type { IModelGateway, ModelResult } from '../../model/IModelGateway';
+import type { createLlmToolKit } from '../../plugin/LlmToolKit';
 import type { ChatHistoryManager } from '../../assistant/ChatHistoryManager';
 import type { IMessageRenderer } from '../../assistant/IMessageRenderer';
 import { createSkillRegistry } from '../../skill/SkillRegistry';
@@ -617,5 +618,116 @@ describe('ChatUseCase.send — 技能开发角色（闲聊超集）', () => {
     const sys = req.messages[0]!.content;
     expect(sys.startsWith(CONVERSATION_SYSTEM_PROMPT)).toBe(true);
     expect(sys).toContain('【技能开发能力】测试片段');
+  });
+});
+
+
+describe('llm-tool 按技能 requiredCapabilities 声明按需挂载', () => {
+  const webDeps = {
+    proxyUrl: 'https://api.weiqi.lol', timeoutMs: 60_000,
+    fetchImpl: vi.fn() as unknown as typeof fetch,
+  };
+  type LlmKitLike = ReturnType<typeof createLlmToolKit>;
+
+  function fakeLlmKit(caps: string[] = ['monthCalendar']): LlmKitLike {
+    return {
+      tools: [{ name: 'llm_tool_call', description: '调用能力库', parameters: { type: 'object' } }],
+      executors: {
+        llm_tool_call: async () => ({ observation: '{}', ok: true, detail: '调用能力库' }),
+      },
+      buildSystemSuffix: vi.fn(async () =>
+        '【可用能力库（llm-tool 插件，已人工启用）】 · monthCalendar'),
+      listCapabilities: vi.fn(async () => caps),
+    } as unknown as LlmKitLike;
+  }
+
+  function recipe(over: Partial<SkillRecipe> = {}): SkillRecipe {
+    return {
+      schemaVersion: 1, id: 'github.rest', version: 1,
+      name: 'GitHub REST API', summary: '查 GitHub',
+      triggers: ['列仓库'], primitives: ['web_fetch'], prompt: '用 http_fetch_auth 查询。',
+      ...over,
+    };
+  }
+
+  function makeUc(recipes: SkillRecipe[], llm: LlmKitLike, gw: IModelGateway) {
+    const r = makeRenderer();
+    const hist = makeHistory();
+    const primitives = createSkillRegistry(createBasicPrimitives(webDeps));
+    const skills = { loadSkills: async () => recipes, primitives };
+    const uc = new ChatUseCase(
+      gw, hist, r, undefined, () => 'chat' as ChatRoleId, webDeps, skills, llm,
+    );
+    return uc;
+  }
+
+  function firstReq(gw: ReturnType<typeof makeGateway>) {
+    return gw.execute.mock.calls[0]![0] as {
+      tools?: Array<{ name: string }>;
+      messages: Array<{ role: string; content: string }>;
+    };
+  }
+  function namesOf(req: ReturnType<typeof firstReq>): string[] {
+    return (req.tools ?? []).map((t) => t.name);
+  }
+  function sysOf(req: ReturnType<typeof firstReq>): string {
+    return req.messages[0]!.content;
+  }
+
+  it('命中无 requiredCapabilities 的技能（github.rest 类）：不挂 llm_tool_call、system 不含能力库清单', async () => {
+    const gw = makeGateway();
+    const llm = fakeLlmKit();
+    await makeUc([recipe()], llm, gw).send('列仓库');
+    const req = firstReq(gw);
+    expect(namesOf(req)).not.toContain('llm_tool_call');
+    expect(sysOf(req)).not.toContain('可用能力库');
+    // 连工件存储都不读：不按需挂载时 buildSystemSuffix 不该被调用
+    expect((llm.buildSystemSuffix as unknown as ReturnType<typeof vi.fn>).mock.calls.length)
+      .toBe(0);
+  });
+
+  it('命中 requiredCapabilities:[monthCalendar] 的技能：挂 llm_tool_call + 能力库清单', async () => {
+    const gw = makeGateway();
+    const llm = fakeLlmKit(['monthCalendar']);
+    await makeUc(
+      [recipe({ id: 'user.dn2lz9', triggers: ['看月历'], requiredCapabilities: ['monthCalendar'] })],
+      llm, gw,
+    ).send('看月历');
+    const req = firstReq(gw);
+    expect(namesOf(req)).toContain('llm_tool_call');
+    expect(sysOf(req)).toContain('可用能力库');
+  });
+
+  it('无技能命中：即使装了能力库也不挂、不起沙箱', async () => {
+    const gw = makeGateway();
+    const llm = fakeLlmKit();
+    await makeUc([], llm, gw).send('你好');
+    const req = firstReq(gw);
+    expect(namesOf(req)).not.toContain('llm_tool_call');
+    expect(sysOf(req)).not.toContain('可用能力库');
+  });
+
+  it('声明了依赖但能力库未启用：技能被硬门槛跳过，也不挂 llm_tool_call', async () => {
+    const gw = makeGateway();
+    const llm = fakeLlmKit([]); // listCapabilities 空集 → selectSkills 整条跳过
+    await makeUc(
+      [recipe({ id: 'user.dn2lz9', triggers: ['看月历'], requiredCapabilities: ['monthCalendar'] })],
+      llm, gw,
+    ).send('看月历');
+    const req = firstReq(gw);
+    expect(namesOf(req)).not.toContain('llm_tool_call');
+    expect(sysOf(req)).not.toContain('可用能力库');
+  });
+
+  it('混合命中：只要有一条技能声明依赖就挂，不误伤同轮其它技能', async () => {
+    const gw = makeGateway();
+    const llm = fakeLlmKit(['monthCalendar']);
+    await makeUc([
+      recipe({ triggers: ['列仓库'] }),
+      recipe({ id: 'user.dn2lz9', triggers: ['列仓库'], requiredCapabilities: ['monthCalendar'] }),
+    ], llm, gw).send('列仓库');
+    const req = firstReq(gw);
+    expect(namesOf(req)).toContain('llm_tool_call');
+    expect(sysOf(req)).toContain('可用能力库');
   });
 });

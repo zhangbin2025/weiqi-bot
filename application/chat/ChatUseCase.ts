@@ -7,7 +7,7 @@
  * 分流依据不是「猜这句话属于哪个意图」，而是用户显式选定的模型角色（ChatRole）。
  * 两个角色共用**同一个**标准 tool-calling agent loop（ToolLoop.ts）：
  * - chat 角色：挂网页 / PDF / 图片工具，system 用 CONVERSATION_SYSTEM_PROMPT，source='web'；
- *   装了 llm-tool 能力库时再追加一个 llm_tool_call 工具与动态能力库清单。
+ *   命中声明 requiredCapabilities 的技能时才追加 llm_tool_call 工具与动态能力库清单。
  * - plugin 角色：挂插件开发工具集（列/查/写/试算/启停/删除/应用/回滚），
  *   system 由工具集动态生成（实时插件清单 + 沙箱契约），source='plugin'。
  *
@@ -168,7 +168,11 @@ export class ChatUseCase {
     private readonly webTools?: WebFetchToolDeps,
     /** 可选：在线技能配方（仅 chat 角色生效）。不传则行为与旧版完全一致。 */
     private readonly skills?: SkillDeps,
-    /** 可选：模型能力插件工具集（chat / skill-dev 角色）。不传则完全不挂，行为与旧版一致。 */
+    /**
+     * 可选：模型能力插件工具集。不传则完全不挂；传入时也只在本轮命中的技能
+     * 声明了 requiredCapabilities 时才挂 llm_tool_call + 能力库清单，
+     * 不因「装过农历库」就把无关工具塞进每一轮（如 GitHub 请求）。
+     */
     private readonly llmToolKit?: ReturnType<typeof createLlmToolKit>,
     /**
      * 可选：Skill 本地数据层（kv_* 原语 + system 说明）。chat / skill-dev 角色恒定挂载，
@@ -419,7 +423,8 @@ export class ChatUseCase {
   /**
    * 拼装 chat / skill-dev 角色本轮的工具集：
    * - 基础 web 工具（3 个）恒定挂载，行为与旧版一致；
-   * - llm-tool 能力库只要在装配时注入就恒定追加，不依赖技能系统是否可用；
+   * - llm-tool 只在本轮命中的技能声明了 requiredCapabilities 时才追加，
+   *   与 SkillSelector 的激活前硬检查同源；无关技能（如 github.rest）不会被挂上农历库；
    * - 命中技能引用的原语按 name 去重后追加（基础工具优先，避免同名执行器被覆盖）；
    * - system 由 buildSkillSystemPrompt 在 CONVERSATION_SYSTEM_PROMPT 之上补本轮技能说明；
    *   闲聊无命中时原样返回基础 kit（无 systemPrompt，模型上下文与旧版逐字相同）。
@@ -453,20 +458,9 @@ export class ChatUseCase {
       }
       base = { ...base, tools, executors };
     }
-    // llm-tool 是 chat 超集：基础 web 工具之上恒定追加，skill-dev 自动继承。
-    // 工具声明按 name 去重（基础工具优先），与技能原语同一套 append 口径。
+    // llm-tool 是否挂载要看本轮命中的技能声明（见下方 needsLlm），这里先取引用：
+    // capabilities 的激活前硬检查无论挂不挂工具都要用，故独立调用 listCapabilities()。
     const llm = this.llmToolKit;
-    if (llm) {
-      const tools = [...base.tools];
-      const executors: Record<string, ToolExecutor> = { ...base.executors };
-      for (const t of llm.tools) {
-        if (llm.executors[t.name] && !executors[t.name]) {
-          tools.push(t);
-          executors[t.name] = llm.executors[t.name]!;
-        }
-      }
-      base = { ...base, tools, executors };
-    }
     let recipes: readonly SkillRecipe[] = [];
     try {
       recipes = this.skills ? await this.skills.loadSkills() : [];
@@ -491,11 +485,29 @@ export class ChatUseCase {
       : [];
     const dev = devMode ? this.skills?.devKit : undefined;
 
-    // 闲聊且无命中、也没有 llm-tool 能力库：逐字返回基础 kit
-    //（零额外 token、无 systemPrompt 覆盖）。挂了 llm 时继续往下走，
-    // 以保证能力库清单进入 system。
+    // llm-tool 按需挂载：只有本轮命中的技能真的声明了 requiredCapabilities 才挂。
+    // 声明是「我需要能力库」的唯一契约来源（与 SkillSelector / SkillCatalogService 同源）：
+    // github.rest / 天气 / 股价等配方缺省该字段 = 不依赖，模型本轮看不到 llm_tool_call、
+    // 也看不到农历能力库清单，不会白起一次 QuickJS 沙箱；月历配方声明
+    // ['monthCalendar'] 才把工具与清单挂上。装过某个库 ≠ 每轮都要把它塞给模型。
+    const needsLlm = active.some(
+      (s) => s.requiredCapabilities !== undefined && s.requiredCapabilities.length > 0,
+    );
+    if (llm && needsLlm) {
+      const tools = [...base.tools];
+      const executors: Record<string, ToolExecutor> = { ...base.executors };
+      for (const t of llm.tools) {
+        if (llm.executors[t.name] && !executors[t.name]) {
+          tools.push(t);
+          executors[t.name] = llm.executors[t.name]!;
+        }
+      }
+      base = { ...base, tools, executors };
+    }
+
+    // 闲聊且无命中、也没有 llm-tool 依赖：逐字返回基础 kit（零额外 token、无 system 覆盖）。
     let llmSuffix = '';
-    if (llm) {
+    if (llm && needsLlm) {
       try { llmSuffix = await llm.buildSystemSuffix(); } catch { llmSuffix = ''; }
     }
     // 挂了 kv 就必须走拼装路径，让它的 system 说明进入本轮（ToolLoop 是替换制）。
