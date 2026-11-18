@@ -17,6 +17,8 @@ export type ModelTaskId =
   | 'plugin.generate'
   /** 会话标题精炼：纯文本 chat completions，不挂工具、不入历史 */
   | 'chat.title'
+  /** 技能路由：开聊前一次轻量纯文本调用，输出要激活的技能 id 列表 */
+  | 'skill.route'
   | (string & {});
 
 /**

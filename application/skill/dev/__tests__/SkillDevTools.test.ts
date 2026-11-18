@@ -78,7 +78,7 @@ describe('createSkillDevKit', () => {
     const { users, exec } = kit();
     const online = {
       schemaVersion: 1, id: 'puzzle.tsumego', version: 4, name: '做题',
-      summary: '在线摘要', triggers: ['做题'], primitives: ['navigate_to'], prompt: 'p',
+      summary: '在线摘要', primitives: ['navigate_to'], prompt: 'p',
     };
     await users.install(online as never);
     const listOut = await exec('skill_list', {});
@@ -86,7 +86,7 @@ describe('createSkillDevKit', () => {
     expect(listOut.observation).toContain('只读');
 
     const writeOut = await exec('skill_write', {
-      id: 'puzzle.tsumego', name: '想改', summary: 's', triggers: ['x'],
+      id: 'puzzle.tsumego', name: '想改', summary: 's', 
       primitives: ['web_fetch'], prompt: 'p',
     });
     // 非 user. 前缀在 id 校验阶段就被挡住；即便绕过，store 里也有第二道只读保护
@@ -102,7 +102,6 @@ describe('createSkillDevKit', () => {
     const out = await exec('skill_write', {
       name: '查定式资料',
       summary: '用户问定式时查资料',
-      triggers: ['定式', '定式查询'],
       primitives: ['web_fetch'],
       prompt: '用 web_fetch 查定式资料。',
     });
@@ -117,12 +116,12 @@ describe('createSkillDevKit', () => {
   it('skill_write 修订：显式 user. id 命中同一条，版本 +1', async () => {
     const { exec, users } = kit();
     const first = await exec('skill_write', {
-      name: '查定式', summary: 's', triggers: ['定式'], primitives: ['web_fetch'], prompt: 'p',
+      name: '查定式', summary: 's', primitives: ['web_fetch'], prompt: 'p',
     });
     expect(first.ok).toBe(true);
     const id = (await users.list())[0]!.recipe.id;
     const second = await exec('skill_write', {
-      id, name: '查定式（改）', summary: 's2', triggers: ['定式2'],
+      id, name: '查定式（改）', summary: 's2', 
       primitives: ['web_fetch', 'navigate_to'], prompt: 'p2',
     });
     expect(second.ok).toBe(true);
@@ -135,7 +134,7 @@ describe('createSkillDevKit', () => {
   it('拒绝未知原语，并回执可用清单（不落库）', async () => {
     const { exec, users } = kit();
     const out = await exec('skill_write', {
-      name: '乱来', summary: 's', triggers: ['x'],
+      name: '乱来', summary: 's', 
       primitives: ['not_exist'], prompt: 'p',
     });
     expect(out.ok).toBe(false);
@@ -147,7 +146,7 @@ describe('createSkillDevKit', () => {
   it('拒绝非 user. 前缀 id（防止覆盖内置/在线技能）', async () => {
     const { exec, users } = kit();
     const out = await exec('skill_write', {
-      id: 'puzzle.tsumego', name: 'x', summary: 's', triggers: ['x'],
+      id: 'puzzle.tsumego', name: 'x', summary: 's', 
       primitives: ['web_fetch'], prompt: 'p',
     });
     expect(out.ok).toBe(false);
@@ -155,10 +154,10 @@ describe('createSkillDevKit', () => {
     expect(await users.list()).toEqual([]);
   });
 
-  it('结构不合法（空 triggers / 缺字段 / 非法 JSON）一律失败且回中文原因', async () => {
+  it('结构不合法（空 primitives / 缺字段 / 非法 JSON）一律失败且回中文原因', async () => {
     const { exec, users } = kit();
     const bad = await exec('skill_write', {
-      name: 'x', summary: 's', triggers: [], primitives: ['web_fetch'], prompt: 'p',
+      name: 'x', summary: 's', primitives: [], prompt: 'p',
     });
     expect(bad.ok).toBe(false);
     expect(bad.observation).toContain('不合法');
@@ -181,7 +180,6 @@ describe('secrets 声明（通用 http_fetch_auth 配方的自建路径）', () 
   const args = {
     name: 'GitHub 查询',
     summary: '查 GitHub REST API',
-    triggers: ['我的仓库'],
     primitives: ['http_fetch_auth', 'secret_prompt'],
     secrets: [spec],
     prompt: '用 http_fetch_auth 查询。',

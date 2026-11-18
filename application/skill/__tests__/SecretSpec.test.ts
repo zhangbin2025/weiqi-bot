@@ -80,7 +80,7 @@ describe('collectSecretSpecs', () => {
 describe('parseSkillRecipe 与 secrets', () => {
   const base = {
     schemaVersion: 1, id: 'user.x', version: 1, name: 'X', summary: 's',
-    triggers: ['x'], primitives: ['http_fetch_auth'], prompt: 'p',
+    primitives: ['http_fetch_auth'], prompt: 'p',
   };
 
   it('缺省字段：老配方逐字兼容，结果里不出现 secrets', () => {

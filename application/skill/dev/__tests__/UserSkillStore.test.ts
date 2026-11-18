@@ -33,7 +33,6 @@ function recipe(overrides: Partial<SkillRecipe> = {}): SkillRecipe {
     version: 1,
     name: '示例技能',
     summary: '示例摘要',
-    triggers: ['示例'],
     primitives: ['web_fetch'],
     prompt: '用 web_fetch 查资料。',
     ...overrides,
@@ -68,7 +67,7 @@ describe('UserSkillStore — 自建技能', () => {
     const { store: s } = store();
     await s.save(recipe());
     await s.setEnabled('user.demo', false);
-    const second = await s.save(recipe({ name: '改名', triggers: ['新触发'] }));
+    const second = await s.save(recipe({ name: '改名', }));
     expect(second.recipe.version).toBe(2);
     expect(second.recipe.name).toBe('改名');
     expect(second.enabled).toBe(false); // 修订不擅自重新启用

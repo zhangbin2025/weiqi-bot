@@ -47,7 +47,6 @@ function recipe(overrides: Record<string, unknown> = {}): Record<string, unknown
     version: 4,
     name: '做题练习',
     summary: '在线做题摘要',
-    triggers: ['做题'],
     primitives: ['navigate_to'],
     prompt: '调用 navigate_to 生成做题页链接。',
     ...overrides,
@@ -136,7 +135,7 @@ describe('SkillCatalogService.loadSkills — 本地库是唯一生效来源', ()
     const users = usersWithMem();
     await users.install(asRecipe(recipe({ id: 'puzzle.tsumego' })));
     await users.save(asRecipe(recipe({
-      id: 'user.mine', name: '我的技能', primitives: ['web_fetch'], triggers: ['我的'],
+      id: 'user.mine', name: '我的技能', primitives: ['web_fetch'], 
     })));
     const skills = await catalogWith(offline, users).loadSkills();
     expect(skills.map((s) => s.id).sort()).toEqual(['puzzle.tsumego', 'user.mine']);
@@ -187,7 +186,7 @@ describe('SkillCatalogService.browse — 在线清单 + 安装状态', () => {
 
   it('整份清单含结构不合法配方 → 校验层拒绝，browse 给中文 error 而非空白屏', async () => {
     const online = fetchReturning(registryOf([
-      recipe({ id: 'bad', triggers: [] }),
+      recipe({ id: 'bad', primitives: [] }),
       recipe({ id: 'good' }),
     ]));
     const { items, error } = await catalogWith(online).browse();
@@ -334,7 +333,7 @@ describe('parseSkillRegistry / parseSkillRecipe 拒绝非法配方', () => {
   it('接受契约 §7.6 形状的完整清单', () => {
     const valid = registryOf([
       recipe({ id: 'a' }),
-      recipe({ id: 'b', triggers: ['死活题'], primitives: ['web_fetch', 'navigate_to'] }),
+      recipe({ id: 'b', primitives: ['web_fetch', 'navigate_to'] }),
     ]);
     const parsed = parseSkillRegistry(valid);
     expect(parsed.ok).toBe(true);
@@ -347,8 +346,7 @@ describe('parseSkillRegistry / parseSkillRecipe 拒绝非法配方', () => {
     expect(parseSkillRecipe(recipe({ schemaVersion: 2 })).ok).toBe(false);
   });
 
-  it('拒绝空 triggers / 空 primitives / 非法原语名', () => {
-    expect(parseSkillRecipe(recipe({ triggers: [] })).ok).toBe(false);
+  it('拒绝空 primitives / 非法原语名', () => {
     expect(parseSkillRecipe(recipe({ primitives: [] })).ok).toBe(false);
     expect(parseSkillRecipe(recipe({ primitives: ['Web_Fetch'] })).ok).toBe(false);
     expect(parseSkillRecipe(recipe({ primitives: ['9bad'] })).ok).toBe(false);

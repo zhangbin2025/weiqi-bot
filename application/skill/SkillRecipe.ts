@@ -47,23 +47,6 @@ function readVersion(raw: Record<string, unknown>): FieldResult<number> {
   return { ok: true, value };
 }
 
-function readTriggers(raw: Record<string, unknown>): FieldResult<string[]> {
-  const value = raw['triggers'];
-  if (!Array.isArray(value) || value.length === 0) {
-    return { ok: false, reason: '字段「triggers」必须是至少包含 1 条的字符串数组' };
-  }
-  const items: readonly unknown[] = value;
-  const out: string[] = [];
-  for (let i = 0; i < items.length; i += 1) {
-    const item: unknown = items[i];
-    if (typeof item !== 'string') {
-      return { ok: false, reason: `字段「triggers」第 ${i + 1} 项必须是字符串` };
-    }
-    out.push(item);
-  }
-  return { ok: true, value: out };
-}
-
 function readPrimitives(raw: Record<string, unknown>): FieldResult<string[]> {
   const value = raw['primitives'];
   if (!Array.isArray(value) || value.length === 0) {
@@ -140,8 +123,6 @@ export function parseSkillRecipe(
   if (!name.ok) return name;
   const summary = readString(raw, 'summary', 'summary');
   if (!summary.ok) return summary;
-  const triggers = readTriggers(raw);
-  if (!triggers.ok) return triggers;
   const primitives = readPrimitives(raw);
   if (!primitives.ok) return primitives;
   const requiredCapabilities = readRequiredCapabilities(raw);
@@ -158,7 +139,6 @@ export function parseSkillRecipe(
     version: version.value,
     name: name.value,
     summary: summary.value,
-    triggers: triggers.value,
     primitives: primitives.value,
     ...(requiredCapabilities.value !== undefined
       ? { requiredCapabilities: requiredCapabilities.value }

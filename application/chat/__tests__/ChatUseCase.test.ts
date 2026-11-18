@@ -34,7 +34,6 @@ const TEST_SKILLS: SkillRecipe[] = [{
   version: 4,
   name: '做题练习',
   summary: '用户想做题时由宿主生成带参数的做题页链接。',
-  triggers: ['死活题', '做一道', '做题', '手筋', '官子'],
   primitives: ['navigate_to'],
   prompt: '调用 navigate_to 生成做题页链接；链接由宿主按钮呈现，回复里不要写网址。',
 }];
@@ -440,7 +439,11 @@ describe('ChatUseCase.send — 做题链接由宿主注入', () => {
     hist: ReturnType<typeof makeHistory>,
   ) {
     const primitives = createSkillRegistry(createBasicPrimitives(webDeps));
-    const skills = { loadSkills: async () => TEST_SKILLS, primitives };
+    const skills = {
+      loadSkills: async () => TEST_SKILLS,
+      primitives,
+      routeSkills: async (recipes: readonly SkillRecipe[]) => recipes.map((x) => x.id),
+    };
     return new ChatUseCase(gw, hist, r, undefined, () => 'chat' as ChatRoleId, webDeps, skills);
   }
 
@@ -560,6 +563,15 @@ describe('ChatUseCase.send — 技能开发角色（闲聊超集）', () => {
       loadSkills: async () => TEST_SKILLS,
       primitives,
       devKit: devKitStub(),
+      // 测试桩模拟 LLM 路由的「理解力」：按最近用户文本判断意图，
+      // 而不是无条件全返回。这不是产品词表，产品里这步是模型调用。
+      routeSkills: async (
+        recipes: readonly SkillRecipe[],
+        input: { recentUserTexts: readonly string[] },
+      ) => {
+        const text = input.recentUserTexts.join('\n');
+        return /做题|官子|手筋|死活/.test(text) ? recipes.map((x) => x.id) : [];
+      },
     };
     return {
       r,
@@ -645,7 +657,7 @@ describe('llm-tool 按技能 requiredCapabilities 声明按需挂载', () => {
     return {
       schemaVersion: 1, id: 'github.rest', version: 1,
       name: 'GitHub REST API', summary: '查 GitHub',
-      triggers: ['列仓库'], primitives: ['web_fetch'], prompt: '用 http_fetch_auth 查询。',
+      primitives: ['web_fetch'], prompt: '用 http_fetch_auth 查询。',
       ...over,
     };
   }
@@ -654,7 +666,11 @@ describe('llm-tool 按技能 requiredCapabilities 声明按需挂载', () => {
     const r = makeRenderer();
     const hist = makeHistory();
     const primitives = createSkillRegistry(createBasicPrimitives(webDeps));
-    const skills = { loadSkills: async () => recipes, primitives };
+    const skills = {
+      loadSkills: async () => recipes,
+      primitives,
+      routeSkills: async (all: readonly SkillRecipe[]) => all.map((x) => x.id),
+    };
     const uc = new ChatUseCase(
       gw, hist, r, undefined, () => 'chat' as ChatRoleId, webDeps, skills, llm,
     );
@@ -690,7 +706,7 @@ describe('llm-tool 按技能 requiredCapabilities 声明按需挂载', () => {
     const gw = makeGateway();
     const llm = fakeLlmKit(['monthCalendar']);
     await makeUc(
-      [recipe({ id: 'user.dn2lz9', triggers: ['看月历'], requiredCapabilities: ['monthCalendar'] })],
+      [recipe({ id: 'user.dn2lz9', requiredCapabilities: ['monthCalendar'] })],
       llm, gw,
     ).send('看月历');
     const req = firstReq(gw);
@@ -711,7 +727,7 @@ describe('llm-tool 按技能 requiredCapabilities 声明按需挂载', () => {
     const gw = makeGateway();
     const llm = fakeLlmKit([]); // listCapabilities 空集 → selectSkills 整条跳过
     await makeUc(
-      [recipe({ id: 'user.dn2lz9', triggers: ['看月历'], requiredCapabilities: ['monthCalendar'] })],
+      [recipe({ id: 'user.dn2lz9', requiredCapabilities: ['monthCalendar'] })],
       llm, gw,
     ).send('看月历');
     const req = firstReq(gw);
@@ -723,8 +739,8 @@ describe('llm-tool 按技能 requiredCapabilities 声明按需挂载', () => {
     const gw = makeGateway();
     const llm = fakeLlmKit(['monthCalendar']);
     await makeUc([
-      recipe({ triggers: ['列仓库'] }),
-      recipe({ id: 'user.dn2lz9', triggers: ['列仓库'], requiredCapabilities: ['monthCalendar'] }),
+      recipe({}),
+      recipe({ id: 'user.dn2lz9', requiredCapabilities: ['monthCalendar'] }),
     ], llm, gw).send('列仓库');
     const req = firstReq(gw);
     expect(namesOf(req)).toContain('llm_tool_call');

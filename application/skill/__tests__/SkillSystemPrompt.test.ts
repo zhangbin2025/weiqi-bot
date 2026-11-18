@@ -11,7 +11,7 @@ const base = 'BASE_SYSTEM_PROMPT';
 function recipe(): SkillRecipe {
   return {
     schemaVersion: 1, id: 'user.demo', version: 1, name: '示例',
-    summary: '摘要', triggers: ['触发'], primitives: ['navigate_to'], prompt: '提示',
+    summary: '摘要', primitives: ['navigate_to'], prompt: '提示',
   };
 }
 

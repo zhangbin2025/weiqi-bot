@@ -28,7 +28,7 @@ import type { ChatHistoryManager } from '../assistant/ChatHistoryManager';
 import type { IMessageRenderer } from '../assistant/IMessageRenderer';
 import type { ChatAttachment } from './ChatAttachment';
 import { describeAttachment } from './ChatAttachment';
-import { buildConversationMessages, CONVERSATION_SYSTEM_PROMPT } from './ConversationPrompt';
+import { buildConversationMessages, CONVERSATION_SYSTEM_PROMPT, CONTEXT_LIMITS } from './ConversationPrompt';
 import { clampTitle, generateSessionTitle } from './SessionTitle';
 import { resourceFromFile } from './ResourceInput';
 import { processImage, processPdf } from './ResourceProcessors';
@@ -42,6 +42,7 @@ import type { createLlmToolKit } from '../plugin/LlmToolKit';
 import type { SkillPrimitive, SkillRecipe } from '../skill/SkillTypes';
 import type { SkillDevKit } from '../skill/dev/SkillDevTools';
 import { selectSkills } from '../skill/SkillSelector';
+import { routeSkills, type SkillRouteInput } from '../skill/SkillRouter';
 import { buildSkillToolParts } from '../skill/SkillRegistry';
 import { buildSkillSystemPrompt } from '../skill/SkillSystemPrompt';
 import { beginUserTurn } from '../skill/SkillTurn';
@@ -69,6 +70,15 @@ export function isSlashCommand(text: string): boolean {
 export interface SkillDeps {
   /** 每条用户消息调用一次，返回内置 + 在线 + 本地自建合并后的配方清单；失败应自行回落内置 */
   loadSkills(): Promise<SkillRecipe[]>;
+  /**
+   * 可选：技能路由。缺省时由宿主用当前 gateway 做一次轻量 LLM 路由
+   * （见 SkillRouter.routeSkills）；注入桩主要用于测试或特殊装配，不改路由契约。
+   * 返回本轮要激活的技能 id，宿主仍会用 selectSkills 过原语 / 能力库硬门槛。
+   */
+  routeSkills?: (
+    recipes: readonly SkillRecipe[],
+    input: SkillRouteInput,
+  ) => Promise<string[]>;
   /** 宿主原语注册表：name → 声明 + 执行器 */
   primitives: ReadonlyMap<string, SkillPrimitive>;
   /**
@@ -128,21 +138,6 @@ async function prepareLocalFiles(
   return { attachments, parts, notes };
 }
 
-/** 取最后一条 user 消息的纯文本（content 可能是多模态 part 数组） */
-function lastUserText(messages: readonly ModelMessage[]): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (!m || m.role !== 'user') continue;
-    const c = m.content;
-    if (typeof c === 'string') return c;
-    return c
-      .filter((p): p is Extract<ModelPart, { type: 'text' }> => p.type === 'text')
-      .map((p) => p.text)
-      .join('\n');
-  }
-  return '';
-}
-
 /** 上下文里是否还带着图片 / 原生 PDF 附件（重放的历史附件也算） */
 function hasImagePart(messages: readonly ModelMessage[]): boolean {
   return messages.some((m) => {
@@ -156,6 +151,9 @@ const WEB_TRACE_TITLE = '🌐 访问过程';
 const PLUGIN_TRACE_TITLE = '🔧 插件开发过程';
 
 export class ChatUseCase {
+  /** 上一轮激活的技能 id：供「好的 / 确认」这类承接语的路由信号，纯内存不落盘 */
+  private previousSkillIds: string[] = [];
+
   constructor(
     private readonly gateway: IModelGateway,
     private readonly history: ChatHistoryManager,
@@ -391,9 +389,9 @@ export class ChatUseCase {
       };
     }
 
-    // chat 角色：基础 web 工具恒定挂载；装了技能系统时，按「当前句 + 上下文里是否
-    // 仍带图片附件」挑出命中的配方，只把配方引用的原语追加进本轮 tools[]。
-    // 未命中任何技能时 buildChatToolKit 直接返回基础 kit，零额外 token。
+    // chat 角色：基础 web 工具恒定挂载；装了技能系统时，先由 LLM 路由理解本轮意图
+    // 给出技能 id，再经 selectSkills 硬门槛筛出可用配方，只把原语追加进 tools[]。
+    // 路由失败 / 无需技能时返回空激活，正常对话继续，零额外工具。
     // chat 角色：技能系统与 llm-tool 能力库只要装了任一个，就走拼装路径。
     // 两者都没装才逐字返回基础 web kit（保持旧行为、零额外 token）。
     const kit: ToolKit = usePlugin
@@ -471,6 +469,31 @@ export class ChatUseCase {
     // 但历史里的图片附件仍随上下文重放。用它保持导入技能挂载，直到图片滑出
     // 20 条消息窗口（沿用既有 maxMessages，不另设过期时间/阈值）。
     const contextHasImage = hasNewParts || hasImagePart(messages);
+    // LLM 技能路由：目录只用 id / name / summary；输入是最近的用户消息（沿用
+    // 既有 maxMessages 窗口）+ 宿主给出的结构化上下文信号。失败 → 空激活，
+    // 不回落关键词、不重试、不打断对话。
+    const recentUserTexts = messages
+      .filter((m) => m.role === 'user')
+      .slice(-CONTEXT_LIMITS.maxMessages)
+      .map((m) => (typeof m.content === 'string'
+        ? m.content
+        : m.content.filter((p) => p.type === 'text').map((p) => p.text).join('\n')));
+    const routeInput = {
+      recentUserTexts,
+      hasAttachments: contextHasImage,
+      previousSkillIds: this.previousSkillIds,
+    };
+    let routedIds: string[] = [];
+    // 没有已启用配方就没有可路由的目录：空集短路，不发这次模型调用。
+    // 这不是「省一次调用维护词表」，而是没有候选集时的自然行为。
+    if (recipes.length > 0) {
+      try {
+        routedIds = this.skills?.routeSkills
+          ? await this.skills.routeSkills(recipes, routeInput)
+          : (await routeSkills(this.gateway, recipes, routeInput)).skillIds;
+        // 默认路由的 reason 供未来可观测性使用，当前静默降级不消费。
+      } catch { routedIds = []; }
+    }
     // requiredCapabilities 的激活前硬检查：取当前已启用能力库暴露的方法名并集。
     // 与 buildSystemSuffix 共用 listActive() 同一份工件存储读取，不另建清单；
     // 装配失败 / 未注入 llm-tool 时按空集处理，有依赖的技能一律不激活。
@@ -480,9 +503,13 @@ export class ChatUseCase {
     }
     const active = this.skills
       ? selectSkills(
-        lastUserText(messages), contextHasImage, recipes, this.skills.primitives, capabilities,
+        routedIds, contextHasImage, recipes, this.skills.primitives, capabilities,
       )
       : [];
+    // 下一轮的承接语靠这个信号续上；本轮没激活就清空，避免技能粘连。
+    // 路由失败完全静默：不写模型上下文 / 会话历史 / 过程块，正常对话继续，
+    // 避免一次旁路调用失败打断用户。
+    this.previousSkillIds = active.map((s) => s.id);
     const dev = devMode ? this.skills?.devKit : undefined;
 
     // llm-tool 按需挂载：只有本轮命中的技能真的声明了 requiredCapabilities 才挂。

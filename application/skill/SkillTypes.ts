@@ -50,8 +50,6 @@ export interface SkillRecipe {
   name: string;
   /** 一句话，给模型看 */
   summary: string;
-  /** 触发词/短语，宿主按当前用户消息做「包含即命中」匹配；不引入模糊阈值 */
-  triggers: string[];
   /** 引用的宿主原语名，必须全部存在于 SkillRegistry；否则该技能整条跳过 */
   primitives: string[];
   /**

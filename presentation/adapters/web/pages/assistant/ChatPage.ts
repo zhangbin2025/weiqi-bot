@@ -1651,10 +1651,6 @@ export class ChatPage {
     meta.className = 'plugin-panel__meta';
     meta.textContent = `${recipe.id} · v${recipe.version} · 原语：${recipe.primitives.join('、')}`;
     card.appendChild(meta);
-    const triggers = document.createElement('div');
-    triggers.className = 'plugin-panel__meta';
-    triggers.textContent = `触发词：${recipe.triggers.join('、')}`;
-    card.appendChild(triggers);
     const intent = document.createElement('div');
     intent.className = 'plugin-panel__intent';
     intent.textContent = recipe.summary;

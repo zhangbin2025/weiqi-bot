@@ -67,10 +67,6 @@ const SKILL_WRITE_TOOL: ModelToolDefinition = {
       },
       name: { type: 'string', description: '展示名称' },
       summary: { type: 'string', description: '一句话说明该技能做什么（给模型看）' },
-      triggers: {
-        type: 'array', items: { type: 'string' },
-        description: '触发词/短语数组，用户消息「包含即命中」，至少 1 条',
-      },
       primitives: {
         type: 'array', items: { type: 'string' },
         description: '引用的宿主原语名数组，至少 1 条，必须来自「可用原语」清单',
@@ -94,7 +90,7 @@ const SKILL_WRITE_TOOL: ModelToolDefinition = {
         description: '命中后追加给对话的自然语言指令（纯文本，不写代码、不写网址模板）',
       },
     },
-    required: ['name', 'summary', 'triggers', 'primitives', 'prompt'],
+    required: ['name', 'summary', 'primitives', 'prompt'],
     additionalProperties: false,
   },
 };
@@ -147,15 +143,16 @@ function buildSystemSuffix(primitives: ReadonlyMap<string, SkillPrimitive>): str
   return [
     '【技能开发能力】',
     '你是「技能开发」助手：既能像闲聊一样正常对话与使用网页/技能工具，也能在本机创建/修订「技能配方」。',
-    '技能是一条纯声明 JSON：命中触发词后，给对话补一段提示并挂上若干宿主已有的「原语」工具。',
+    '技能是一条纯声明 JSON：LLM 路由根据「名称 + 描述」判断本轮是否启用；启用后给对话补一段提示并挂上若干宿主已有的「原语」工具。',
     '技能不含、也绝不能写任何可执行代码；你只能组合下面这些宿主已有的原语。',
     '',
     '可用原语（primitives 只能从这里挑，填原语名）：',
     renderPrimitives(primitives),
     '',
     '用 skill_list 查看本地技能（含 id、版本、来源、启用状态、完整配方）；用 skill_write 创建/修订自建技能。',
-    'skill_write 字段：name / summary / triggers（触发词数组，至少 1 条）/ primitives（原语名数组，'
-      + '至少 1 条，必须来自上表）/ prompt（命中后追加的自然语言指令，纯文本）；'
+    'skill_write 字段：name / summary（写清楚「什么场景、做什么」，路由靠它理解，不要写触发词）'
+      + '/ primitives（原语名数组，至少 1 条，必须来自上表）'
+      + '/ prompt（启用后追加的自然语言指令，纯文本）；'
       + 'id 可选，修订时填 skill_list 查到的同一 id（user. 开头），新建时省略。',
     'secrets 可选：引用 http_fetch_auth / secret_prompt 的配方要声明凭据规格数组，'
       + '每项 key / label / allowedHosts（纯域名）/ header:{name,prefix}，可选 setupUrl / hint。'
@@ -193,7 +190,7 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
       }
       const lines = entries.map((e) => JSON.stringify({
         id: e.recipe.id, name: e.recipe.name, version: e.recipe.version,
-        source: e.source, enabled: e.enabled, triggers: e.recipe.triggers,
+        source: e.source, enabled: e.enabled,
         primitives: e.recipe.primitives,
         ...(e.recipe.requiredCapabilities !== undefined
           ? { requiredCapabilities: e.recipe.requiredCapabilities }
@@ -265,7 +262,6 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
       version: 1, // 占位；UserSkillStore.save 会按同 id 现有版本 +1 覆盖，模型永远不写版本号
       name: args['name'],
       summary: args['summary'],
-      triggers: args['triggers'],
       primitives: args['primitives'],
       ...(args['requiredCapabilities'] !== undefined
         ? { requiredCapabilities: args['requiredCapabilities'] }
@@ -284,7 +280,7 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
       const entry = await users.save(parsed.skill);
       const observation = [
         `已保存技能「${entry.recipe.name}」（id=${entry.recipe.id}，v${entry.recipe.version}）。`,
-        `触发词：${entry.recipe.triggers.join('、')}；引用原语：${entry.recipe.primitives.join('、')}。`,
+        `描述：${entry.recipe.summary}；引用原语：${entry.recipe.primitives.join('、')}。`,
         ...(entry.recipe.requiredCapabilities !== undefined
           ? [`依赖能力库方法：${entry.recipe.requiredCapabilities.join('、')}（缺任一则不激活）。`]
           : []),
