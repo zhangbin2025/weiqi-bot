@@ -44,10 +44,12 @@ export class PluginCatalogClient {
    * - URL 先过 validateRegistryUrl（https + 拒绝环回/私网字面地址）
    * - schemaVersion 不是 1 直接拒（宿主只认这一版格式）
    * - baseUrl 缺省时用「清单 URL 所在目录」兜底，避免自定义源漏配这一项
+   * - noStore=true（手动刷新）时给底层 fetch 加 cache:'no-store'，绕过浏览器/CDN 的
+   *   HTTP 缓存；正常打开面板仍走默认缓存语义。三个请求共用同一开关。
    */
-  async fetchRegistry(registryUrl: string): Promise<ParsedRegistry> {
+  async fetchRegistry(registryUrl: string, noStore = false): Promise<ParsedRegistry> {
     const safeUrl = validateRegistryUrl(registryUrl);
-    const text = await this.getText(safeUrl);
+    const text = await this.getText(safeUrl, noStore);
     const parsed: unknown = JSON.parse(text);
     if (!isRecord(parsed)) throw new Error('registry.json 不是对象');
     if (parsed['schemaVersion'] !== 1) {
@@ -76,8 +78,9 @@ export class PluginCatalogClient {
   /** 取 plugin.json：形状校验 + 与 registry 条目的 id / pointId / specVersion 对齐 */
   async fetchManifest(
     item: ParsedRegistryResource,
+    noStore = false,
   ): Promise<{ manifest: PluginManifest; codeUrl: string }> {
-    const text = await this.getText(item.manifestUrl);
+    const text = await this.getText(item.manifestUrl, noStore);
     const parsed: unknown = JSON.parse(text);
     if (!isRecord(parsed)) throw new Error('plugin.json 不是对象');
 
@@ -129,12 +132,14 @@ export class PluginCatalogClient {
   }
 
   /** 取源码正文；不执行、不求值，只作为字符串交给宿主校验 */
-  async fetchCode(codeUrl: string): Promise<string> {
-    return this.getText(codeUrl);
+  async fetchCode(codeUrl: string, noStore = false): Promise<string> {
+    return this.getText(codeUrl, noStore);
   }
 
-  private async getText(url: string): Promise<string> {
-    const res = await this.fetchImpl(url);
+  private async getText(url: string, noStore: boolean): Promise<string> {
+    const res = noStore
+      ? await this.fetchImpl(url, { cache: 'no-store' })
+      : await this.fetchImpl(url);
     if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
     return res.text();
   }

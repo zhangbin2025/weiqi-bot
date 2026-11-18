@@ -136,3 +136,49 @@ describe('PluginCatalogClient.fetchManifest / fetchCode', () => {
       .resolves.toBe(code);
   });
 });
+
+
+describe('PluginCatalogClient — 手动刷新绕过 HTTP 缓存', () => {
+  const manifest = {
+    id: 'ranking.total-score', name: '总分排序', type: 'plugin',
+    pointId: 'ranking', specVersion: 1, entry: 'rank',
+    code: 'plugins/ranking/total-score/index.js', origin: 'manual', intent: 'i',
+  };
+  const registry = {
+    schemaVersion: 1, name: 'weiqi-assets', description: 'test', baseUrl: BASE,
+    resources: [
+      { id: 'ranking.total-score', type: 'plugin', name: '总分排序', summary: 's',
+        pointId: 'ranking', specVersion: 1, path: 'plugins/ranking/total-score/plugin.json' },
+    ],
+  };
+  const item = {
+    resource: { id: 'ranking.total-score', pointId: 'ranking', specVersion: 1 },
+    manifestUrl: `${BASE}plugins/ranking/total-score/plugin.json`,
+    baseUrl: BASE,
+  };
+
+  it('默认请求不带 cache 选项；noStore=true 后清单/manifest/源码三个请求都带 cache:no-store', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      calls.push({ url, ...(init !== undefined ? { init } : {}) });
+      // registry.json 与源码正文不同，按 URL 类型给对应桩
+      if (url === REGISTRY_URL) return jsonResponse(registry);
+      if (url === item.manifestUrl) return jsonResponse(manifest);
+      return textResponse('function rank() {}');
+    }) as unknown as typeof fetch;
+    const client = new PluginCatalogClient({ fetchImpl });
+
+    await client.fetchRegistry(REGISTRY_URL);
+    await client.fetchManifest(item);
+    await client.fetchCode(`${BASE}index.js`);
+    expect(calls).toHaveLength(3);
+    expect(calls.every((c) => c.init === undefined)).toBe(true);
+
+    calls.length = 0;
+    await client.fetchRegistry(REGISTRY_URL, true);
+    await client.fetchManifest(item, true);
+    await client.fetchCode(`${BASE}index.js`, true);
+    expect(calls).toHaveLength(3);
+    expect(calls.every((c) => c.init?.cache === 'no-store')).toBe(true);
+  });
+});

@@ -362,3 +362,24 @@ describe('parseSkillRegistry / parseSkillRecipe 拒绝非法配方', () => {
     expect(parseSkillRecipe(null).ok).toBe(false);
   });
 });
+
+describe('SkillCatalogService.browse — 手动刷新绕过 HTTP 缓存', () => {
+  it('默认 browse() 不带 cache 选项；browse(true) 给请求带 cache:no-store', async () => {
+    const calls: Array<{ init?: RequestInit }> = [];
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      calls.push(init !== undefined ? { init } : {});
+      return jsonResponse(registryOf([recipe({ id: 'fresh', version: 1 })]));
+    }) as unknown as typeof fetch;
+    const catalog = catalogWith(fetchImpl);
+
+    await catalog.browse();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.init).toBeUndefined();
+
+    calls.length = 0;
+    const { items } = await catalog.browse(true);
+    expect(items).toHaveLength(1);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.init?.cache).toBe('no-store');
+  });
+});

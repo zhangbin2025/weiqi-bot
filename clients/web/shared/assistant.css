@@ -119,7 +119,9 @@
             /* 气泡在内容盒内吃满可用宽度（右侧头像位由 .message.assistant 预留） */
             max-width: 100%;
             padding: 10px 12px;
-            border-radius: 4px;
+            /* 与顶部「AI助手已就绪」状态条（.status border-radius:12px）同款圆角：
+               所有消息块（用户 / AI / 多行）统一大圆角风格，4px 太方、看着像没做完的块。 */
+            border-radius: 12px;
             word-wrap: break-word;
             overflow-wrap: break-word;
             word-break: break-word;

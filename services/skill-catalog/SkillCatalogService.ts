@@ -10,7 +10,8 @@
  *   不是阈值 / 打分）；更新按同 id 覆盖、保留用户已设的启停状态；
  * - 引用了宿主注册表里没有的原语的配方只展示、不可安装；
  * - 声明了 requiredCapabilities 但缺已启用能力库方法的配方同样只展示、不可安装；
- * - 不缓存、不重试、不设超时（沿用浏览器 fetch 默认）；不执行任何远程代码；
+ * - 不自建缓存、不重试、不设超时；默认沿用浏览器 fetch 缓存语义，
+ *   手动刷新（noStore）才用 cache:'no-store' 绕过 HTTP 缓存；不执行任何远程代码；
  * - browse() / install() 失败都转成中文结果，绝不把异常抛到对话 / 面板炸弹框。
  */
 
@@ -119,13 +120,17 @@ export class SkillCatalogService {
     await this.sources.reset();
   }
 
-  /** 面板「在线技能」标签：列出当前源配方 + 逐条对照本地库的安装状态 */
-  async browse(): Promise<SkillCatalogBrowseResult> {
+  /**
+   * 面板「在线技能」标签：列出当前源配方 + 逐条对照本地库的安装状态。
+   * noStore=true（面板「手动刷新」）时给取数请求带 cache:'no-store'，绕过浏览器/CDN
+   * 的 HTTP 缓存；正常打开面板仍走默认缓存语义，不改动「不缓存/不重试」的离线语义。
+   */
+  async browse(noStore = false): Promise<SkillCatalogBrowseResult> {
     const source = await this.sources.current();
     const url = this.onlineUrlOverride ?? source.url;
     let remote: SkillRecipe[];
     try {
-      remote = await this.client.fetchRegistry(url);
+      remote = await this.client.fetchRegistry(url, noStore);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       return { source, items: [], ...(reason ? { error: reason } : {}) };

@@ -186,6 +186,18 @@
         .plugin-panel__tab--active {
             color: #5546a8; font-weight: 600; border-bottom-color: #667eea;
         }
+        /* 在线列表的手动刷新：只在「在线」标签显示，常驻标签栏（不随列表滚动）。
+           强制重读远端时绕过浏览器/GitHub Pages 的 HTTP 缓存，避免在线源更新后列表还是旧的。 */
+        .plugin-panel__refresh {
+            flex: 0 0 auto; align-self: center; margin-left: 6px;
+            display: inline-flex; align-items: center; white-space: nowrap;
+            border: 1px solid #dcdcf0; background: #f7f6ff; color: #5546a8;
+            border-radius: 6px; padding: 4px 10px; font-size: 12px;
+            font-family: inherit; cursor: pointer;
+        }
+        .plugin-panel__refresh:hover { background: #ece9ff; }
+        .plugin-panel__refresh:disabled { opacity: .55; cursor: default; }
+        .plugin-panel__refresh[hidden] { display: none; }
         /* 仅条目列表区滚动：撑满剩余高度、显示滚动条（含 WebKit 常显轨道） */
         .plugin-panel__body {
             flex: 1 1 auto; min-height: 0;
@@ -230,6 +242,18 @@
             border: 1px solid #e8e8e8; border-radius: 10px;
             padding: 10px 12px; margin-bottom: 10px; background: #fff;
         }
+        /* 操作后定位：滚动回刚操作的条目并短暂高亮，让用户一眼看到结果。
+           与 .session-card--active 用同一组强调色，不新造配色。 */
+        .plugin-panel__card--focus {
+            border-color: #667eea; background: #f7f6ff;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, .22);
+        }
+        /* 明显提示：新装插件默认停用需手动启用。与 #notReady 同款警示配色，插在条目卡片顶部。 */
+        .plugin-panel__enable-hint {
+            margin: 0 0 10px; padding: 9px 10px;
+            border-radius: 10px; background: #fff8e1; color: #8a6d00;
+            border: 1px solid #ffe082; font-size: 12px; font-weight: 600; line-height: 1.5;
+        }
         .plugin-panel__head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
         .plugin-panel__name { font-weight: 600; color: #333; word-break: break-all; }
         .plugin-panel__state {
@@ -239,7 +263,9 @@
         .plugin-panel__state--on { background: #e6f7ed; color: #07a35a; }
         .plugin-panel__meta { color: #999; font-size: 11px; margin: 4px 0; word-break: break-all; }
         .plugin-panel__intent { color: #555; line-height: 1.4; margin: 4px 0; }
-        .plugin-panel__actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+        /* 功能按钮靠右：条目内容靠左阅读，操作统一收到右侧，扫列表时视线不跳。
+           删除二次确认里插入的提示文字也随整组靠右，靠 flex-end 自动处理。 */
+        .plugin-panel__actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; justify-content: flex-end; }
         .plugin-panel__actions button {
             border: 1px solid #dcdcf0; background: #f7f6ff; color: #5546a8;
             border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer;

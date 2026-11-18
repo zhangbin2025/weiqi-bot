@@ -89,8 +89,10 @@ export class PluginCatalogService {
    * 浏览当前源：取清单、逐条取 manifest + 源码，合并本地工件状态。
    * 单源失败：记录 failure，并回放该源上次成功的静态缓存（标 cached）。
    * 单条失败：把该条标 unavailable，绝不影响其它条目。
+   * noStore=true（面板「手动刷新」）时整条取数链都带 cache:'no-store'，
+   * 绕过浏览器/GitHub Pages 的 HTTP 缓存；离线回放缓存是另一层设计内兜底，不受影响。
    */
-  async browse(): Promise<CatalogBrowseResult> {
+  async browse(noStore = false): Promise<CatalogBrowseResult> {
     const sources = await this.sources.list();
     let locals: PluginArtifact[] = [];
     try {
@@ -106,7 +108,7 @@ export class PluginCatalogService {
     for (const source of sources) {
       let parsed: Awaited<ReturnType<PluginCatalogClient['fetchRegistry']>>;
       try {
-        parsed = await this.client.fetchRegistry(source.url);
+        parsed = await this.client.fetchRegistry(source.url, noStore);
       } catch (error) {
         failures.push({ registryUrl: source.url, reason: messageOf(error) });
         entries.push(...(await this.cachedEntries(source, locals)));
@@ -115,7 +117,7 @@ export class PluginCatalogService {
 
       const perSource: CatalogEntry[] = [];
       for (const item of parsed.resources) {
-        perSource.push(await this.buildEntry(source, item, locals));
+        perSource.push(await this.buildEntry(source, item, locals, noStore));
       }
       await this.cache.save(source.url, perSource);
       entries.push(...perSource);
@@ -279,6 +281,7 @@ export class PluginCatalogService {
     source: CatalogSource,
     item: ParsedRegistryResource,
     locals: PluginArtifact[],
+    noStore: boolean,
   ): Promise<CatalogEntry> {
     const r = item.resource;
     const base: CatalogEntry = {
@@ -308,7 +311,7 @@ export class PluginCatalogService {
     let manifest: PluginManifest;
     let codeUrl: string;
     try {
-      const fetched = await this.client.fetchManifest(item);
+      const fetched = await this.client.fetchManifest(item, noStore);
       manifest = fetched.manifest;
       codeUrl = fetched.codeUrl;
     } catch (error) {
@@ -329,7 +332,7 @@ export class PluginCatalogService {
 
     let code: string;
     try {
-      code = await this.client.fetchCode(codeUrl);
+      code = await this.client.fetchCode(codeUrl, noStore);
     } catch (error) {
       return { ...enriched, state: 'unavailable', reason: `源码不可用：${messageOf(error)}` };
     }

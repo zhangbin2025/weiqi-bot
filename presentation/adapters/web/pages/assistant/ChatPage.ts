@@ -70,6 +70,13 @@ const LAST_SESSION_KEY = 'chat:lastSessionId';
 const DB_NAME = 'weiqi-assistant';
 const DB_STORE = 'favorites';
 
+/** 面板操作后的定位目标：按卡片 data-panel-key 找回刚操作的条目。
+ *  enableHint 为真时，额外在列表顶部插一条「需手动启用」的醒目提示（仅插件新装）。 */
+interface PanelFocus {
+  key: string;
+  enableHint?: boolean;
+}
+
 export class ChatPage {
   private readonly renderer = new AssistantRenderer();
   private readonly dialog = new WebDialog();
@@ -83,6 +90,8 @@ export class ChatPage {
   private pluginPanelTab: 'local' | 'online' = 'local';
   /** 一次性操作反馈，随下一次面板渲染出现后清空 */
   private pluginPanelFlash: { text: string; error: boolean } | undefined;
+  /** 操作后要定位回的条目；新装插件带 enableHint，切到本地页并提示手动启用 */
+  private pluginPanelFocus: PanelFocus | undefined;
   /** 面板刷新序号：异步 list() 期间用户可能关掉/重开面板，旧结果必须丢弃 */
   private pluginPanelSeq = 0;
   /** 技能编排服务：loadSkills / browse / 源管理 / 自建技能库共用同一实例 */
@@ -96,6 +105,8 @@ export class ChatPage {
   /** 技能面板当前标签页；默认「我的技能」 */
   private skillPanelTab: 'local' | 'online' = 'local';
   private skillPanelFlash: { text: string; error: boolean } | undefined;
+  /** 技能操作后要定位回的条目（按 recipe.id） */
+  private skillPanelFocus: PanelFocus | undefined;
   private skillPanelSeq = 0;
   /** 当前会话的模型角色。角色绑定会话，切换角色会新建会话。 */
   private currentRole: ChatRoleId = DEFAULT_ROLE_ID;
@@ -919,6 +930,8 @@ export class ChatPage {
    */
   private async showPluginPanel(): Promise<void> {
     this.toggleMenu(false);
+    // 每次重新打开面板都从干净状态开始，别把上次会话残留的定位目标带过来。
+    this.pluginPanelFocus = undefined;
     // show() 是阻塞式 Promise（点关闭才 resolve），DOM 同步插入；
     // 先发起显示再填充内容，与 showHistory 同一套路。
     // 两个标签页共用同一个 dialog：本地工件 + 在线插件源。
@@ -930,6 +943,7 @@ export class ChatPage {
         + '<div class="plugin-panel__tabs" id="pluginPanelTabs">'
         + '<button type="button" class="plugin-panel__tab" data-tab="local">本地插件</button>'
         + '<button type="button" class="plugin-panel__tab" data-tab="online">在线插件</button>'
+        + '<button type="button" class="plugin-panel__refresh" id="pluginPanelRefresh" hidden>刷新</button>'
         + '</div>'
         + '<div class="plugin-panel__body" id="pluginPanelBody"></div>'
         + '</div>',
@@ -947,10 +961,13 @@ export class ChatPage {
           }
         });
       });
+    // 手动刷新：重读在线源并绕过浏览器/CDN 的 HTTP 缓存（默认只在在线标签显示）。
+    document.getElementById('pluginPanelRefresh')
+      ?.addEventListener('click', () => void this.refreshPluginPanel(true));
     await this.refreshPluginPanel();
   }
 
-  private async refreshPluginPanel(): Promise<void> {
+  private async refreshPluginPanel(noStore = false): Promise<void> {
     const seq = ++this.pluginPanelSeq;
     const root = document.getElementById('pluginPanelRoot');
     const body = document.getElementById('pluginPanelBody');
@@ -960,9 +977,25 @@ export class ChatPage {
     root.querySelectorAll<HTMLButtonElement>('.plugin-panel__tab').forEach((btn) => {
       btn.classList.toggle('plugin-panel__tab--active', btn.dataset['tab'] === this.pluginPanelTab);
     });
+    // 手动刷新按钮只在「在线」标签出现：本地列表读的是本地工件存储，无远端缓存可绕过。
+    const refreshBtn = root.querySelector<HTMLButtonElement>('.plugin-panel__refresh');
+    if (refreshBtn !== null) refreshBtn.hidden = this.pluginPanelTab !== 'online';
 
     if (this.pluginPanelTab === 'online') {
-      await this.refreshOnlinePanel(body, seq);
+      const loading = noStore && refreshBtn !== null;
+      if (loading && refreshBtn !== null) {
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = '刷新中…';
+      }
+      try {
+        await this.refreshOnlinePanel(body, seq, noStore);
+      } finally {
+        // 只恢复「最新一次刷新」的按钮状态，避免旧结果把新刷新的按钮改回去。
+        if (loading && refreshBtn !== null && seq === this.pluginPanelSeq) {
+          refreshBtn.disabled = false;
+          refreshBtn.textContent = '刷新';
+        }
+      }
       return;
     }
 
@@ -997,17 +1030,20 @@ export class ChatPage {
       return;
     }
     for (const artifact of artifacts) {
-      body.appendChild(this.buildPluginCard(artifact, plugin));
+      const card = this.buildPluginCard(artifact, plugin);
+      card.dataset['panelKey'] = `local:${artifact.id}`;
+      body.appendChild(card);
     }
     this.applyFlash(body);
   }
 
   /** 在线插件标签：当前源 + 插件列表。browse 走网络，用 seq 防竞态 */
-  private async refreshOnlinePanel(body: HTMLElement, seq: number): Promise<void> {
+  private async refreshOnlinePanel(body: HTMLElement, seq: number, noStore: boolean): Promise<void> {
     body.replaceChildren();
     const catalog = this.catalog;
     if (!catalog) {
       body.appendChild(this.pluginPanelMessage('插件系统未就绪，在线插件不可用。'));
+      this.applyFlash(body);
       return;
     }
     body.appendChild(this.pluginPanelMessage('正在读取插件源…'));
@@ -1015,7 +1051,7 @@ export class ChatPage {
     let result: CatalogBrowseResult;
     let source: CatalogSource;
     try {
-      [result, source] = await Promise.all([catalog.browse(), catalog.currentSource()]);
+      [result, source] = await Promise.all([catalog.browse(noStore), catalog.currentSource()]);
     } catch (error) {
       if (seq !== this.pluginPanelSeq || !body.isConnected) return;
       body.replaceChildren();
@@ -1046,10 +1082,15 @@ export class ChatPage {
       ));
     } else {
       for (const entry of plugins) {
-        body.appendChild(this.buildCatalogCard(entry, catalog));
+        const card = this.buildCatalogCard(entry, catalog);
+        card.dataset['panelKey'] = `online:${entry.resourceId}`;
+        body.appendChild(card);
       }
     }
     this.applyFlash(body);
+    if (noStore) {
+      body.prepend(this.pluginPanelMessage('已重新读取在线源（忽略浏览器缓存）'));
+    }
   }
 
   /**
@@ -1197,6 +1238,18 @@ export class ChatPage {
               ? out.message
               : `${out.message}（${out.warning}）`;
             this.pluginPanelFlash = { text, error: !out.ok };
+            if (out.ok && out.action === 'installed' && out.artifact !== undefined) {
+              // 新装工件由 install() 建为 enabled:false：切到「本地插件」并定位到它，
+              // 同时给一条醒目提示，让用户明确「还需手动启用」，不能当成装完就生效。
+              this.pluginPanelTab = 'local';
+              this.pluginPanelFocus = {
+                key: `local:${out.artifact.id}`,
+                enableHint: true,
+              };
+            } else if (out.ok) {
+              // 更新 / 无需变更仍停在在线页，定位回刚操作的这条。
+              this.pluginPanelFocus = { key: `online:${entry.resourceId}` };
+            }
             await this.refreshPluginPanel();
           } catch (error) {
             btn.disabled = false;
@@ -1223,10 +1276,39 @@ export class ChatPage {
   private applyFlash(body: HTMLElement): void {
     const flash = this.pluginPanelFlash;
     this.pluginPanelFlash = undefined;
-    if (flash === undefined) return;
-    const tip = this.pluginPanelMessage(flash.text);
-    if (flash.error) tip.style.color = '#c23b3b';
-    body.prepend(tip);
+    if (flash !== undefined) {
+      const tip = this.pluginPanelMessage(flash.text);
+      if (flash.error) tip.style.color = '#c23b3b';
+      body.prepend(tip);
+    }
+    // 跟着本次渲染一起消费定位目标（每条渲染完成路径都会走到这里）。
+    const focus = this.pluginPanelFocus;
+    this.pluginPanelFocus = undefined;
+    if (focus !== undefined) this.applyPanelFocus(body, focus);
+  }
+
+  /**
+   * 操作后定位回条目：按 data-panel-key 找到卡片、加高亮并滚到可见处。
+   * 高亮保留到下一次刷新（DOM 重建自然清除），不设定时消失的魔法常数。
+   * 新装插件（enableHint）另在列表顶部插一条醒目提示，明确「默认停用、需手动启用」。
+   */
+  private applyPanelFocus(body: HTMLElement, focus: PanelFocus): void {
+    if (focus.enableHint === true) {
+      const hint = document.createElement('div');
+      hint.className = 'plugin-panel__enable-hint';
+      hint.textContent = '⚠ 插件已安装，但默认停用、不会生效。请在下方高亮的「本地插件」条目点「启用」后才会运行。';
+      body.prepend(hint);
+    }
+    let target: HTMLElement | undefined;
+    body.querySelectorAll<HTMLElement>('.plugin-panel__card').forEach((card) => {
+      if (target === undefined && card.dataset['panelKey'] === focus.key) target = card;
+    });
+    if (target === undefined) return; // 条目已被删掉：无可定位，静默跳过
+    target.classList.add('plugin-panel__card--focus');
+    // jsdom 等无布局环境不实现 scrollIntoView，调用前先探测，避免刷新逻辑被一个 TypeError 带崩。
+    if (typeof target.scrollIntoView === 'function') {
+      target.scrollIntoView({ block: 'center' });
+    }
   }
 
   private pluginPanelMessage(text: string): HTMLElement {
@@ -1296,6 +1378,8 @@ export class ChatPage {
       void (async () => {
         try {
           await plugin.artifacts.setEnabled(artifact.id, !artifact.enabled);
+          // 刷新后面板会重建 DOM，定位回这个条目，别让用户从头找。
+          this.pluginPanelFocus = { key: `local:${artifact.id}` };
           await this.refreshPluginPanel();
         } catch (error) {
           this.showPluginError(`操作失败：${error instanceof Error ? error.message : String(error)}`);
@@ -1370,6 +1454,7 @@ export class ChatPage {
   /** ⋮ →「🧠 技能」：两个标签共用同一个 dialog，默认「我的技能」 */
   private async showSkillPanel(): Promise<void> {
     this.toggleMenu(false);
+    this.skillPanelFocus = undefined;
     void this.dialog.show({
       type: 'custom',
       title: '技能管理',
@@ -1378,6 +1463,7 @@ export class ChatPage {
         + '<div class="plugin-panel__tabs" id="skillPanelTabs">'
         + '<button type="button" class="plugin-panel__tab" data-tab="local">我的技能</button>'
         + '<button type="button" class="plugin-panel__tab" data-tab="online">在线技能</button>'
+        + '<button type="button" class="plugin-panel__refresh" id="skillPanelRefresh" hidden>刷新</button>'
         + '</div>'
         + '<div class="plugin-panel__body" id="skillPanelBody"></div>'
         + '</div>',
@@ -1394,10 +1480,13 @@ export class ChatPage {
           }
         });
       });
+    // 手动刷新：重读在线源并绕过 HTTP 缓存。
+    document.getElementById('skillPanelRefresh')
+      ?.addEventListener('click', () => void this.refreshSkillPanel(true));
     await this.refreshSkillPanel();
   }
 
-  private async refreshSkillPanel(): Promise<void> {
+  private async refreshSkillPanel(noStore = false): Promise<void> {
     const seq = ++this.skillPanelSeq;
     const root = document.getElementById('skillPanelRoot');
     const body = document.getElementById('skillPanelBody');
@@ -1405,8 +1494,22 @@ export class ChatPage {
     root.querySelectorAll<HTMLButtonElement>('.plugin-panel__tab').forEach((btn) => {
       btn.classList.toggle('plugin-panel__tab--active', btn.dataset['tab'] === this.skillPanelTab);
     });
+    const refreshBtn = root.querySelector<HTMLButtonElement>('.plugin-panel__refresh');
+    if (refreshBtn !== null) refreshBtn.hidden = this.skillPanelTab !== 'online';
     if (this.skillPanelTab === 'online') {
-      await this.refreshSkillOnlinePanel(body, seq);
+      const loading = noStore && refreshBtn !== null;
+      if (loading && refreshBtn !== null) {
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = '刷新中…';
+      }
+      try {
+        await this.refreshSkillOnlinePanel(body, seq, noStore);
+      } finally {
+        if (loading && refreshBtn !== null && seq === this.skillPanelSeq) {
+          refreshBtn.disabled = false;
+          refreshBtn.textContent = '刷新';
+        }
+      }
       return;
     }
     body.replaceChildren();
@@ -1437,29 +1540,33 @@ export class ChatPage {
       return;
     }
     for (const entry of entries) {
-      body.appendChild(this.buildUserSkillCard(entry, catalog));
+      const card = this.buildUserSkillCard(entry, catalog);
+      card.dataset['panelKey'] = `local:${entry.recipe.id}`;
+      body.appendChild(card);
     }
     this.applySkillFlash(body);
   }
 
   /** 在线技能标签：当前源 + 逐条安装状态；browse 走网络，用 seq 防竞态 */
-  private async refreshSkillOnlinePanel(body: HTMLElement, seq: number): Promise<void> {
+  private async refreshSkillOnlinePanel(body: HTMLElement, seq: number, noStore: boolean): Promise<void> {
     body.replaceChildren();
     const catalog = this.skillCatalog;
     if (!catalog) {
       body.appendChild(this.pluginPanelMessage('技能系统未就绪。'));
+      this.applySkillFlash(body);
       return;
     }
     body.appendChild(this.pluginPanelMessage('正在读取技能源…'));
     let result: SkillCatalogBrowseResult;
     try {
-      result = await catalog.browse();
+      result = await catalog.browse(noStore);
     } catch (error) {
       if (seq !== this.skillPanelSeq || !body.isConnected) return;
       body.replaceChildren();
       body.appendChild(this.pluginPanelMessage(
         `读取技能源失败：${error instanceof Error ? error.message : String(error)}`,
       ));
+      this.applySkillFlash(body);
       return;
     }
     if (seq !== this.skillPanelSeq || !body.isConnected) return;
@@ -1478,10 +1585,15 @@ export class ChatPage {
       ));
     } else {
       for (const item of result.items) {
-        body.appendChild(this.buildOnlineSkillCard(item, result.source, catalog));
+        const card = this.buildOnlineSkillCard(item, result.source, catalog);
+        card.dataset['panelKey'] = `online:${item.recipe.id}`;
+        body.appendChild(card);
       }
     }
     this.applySkillFlash(body);
+    if (noStore) {
+      body.prepend(this.pluginPanelMessage('已重新读取在线源（忽略浏览器缓存）'));
+    }
   }
 
   /** 当前技能源面板：默认只显示一行，点「修改」展开配置（单源，可恢复官方默认） */
@@ -1604,6 +1716,8 @@ export class ChatPage {
       void (async () => {
         try {
           await catalog.userStore().setEnabled(recipe.id, !entry.enabled);
+          // 刷新后定位回这个条目，别让用户从头找。
+          this.skillPanelFocus = { key: `local:${recipe.id}` };
           await this.refreshSkillPanel();
         } catch (error) {
           this.showSkillError(`操作失败：${error instanceof Error ? error.message : String(error)}`);
@@ -1673,6 +1787,10 @@ export class ChatPage {
         void (async () => {
           const out = await catalog.install(recipe);
           this.skillPanelFlash = { text: out.message, error: !out.ok };
+          if (out.ok) {
+            // 技能安装即刻生效、不需要手动启用提示；仅定位回刚操作的条目。
+            this.skillPanelFocus = { key: `online:${recipe.id}` };
+          }
           await this.refreshSkillPanel();
         })();
       }, 'plugin-panel__primary'));
@@ -1689,10 +1807,14 @@ export class ChatPage {
   private applySkillFlash(body: HTMLElement): void {
     const flash = this.skillPanelFlash;
     this.skillPanelFlash = undefined;
-    if (flash === undefined) return;
-    const tip = this.pluginPanelMessage(flash.text);
-    if (flash.error) tip.style.color = '#c23b3b';
-    body.prepend(tip);
+    if (flash !== undefined) {
+      const tip = this.pluginPanelMessage(flash.text);
+      if (flash.error) tip.style.color = '#c23b3b';
+      body.prepend(tip);
+    }
+    const focus = this.skillPanelFocus;
+    this.skillPanelFocus = undefined;
+    if (focus !== undefined) this.applyPanelFocus(body, focus);
   }
 
   private showSkillError(message: string): void {

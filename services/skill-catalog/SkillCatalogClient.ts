@@ -5,7 +5,9 @@
  * 边界：
  * - URL 先过 validateRegistryUrl（https + 拒绝环回/私网字面地址），与插件平台同一策略；
  * - 远端正文只当文本读，JSON.parse 后交给 A 的 parseSkillRegistry 做唯一一次结构校验；
- * - 不缓存、不重试、不设超时（沿用浏览器 fetch 默认），不执行远程 JS、不求值；
+ * - 默认沿用浏览器 fetch 缓存语义；手动刷新（noStore）时传 cache:'no-store' 绕过
+ *   浏览器/CDN 的 HTTP 缓存（在线源更新后列表仍显示旧正文的成因）；
+ *   不重试、不设超时，不执行远程 JS、不求值；
  * - 任何一步失败都抛中文错误，由 SkillCatalogService 统一静默降级到内置技能。
  */
 
@@ -25,10 +27,13 @@ export class SkillCatalogClient {
     this.fetchImpl = deps.fetchImpl ?? globalThis.fetch.bind(globalThis);
   }
 
-  /** 取一份在线技能清单，返回校验过的配方数组；失败抛中文错误 */
-  async fetchRegistry(url: string): Promise<SkillRecipe[]> {
+  /**
+   * 取一份在线技能清单，返回校验过的配方数组；失败抛中文错误。
+   * noStore=true（面板「手动刷新」）时给底层 fetch 加 cache:'no-store'。
+   */
+  async fetchRegistry(url: string, noStore = false): Promise<SkillRecipe[]> {
     const safeUrl = this.validate(url);
-    const res = await this.request(safeUrl);
+    const res = await this.request(safeUrl, noStore);
     if (!res.ok) {
       throw new Error(`在线技能源返回 HTTP ${res.status}：${safeUrl}`);
     }
@@ -57,9 +62,11 @@ export class SkillCatalogClient {
     }
   }
 
-  private async request(safeUrl: string): Promise<Response> {
+  private async request(safeUrl: string, noStore: boolean): Promise<Response> {
     try {
-      return await this.fetchImpl(safeUrl);
+      return noStore
+        ? await this.fetchImpl(safeUrl, { cache: 'no-store' })
+        : await this.fetchImpl(safeUrl);
     } catch (error) {
       throw new Error(`在线技能源请求失败：${reasonOf(error)}`);
     }
