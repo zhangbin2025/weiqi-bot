@@ -32,6 +32,7 @@ import { ChatUseCase, type LocalFileInput, type SkillDeps } from '../../../../..
 import { createSkillRegistry } from '../../../../../application/skill/SkillRegistry';
 import type { SkillPrimitive, SkillRecipe } from '../../../../../application/skill/SkillTypes';
 import { createBasicPrimitives } from '../../../../../application/skill/primitives/BasicPrimitives';
+import { createKvKit } from '../../../../../application/skill/kv/KvKit';
 import { EVENT_PRIMITIVES } from '../../../../../application/skill/primitives/EventImportPrimitives';
 import { UserSkillStore, type UserSkillEntry } from '../../../../../application/skill/dev/UserSkillStore';
 import { createSkillDevKit } from '../../../../../application/skill/dev/SkillDevTools';
@@ -133,8 +134,12 @@ export class ChatPage {
     // - 装配失败也不阻塞对话页，绝不在运行时加载 / 执行远程 JS。
     const userSkills = new UserSkillStore();
     const skillSources = new SkillCatalogSources();
+    // 本地数据层：原语并入宿主注册表（供技能配方引用 / 面板校验），
+    // kit 同时交给 ChatUseCase 做 chat 角色的恒定工具注入与 system 说明。
+    const kvKit = createKvKit();
     const skillPrimitives = createSkillRegistry([
       ...createBasicPrimitives(webTools),
+      ...kvKit.primitives,
       ...EVENT_PRIMITIVES,
     ]);
     this.skillPrimitives = skillPrimitives;
@@ -166,6 +171,8 @@ export class ChatPage {
       skillDeps,
       // llm-tool 能力库：与插件系统共用工件存储 + QuickJS 沙箱，装配失败时 undefined（降级为纯聊天）
       this.plugin?.llmToolKit,
+      // Skill 本地数据层：域 / 驱动 / 能力均在 createKvKit() 内注册，装配方只传这一句
+      kvKit,
     );
 
     this.bindUI();

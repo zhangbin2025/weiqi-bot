@@ -34,7 +34,7 @@ import { resourceFromFile } from './ResourceInput';
 import { processImage, processPdf } from './ResourceProcessors';
 import { getRole, type ChatRoleId } from './ChatRole';
 import type { PluginTraceStep } from '@domain/plugin/types';
-import { runToolLoop, type ToolKit, type ToolLoopResult, type ToolExecutor } from './ToolLoop';
+import { runToolLoop, type ToolKit, type ToolLoopResult, type ToolExecutor, type ToolOutcome } from './ToolLoop';
 import { createWebToolKit } from './WebToolLoop';
 import type { WebFetchToolDeps } from './WebFetchTool';
 import { safeReply } from './safeReply';
@@ -45,6 +45,7 @@ import { selectSkills } from '../skill/SkillSelector';
 import { buildSkillToolParts } from '../skill/SkillRegistry';
 import { buildSkillSystemPrompt } from '../skill/SkillSystemPrompt';
 import { beginUserTurn } from '../skill/SkillTurn';
+import type { KvKit } from '../skill/kv/KvKit';
 
 /** 拦截「/」开头：chat 页零命令体系，配置请回功能助手 */
 export const SLASH_COMMAND_HINT = '对话页不支持命令，模型配置请回到功能助手操作。';
@@ -169,6 +170,11 @@ export class ChatUseCase {
     private readonly skills?: SkillDeps,
     /** 可选：模型能力插件工具集（chat / skill-dev 角色）。不传则完全不挂，行为与旧版一致。 */
     private readonly llmToolKit?: ReturnType<typeof createLlmToolKit>,
+    /**
+     * 可选：Skill 本地数据层（kv_* 原语 + system 说明）。chat / skill-dev 角色恒定挂载，
+     * 不传则完全不挂，既有测试与精简装配逐字沿用旧行为。plugin 开发角色不接触。
+     */
+    private readonly kvKit?: KvKit,
   ) {}
 
   isReady(): boolean {
@@ -388,7 +394,7 @@ export class ChatUseCase {
     // 两者都没装才逐字返回基础 web kit（保持旧行为、零额外 token）。
     const kit: ToolKit = usePlugin
       ? this.pluginToolKit!
-      : (this.skills || this.llmToolKit)
+      : (this.skills || this.llmToolKit || this.kvKit)
         ? await this.buildChatToolKit(messages, localParts.length > 0, devMode)
         : createWebToolKit(this.webTools!);
     const source: PluginTraceStep['source'] = usePlugin ? 'plugin' : 'web';
@@ -428,6 +434,25 @@ export class ChatUseCase {
     devMode: boolean,
   ): Promise<ToolKit> {
     let base = createWebToolKit(this.webTools!);
+    // 本地数据层：chat 超集，基础 web 工具之上恒定追加（与 llm-tool 同一套去重口径）。
+    // kv_* 是通用能力，不依赖技能命中；技能配方也可在 primitives 里引用同名原语。
+    const kv = this.kvKit;
+    if (kv) {
+      const tools = [...base.tools];
+      const executors: Record<string, ToolExecutor> = { ...base.executors };
+      for (const p of kv.primitives) {
+        if (!executors[p.name]) {
+          tools.push(p.definition);
+          executors[p.name] = async (argsJson: string) => {
+            const r = await p.execute(argsJson);
+            const out: ToolOutcome = { observation: r.observation, ok: r.ok, detail: r.detail };
+            if (r.preparatory) out.preparatory = true;
+            return out;
+          };
+        }
+      }
+      base = { ...base, tools, executors };
+    }
     // llm-tool 是 chat 超集：基础 web 工具之上恒定追加，skill-dev 自动继承。
     // 工具声明按 name 去重（基础工具优先），与技能原语同一套 append 口径。
     const llm = this.llmToolKit;
@@ -473,7 +498,9 @@ export class ChatUseCase {
     if (llm) {
       try { llmSuffix = await llm.buildSystemSuffix(); } catch { llmSuffix = ''; }
     }
-    if (active.length === 0 && !dev && !llmSuffix) return base;
+    // 挂了 kv 就必须走拼装路径，让它的 system 说明进入本轮（ToolLoop 是替换制）。
+    const kvSuffix = kv?.systemSuffix ?? '';
+    if (active.length === 0 && !dev && !llmSuffix && !kvSuffix) return base;
 
     const parts = this.skills
       ? buildSkillToolParts(active, this.skills.primitives)
@@ -498,6 +525,8 @@ export class ChatUseCase {
     // ToolLoop.systemPrompt 是替换制，因此必须追加到已拼好的完整 system 尾部，
     // 不能单独返回片段，否则会冲掉闲聊 / 技能 / 技能开发说明。
     if (llmSuffix) systemPrompt = `${systemPrompt}\n\n${llmSuffix}`;
+    // 本地数据层的域清单与边界说明追加到完整 system 尾部，不冲掉技能 / 开发 / 能力库片段。
+    if (kvSuffix) systemPrompt = `${systemPrompt}\n\n${kvSuffix}`;
     return { tools, executors, systemPrompt };
   }
 
