@@ -943,7 +943,6 @@ export class ChatPage {
         + '<div class="plugin-panel__tabs" id="pluginPanelTabs">'
         + '<button type="button" class="plugin-panel__tab" data-tab="local">本地插件</button>'
         + '<button type="button" class="plugin-panel__tab" data-tab="online">在线插件</button>'
-        + '<button type="button" class="plugin-panel__refresh" id="pluginPanelRefresh" hidden>刷新</button>'
         + '</div>'
         + '<div class="plugin-panel__body" id="pluginPanelBody"></div>'
         + '</div>',
@@ -961,9 +960,6 @@ export class ChatPage {
           }
         });
       });
-    // 手动刷新：重读在线源并绕过浏览器/CDN 的 HTTP 缓存（默认只在在线标签显示）。
-    document.getElementById('pluginPanelRefresh')
-      ?.addEventListener('click', () => void this.refreshPluginPanel(true));
     await this.refreshPluginPanel();
   }
 
@@ -977,25 +973,8 @@ export class ChatPage {
     root.querySelectorAll<HTMLButtonElement>('.plugin-panel__tab').forEach((btn) => {
       btn.classList.toggle('plugin-panel__tab--active', btn.dataset['tab'] === this.pluginPanelTab);
     });
-    // 手动刷新按钮只在「在线」标签出现：本地列表读的是本地工件存储，无远端缓存可绕过。
-    const refreshBtn = root.querySelector<HTMLButtonElement>('.plugin-panel__refresh');
-    if (refreshBtn !== null) refreshBtn.hidden = this.pluginPanelTab !== 'online';
-
     if (this.pluginPanelTab === 'online') {
-      const loading = noStore && refreshBtn !== null;
-      if (loading && refreshBtn !== null) {
-        refreshBtn.disabled = true;
-        refreshBtn.textContent = '刷新中…';
-      }
-      try {
-        await this.refreshOnlinePanel(body, seq, noStore);
-      } finally {
-        // 只恢复「最新一次刷新」的按钮状态，避免旧结果把新刷新的按钮改回去。
-        if (loading && refreshBtn !== null && seq === this.pluginPanelSeq) {
-          refreshBtn.disabled = false;
-          refreshBtn.textContent = '刷新';
-        }
-      }
+      await this.refreshOnlinePanel(body, seq, noStore);
       return;
     }
 
@@ -1111,8 +1090,16 @@ export class ChatPage {
       editBtn.textContent = config.hidden ? '修改' : '收起';
       if (!config.hidden) input.focus();
     }, 'plugin-panel__primary');
+    // 手动刷新放在「修改」右侧：重读在线源并绕过浏览器/CDN 的 HTTP 缓存。
+    // 源面板只在「在线」标签渲染，天然只在该标签出现；body 每次 refresh 重建，
+    // 「正在读取插件源…」那行已承担 loading 反馈，无需单独维护按钮禁用态。
+    const refreshBtn = this.pluginAction('刷新', () => {
+      void this.refreshPluginPanel(true);
+    });
+    refreshBtn.title = '忽略浏览器缓存，重新读取在线源';
     head.appendChild(info);
     head.appendChild(editBtn);
+    head.appendChild(refreshBtn);
     box.appendChild(head);
 
     const config = document.createElement('div');
@@ -1463,7 +1450,6 @@ export class ChatPage {
         + '<div class="plugin-panel__tabs" id="skillPanelTabs">'
         + '<button type="button" class="plugin-panel__tab" data-tab="local">我的技能</button>'
         + '<button type="button" class="plugin-panel__tab" data-tab="online">在线技能</button>'
-        + '<button type="button" class="plugin-panel__refresh" id="skillPanelRefresh" hidden>刷新</button>'
         + '</div>'
         + '<div class="plugin-panel__body" id="skillPanelBody"></div>'
         + '</div>',
@@ -1480,9 +1466,6 @@ export class ChatPage {
           }
         });
       });
-    // 手动刷新：重读在线源并绕过 HTTP 缓存。
-    document.getElementById('skillPanelRefresh')
-      ?.addEventListener('click', () => void this.refreshSkillPanel(true));
     await this.refreshSkillPanel();
   }
 
@@ -1494,22 +1477,8 @@ export class ChatPage {
     root.querySelectorAll<HTMLButtonElement>('.plugin-panel__tab').forEach((btn) => {
       btn.classList.toggle('plugin-panel__tab--active', btn.dataset['tab'] === this.skillPanelTab);
     });
-    const refreshBtn = root.querySelector<HTMLButtonElement>('.plugin-panel__refresh');
-    if (refreshBtn !== null) refreshBtn.hidden = this.skillPanelTab !== 'online';
     if (this.skillPanelTab === 'online') {
-      const loading = noStore && refreshBtn !== null;
-      if (loading && refreshBtn !== null) {
-        refreshBtn.disabled = true;
-        refreshBtn.textContent = '刷新中…';
-      }
-      try {
-        await this.refreshSkillOnlinePanel(body, seq, noStore);
-      } finally {
-        if (loading && refreshBtn !== null && seq === this.skillPanelSeq) {
-          refreshBtn.disabled = false;
-          refreshBtn.textContent = '刷新';
-        }
-      }
+      await this.refreshSkillOnlinePanel(body, seq, noStore);
       return;
     }
     body.replaceChildren();
@@ -1610,7 +1579,12 @@ export class ChatPage {
       editBtn.textContent = config.hidden ? '修改' : '收起';
       if (!config.hidden) input.focus();
     }, 'plugin-panel__primary');
-    head.append(info, editBtn);
+    // 手动刷新放在「修改」右侧，与插件源面板一致。
+    const refreshBtn = this.pluginAction('刷新', () => {
+      void this.refreshSkillPanel(true);
+    });
+    refreshBtn.title = '忽略浏览器缓存，重新读取在线源';
+    head.append(info, editBtn, refreshBtn);
     box.appendChild(head);
 
     const config = document.createElement('div');
