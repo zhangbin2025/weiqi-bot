@@ -8,6 +8,7 @@
  */
 
 import type { ModelToolDefinition } from '../model/IModelGateway';
+import type { SecretSpec } from './SecretSpec';
 
 /** 宿主内置原语：真正能执行的函数。在线资源永远不含代码。 */
 export interface SkillPrimitive {
@@ -60,6 +61,12 @@ export interface SkillRecipe {
    * 指纹，跨机器不可移植。字段缺省 = 不检查，老配方行为逐字不变。
    */
   requiredCapabilities?: string[];
+  /**
+   * 可选：本技能声明的凭据规格（纯数据）。http_fetch_auth 按 secretKey 查这张表
+   * 决定 allowedHosts / header 拼法 / 重认证状态，模型运行时无法传这些参数。
+   * 缺省 = 本技能不涉及凭据，老配方逐字兼容。
+   */
+  secrets?: SecretSpec[];
   /** 命中后追加到 system 的自然语言指令（纯文本，无代码、无 URL 模板注入） */
   prompt: string;
 }

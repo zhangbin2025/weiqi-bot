@@ -33,6 +33,13 @@ import { createSkillRegistry } from '../../../../../application/skill/SkillRegis
 import type { SkillPrimitive, SkillRecipe } from '../../../../../application/skill/SkillTypes';
 import { createBasicPrimitives } from '../../../../../application/skill/primitives/BasicPrimitives';
 import { createKvKit } from '../../../../../application/skill/kv/KvKit';
+import type { KvKit } from '../../../../../application/skill/kv/KvKit';
+import { collectSecretSpecs } from '../../../../../application/skill/SecretSpec';
+import {
+  createAuthFetchPrimitives, createSecretSpecRegistry,
+  SECRET_PROMPT_SCHEME,
+} from '../../../../../application/skill/primitives/AuthFetchPrimitives';
+import { openSecretPromptDialog } from './SecretPromptDialog';
 import { EVENT_PRIMITIVES } from '../../../../../application/skill/primitives/EventImportPrimitives';
 import { UserSkillStore, type UserSkillEntry } from '../../../../../application/skill/dev/UserSkillStore';
 import { createSkillDevKit } from '../../../../../application/skill/dev/SkillDevTools';
@@ -82,6 +89,10 @@ export class ChatPage {
   private skillCatalog: SkillCatalogService | undefined;
   /** 宿主原语注册表：面板标注「在线技能引用了没有的原语」时复用 */
   private skillPrimitives: ReadonlyMap<string, SkillPrimitive> | undefined;
+  /** 本地数据层：凭据弹框与 http_fetch_auth 共用同一 service 实例 */
+  private kvKit: KvKit | undefined;
+  /** 配方声明的凭据规格表：每轮由 loadSkills 用已启用配方刷新，模型无法写入 */
+  private secretSpecs: ReturnType<typeof createSecretSpecRegistry> | undefined;
   /** 技能面板当前标签页；默认「我的技能」 */
   private skillPanelTab: 'local' | 'online' = 'local';
   private skillPanelFlash: { text: string; error: boolean } | undefined;
@@ -137,10 +148,22 @@ export class ChatPage {
     // 本地数据层：原语并入宿主注册表（供技能配方引用 / 面板校验），
     // kit 同时交给 ChatUseCase 做 chat 角色的恒定工具注入与 system 说明。
     const kvKit = createKvKit();
+    this.kvKit = kvKit;
+    // 通用凭据规格表：装配期空表，每轮 loadSkills 用「已启用配方」刷新。
+    // http_fetch_auth 只按 secretKey 查这里，allowedHosts / header 拼法模型传不进来。
+    const secretSpecs = createSecretSpecRegistry();
+    this.secretSpecs = secretSpecs;
     const skillPrimitives = createSkillRegistry([
       ...createBasicPrimitives(webTools),
       ...kvKit.primitives,
       ...EVENT_PRIMITIVES,
+      // 通用带凭据直连：模型只给 url + secretKey，域名白名单 / header / 重认证
+      // 状态全由配方 secrets 声明，宿主按 secretKey 查表执行。
+      ...createAuthFetchPrimitives({
+        kv: kvKit.service,
+        specs: secretSpecs,
+        timeoutMs: webTools.timeoutMs,
+      }),
     ]);
     this.skillPrimitives = skillPrimitives;
     // 面板与对话侧共用同一份能力库清单：requiredCapabilities 的判定口径必须同源，
@@ -154,7 +177,17 @@ export class ChatPage {
         : {}),
     });
     const skillDeps: SkillDeps = {
-      loadSkills: () => this.skillCatalog!.loadSkills(),
+      loadSkills: async () => {
+        const recipes = await this.skillCatalog!.loadSkills();
+        try {
+          this.secretSpecs?.replace(collectSecretSpecs(recipes));
+        } catch {
+          // 多条配方声明了同名但不一致的凭据：宁可本轮不认任何规格，
+          // 也不要静默挑一份把凭据发到不确定的 host。
+          this.secretSpecs?.replace([]);
+        }
+        return recipes;
+      },
       primitives: skillPrimitives,
       // 只有「技能开发」角色会挂这俩工具；闲聊角色完全不接触
       devKit: createSkillDevKit({ users: userSkills, primitives: skillPrimitives }),
@@ -178,6 +211,7 @@ export class ChatPage {
     this.bindUI();
     this.bindLifecycle();
     this.bindEventTableLinks();
+    this.bindSecretPromptLinks();
     // 先恢复上次会话（它会顺带定下该会话的角色），再刷新角色 UI 与输入状态
     await this.restoreLastSession();
     this.syncRoleUI();
@@ -228,6 +262,32 @@ export class ChatPage {
     // 不复用 handleSend()，避免清空用户尚未发送的草稿文字、误带待发附件、
     // 或触发一次无意义的标题精炼。
     await this.useCase.send(text);
+  }
+
+  /**
+   * 通用凭据配置链接（secret-prompt:<key>）→ 按 key 查规格 → 打开录入 / 修改弹框。
+   *
+   * 与 event-table: 同款：用 document 事件委托而非给每个 a 标签绑 click ——
+   * 回复走 marked + 打字机异步注入 DOM，渲染完成时链接可能还没出现；委托也能
+   * 覆盖历史消息恢复里重新渲染出来的旧链接。
+   *
+   * 弹框保存成功后回灌一条用户消息，走正常 useCase.send() 路径：
+   * LLM 在新一轮里重新调 http_fetch_auth，这次宿主能读到凭据直接成功。
+   * 用户看到的是自己发出的一条确认消息，不是宿主偷偷替他说话。
+   */
+  private bindSecretPromptLinks(): void {
+    document.addEventListener('click', (event) => {
+      const target = event.target as HTMLElement | null;
+      const link = target?.closest<HTMLAnchorElement>('a[href^="secret-prompt:"]');
+      if (!link) return;
+      event.preventDefault();
+      const key = link.getAttribute('href')?.slice(SECRET_PROMPT_SCHEME.length) ?? '';
+      const spec = this.secretSpecs?.get(key);
+      if (!spec || !this.kvKit) return;
+      openSecretPromptDialog(this.kvKit.service, spec, () => {
+        void this.useCase.send('凭据已配置好，请继续刚才的请求。');
+      });
+    });
   }
 
   /**

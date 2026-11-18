@@ -10,6 +10,7 @@
  */
 
 import type { SkillRecipe, SkillRegistryFile } from './SkillTypes';
+import { parseSecretSpecs } from './SecretSpec';
 
 /** 原语名即宿主注册表的固定 id：小写字母开头，只允许小写字母 / 数字 / 下划线。 */
 const PRIMITIVE_NAME_RE = /^[a-z][a-z0-9_]*$/;
@@ -108,6 +109,19 @@ function readRequiredCapabilities(
   return { ok: true, value: out };
 }
 
+/**
+ * 可选 secrets：缺省表示不涉及凭据；显式给值时逐条过 parseSecretSpecs，
+ * 结构/域名/头名不合规直接拒绝，绝不带着半份声明进运行时。
+ */
+function readSecrets(raw: Record<string, unknown>): FieldResult<SkillRecipe['secrets']> {
+  if (raw['secrets'] === undefined) return { ok: true, value: undefined };
+  try {
+    return { ok: true, value: parseSecretSpecs(raw['secrets']) };
+  } catch (error) {
+    return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 export function parseSkillRecipe(
   raw: unknown,
 ): { ok: true; skill: SkillRecipe } | { ok: false; reason: string } {
@@ -132,6 +146,8 @@ export function parseSkillRecipe(
   if (!primitives.ok) return primitives;
   const requiredCapabilities = readRequiredCapabilities(raw);
   if (!requiredCapabilities.ok) return requiredCapabilities;
+  const secrets = readSecrets(raw);
+  if (!secrets.ok) return secrets;
   const prompt = readString(raw, 'prompt', 'prompt');
   if (!prompt.ok) return prompt;
 
@@ -147,6 +163,7 @@ export function parseSkillRecipe(
     ...(requiredCapabilities.value !== undefined
       ? { requiredCapabilities: requiredCapabilities.value }
       : {}),
+    ...(secrets.value !== undefined ? { secrets: secrets.value } : {}),
     prompt: prompt.value,
   };
   return { ok: true, skill };

@@ -45,13 +45,13 @@
 | 域 | 后端 | visibility | writableBy | 说明 |
 |---|---|---|---|---|
 | `prefs` | localStorage | readable | model | 自选股、默认分类等使用偏好；模型可读写 |
-| `secrets` | localStorage | **opaque** | **host** | 敏感数据（不止密钥）：模型读不到值、不能写/删，只有面板可录入 |
+| `secrets` | localStorage | **opaque** | **host** | 敏感数据（不止密钥）：模型读不到值、不能写/删，只有宿主凭据弹框 / 直连链路可录入 |
 | `checkpoints` | IndexedDB | readable | model | 长会话 compact 摘要 / 任务状态，大值用 `kv_slice` 分页 |
 
 `opaque` 是**通用敏感策略**，不限于 API key：任何域标成 opaque，模型经
 `read`/`list`/`slice`/`query` 都拿不到值，只回元信息。宿主代码用
-`KvService.readRaw() / put() / remove() / listMeta()` 消费明文（面板录入、P2
-直连认证拼 header），那条路径不经过模型、不写进会话历史。
+`KvService.readRaw() / put() / remove() / listMeta()` 消费明文（凭据弹框录入、
+`http_fetch_auth` 直连认证拼 header），那条路径不经过模型、不写进会话历史。
 
 ## 数值来源（项目铁律）
 
@@ -68,11 +68,15 @@
 - `kv_read` 超观察上限时明确提示改用 `kv_slice`，不静默截断；
 - 只读操作 `preparatory=true`，不消耗 ToolLoop 自主决策预算。
 
-## 尚未做（后续分期）
+## 分期状态
 
-- **P1 用户面板**：「🧠 技能」或设置页列出 / 编辑 / 删除各域条目；`secrets` 只在
-  此录入。宿主接口已备好（`put / readRaw / remove / listMeta`）。
-- **P2 直连鉴权**：带 Authorization 的 REST 由端侧直连（不经代理），宿主用
-  `readRaw()` 取凭据拼 header；工具侧不暴露密钥。
+- **P1 独立「本地数据」面板 —— 已否定并撤除**：用户明确不要一个可浏览 / 编辑各域条目的
+  常驻面板。凭据只在「要用它的那一刻」由 LLM 贴一条 `secret-prompt:<key>` 链接、
+  宿主弹框录入，保存后自动回灌继续请求。宿主接口（`put / readRaw / remove / listMeta`）
+  保留给弹框与直连链路使用，不再做 UI 列表。
+- **P2 通用直连鉴权 —— 已落地**：`http_fetch_auth` 由宿主按配方 `secrets` 纯声明规格
+  （`allowedHosts` / header 拼法 / `reauthStatuses`）查表执行，端侧直连（不经代理），
+  `readRaw()` 取凭据拼 header；模型只给 `url` + `secretKey`，永远接触不到明文。
+  接入新的认证 API = 加一条配方声明，不改内核 / 工具签名 / 弹框。
 - **P3 compact / checkpoint**：`ChatUseCase` 在窗口裁剪前后写
-  `checkpoints` 域，属宿主内部行为，不必暴露给模型。
+  `checkpoints` 域，属宿主内部行为，不必暴露给模型。**尚未做**。

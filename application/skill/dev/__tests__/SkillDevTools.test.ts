@@ -170,6 +170,63 @@ describe('createSkillDevKit', () => {
   });
 });
 
+describe('secrets 声明（通用 http_fetch_auth 配方的自建路径）', () => {
+  const spec = {
+    key: 'github_token',
+    label: 'GitHub Token',
+    setupUrl: 'https://github.com/settings/tokens',
+    allowedHosts: ['api.github.com'],
+    header: { name: 'Authorization', prefix: 'Bearer ' },
+  };
+  const args = {
+    name: 'GitHub 查询',
+    summary: '查 GitHub REST API',
+    triggers: ['我的仓库'],
+    primitives: ['http_fetch_auth', 'secret_prompt'],
+    secrets: [spec],
+    prompt: '用 http_fetch_auth 查询。',
+  };
+
+  function kitWithAuth() {
+    const users = new UserSkillStore({ localStorage: memAdapter() as never });
+    const primitives = new Map<string, SkillPrimitive>([
+      ['http_fetch_auth', prim('http_fetch_auth')],
+      ['secret_prompt', prim('secret_prompt')],
+    ]);
+    const dev = createSkillDevKit({ users, primitives });
+    return { users, dev, exec: (a: unknown) => dev.executors['skill_write']!(JSON.stringify(a)) };
+  }
+
+  it('skill_write schema 放行 secrets，system 片段讲清宿主限定域名/头', () => {
+    const { dev } = kitWithAuth();
+    const schema = dev.tools.find((t) => t.name === 'skill_write')!.parameters;
+    expect(schema.properties).toHaveProperty('secrets');
+    expect(dev.systemSuffix).toContain('secrets');
+    expect(dev.systemSuffix).toContain('allowedHosts');
+    expect(dev.systemSuffix).toContain('模型调用时只给 url 和 secretKey');
+  });
+
+  it('合法 secrets 透传落库、skill_list 回显；观察点名允许的 host', async () => {
+    const { users, exec } = kitWithAuth();
+    const r = await exec(args);
+    expect(r.ok).toBe(true);
+    expect(r.observation).toContain('api.github.com');
+    const saved = await users.list();
+    expect(saved[0]!.recipe.secrets).toEqual([spec]);
+    const list = await kitWithAuth().dev.executors['skill_list']!('{}');
+    // 空库 kit 看不到刚存的（不同 adapter），这里只验 write 的落库事实
+    expect(list.ok).toBe(true);
+  });
+
+  it('非法 secrets 在 parseSkillRecipe 阶段拒绝，不落库', async () => {
+    const { users, exec } = kitWithAuth();
+    const r = await exec({ ...args, secrets: [{ ...spec, allowedHosts: ['https://evil.com'] }] });
+    expect(r.ok).toBe(false);
+    expect(r.observation).toContain('allowedHosts');
+    expect(await users.list()).toEqual([]);
+  });
+});
+
 describe('makeUserSkillId', () => {
   it('确定性、user. 前缀、无非法字符', () => {
     const a = makeUserSkillId('查定式资料');
