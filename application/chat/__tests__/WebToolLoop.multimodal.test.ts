@@ -128,7 +128,10 @@ describe('WebToolLoop 多模态观察', () => {
     expect(r.attachments[0]!.kind).toBe('pdf-text');
   });
 
-  it('超长观察按 maxCharsPerMessage 裁剪，且给模型可见的截断提示', async () => {
+  // web_fetch 自 aa1fc31 起把完整正文留宿主缓存、观察只回元信息 + 预览，
+  // 观察本身已 ≤ maxCharsPerMessage，不会再触发 clipObservation 的「已截断」尾注。
+  // 那个兜底机制由 ToolLoop.test.ts 的超长 echo 用例单独覆盖，此处锁 web_fetch 的真实契约。
+  it('超长正文留宿主缓存，观察只回预览并指路 web_cache_read 分页读', async () => {
     const big = 'x'.repeat(CONTEXT_LIMITS.maxCharsPerMessage + 5000);
     const deps = {
       proxyUrl: 'https://api.weiqi.lol',
@@ -150,6 +153,11 @@ describe('WebToolLoop 多模态观察', () => {
     const second = gw.calls[1] as { messages: Array<{ role: string; content: string }> };
     const observation = second.messages.at(-1)!.content;
     expect(observation.length).toBeLessThanOrEqual(CONTEXT_LIMITS.maxCharsPerMessage);
-    expect(observation).toContain('已截断');
+    expect(observation).toContain('已存入宿主缓存');
+    expect(observation).toContain('web_cache_read');
+    expect(observation).toContain('不要凭预览猜测未显示的部分');
+    // 大正文必然有「预览 n / total 字符」footer 且提示未到末尾；不靠 clipObservation 兜底。
+    expect(observation).toContain('[预览 ');
+    expect(observation).toContain('未到末尾，用 web_cache_read 继续读');
   });
 });

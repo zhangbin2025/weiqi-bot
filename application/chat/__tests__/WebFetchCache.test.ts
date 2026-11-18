@@ -42,7 +42,8 @@ async function fetchInto(text: string): Promise<WebFetchCache> {
 describe('工具声明', () => {
   it('web_fetch 描述里明确「预览只是一部分、其余用 web_cache_read 读」', () => {
     expect(WEB_FETCH_TOOL.description).toContain('web_cache_read');
-    expect(WEB_FETCH_TOOL.description).toContain('不要凭预览猜测');
+    expect(WEB_FETCH_TOOL.description).toContain('预览只是一部分');
+    expect(WEB_FETCH_TOOL.description).toContain('绝不能凭猜测补写');
   });
   it('web_cache_read 声明三种 mode 与 url 必填', () => {
     expect(WEB_CACHE_READ_TOOL.name).toBe(WEB_CACHE_READ_TOOL_NAME);
@@ -131,7 +132,10 @@ describe('web_cache_read：slice', () => {
     const cache = await fetchInto('');
     const r = executeWebCacheRead(JSON.stringify({ url: URL_, mode: 'slice' }), cache);
     expect(r.observation.length).toBeLessThanOrEqual(BUDGET);
-    expect(r.observation).toContain('已在末尾');
+    // observation 与 detail 是两段不同文本：前者给模型看（明确指路减小 offset），
+    // 后者是回执。原断言把 detail 里的措辞误安到 observation 上，这里两头都锁。
+    expect(r.observation).toContain('[起点已到正文末尾，请减小 offset]');
+    expect(r.detail).toContain('已在末尾');
   });
 });
 
