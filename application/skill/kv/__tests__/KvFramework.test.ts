@@ -136,14 +136,18 @@ describe('偏好读写与大值分页', () => {
 
   it('checkpoint 大对象用 slice 分页读，观察不超宿主上限且提示继续翻页', async () => {
     const s = makeService();
-    const longText = '摘要'.repeat(2000); // 远超一条观察
+    // 正文长度取「单条上限 × 3」，保证任何常量取值下都必然跨片（不写死旧值）。
+    const longText = '摘要'.repeat(CONTEXT_LIMITS.maxCharsPerMessage * 3 / 2);
     await s.put('checkpoints', 'session-1', { summary: longText });
     const first = await call(s, 'slice', { domain: 'checkpoints', key: 'session-1', offset: 0 });
     expect(first.observation.length).toBeLessThanOrEqual(CONTEXT_LIMITS.maxCharsPerMessage);
     expect(first.observation).toContain('未到末尾');
     expect(first.observation).toContain('摘要');
-    const second = await call(s, 'slice', { domain: 'checkpoints', key: 'session-1', offset: 1000 });
-    expect(second.detail).toContain('[1000,');
+    // 第二片起点由第一片 detail 里的 [start,end) 推导，不写死数值
+    const end = Number(/\[\d+,(\d+)\)/.exec(first.detail)![1]);
+    expect(end).toBeGreaterThan(0);
+    const second = await call(s, 'slice', { domain: 'checkpoints', key: 'session-1', offset: end });
+    expect(second.detail).toContain(`[${end},`);
   });
 });
 

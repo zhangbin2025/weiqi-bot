@@ -186,13 +186,16 @@ function doSlice(entry: CachedWebResource, offset: number, givenLength: number |
   const footTemplate = (len: number, end: number): string =>
     `\n[本段起点 ${start}，长度 ${len}，范围 [${start}, ${end}) / 共 ${total} 字符；`
     + (end < total ? `未到末尾，请把 offset 设为 ${end} 继续读]` : '已到正文末尾]');
-  // 固定点：先假设满额长度，按真实 footer 重算，直到稳定。len 单调不增，必然收敛。
+  // 求最大可用 body 长度：foot 必须用**真实 body 长度**计算，否则 footer 里
+  // length/end 的数字位数一变长，观察就会超预算被 clipObservation 二次裁剪，
+  // 长文档后半段每片能吃到的正文会明显缩水（实测 100k 时 1830 → 1476）。
+  // 迭代单调不增（每次按超出量削减），必然收敛。
   let derived = Math.max(0, BUDGET - head.length - footTemplate(0, start).length);
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 16; i++) {
     const end = Math.min(total, start + derived);
-    const next = Math.max(0, BUDGET - head.length - footTemplate(derived, end).length);
-    if (next === derived) break;
-    derived = next;
+    const used = head.length + derived + footTemplate(derived, end).length;
+    if (used <= BUDGET) break;
+    derived = Math.max(0, derived - (used - BUDGET));
   }
   const length = Math.min(givenLength ?? derived, total - start);
   if (length <= 0) {
@@ -202,16 +205,16 @@ function doSlice(entry: CachedWebResource, offset: number, givenLength: number |
       detail: `slice 起点 ${start} 已在末尾`,
     };
   }
-  // 显式 length 可能超出预算：收口后再重算 footer，保证整条观察 ≤ BUDGET
+  // 显式 length 可能超出预算：按「真实 body 长度算 foot」收口，保证整条观察 ≤ BUDGET
   let body = entry.text.slice(start, start + length);
   let foot = footTemplate(body.length, start + body.length);
   if (head.length + body.length + foot.length > BUDGET) {
-    let allowed = Math.max(0, BUDGET - head.length - footTemplate(0, start).length);
-    for (let i = 0; i < 8; i++) {
+    let allowed = body.length;
+    for (let i = 0; i < 16; i++) {
       const end = start + allowed;
-      const next = Math.max(0, BUDGET - head.length - footTemplate(allowed, end).length);
-      if (next === allowed) break;
-      allowed = next;
+      const used = head.length + allowed + footTemplate(allowed, end).length;
+      if (used <= BUDGET) break;
+      allowed = Math.max(0, allowed - (used - BUDGET));
     }
     body = body.slice(0, allowed);
     foot = footTemplate(body.length, start + body.length);

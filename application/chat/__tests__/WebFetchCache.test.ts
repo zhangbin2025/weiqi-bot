@@ -215,3 +215,49 @@ describe('web_cache_read：grep / info / 参数', () => {
     }
   });
 });
+
+// 2026-11-19：修 doSlice 固定点不收敛；长文档后半段每片正文不应明显缩水。
+describe('web_cache_read：slice 收敛回归', () => {
+  it('100k 正文逐片读取，后半段每片正文不小于前半段的 90%', async () => {
+    const text = 'x'.repeat(100000);
+    const cache = await fetchInto(text);
+    const lens: number[] = [];
+    let offset = 0, rounds = 0;
+    while (offset < text.length && rounds < 200) {
+      const r = executeWebCacheRead(JSON.stringify({ url: URL_, mode: 'slice', offset }), cache);
+      const m = /本段起点 \d+，长度 (\d+)，范围 \[\d+, (\d+)\)/.exec(r.observation);
+      if (!m) break;
+      const len = Number(m[1]);
+      if (len <= 0) break;
+      expect(r.observation.length).toBeLessThanOrEqual(BUDGET);
+      lens.push(len); rounds++; offset = Number(m[2]);
+    }
+    expect(rounds).toBeGreaterThan(2);
+    // 最后一片是正文剩余、天然不足一片，不参与比较；否则会把正常收尾误判成缩水。
+    const full = lens.slice(0, -1);
+    const head = Math.max(...full.slice(0, 5));
+    const tail = Math.min(...full.slice(-5));
+    expect(tail).toBeGreaterThanOrEqual(Math.floor(head * 0.9));
+    // 每片都应吃满预算：正文长度至少达到单条上限的 90%（头尾开销 < 10%）。
+    expect(Math.min(...full)).toBeGreaterThanOrEqual(Math.floor(BUDGET * 0.9));
+    expect(offset).toBe(text.length); // 全部读完
+  });
+});
+
+// 2026-11-19：预览 footer 必须给出续读 offset，且等于预览正文长度，
+// 否则模型从 0 重读会白多一次模型往返。
+describe('续读 offset 回归', () => {
+  it('长响应 footer 的 offset 等于预览长度，不与预览重叠', async () => {
+    const text = 'x'.repeat(BUDGET * 5);
+    const cache = createMemoryWebFetchCache();
+    const r = await executeWebFetch(JSON.stringify({ url: URL_ }), deps(text, cache));
+    const preview = Number(/\[预览 (\d+)/.exec(r.observation)![1]);
+    const offset = Number(/offset 填 (\d+)/.exec(r.observation)![1]);
+    expect(offset).toBe(preview);
+    expect(offset).toBeGreaterThan(0);
+    const first = executeWebCacheRead(
+      JSON.stringify({ url: URL_, mode: 'slice', offset }), cache,
+    );
+    expect(first.observation).toContain(`本段起点 ${offset}`);
+  });
+});

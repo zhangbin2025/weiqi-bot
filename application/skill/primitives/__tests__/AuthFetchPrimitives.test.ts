@@ -8,6 +8,7 @@ import {
 } from '../AuthFetchPrimitives';
 import { createMemoryWebFetchCache } from '../../../../application/chat/WebFetchCache';
 import type { SecretSpec } from '../../../SecretSpec';
+import { CONTEXT_LIMITS } from '@application/chat/ConversationPrompt';
 
 const GH: SecretSpec = {
   key: 'github_token',
@@ -148,7 +149,7 @@ describe('http_fetch_auth', () => {
     const long = 'x'.repeat(9000);
     const { auth, cache } = setup({ token: 'ghp_VALID_TOKEN_1234', response: jsonResponse(200, long) });
     const r = await auth.execute(call('https://api.github.com/big'));
-    expect(r.observation.length).toBeLessThanOrEqual(2000);
+    expect(r.observation.length).toBeLessThanOrEqual(CONTEXT_LIMITS.maxCharsPerMessage);
     expect(r.observation).toContain('web_cache_read');
     expect(r.observation).toContain('[预览 ');
     expect(r.observation).toContain('未到末尾');

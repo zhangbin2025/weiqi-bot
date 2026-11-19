@@ -22,8 +22,8 @@ export const CONVERSATION_SYSTEM_PROMPT = [
   '也不要复述自己的身份设定或工作流程；若用户主动问起某项能力，就如实回答。',
   '即使前面的对话里出现过插件相关内容，只要用户当前没提，就按当前话题正常回答。',
   '需要核实资料、读取用户给出的链接或某个具体网页时，可调用 web_fetch 工具取回内容再归纳；',
-  'web_fetch 的观察只包含正文的一小段预览，其余部分存在宿主缓存里：',
-  '必须用 web_cache_read（url 填观察里的 URL，mode=slice 分页 / mode=grep 按正则查找）读完再下结论，',
+  'web_fetch 的观察：短响应会直接给出完整正文；长响应只含正文的一小段预览，',
+  '其余部分存在宿主缓存里，必须用 web_cache_read（url 填观察里的 URL，mode=slice 分页 / mode=grep 按正则查找）读完再下结论，',
   '绝不能只凭预览猜测或编造未显示的内容；缓存只在本次会话有效，刷新页面后需重新 web_fetch。',
   '要读 PDF 时调用 web_read_pdf（默认抽取文字层；扫描件或要看版式时用 mode=native）；',
   '要看图片（棋谱截图、表格、照片里的文字）时调用 web_read_image，图片会作为随附内容送达；',
@@ -34,14 +34,36 @@ export const CONVERSATION_SYSTEM_PROMPT = [
   '给用户看的最终回复直接写成自然文本，不要包代码块、不要追加自我说明。',
 ].join('\n');
 
-/** 上下文窗口：沿用既有常量，集中在此便于以后调整或做成配置 */
+/**
+ * 上下文窗口常量。
+ *
+ * 数值出处（2026-11-19 调整，目的：减少 tool-calling 分片带来的重复发送与模型往返）：
+ * - `maxCharsPerMessage` 原为 2000（旧注释只写「沿用既有常量」，无出处）。实测本项目
+ *   配方里 4 个真实接口完整响应：qt.gtimg.cn 单只行情 539 字符、holidayAPI.json
+ *   13,658 字符、wttr.in format=j1 39,216 字符、同花顺新闻 100 条 101,438 字符，
+ *   没有一个能装进 2000。分片数随正文线性增长，而标准 tool-calling 每轮要重发
+ *   此前全部观察，累计发送量近似平方级（实测 20k 正文 / 2000 上限 = 11 次请求、
+ *   131,865 字符，是正文的 6.6 倍）。
+ * - 新值 8000 = **项目既有的 `maxTotalChars` 原值**，不是外部抄来的默认值：
+ *   把「单条上限」与「总预算」原本互相打架的两个数统一到同一个量级，
+ *   不引入新的 magic number。含义为「一次允许给模型的单条文本量」。
+ * - `maxTotalChars` 32000 = 4 × 单条上限。这个 4 倍是**明说的业务约束**：
+ *   允许一条完整观察（最多 8000）与若干历史消息共存，不至于一条大观察把
+ *   20 条历史全挤掉。倍数可争议、可改，不是从验证集扫出来的。
+ *   不放更大，是为了避免长上下文「lost in the middle」注意力衰减；
+ *   超长文档仍保留 web_cache_read 的 grep / slice 兜底，不追求一次给全。
+ * - `maxMessages: 20` 不变（沿用既有窗口）。
+ *
+ * 注意：本常量被 6 处共用（历史消息截断、ToolLoop.clipObservation、web_fetch
+ * 预览/直给、web_cache_read 分片、kv_slice、prefs 单值上限），调整时它们一起变化。
+ */
 export const CONTEXT_LIMITS = {
   /** 最多带多少条历史消息（user + assistant 合计）。附件随所在消息受此约束 */
   maxMessages: 20,
   /** 单条消息文本字符上限。附件 base64 不计入（决策 5A，否则图片必被截成半张） */
-  maxCharsPerMessage: 2000,
-  /** 发给模型的上下文总字符预算（不含 system、不含附件 base64） */
-  maxTotalChars: 8000,
+  maxCharsPerMessage: 8000,
+  /** 发给模型的上下文总字符预算（不含 system、不含附件 base64）。= 4 × 单条上限 */
+  maxTotalChars: 32000,
 } as const;
 
 // 会话标题已独立到 SessionTitle.ts（模型精炼 + 统一展示上限）。

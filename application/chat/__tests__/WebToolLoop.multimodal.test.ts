@@ -159,5 +159,6 @@ describe('WebToolLoop 多模态观察', () => {
     // 大正文必然有「预览 n / total 字符」footer 且提示未到末尾；不靠 clipObservation 兜底。
     expect(observation).toContain('[预览 ');
     expect(observation).toContain('未到末尾，用 web_cache_read 继续读');
+    expect(observation).toMatch(/offset 填 \d+/);
   });
 });

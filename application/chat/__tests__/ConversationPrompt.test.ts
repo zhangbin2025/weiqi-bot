@@ -27,20 +27,22 @@ describe('buildConversationMessages', () => {
     expect(msgs[msgs.length - 1]!.content).toBe('msg-29');
   });
 
-  it('单条超长被截断', () => {
-    const long = 'x'.repeat(3000);
+  it('单条超长被截断（长度跟随常量，不写死数值）', () => {
+    const long = 'x'.repeat(CONTEXT_LIMITS.maxCharsPerMessage + 500);
     const msgs = buildConversationMessages([{ role: 'user', content: long }]);
     expect(msgs[1]!.content.length).toBe(CONTEXT_LIMITS.maxCharsPerMessage);
   });
 
   it('总预算超限时从最旧开始丢，但当前句一定保留', () => {
-    const history = Array.from({ length: 10 }, () => ({
+    // 每条取单条上限的一半，20 条合计 = 10 × 单条上限 > 总预算(4 × 单条上限)
+    const per = Math.floor(CONTEXT_LIMITS.maxCharsPerMessage / 2);
+    const history = Array.from({ length: 20 }, () => ({
       role: 'user' as const,
-      content: 'y'.repeat(1500),
+      content: 'y'.repeat(per),
     }));
     const msgs = buildConversationMessages(history);
-    expect(msgs[msgs.length - 1]!.content.length).toBe(1500);
-    expect(msgs.length).toBeLessThan(11);
+    expect(msgs[msgs.length - 1]!.content.length).toBe(per);
+    expect(msgs.length).toBeLessThan(21);
     let total = 0;
     for (const m of msgs.slice(1)) total += m.content.length;
     expect(total).toBeLessThanOrEqual(CONTEXT_LIMITS.maxTotalChars);

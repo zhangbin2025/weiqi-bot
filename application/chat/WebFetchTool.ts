@@ -7,9 +7,11 @@
  *
  * 边界（和已验收的 weiqi-proxy 一致）：
  * - 只做「把字节送到」，不搜索、不解析 HTML、不判语义、不落日志。
- * - 完整正文存入宿主缓存（WebFetchCache），观察只回元信息 + 预览 + 句柄；
- *   其余部分由 web_cache_read 按字符分页 / 正则读取。这不为「省 token」，
- *   而是因为 ToolLoop.clipObservation() 会把超长观察裁掉，塞得再多也进不了上下文。
+ * - 完整正文始终存入宿主缓存（WebFetchCache）。观察按体积分两种：
+ *   · 短响应（整份 head + 正文 + foot ≤ 单条上限）→ **直接给完整正文**，
+ *     不再需要 web_cache_read 翻页，少了整串「预览→分页→重发历史」的模型往返；
+ *   · 长响应 → 只回元信息 + 预览 + 句柄，其余由 web_cache_read 分页 / 正则读取。
+ *   判据只有 CONTEXT_LIMITS.maxCharsPerMessage 一个既有常量，不另造阈值。
  * - web_fetch 只回文本：HTML / JSON / 纯文本由模型自己归纳；
  *   图片 / PDF 等二进制不往上下文塞。读 PDF / 图片请用独立工具
  *   web_read_pdf / web_read_image（见 WebResourceTools.ts），它们复用本文件的
@@ -32,10 +34,11 @@ export const WEB_FETCH_TOOL_NAME = 'web_fetch';
 export const WEB_FETCH_TOOL: ModelToolDefinition = {
   name: WEB_FETCH_TOOL_NAME,
   description:
-    '取回一个公开网页资源并把完整正文存入宿主缓存，返回的内容含 URL、状态、' +
-    '正文总字符数与一小段预览。' +
+    '取回一个公开网页资源并把完整正文存入宿主缓存，返回的内容含 URL、状态、正文总字符数。' +
+    '短响应会直接给出完整正文；长响应只给一小段预览。' +
     '⚠️ 预览只是一部分，未显示的正文绝不能凭猜测补写：' +
-    '用 web_cache_read（url 填本观察里的 URL）按 mode=slice 分页或 mode=grep 正则查找。' +
+    '用 web_cache_read（url 填本观察里的 URL）按 mode=slice 分页或 mode=grep 正则查找，' +
+    '分页时从预览末尾的 offset 继续，不要从 0 重读已给过的内容。' +
     '同一个 URL 再次调用会重新取回并覆盖缓存。' +
     '只用于 GET；只传 http/https 绝对 URL。返回的是原始文本，不是搜索结果。',
   parameters: {
@@ -155,24 +158,49 @@ export async function executeWebFetch(argsJson: string, deps: WebFetchToolDeps):
         `该资源是二进制内容，web_fetch 只支持文本，未读取内容。${hint}`;
       return { observation, ok: false, detail: `二进制资源 ${response.status} ${contentType}` };
     }
-    // 完整正文留宿主侧：观察文本会被 ToolLoop.clipObservation() 裁到
-    // CONTEXT_LIMITS.maxCharsPerMessage，塞全量只会让后半截「从未进过上下文」。
-    // 预览长度由同一常量推导（预留元信息头与尾部提示的空间），不另造阈值。
+    // 完整正文始终留宿主缓存（同 URL 覆盖、web_cache_read 句柄等契约不变）。
+    // 观察按体积分两种，判据只用一个既有常量 maxCharsPerMessage：
+    //   · 短响应：head + 全文 + foot 装得下 → 直接给全文，省掉整串分页往返；
+    //   · 长响应：只给预览 + 指路 web_cache_read（超长观察会被 clipObservation 裁掉，
+    //     塞全量只会让后半截从未进过上下文）。
     const entry: CachedWebResource = {
       url, status: response.status, statusText: response.statusText,
       contentType, text, ok: response.ok,
     };
     (deps.cache ?? defaultWebFetchCache).put(url, entry);
     const lineCount = text.split('\n').length;
+
+    // ---- 短响应：整份观察能否装进单条上限？能就直接给全文 ----
+    const fullHead = `web_fetch：${url}\n`
+      + `HTTP ${response.status} ${response.statusText}\n`
+      + `Content-Type: ${contentType}\n`
+      + `完整正文 ${text.length} 字符 / ${lineCount} 行，已存入宿主缓存。\n`
+      + `正文已全部显示，无需再调用 web_cache_read。\n\n`;
+    const fullFoot = `\n\n[正文已全部显示，共 ${text.length} 字符]`;
+    if (fullHead.length + text.length + fullFoot.length <= CONTEXT_LIMITS.maxCharsPerMessage) {
+      return {
+        observation: fullHead + text + fullFoot,
+        ok: response.ok,
+        detail: `${url} → HTTP ${response.status}，${text.length} 字符（已缓存，全文直给）`,
+      };
+    }
+
+    // ---- 长响应：元信息 + 预览 + 句柄，其余由 web_cache_read 读 ----
+    // 预览长度由同一常量推导（预留元信息头与尾部提示的空间），不另造阈值。
     const head = `web_fetch：${url}\n`
       + `HTTP ${response.status} ${response.statusText}\n`
       + `Content-Type: ${contentType}\n`
       + `完整正文 ${text.length} 字符 / ${lineCount} 行，已存入宿主缓存。\n`
       + `其余内容请用 web_cache_read 读取（url 填上面的 URL，mode=slice 分页 / mode=grep 查找）；`
       + `不要凭预览猜测未显示的部分。\n\n`;
+    // footer 直接给出续读 offset：预览已给了前 n 字符，模型若仍用默认 offset=0
+    // 调 slice，会把这 n 字符重读一遍，白白多一次模型往返且重复计费。
+    // n 由上面的预览长度推导（既有事实），不引入新常量。
     const foot = (n: number): string =>
       `\n\n[预览 ${n} / ${text.length} 字符`
-      + (n < text.length ? '；未到末尾，用 web_cache_read 继续读]' : '；正文已全部显示]');
+      + (n < text.length
+        ? `；未到末尾，用 web_cache_read 继续读（mode=slice，offset 填 ${n}，不要从 0 重读）]`
+        : '；正文已全部显示]');
     // footer 里含 n 本身，长度与 n 互相依赖。固定点迭代：先用 0 占位算长度，
     // 再用真实 footer 重算，直到稳定（n 只会变短，单调收敛，最多几轮）。
     // 全程只有 CONTEXT_LIMITS.maxCharsPerMessage 一个数值来源，不另造阈值。

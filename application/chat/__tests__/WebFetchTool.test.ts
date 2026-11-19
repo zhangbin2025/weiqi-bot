@@ -112,3 +112,33 @@ describe('executeWebFetch', () => {
     expect(r.observation).toContain('network down');
   });
 });
+
+// 2026-11-19：短响应直接给完整正文，省掉「预览→web_cache_read 分页」的模型往返。
+describe('executeWebFetch 短响应直给（减少模型往返）', () => {
+  it('短正文：观察直接含全文、标注「正文已全部显示」，不含预览截断提示', async () => {
+    const d = deps();
+    const r = await executeWebFetch(JSON.stringify({ url: 'https://example.com/' }), d);
+    expect(r.ok).toBe(true);
+    expect(r.observation).toContain('<html>柯洁</html>');
+    expect(r.observation).toContain('正文已全部显示');
+    expect(r.observation).toContain('无需再调用 web_cache_read');
+    expect(r.observation).not.toContain('未到末尾');
+    expect(r.detail).toContain('全文直给');
+  });
+
+  it('长正文：仍走预览 + 指路 web_cache_read（原有契约不变）', async () => {
+    const big = 'x'.repeat(20000);
+    const d = deps();
+    d.fetchImpl = vi.fn(async () => ({
+      ok: true, status: 200, statusText: 'OK',
+      headers: new Headers({ 'content-type': 'text/plain' }),
+      text: async () => big,
+    })) as unknown as typeof fetch;
+    const r = await executeWebFetch(JSON.stringify({ url: 'https://example.com/' }), d);
+    expect(r.observation).toContain('已存入宿主缓存');
+    expect(r.observation).toContain('web_cache_read');
+    expect(r.observation).toContain('未到末尾，用 web_cache_read 继续读');
+    expect(r.observation).toMatch(/offset 填 \d+/);
+    expect(r.observation).not.toContain('无需再调用 web_cache_read');
+  });
+});
