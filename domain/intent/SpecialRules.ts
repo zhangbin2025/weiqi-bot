@@ -3,8 +3,11 @@
  */
 
 import { SpecialRule } from './types';
-import { PLAYER_NAMES, EVENT_NAMES, FOXWQ_NICKNAMES } from './IntentConfig';
-import { EntityValidator, SURNAMES, PLAYER_BLACKLIST } from './EntityValidator';
+import {
+  PLAYER_NAMES, EVENT_NAMES, FOXWQ_NICKNAMES, INTENT_KEYWORDS,
+} from './IntentConfig';
+import { EntityValidator } from './EntityValidator';
+import { ENTITY_DICTS } from './entity-dicts';
 import { GAME_URL_REGEX } from './libUrl';
 
 /**
@@ -19,6 +22,28 @@ const GAME_URL_PATTERN = GAME_URL_REGEX;
  * 标准格式 (;GM[1]，变体 (\n;GM[1]
  */
 const SGF_REGEX = /^\s*\(\s*;/
+
+/**
+ * 姓名模式会误判成棋手的「非姓名」词，命中即排除。
+ *
+ * player_query 优先级 85 高于事件/做题等规则，若不排除，这些词会被
+ * 抢先判成姓名跳到棋手查询页。来源均为项目既有字典，不引入新口径：
+ * - EVENT_NAMES / FOXWQ_NICKNAMES / ENTITY_DICTS.openings：赛事名、昵称、
+ *   定式名里以百家姓开头的词（如「应氏杯」「农心杯」「星位」）。
+ * - INTENT_KEYWORDS 的 core/variant：功能孤词（如「段位」「简单题」），
+ *   它们本应由 matchExactKeyword / 评分层按功能意图处理。
+ * - 围棋术语/概念词：ccecff8 修过的「双打吃」「双活」「双飞燕」等，
+ *   首字恰是百家姓单姓，属知识问答，不该跳棋手查询页。
+ * 只做「整句相等」排除，不影响含这些词的自然语言句子。
+ */
+const PLAYER_NAME_EXCLUDES: ReadonlySet<string> = new Set<string>([
+  ...EVENT_NAMES,
+  ...FOXWQ_NICKNAMES,
+  ...ENTITY_DICTS.openings,
+  ...INTENT_KEYWORDS.flatMap(c => [...c.coreKeywords, ...(c.variantKeywords ?? [])]),
+  '双打吃', '双活', '双飞燕', '打吃', '征子', '倒脱靴',
+  '王座', '马步', '死活', '手筋', '官子', '定式', '恶手', '选点',
+]);
 
 /**
  * 响应类型识别正则
@@ -62,17 +87,19 @@ export const SPECIAL_RULES: SpecialRule[] = [
     priority: 85,
     match: (text: string): boolean => {
       const trimmed = text.trim();
-      // 只认「已知棋手名单」里的裸姓名，做确定性路由。
-      // ⚠️ 不能用「百家姓 + 2~4 汉字」猜人名：围棋术语「双打吃」「双活」
-      // 「双飞燕」首字「双」恰是百家姓单姓，会被 isValidPlayerName 判成
-      // 人名 → 短路 LLM、错误跳到棋手查询页（而这类知识问答本应交给 LLM
-      // 判 chat）。名单外的裸姓名（含业余棋手）交给 LLM / 本地评分处理，
-      // 与「普通自然语言返回 null、交给 LLM」的既有约定一致。
-      return PLAYER_NAMES.includes(trimmed);
+      // 功能助手页的意图识别固定走本地流程（不再有 LLM 兜底），因此
+      // 「输入任意姓名 → 跳棋手查询」必须由本地规则自己完成：
+      // 已知棋手名单内的裸姓名照旧确定性命中；名单外姓名用百家姓模式
+      // 识别（含业余棋手、复姓）。非姓名的围棋术语/赛事名/功能孤词由
+      // PLAYER_NAME_EXCLUDES 排除，避免 ccecff8 修过的误判回归。
+      // 带动作或上下文的自然语言（「查询柯洁」「帮我查查柯洁」）不满足
+      // 姓名模式，仍交给评分层，不会被本规则劫持。
+      if (PLAYER_NAME_EXCLUDES.has(trimmed)) return false;
+      return PLAYER_NAMES.includes(trimmed) || EntityValidator.isValidPlayerName(trimmed);
     },
     intent: 'query_player',
     extractParams: (text: string): Record<string, any> => ({ player: text.trim() }),
-    description: '已知棋手名单里的裸姓名自动识别为查询棋手',
+    description: '裸姓名（名单内或百家姓模式）自动识别为查询棋手',
   },
   {
     name: 'foxwq_nickname',

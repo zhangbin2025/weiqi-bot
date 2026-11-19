@@ -20,7 +20,6 @@ import { CommandHandler } from './CommandHandler';
 import { DEFAULT_REMOTE_BASE } from '../../infrastructure/network/core/ServerConfig';
 import { buildArchiveUrl } from '../../domain/sgf/SGFUtils';
 import { checkRequiredParamsForBackground } from '../../domain/intent/BackgroundTaskChecker';
-import { LLMIntentProvider } from './LLMIntentProvider';
 import { isLLMCommand, redactCommand } from './LLMCommand';
 /**
  * AI 助手用例配置
@@ -39,8 +38,6 @@ export interface AssistantUseCaseConfig {
   storageBrowserService?: StorageBrowserService; // 存储浏览服务(可选)
   performanceBrowserService?: PerformanceBrowserService; // 性能浏览服务(可选)
   dialog?: IDialog; // 对话框(可选)
-  /** LLM 意图识别提供者（可选；不传则纯本地识别） */
-  llmIntentProvider?: LLMIntentProvider;
 }
 /**
  * AI 助手用例
@@ -55,7 +52,6 @@ export class AssistantUseCase implements IAssistantUseCase {
   private exportService: IExportService | undefined; // 导出服务(可选)
   private intentRecognizer: IntentRecognizer;
   private commandHandler: CommandHandler;
-  private llmIntentProvider: LLMIntentProvider | undefined;
   constructor(config: AssistantUseCaseConfig) {
     this.messageRenderer = config.messageRenderer;
     this.jumpDecision = config.jumpDecision;
@@ -64,7 +60,6 @@ export class AssistantUseCase implements IAssistantUseCase {
     this.sessionService = config.sessionService; // 接收 SessionService
     this.exportService = config.exportService; // 接收导出服务
     this.intentRecognizer = new IntentRecognizer();
-    this.llmIntentProvider = config.llmIntentProvider;
     this.commandHandler = new CommandHandler({
       messageRenderer: config.messageRenderer,
       chatHistoryManager: config.chatHistoryManager,
@@ -187,50 +182,10 @@ export class AssistantUseCase implements IAssistantUseCase {
     // 显示打字状态
     this.messageRenderer.showTyping();
 
-    // 特殊规则优先：URL 下载 / SGF 粘贴 / 直播 / 死活题 / 赛事名等是确定性
-    // 路由，带环境相关的 extractParams（如直播按 UA 注入 ogs-live / yike-live），
-    // LLM 的 prompt 里没有这些规则、也拿不到 navigator，必须命中即走本地捷径。
-    // 否则「直播」会被 LLM 判成 unknown → 「抱歉,我不太理解」。
-    const localRule = this.intentRecognizer.matchSpecialRulesOnly(text);
-
-    // 意图识别：本地特殊规则命中则直接用；否则配置并启用 LLM 后交给 LLM；
-    // 再否则走本地识别。LLM 失败直接提示并中止，不回落本地识别。
-    let recognizeResult: IntentRecognizeResult;
-    if (localRule) {
-      recognizeResult = localRule;
-    } else if (this.llmIntentProvider?.isEnabled()) {
-      try {
-        const outcome = await this.llmIntentProvider.recognize(text);
-        if (outcome.kind === 'chat') {
-          // 功能助手不承担聊天：LLM 识别到 chat 后统一发功能引导（help）。
-          // LLM 的 reply 不引用、不落盘，避免功能助手历史里混入闲聊内容。
-          this.messageRenderer.hideTyping();
-          await this.handleHelp();
-          return;
-        }
-        if (outcome.kind === 'greeting') {
-          // 打招呼：展示与「未接入 LLM」时一致的功能引导（handleHelp）
-          this.messageRenderer.hideTyping();
-          await this.handleHelp();
-          return;
-        }
-        recognizeResult = outcome.result;
-      } catch (error) {
-        this.messageRenderer.hideTyping();
-        const message = error instanceof Error ? error.message : String(error);
-        const errorText = `❌ LLM 解析失败（未执行）：${message}\n/llm status 查配置 · /llm off 关闭`;
-        await this.messageRenderer.renderMessage(
-          errorText, false, null, null, undefined, undefined, true,
-        );
-        await this.chatHistoryManager.addMessage({
-          role: 'assistant',
-          content: errorText,
-        });
-        return;
-      }
-    } else {
-      recognizeResult = this.predictIntent(text);
-    }
+    // 预测意图：一律走本地意图识别流程，不经过 LLM。
+    // LLM 配置仍可由独立 AI 对话页使用；功能助手页即使配置了 LLM，
+    // 意图识别也保持与未接入 LLM 时完全一致（IntentRecognizer.recognize）。
+    const recognizeResult = this.predictIntent(text);
 
     const intent = recognizeResult.intent;
     const params = recognizeResult.params;

@@ -242,10 +242,10 @@ describe('matchSpecialRulesOnly（LLM 前置的确定性路由）', () => {
     expect(recognizer.matchSpecialRulesOnly('帮我查查柯洁')).toBeNull();
   });
 
-  it('回归：以百家姓开头的围棋术语不被当成棋手姓名（双打吃 → 交 LLM）', () => {
-    // 「双」是百家姓单姓，旧的 player_query 用「百家姓 + 2~4 汉字」猜人名，
-    // 会把「双打吃」「双活」「双飞燕」判成人名 → 短路 LLM、错误跳棋手查询页。
-    // 这类知识问答应返回 null 交给 LLM 判 chat。
+  it('回归：以百家姓开头的围棋术语不被当成棋手姓名（双打吃 → 非姓名）', () => {
+    // 「双」是百家姓单姓，用「百家姓 + 2~4 汉字」猜人名会把「双打吃」
+    // 「双活」「双飞燕」判成人名 → 错误跳棋手查询页。这类知识问答不该
+    // 命中 player_query。
     for (const term of ['双打吃', '双活', '双飞燕', '打吃', '征子', '倒脱靴']) {
       expect(recognizer.matchSpecialRulesOnly(term), term).toBeNull();
     }
@@ -253,6 +253,28 @@ describe('matchSpecialRulesOnly（LLM 前置的确定性路由）', () => {
     expect(recognizer.matchSpecialRulesOnly('柯洁')?.intent).toBe('query_player');
     expect(recognizer.matchSpecialRulesOnly('申真谞')?.intent).toBe('query_player');
     expect(recognizer.recognize('双打吃').matchedRule).not.toBe('player_query');
+  });
+
+  it('回归：名单外的普通姓名也跳棋手查询（本地流程无 LLM 兜底）', () => {
+    // 功能助手页意图识别固定走本地 recognize()，名单外裸姓名若只靠
+    // PLAYER_NAMES 会掉到默认 help。必须恢复「姓名模式」判定。
+    for (const name of ['张三', '李四', '王五', '欧阳明', '司马光']) {
+      const r = recognizer.recognize(name);
+      expect(r.intent, name).toBe('query_player');
+      expect(r.matchedRule, name).toBe('player_query');
+      expect(r.params.player, name).toBe(name);
+    }
+    // 名单内姓名（含复姓/非百家姓首字）同样命中
+    for (const name of ['柯洁', '马天放', '於之莹', '井山裕太']) {
+      expect(recognizer.recognize(name).intent, name).toBe('query_player');
+    }
+    // 赛事名/功能孤词不被姓名规则劫持
+    for (const word of ['应氏杯', '农心杯', '段位', '简单题', '死活']) {
+      expect(recognizer.matchSpecialRulesOnly(word)?.matchedRule, word).not.toBe('player_query');
+    }
+    // 带动作/上下文的句子仍按原语义处理，不被本规则劫持
+    expect(recognizer.matchSpecialRulesOnly('帮我查查柯洁')).toBeNull();
+    expect(recognizer.recognize('查询柯洁').intent).toBe('query_player');
   });
 
   it('回归：带 http 的「直播」句子优先命中 url_download，不是 live_stream', () => {
