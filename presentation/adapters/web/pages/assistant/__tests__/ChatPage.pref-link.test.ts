@@ -91,15 +91,22 @@ describe('bindPrefLinks', () => {
 
 
 describe('bindPrefLinks —— 通用 prefs-add: 链路', () => {
-  it('合法通用链接：回灌带 domain/key/值的用户消息，宿主不写库', () => {
-    click('prefs-add:prefs:weather.watchlist:北京');
+  it('合法通用链接（marked 编码后的中文）：回灌带 domain/key/值的用户消息，宿主不写库', () => {
+    // 真实 DOM：marked 把 北京 编码成 %E5%8C%97%E4%BA%AC
+    click('prefs-add:prefs:weather.watchlist:%E5%8C%97%E4%BA%AC');
     expect(send).toHaveBeenCalledTimes(1);
     const text = String(send.mock.calls[0]![0]);
-    expect(text).toContain('北京');
+    expect(text).toContain('北京'); // 回灌给用户的是解码后的明文
     expect(text).toContain('weather.watchlist');
     expect(text).toContain("domain='prefs'");
     expect(text).toContain('保存到本地偏好');
     expect(page['kvKit']).toBeUndefined();
+  });
+
+  it('股票代码（ASCII 明文）通用链接同样回灌', () => {
+    click('prefs-add:prefs:stock.watchlist:sh600519');
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(String(send.mock.calls[0]![0])).toContain('sh600519');
   });
 
   it('脏通用 href：静默忽略，不回灌', () => {

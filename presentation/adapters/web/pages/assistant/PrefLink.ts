@@ -23,8 +23,10 @@
  * - 宿主**不认识任何业务键名**（weather.watchlist / stock.watchlist 仍由配方声明），
  *   只做形状校验 + 回灌一条用户消息，读写仍由 LLM 按当前技能配方完成；
  * - domain / key 复用 KvDomains / KvService 的既有合法形状（口径有出处，不新造）；
- * - value 用**明文**（如 北京 / sh600519），不做 percent 编码 —— 让 LLM 能按配方
- *   里的格式原样写对；只禁用 markdown / HTML 结构性危险字符；
+ * - **模型侧写明文**（如 `[加入自选城市](prefs-add:prefs:weather.watchlist:北京)`），
+ *   但 marked 渲染 markdown 链接时会自动把非 ASCII 做 percent 编码（实测 2026-11-19：
+ *   北京 → %E5%8C%97%E4%BA%AC，而 ASCII 的 . - : 原样保留）。
+ *   所以宿主解析时对 value 段做 decodeURIComponent，纯 ASCII 明文也照常可用；
  * - 新增技能要存偏好时，只需在配方里贴出这种链接并声明 domain/key，
  *   **不需要改宿主**。
  *
@@ -47,15 +49,18 @@ export const PREF_ADD_WATCH_SCHEME = 'stock-watch-add:';
 const PREF_KEY_RE = /^[A-Za-z0-9_.\-]{1,128}$/;
 
 /**
- * value 禁用的字符：全部来自 markdown `[](...)` / HTML 属性的结构性语法，
- * 不是拟合阈值 ——
- * - `:` 本 scheme 的分隔符；`(` `)` `[` `]` markdown 定界；
- * - `[ \t\r\n]` 空白换行（markdown 与注入）；`<` `>` `"` `'` HTML 标签 / 属性引号；
- * - `%` 避免与 percent-encoding 歧义（明文所见即所得，不解码）；
- * - `#` `?` URL fragment / query，避免被当成链接语义。
- * 中文城市名、字母数字、逗号、横线、点都允许。
+ * value 段（**编码态**）允许的字符：URL 未保留字符 + `%`（percent 编码）。
+ * 这是 marked 渲染后的 href 形态，不是用户看到的文本。分隔符 `:` 已在切分时
+ * 消耗掉，所以值里仍不允许出现冒号。
  */
-const PREF_VALUE_FORBIDDEN_RE = /[:\s()\[\]<>"'%#?]/;
+const PREF_VALUE_ENCODED_RE = /^[A-Za-z0-9\-_.!~*'()%]+$/;
+
+/**
+ * 解码后的值禁用的字符：全部来自 markdown `[](...)` / HTML 结构性语法与
+ * 换行注入，不是拟合阈值。对**解码后**的字符串再校验一次，防止 `%3Cscript%3E`
+ * 这类绕过。中文城市名、字母数字、逗号、横线、点都允许。
+ */
+const PREF_VALUE_FORBIDDEN_RE = /[:\s()\[\]<>"'#?]/;
 
 /**
  * 单条 href 总长上限：**协议层护栏**，防超长脏串回灌进会话；不是从验证集挑的
@@ -79,24 +84,35 @@ export interface PrefAddTarget {
 /**
  * 解析通用 `prefs-add:` 链接。只做形状约束，不做业务语义判断 ——
  * 这个值该不该写、写进数组哪个位置，由技能配方与 LLM 负责，宿主一概不知。
- * 任何不合法（非本 scheme / 段数不对 / 域名或键名非法 / 值含危险字符 / 过长）
+ *
+ * value 段可能是 marked 编码过的（中文 → %XX），也可能就是纯 ASCII 明文；
+ * 先校验编码态形状，再 decodeURIComponent，最后对解码值再校验一次黑名单。
+ * 任何不合法（非本 scheme / 段数不对 / 域名或键名非法 / 解码失败 / 危险字符 / 过长）
  * 一律返回 null，绝不把脏 href 回灌成用户消息。
  */
 export function parsePrefAddHref(href: string | null | undefined): PrefAddTarget | null {
   if (typeof href !== 'string' || !href.startsWith(PREF_ADD_SCHEME)) return null;
   if (href.length > MAX_HREF_CHARS) return null;
   const rest = href.slice(PREF_ADD_SCHEME.length);
-  // 前两个冒号分隔 domain / key，剩下整体作为 value（value 内禁止冒号，见上文）。
+  // 前两个冒号分隔 domain / key，剩下整体作为 value（值内不允许冒号）。
   const i1 = rest.indexOf(':');
   if (i1 < 0) return null;
   const i2 = rest.indexOf(':', i1 + 1);
   if (i2 < 0) return null;
   const domain = rest.slice(0, i1);
   const key = rest.slice(i1 + 1, i2);
-  const value = rest.slice(i2 + 1);
+  const encoded = rest.slice(i2 + 1);
   if (!KV_DOMAIN_NAME_RE.test(domain)) return null;
   if (!PREF_KEY_RE.test(key)) return null;
-  if (!value || value.length > MAX_VALUE_CHARS) return null;
+  if (!encoded || encoded.length > MAX_VALUE_CHARS) return null;
+  if (!PREF_VALUE_ENCODED_RE.test(encoded)) return null;
+  let value: string;
+  try {
+    value = decodeURIComponent(encoded);
+  } catch {
+    return null; // 半截 % 或非法 UTF-8 序列
+  }
+  if (!value.trim() || value.length > MAX_VALUE_CHARS) return null;
   if (PREF_VALUE_FORBIDDEN_RE.test(value)) return null;
   return { domain, key, value };
 }
