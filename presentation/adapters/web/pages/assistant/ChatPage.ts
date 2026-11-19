@@ -32,6 +32,7 @@ import { ChatUseCase, type LocalFileInput, type SkillDeps } from '../../../../..
 import { createSkillRegistry } from '../../../../../application/skill/SkillRegistry';
 import type { SkillPrimitive, SkillRecipe } from '../../../../../application/skill/SkillTypes';
 import { createBasicPrimitives } from '../../../../../application/skill/primitives/BasicPrimitives';
+import { loadWebProxyOverride } from '../../../../../infrastructure/config/WebProxyOverride';
 import { createKvKit } from '../../../../../application/skill/kv/KvKit';
 import type { KvKit } from '../../../../../application/skill/kv/KvKit';
 import { collectSecretSpecs } from '../../../../../application/skill/SecretSpec';
@@ -147,10 +148,12 @@ export class ChatPage {
     // 网络工具依赖：代理地址由入口注入（三端分流，线上只给纯 Web），超时
     // 沿用已配置的 LLM timeoutMs —— 不引入任何新数值。chat 角色才用得到。
     const gateway = this.plugin?.gateway ?? new OpenAIModelGateway();
-    const proxyUrl = options?.proxyUrl ?? 'https://api.weiqi.lol';
+    // web 工具每次执行都读 /proxy 覆盖值（单一真相源）：入口注入的 proxyUrl
+    // 只是没有覆盖值时的兜底，避免在 ChatPage 里固化一份运行期快照。
+    const injectedProxyUrl = options?.proxyUrl ?? 'https://api.weiqi.lol';
     const config = loadLLMConfig();
     const webTools = {
-      proxyUrl,
+      get proxyUrl(): string { return loadWebProxyOverride() ?? injectedProxyUrl; },
       timeoutMs: config?.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS,
     };
     // 技能是安装制：本地库是唯一生效来源，在线源只浏览/安装，绝不自动叠加。

@@ -145,12 +145,19 @@ export class WebBootstrap {
     await network.initialize();
 
     // 4. ConfigProvider - 合并 proxyUrl 到模块配置
-    const mergedModuleConfigs = {
-      player: { ...DEFAULT_PLAYER_CONFIG, proxyUrl },
-      game: { ...DEFAULT_GAME_CONFIG, proxyUrl },
-      event: { ...DEFAULT_EVENT_CONFIG, proxyUrl },
-      ...options.moduleConfigs,  // 允许外部覆盖
+    // proxyUrl 是运行环境属性（含 /proxy 覆盖值），只由 resolveProxyUrl 决定。
+    // 先展开所有 moduleConfigs，再对真正用 proxyUrl 的三个模块强制注入：
+    // 这三个入口常传 `moduleConfigs: { event: DEFAULT_EVENT_CONFIG }` 之类，
+    // 展开会整体盖回，故注入必须放在展开之后。其它 namespace 不动。
+    const mergedModuleConfigs: Record<string, Record<string, unknown>> = {
+      player: { ...DEFAULT_PLAYER_CONFIG },
+      game: { ...DEFAULT_GAME_CONFIG },
+      event: { ...DEFAULT_EVENT_CONFIG },
+      ...options.moduleConfigs,  // 允许外部覆盖其它字段
     };
+    mergedModuleConfigs.player = { ...mergedModuleConfigs.player, proxyUrl };
+    mergedModuleConfigs.game = { ...mergedModuleConfigs.game, proxyUrl };
+    mergedModuleConfigs.event = { ...mergedModuleConfigs.event, proxyUrl };
     const config = new DefaultConfigProvider(mergedModuleConfigs);
 
     // 5. 缓存工厂

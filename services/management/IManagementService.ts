@@ -160,6 +160,13 @@ export const MANAGEMENT_COMMANDS: ManagementCommand[] = [
     appOnly: false,
   },
   {
+    command: '/proxy',
+    title: '代理服务器',
+    icon: '🌐',
+    description: '设置/查看 Web 代理（/proxy <url>、status、reset；仅纯 Web 生效）',
+    appOnly: false,
+  },
+  {
     command: '/llm',
     title: '接入大模型',
     icon: '🤖',
