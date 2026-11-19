@@ -18,7 +18,7 @@ import { CONTEXT_LIMITS } from '@application/chat/ConversationPrompt';
 import { KvService } from '../KvService';
 import { KvDomainRegistry } from '../KvDomains';
 import { MemoryKvDriver } from '../KvDrivers';
-import { createKvPrimitives } from '../KvPrimitives';
+import { createKvPrimitives, buildKvSystemSuffix } from '../KvPrimitives';
 import { KV_TOOL_NAMES } from '../KvTypes';
 import type { KvDomainDescriptor, KvCapability, KvArgs, KvOutcome, KvStoredValue } from '../KvTypes';
 
@@ -234,5 +234,37 @@ describe('扩展不改内核', () => {
     const metas = await d.list('p.');
     expect(metas[0]!.key).toBe('p.bad');
     expect(metas[0]).not.toHaveProperty('value');
+  });
+});
+
+/**
+ * 2026-11-19 用户实测：模型「没让看自选却每轮先读 prefs」。根因之一是 system 后缀把
+ * 「读偏好」写成命中技能时的默认动作。收窄后锁住两条边界：
+ * - 不再把读偏好描述成每轮 / 每个技能的默认第一步；
+ * - 明确「用户已指定查询对象时直接查、不先读偏好」，与 weather.wttr / stock.quote 配方一致。
+ */
+describe('kv systemSuffix 不诱导每轮读偏好', () => {
+  it('后缀明确「仅在配方要求 / 用户提到自选偏好时才读」，且指定输入不先读偏好', () => {
+    const suffix = buildKvSystemSuffix(makeService());
+    // 仍讲清机制与边界
+    expect(suffix).toContain('本地数据层');
+    expect(suffix).toContain('kv_write');
+    expect(suffix).toContain('敏感域');
+    // 收窄后的关键措辞
+    expect(suffix).toContain('仅在配方明确要求');
+    expect(suffix).toContain('才用 kv_read');
+    expect(suffix).toContain('不要先读偏好');
+    expect(suffix).toContain('直接按该输入查询');
+    // 旧措辞（把读偏好写成命中技能时的默认动作）不得回来
+    expect(suffix).not.toContain('命中相关技能时先用 kv_read 取');
+    expect(suffix).not.toContain('不要让用户每次重新列一遍');
+  });
+
+  it('后缀随能力并集给出工具清单，且不含「每轮」类无出处指令', () => {
+    const suffix = buildKvSystemSuffix(makeService());
+    expect(suffix).toContain(KV_TOOL_NAMES.read);
+    expect(suffix).toContain(KV_TOOL_NAMES.write);
+    expect(suffix).not.toContain('每轮先读');
+    expect(suffix).not.toContain('默认第一步');
   });
 });

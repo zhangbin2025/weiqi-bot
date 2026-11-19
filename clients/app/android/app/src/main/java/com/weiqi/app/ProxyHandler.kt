@@ -6,6 +6,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.net.URLEncoder
 
@@ -67,18 +68,31 @@ class ProxyHandler(
 
         val startTime = System.currentTimeMillis()
         val method = session.method.name
-        var postBody: String? = null
+        // POST 请求体一律按原始字节透传，绝不经过 String 解码。
+        // 2026-11-19 修复：NanoHTTPD 2.3.1 的 parseBody(files) 对 application/json（前端
+        // 发的 Content-Type 不带 charset）会用 ContentType.getEncoding()=US-ASCII 把 UTF-8
+        // 字节解成 String 塞进 files["postData"]，再由 OkHttp 按 UTF-8 重编码 —— 中文全部
+        // 变成 U+FFFD，但 JSON 外形仍合法（不报 400），模型于是丢了「深圳天气」这类当前句、
+        // 只剩 ASCII 的工具名/域名/示例，产生「先读 prefs、按示例城市凑数」的幻觉。
+        // 桌面端是 req.pipe(proxyReq) 字节透传，纯 Web 走 Worker fetch 透传，都不经此坑。
+        var postBodyBytes: ByteArray? = null
+        var postBodyText: String? = null  // 仅供 x-www-form-urlencoded 回退重建（本就是 ASCII 表单）
         Logger.i(TAG, "Proxy >> $method $targetUrl")
 
         return try {
-            // 对于 POST 请求，需要解析请求体
-            // NanoHTTPD 不会自动解析 POST 数据到 session.parms，需要调用 parseBody
             if (session.method == NanoHTTPD.Method.POST) {
-                val files = mutableMapOf<String, String>()
-                session.parseBody(files)
-                // 对于 application/json，NanoHTTPD 把原始 body 放在 files["postData"]
-                postBody = files["postData"]
-                Logger.d(TAG, "Proxy: POST params = ${session.parms.filterKeys { it != "url" }}")
+                if (isRawBodyContentType(session.headers?.get("content-type"))) {
+                    // 原始字节路径：覆盖 application/json 等一切非表单类型
+                    val raw = readRawPostBody(session)
+                    postBodyBytes = raw
+                    Logger.d(TAG, "Proxy: POST raw bytes = ${raw.size}")
+                } else {
+                    // 表单路径：仍需 parseBody 解析 parms，再按 UTF-8 重建表单串
+                    val files = mutableMapOf<String, String>()
+                    session.parseBody(files)
+                    postBodyText = buildPostData(session.parms, session.headers?.get("content-type"))
+                    Logger.d(TAG, "Proxy: POST params = ${session.parms.filterKeys { it != "url" }}")
+                }
             }
             
             val requestBuilder = Request.Builder().url(targetUrl)
@@ -139,17 +153,17 @@ class ProxyHandler(
                 requestBuilder.header("Origin", origin)
             }
 
-            // 透传 POST 请求体
+            // 透传 POST 请求体：字节优先（application/json 等），表单走文本重建
             if (session.method == NanoHTTPD.Method.POST) {
-                // 优先使用原始 body（application/json），否则使用表单数据
                 val mediaType = (contentType ?: "application/x-www-form-urlencoded").toMediaType()
-                val postData = if (!postBody.isNullOrEmpty()) {
-                    postBody
+                val body = if (postBodyBytes != null) {
+                    // byte[] 重载：OkHttp 直接写原始字节，不再做任何字符集转换
+                    postBodyBytes.toRequestBody(mediaType)
                 } else {
-                    buildPostData(session.parms, contentType)
+                    (postBodyText ?: "").toRequestBody(mediaType)
                 }
-                Logger.d(TAG, "Proxy: POST data = ${postData.take(100)}")
-                requestBuilder.post(postData.toRequestBody(mediaType))
+                Logger.d(TAG, "Proxy: POST body = ${if (postBodyBytes != null) postBodyBytes!!.size.toString() + " bytes (raw)" else (postBodyText ?: "").take(100)}")
+                requestBuilder.post(body)
             }
 
             // 执行请求（不使用 use，由 ProxyResponse 在关闭时释放资源）
@@ -214,6 +228,54 @@ class ProxyHandler(
         }
     }
     
+    /**
+     * 判断该 Content-Type 是否应按「原始字节」透传。
+     *
+     * 依据（2026-11-19，反编译 NanoHTTPD 2.3.1 实测）：parseBody(files) 只在
+     * `application/x-www-form-urlencoded` 分支里把表单解进 parms；其它类型（含
+     * application/json）走 `new String(bytes, ContentType.getEncoding()).trim()` →
+     * files["postData"]，而 getEncoding() 在无 charset 时是 US-ASCII，会毁掉 UTF-8 中文。
+     * 因此除表单外一律读原始字节，不经过 String。multipart 由 NanoHTTPD 单独分支处理，
+     * 本项目前端不用，也归入字节路径以免重编码。
+     */
+    private fun isRawBodyContentType(contentType: String?): Boolean {
+        val ct = contentType?.lowercase()?.trim() ?: return true
+        return !ct.startsWith("application/x-www-form-urlencoded")
+    }
+
+    /**
+     * 按 Content-Length 从 session.getInputStream() 读出 POST 请求体的原始字节。
+     *
+     * NanoHTTPD 的 HTTPSession.execute() 在解析完 header 后 reset() 回 mark 并
+     * skip(splitbyte)，此时 getInputStream() 的位置正是 body 起点（反编译确认）。
+     * 且 parms["url"] / headers 在 execute() 阶段已解析好，不依赖 parseBody()，
+     * 因此本读法不会丢代理目标地址 / 头。没有 Content-Length（分块）时退化为读到 EOF。
+     */
+    private fun readRawPostBody(session: NanoHTTPD.IHTTPSession): ByteArray {
+        val headerValue = session.headers?.get("content-length")?.trim()
+        val declared = headerValue?.toLongOrNull()
+        val input: InputStream = session.getInputStream()
+        val out = ByteArrayOutputStream()
+        if (declared != null && declared > 0 && declared <= Int.MAX_VALUE) {
+            val buf = ByteArray(declared.toInt())
+            var off = 0
+            while (off < buf.size) {
+                val n = input.read(buf, off, buf.size - off)
+                if (n < 0) break
+                off += n
+            }
+            out.write(buf, 0, off)
+        } else {
+            val buf = ByteArray(512)
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) break
+                out.write(buf, 0, n)
+            }
+        }
+        return out.toByteArray()
+    }
+
     /**
      * 构造 POST 请求体
      * @param parms NanoHTTPD 解析的参数（包含 URL 查询参数和 POST 表单数据）
