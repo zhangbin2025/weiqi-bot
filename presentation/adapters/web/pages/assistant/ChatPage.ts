@@ -40,6 +40,7 @@ import {
   SECRET_PROMPT_SCHEME,
 } from '../../../../../application/skill/primitives/AuthFetchPrimitives';
 import { openSecretPromptDialog } from './SecretPromptDialog';
+import { PREF_ADD_WATCH_SCHEME, parseWatchAddCode, watchAddUserMessage } from './PrefLink';
 import { EVENT_PRIMITIVES } from '../../../../../application/skill/primitives/EventImportPrimitives';
 import { UserSkillStore, type UserSkillEntry } from '../../../../../application/skill/dev/UserSkillStore';
 import { createSkillDevKit } from '../../../../../application/skill/dev/SkillDevTools';
@@ -223,6 +224,7 @@ export class ChatPage {
     this.bindLifecycle();
     this.bindEventTableLinks();
     this.bindSecretPromptLinks();
+    this.bindPrefLinks();
     // 先恢复上次会话（它会顺带定下该会话的角色），再刷新角色 UI 与输入状态
     await this.restoreLastSession();
     this.syncRoleUI();
@@ -298,6 +300,33 @@ export class ChatPage {
       openSecretPromptDialog(this.kvKit.service, spec, () => {
         void this.useCase.send('凭据已配置好，请继续刚才的请求。');
       });
+    });
+  }
+
+  /**
+   * 「添加到自选」链接（stock-watch-add:<代码>）→ 回灌一条用户消息交给 LLM。
+   *
+   * 与 secret-prompt: 的**关键差别**：这里宿主一行存储都不写。prefs 域是
+   * readable / model 写，就是设计给「LLM 调用本地存储接口」用的；宿主只负责把
+   * 用户点了一下这个事实变成一条正常用户消息，读写由 LLM 按技能配方调 kv_read /
+   * kv_write 完成，回执也由 LLM 给。这样模型上下文里始终有这份偏好，不会出现
+   * 「宿主偷偷写了，模型下一轮却不知道」的劈叉。
+   *
+   * 用 document 事件委托（同 event-table: / secret-prompt:）：回复走 marked +
+   * 打字机异步注入 DOM，委托也能覆盖历史消息恢复后重新渲染出来的旧链接。
+   * 链接里只带一个经形状校验的股票代码，不携带待写入的值 / URL / JSON。
+   */
+  private bindPrefLinks(): void {
+    document.addEventListener('click', (event) => {
+      const target = event.target as HTMLElement | null;
+      const link = target?.closest<HTMLAnchorElement>(
+        `a[href^="${PREF_ADD_WATCH_SCHEME}"]`,
+      );
+      if (!link) return;
+      event.preventDefault();
+      const code = parseWatchAddCode(link.getAttribute('href'));
+      if (!code) return; // 形状不合法：静默忽略，绝不把脏 href 回灌成用户消息
+      void this.useCase.send(watchAddUserMessage(code));
     });
   }
 

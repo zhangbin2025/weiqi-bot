@@ -44,7 +44,7 @@
 
 | 域 | 后端 | visibility | writableBy | 说明 |
 |---|---|---|---|---|
-| `prefs` | localStorage | readable | model | 自选股、默认分类等使用偏好；模型可读写 |
+| `prefs` | localStorage | readable | model | 自选股、默认分类等使用偏好；模型可读写（`stock.quote` v3 自选股池即存这里的 `stock.watchlist`） |
 | `secrets` | localStorage | **opaque** | **host** | 敏感数据（不止密钥）：模型读不到值、不能写/删，只有宿主凭据弹框 / 直连链路可录入 |
 | `checkpoints` | IndexedDB | readable | model | 长会话 compact 摘要 / 任务状态，大值用 `kv_slice` 分页 |
 
@@ -78,5 +78,18 @@
   （`allowedHosts` / header 拼法 / `reauthStatuses`）查表执行，端侧直连（不经代理），
   `readRaw()` 取凭据拼 header；模型只给 `url` + `secretKey`，永远接触不到明文。
   接入新的认证 API = 加一条配方声明，不改内核 / 工具签名 / 弹框。
+- **P2' 使用偏好（自选股池）—— 已落地**：`prefs` 域的第一个真实场景，与 `secrets`
+  刻意做成镜像。配方 `stock.quote` v3 在报价后附一条
+  `[添加到自选](stock-watch-add:<代码>)` markdown 链接；宿主 `ChatPage.bindPrefLinks()`
+  用 document 事件委托接管，**一行存储都不写**，只回灌一条正常用户消息
+  （`watchAddUserMessage`），由 LLM 按配方指令自己调 `kv_read('prefs','stock.watchlist')`
+  → 去重 → `kv_write` 保存并回执。用户说「查询自选股票当前股价」时同样由 LLM 读回
+  代码列表、一次 `web_fetch` 多代码查询、按列表播报。
+  - 宿主不托管写入，是为了模型上下文里始终有这份偏好，不会出现「宿主偷偷写了、
+    模型下一轮却不知道」的劈叉；也与 `secrets` 的「宿主独占写、明文不过模型」形成对照。
+  - 链接只带一个经形状校验的股票代码（`PrefLink.ts` 的 `STOCK_CODE_RE`），
+    不携带待写入的值 / URL / JSON，脏 href 静默忽略。
+  - **没有新增原语**：`kv_*` 是 chat 角色恒定挂载的通用能力，配方直接引用即可；
+    这也验证了「加场景不改内核 / 工具签名 / 装配」的扩展点。
 - **P3 compact / checkpoint**：`ChatUseCase` 在窗口裁剪前后写
   `checkpoints` 域，属宿主内部行为，不必暴露给模型。**尚未做**。

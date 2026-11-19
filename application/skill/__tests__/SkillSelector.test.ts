@@ -169,7 +169,9 @@ describe('buildSkillSystemPrompt', () => {
     expect(out).toContain('本轮可用技能：');
     expect(out).toContain('- 名称：技能甲摘要\n  使用提示：甲提示');
     expect(out).toContain('- 名称：技能乙摘要\n  使用提示：乙提示');
-    expect(out).toContain('技能只是提示，实际能力以本轮工具为准；写操作必须先给预览、结束本轮回复，等用户下一条消息明确确认后再提交。');
+    expect(out).toContain('技能只是提示，实际能力以本轮工具为准；改动业务库 / 外部状态的写操作（如导入赛事）必须先给预览、结束本轮回复，等用户下一条消息明确确认后再提交；');
+    // 2026-11-19：本地偏好保存不需要二次确认（点链接那条用户消息本身即确认）
+    expect(out).toContain('那条消息本身就是确认');
     expect(out).toContain(`${base}\n\n本轮可用技能：`);
   });
 });
