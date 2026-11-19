@@ -13,9 +13,17 @@
  * 2026-11-13：content 从 string 扩成 string | WireContentPart[]，支持图片
  * （image_url + data URI）与原生 PDF（file + file_data）。tool 消息仍保持
  * 纯文本：端点普遍不接受 role='tool' 里的多模态 part，观察文本单独走 text。
+ *
+ * 2026-11-19：端点不支持 CORS 时，请求 URL 统一经 await resolveLLMRequestUrl()
+ * 走项目已有的 /proxy 反向代理（代理服务器透传 POST / Authorization / body、
+ * 回 Access-Control-Allow-Origin）。前端直连 OPTIONS 预检拿不到 ACAO，改
+ * headers / mode / no-cors 都救不了。代理地址由 vite 域入口登记到注册表，本文件
+ * 仍在 tsc 依赖图内，不引用 import.meta.env。未登记时代理不启用 = 直连原行为；
+ * 登记的是 Promise，请求侧 await 保证第一次请求不会先于注入发出。
  */
 
 import { buildChatCompletionsUrl } from './LLMCredentialStore';
+import { resolveLLMRequestUrl } from './LLMProxyUrl';
 
 /** OpenAI content part（多模态）。形状由 MultimodalTranslator 统一构造。 */
 export type WireContentPart =
@@ -190,7 +198,8 @@ export class OpenAICompatibleClient {
       // 'minimal'/'low' 反而会烧满预算导致 content 为空
       if (withNoThinking) body['reasoning_effort'] = 'none';
 
-      const response = await fetch(this.endpoint, {
+      const requestUrl = await resolveLLMRequestUrl(this.endpoint);
+      const response = await fetch(requestUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

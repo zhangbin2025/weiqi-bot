@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { OpenAICompatibleClient } from '../OpenAICompatibleClient';
+import { installLLMProxy, resetLLMProxyUrl } from '../LLMProxyUrl';
 
 function mockFetchOnce(payload: unknown, status = 200): void {
   vi.stubGlobal('fetch', vi.fn(async () => ({
@@ -140,6 +141,77 @@ describe('真截断（content 为空 + finish_reason=length）', () => {
     await c.chat([{ role: 'user', content: 'x' }]);
     const body = JSON.parse((spy.mock.calls[0] as any)[1].body as string);
     expect(body.max_tokens).toBe(8192);
+  });
+});
+
+
+describe('CORS 修复：LLM 请求走 /proxy 反向代理', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    resetLLMProxyUrl();
+  });
+
+  const ENDPOINT = 'https://tokenhub.tencentmaas.com/plan/v3/chat/completions';
+  const mkClient = () => new OpenAICompatibleClient({
+    baseUrl: 'https://tokenhub.tencentmaas.com/plan/v3',
+    apiKey: 'test-key',
+    model: 'test-model',
+  });
+
+  it('登记代理后 fetch 的是同源代理 URL，不再是云端端点', async () => {
+    installLLMProxy('https://api.weiqi.lol');
+    const spy = vi.fn(async () => ({
+      ok: true, status: 200, text: async () => '',
+      json: async () => completion('{}', 'stop'),
+    }));
+    vi.stubGlobal('fetch', spy);
+    await mkClient().chat([{ role: 'user', content: 'hi' }]);
+    expect(spy.mock.calls[0]![0]).toBe(
+      `https://api.weiqi.lol/?url=${encodeURIComponent(ENDPOINT)}`,
+    );
+  });
+
+  it('走代理时 POST / Authorization / JSON body 逐字不变', async () => {
+    installLLMProxy('https://api.weiqi.lol');
+    const spy = vi.fn(async () => ({
+      ok: true, status: 200, text: async () => '',
+      json: async () => completion('{}', 'stop'),
+    }));
+    vi.stubGlobal('fetch', spy);
+    await mkClient().chat([{ role: 'user', content: 'hi' }]);
+    const init = spy.mock.calls[0]![1] as RequestInit;
+    expect(init.method).toBe('POST');
+    expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer test-key');
+    expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/json');
+    expect(JSON.parse(init.body as string).model).toBe('test-model');
+  });
+
+  it('未登记代理时仍直连原端点（改动前行为，供测试 / CLI 宿主保留）', async () => {
+    const spy = vi.fn(async () => ({
+      ok: true, status: 200, text: async () => '',
+      json: async () => completion('{}', 'stop'),
+    }));
+    vi.stubGlobal('fetch', spy);
+    await mkClient().chat([{ role: 'user', content: 'hi' }]);
+    expect(spy.mock.calls[0]![0]).toBe(ENDPOINT);
+  });
+
+  it('400 降级重试也走同一个代理 URL（不会重试时退回直连）', async () => {
+    installLLMProxy('https://api.weiqi.lol');
+    const spy = vi.fn()
+      .mockImplementationOnce(async () => ({
+        ok: false, status: 400, text: async () => 'unsupported field: reasoning_effort',
+      }))
+      .mockImplementationOnce(async () => ({
+        ok: true, status: 200, text: async () => '',
+        json: async () => completion('{}', 'stop'),
+      }));
+    vi.stubGlobal('fetch', spy);
+    await mkClient().chat([{ role: 'user', content: 'hi' }]);
+    expect(spy).toHaveBeenCalledTimes(2);
+    const expected = `https://api.weiqi.lol/?url=${encodeURIComponent(ENDPOINT)}`;
+    expect(spy.mock.calls[0]![0]).toBe(expected);
+    expect(spy.mock.calls[1]![0]).toBe(expected);
   });
 });
 

@@ -8,9 +8,14 @@
  * 请求头与 body 全丢 —— OpenAI 兼容 LLM 请求因此拿到云端 401
  * not authorized（「请求没携带授权信息」）。
  *
- * 让 LLM 请求「跟纯 web 一样」直连：命中 OpenAI 兼容 chat/completions
- * 端点的请求不再重定向，由渲染进程 fetch 直接打到云端。
- * 其余业务请求继续走本地代理，行为不变。
+ * 2026-11-19 更新：LLM 请求已改为「同源 /proxy?url=<端点>」——渲染进程
+ * 不再直接 fetch 云端，由本地 AssetServer 转发 POST / Authorization / body。
+ * 本地地址在 onBeforeRequest 第一批就放行，根本不会走到下面的重定向分支，
+ * 302 降级问题随之消失。tokenhub 这类零 CORS 端点也因此可用。
+ *
+ * 下面这条直连特例仍然保留：旧版本页面 / 浏览器缓存里可能还有会直接 fetch
+ * 云端 LLM 端点的 JS，删掉它反而会让那些请求被降级成 GET 拿 401。留着对新
+ * 链路零影响（新请求是本地地址），对旧页面保持兼容。
  */
 
 /** 本地资产服务器端口（与主进程 config.localPort 一致） */
@@ -26,6 +31,8 @@ const LOCAL_SERVER_ORIGINS = [
  *  - https://api.x.com/chat/completions
  *  - https://api.lkeap.cloud.tencent.com/coding/v3/chat/completions
  * 用 pathname 判断，忽略 query（避免把带 ?url=... 的代理地址误判）。
+ * 注：新链路请求的是本地 `http://127.0.0.1:8765/proxy/?url=...`，其 pathname
+ * 是 `/proxy/`，不会被这里命中；本判定只服务于上述旧页面兼容。
  */
 function isChatCompletionsEndpoint(url: string): boolean {
   try {

@@ -4,6 +4,7 @@
  */
 
 import { resolveProxyUrl } from './resolveProxyUrl';
+import { installLLMProxy } from '../../../infrastructure/llm/LLMProxyUrl';
 
 import { NetworkManager } from '../../../infrastructure/network/core/NetworkManager';
 import { UserType } from '../../../infrastructure/network/interfaces/UserType';
@@ -111,8 +112,11 @@ export class WebBootstrap {
    */
   static async init(options: WebBootstrapOptions): Promise<WebShellContext> {
     const containerId = options.containerId;
-    // 三端代理分流抽到 resolveProxyUrl，chat 页与此处共用同一口径
+    // 三端代理分流抽到 resolveProxyUrl，chat 页与此处共用同一口径。
+    // 同步登记给 LLM 层：这些 shell 页面当前不直接发 LLM 请求，但未来若在该
+    // 上下文里发起模型调用，不应因为「没登记」而退化成必崩的跨域直连。
     const proxyUrl = await resolveProxyUrl(options.proxyUrl);
+    installLLMProxy(proxyUrl);
 
     // 1. AdapterFactory + rootContainer
     const adapterFactory = new WebAdapterFactory();

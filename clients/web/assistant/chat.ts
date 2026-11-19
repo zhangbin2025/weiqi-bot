@@ -8,14 +8,19 @@
 
 import { ChatPage } from '../../../presentation/adapters/web/pages/assistant/ChatPage';
 import { resolveProxyUrl } from '../shared/resolveProxyUrl';
+import { installLLMProxy } from '../../../infrastructure/llm/LLMProxyUrl';
 
 const page = new ChatPage();
 // 附件按钮先绑定：App 端 window.prompt('config:get') 是原生桥接，可能挂起；
 // IndexedDB / 插件初始化也可能慢。这些都不该让用户点 📎 毫无反应。
 page.bindEarlyUI();
-// 三端代理分流在 vite 域的入口算好，注入页面；ChatPage 在 tsc 依赖图内，
-// 不直接引用 import.meta.env，避免类型缺失也避免破坏 vite 的字面替换。
-resolveProxyUrl().then((proxyUrl) => page.init({ proxyUrl })).catch((error) => {
+// 三端代理分流在 vite 域算好，登记给 LLM 层（注册表在 tsc 域，不能碰
+// import.meta.env）。登记的是同一个 Promise：LLM 请求侧 await 它，页面初始化
+// 不等它，App 桥接再慢也不会拖住 UI，且第一次请求绝不会先于注入发出。
+const proxyResolution = resolveProxyUrl();
+installLLMProxy(proxyResolution);
+// 网络工具用的 proxyUrl 仍是已解析的字符串，继续沿用原有注入路径。
+proxyResolution.then((proxyUrl) => page.init({ proxyUrl })).catch((error) => {
   console.error('[ChatPage] 初始化失败:', error);
   const banner = document.getElementById('notReady');
   if (banner) {
