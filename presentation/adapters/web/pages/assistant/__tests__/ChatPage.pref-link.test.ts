@@ -88,3 +88,29 @@ describe('bindPrefLinks', () => {
     expect(send).not.toHaveBeenCalled();
   });
 });
+
+
+describe('bindPrefLinks —— 通用 prefs-add: 链路', () => {
+  it('合法通用链接：回灌带 domain/key/值的用户消息，宿主不写库', () => {
+    click('prefs-add:prefs:weather.watchlist:北京');
+    expect(send).toHaveBeenCalledTimes(1);
+    const text = String(send.mock.calls[0]![0]);
+    expect(text).toContain('北京');
+    expect(text).toContain('weather.watchlist');
+    expect(text).toContain("domain='prefs'");
+    expect(text).toContain('保存到本地偏好');
+    expect(page['kvKit']).toBeUndefined();
+  });
+
+  it('脏通用 href：静默忽略，不回灌', () => {
+    for (const bad of [
+      'prefs-add:prefs:weather.watchlist:北京:多余',
+      'prefs-add:Prefs:k:v',
+      'prefs-add:prefs:k:<script>',
+    ]) {
+      send.mockClear();
+      click(bad);
+      expect(send).not.toHaveBeenCalled();
+    }
+  });
+});

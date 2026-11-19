@@ -32,6 +32,7 @@ describe('buildSkillSystemPrompt', () => {
   it('回归 2026-11-19：宿主自定义 scheme 链接（凭据 / 自选）允许原样转贴，不自造网址', () => {
     const out = buildSkillSystemPrompt(base, [recipe()]);
     expect(out).toContain('secret-prompt:');
+    expect(out).toContain('prefs-add:');
     expect(out).toContain('stock-watch-add:');
     expect(out).toContain('把那一条链接原样贴给用户');
     expect(out).toContain('不改写、不补域名、不索要参数');
