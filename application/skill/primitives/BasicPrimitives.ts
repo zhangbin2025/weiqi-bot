@@ -1,6 +1,6 @@
 /**
  * 宿主通用原语：4 个 web 工具（含 web_cache_read）+ navigate_to 指路原语
- * + news_table 宿主展示原语（数据旁路，正文不进模型上下文）。
+ * + display_json_list 通用展示原语（按配方声明渲染列表/表格，数据旁路，正文不进模型上下文）。
  * @module application/skill/primitives/BasicPrimitives
  *
  * 全部复用现有 web 工具的 definition 与执行器，不新造能力、不引入依赖。
@@ -31,7 +31,7 @@ import {
   buildNavigateToPath, isValidNavigateToPath, sanitizeNavigateToQuery,
   navigateToObservation,
 } from './NavigateToPath';
-import { createNewsTablePrimitive } from './NewsTablePrimitive';
+import { createDisplayJsonListPrimitive } from './DisplayJsonListPrimitive';
 
 /** navigate_to 工具名（与 definition.name 一致） */
 export const NAVIGATE_TO_TOOL_NAME = 'navigate_to';
@@ -79,7 +79,7 @@ function toPrimitiveResult(r: {
 
 /**
  * 构造 6 个通用原语：web_fetch / web_cache_read / web_read_pdf / web_read_image /
- * navigate_to / news_table（宿主展示，数据旁路）。
+ * navigate_to / display_json_list（通用展示，数据旁路）。
  * webDeps 由上层（接线方）注入，与 createWebToolKit 用的是同一份依赖。
  */
 export function createBasicPrimitives(webDeps: WebFetchToolDeps): SkillPrimitive[] {
@@ -139,8 +139,9 @@ export function createBasicPrimitives(webDeps: WebFetchToolDeps): SkillPrimitive
         };
       },
     },
-    // 宿主展示原语：读 WebFetchCache 里的同花顺新闻 JSON → markdown 表格 → displayMarkdown。
+    // 通用展示原语：读 WebFetchCache 里的结构化 JSON，按配方声明的 path/fields/format
+    // 生成 markdown 列表或表格 → displayMarkdown。宿主不认识任何业务字段；
     // 正文全程不进模型上下文；只有引用它的配方被命中时才会挂进 tools[]。
-    createNewsTablePrimitive(webDeps.cache ?? defaultWebFetchCache),
+    createDisplayJsonListPrimitive(webDeps.cache ?? defaultWebFetchCache),
   ];
 }

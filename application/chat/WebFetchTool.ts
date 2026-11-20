@@ -43,7 +43,7 @@ export const WEB_FETCH_TOOL: ModelToolDefinition = {
     '分页时从预览末尾的 offset 继续，不要从 0 重读已给过的内容。' +
     '同一个 URL 再次调用会重新取回并覆盖缓存。' +
     '可选 storeOnly=true：完整正文只写宿主缓存，观察只回 URL / 状态 / 字符数句柄，'
-    + '不回任何正文或预览，供宿主侧展示原语（如 news_table）直接渲染给用户，'
+    + '不回任何正文或预览，供宿主侧通用展示原语（display_json_list）直接渲染给用户，'
     + '大体积 JSON 不进模型上下文；此时不要用 web_cache_read 读回来，也不要凭句柄猜测正文。' +
     '只用于 GET；只传 http/https 绝对 URL。返回的是原始文本，不是搜索结果。',
   parameters: {
@@ -185,7 +185,7 @@ export async function executeWebFetch(argsJson: string, deps: WebFetchToolDeps):
     const lineCount = text.split('\n').length;
 
     // ---- storeOnly：正文只留在宿主缓存，观察只回句柄（数据旁路） ----
-    // 宿主侧展示原语（news_table 等）按这个 URL 从 WebFetchCache 读全文并直接渲染给用户，
+    // 宿主侧通用展示原语（display_json_list）按这个 URL 从 WebFetchCache 读全文并直接渲染给用户，
     // 模型既不收到正文也不收到预览，因此大体积 JSON 不产生延迟 / token 开销。
     // 这里只回元信息，不含一个字符的新闻正文；也不指路 web_cache_read（默认流程不该读回来）。
     if (storeOnly) {

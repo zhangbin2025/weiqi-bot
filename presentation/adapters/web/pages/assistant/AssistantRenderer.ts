@@ -219,8 +219,8 @@ export class AssistantRenderer implements IMessageRenderer {
    * 仅处理独占一行的链接（前后无其他文本）
    */
   private beautifyLinks(container: Element): void {
-    // 宿主展示块（.display-block）里的链接是表格标题，标题文本 ≠ href，
-    // 但单元格只有一个 <a> 时会被下面的 isStandaloneLink 误判成「独占一行链接」
+    // 宿主展示块（.display-block）里的链接由宿主按配方声明生成，文本 ≠ href，
+    // 列表项 / 单元格只有一个 <a> 时会被下面的 isStandaloneLink 误判成「独占一行链接」
     // 并替换成 URL 卡片。展示块由宿主按固定骨架生成，不做链接卡片后处理。
     const links = container.querySelectorAll<HTMLAnchorElement>(
       '.markdown-content:not(.display-block) a',
@@ -478,11 +478,11 @@ export class AssistantRenderer implements IMessageRenderer {
    * 渲染宿主生成的结构化 markdown 展示块（数据旁路通道）。
    *
    * 安全边界：displayMarkdown 不是模型输出，而是宿主用固定骨架 + 逐项转义过的
-   * 外部字段拼成的可信 markdown（见 NewsTablePrimitive 的 cell / safeHttpUrl）。
+   * 外部字段拼成的可信 markdown（见 DisplayJsonListPrimitive 的 cell / safeHttpUrl）。
    * 这与「助手文本先过 safeReply 再交给 marked」是同一套模型：交给 marked/innerHTML
-   * 之前，不可信部分已由宿主转义。因此这里不重复 safeReply（那会把表格骨架也毁掉），
+   * 之前，不可信部分已由宿主转义。因此这里不重复 safeReply（那会把列表 / 表格骨架也毁掉），
    * 也绝不接受来自模型回复文本的任何内容走这条通道。失败时降级为 textContent 纯文本。
-   * 复用既有 .markdown-content table 样式，无需新增 CSS。
+   * 复用既有 .markdown-content 列表 / 表格样式，无需新增 CSS。
    */
   private async renderDisplayBlock(contentDiv: HTMLElement, md: string): Promise<void> {
     try {
@@ -492,7 +492,7 @@ export class AssistantRenderer implements IMessageRenderer {
       const block = document.createElement('div');
       block.className = 'markdown-content display-block';
       block.innerHTML = htmlContent;
-      // 表格里的原文链接走宿主校验过的 http(s) 绝对 URL；聊天页是单页应用，
+      // 展示块里的 http(s) 链接走宿主校验过的绝对 URL；聊天页是单页应用，
       // 同窗口跳走会丢掉会话视图，因此统一新窗口 + noopener/noreferrer。
       block.querySelectorAll<HTMLAnchorElement>('a[href^="http://"], a[href^="https://"]')
         .forEach((a) => {

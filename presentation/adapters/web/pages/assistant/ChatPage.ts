@@ -158,7 +158,7 @@ export class ChatPage {
       timeoutMs: config?.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS,
     };
     // 技能是安装制：本地库是唯一生效来源，在线源只浏览/安装，绝不自动叠加。
-    // - primitives 是宿主内置且固定的执行器注册表（基础 web 原语 + news_table 展示原语
+    // - primitives 是宿主内置且固定的执行器注册表（基础 web 原语 + display_json_list 通用展示原语
     //   + 赛事导入两阶段原语），
     //   同时供 selectSkills 挂工具、面板标「缺原语不可装」、SkillCatalogService 安装校验；
     // - 本地技能库 / 在线源管理 / 面板 / 开发工具共用同一批实例；

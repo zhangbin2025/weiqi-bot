@@ -38,12 +38,12 @@ export interface PrimitiveResult {
    */
   actionLink?: { url: string; label: string };
   /**
-   * 宿主生成的结构化 markdown 展示块（如新闻表格）——数据旁路通道。
+   * 宿主生成的结构化 markdown 展示块（如新闻列表 / 表格）——数据旁路通道。
    * 由宿主直接渲染进用户可见层：绝不写进模型观察 / 回复文本 / ChatMessage.content，
    * 只作为独立字段落历史供 renderSession 回放。buildConversationMessages 与
    * ConversationCompactor 都只消费 content，因此它天然不进模型上下文。
    * 安全前提：字符串由宿主用固定骨架 + 逐项转义过的外部字段拼成
-   * （见 NewsTablePrimitive），在线纯 JSON 配方无法构造本字段。
+   * （见 DisplayJsonListPrimitive），在线纯 JSON 配方无法构造本字段。
    */
   displayMarkdown?: string;
 }

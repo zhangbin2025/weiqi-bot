@@ -22,10 +22,10 @@ export interface IMessageRenderer {
    * @param timestamp 时间戳（可选）
    * @param variant 消息变体：'chat' 表示闲聊回复，渲染器会套用专属气泡样式；
    *                不传则保持默认（功能消息 / 带意图标签的消息）
-   * @param displayMarkdown 宿主生成的结构化 markdown 展示块（如新闻表格）。
+   * @param displayMarkdown 宿主生成的结构化 markdown 展示块（如新闻列表 / 表格）。
    *                由渲染器单独渲染成用户可见内容，不经过模型回复文本、不写
    *                ChatMessage.content、不进模型上下文。安全前提是外部数据已由
-   *                宿主在生成侧逐项转义（见 NewsTablePrimitive）。
+   *                宿主在生成侧逐项转义（见 DisplayJsonListPrimitive）。
    */
   renderMessage(
     text: string,
