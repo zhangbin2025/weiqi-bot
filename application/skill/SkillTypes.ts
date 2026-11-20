@@ -51,7 +51,7 @@ export interface PrimitiveResult {
 /** 一条技能 = 纯 JSON 配方，只引用宿主原语，不含任何可执行代码 */
 export interface SkillRecipe {
   schemaVersion: 1;
-  /** 如 'event.import-pairing-image' */
+  /** 如 'weather.wttr' */
   id: string;
   /** 正整数 */
   version: number;

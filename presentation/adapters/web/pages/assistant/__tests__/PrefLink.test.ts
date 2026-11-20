@@ -5,9 +5,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  PREF_ADD_SCHEME, PREF_ADD_WATCH_SCHEME,
+  PREF_ADD_SCHEME,
   parsePrefAddHref, prefAddUserMessage, buildPrefAddHref,
-  parseWatchAddCode, watchAddUserMessage,
 } from '../PrefLink';
 
 describe('parsePrefAddHref —— 通用 scheme', () => {
@@ -43,8 +42,7 @@ describe('parsePrefAddHref —— 通用 scheme', () => {
     expect(parsePrefAddHref(null)).toBeNull();
     expect(parsePrefAddHref(undefined)).toBeNull();
     expect(parsePrefAddHref('https://evil.example/prefs-add:prefs:k:北京')).toBeNull();
-    expect(parsePrefAddHref('event-table:abc')).toBeNull();
-    expect(parsePrefAddHref(`${PREF_ADD_WATCH_SCHEME}sh600519`)).toBeNull();
+    expect(parsePrefAddHref('other-scheme:abc')).toBeNull();
     for (const bad of [
       `${PREF_ADD_SCHEME}`, `${PREF_ADD_SCHEME}prefs`,
       `${PREF_ADD_SCHEME}prefs:k`, `${PREF_ADD_SCHEME}prefs:k:`,
@@ -95,28 +93,6 @@ describe('prefAddUserMessage', () => {
     expect(text).toContain("domain='prefs'");
     expect(text).toContain('保存到本地偏好');
     expect(text).not.toContain('26℃');
-  });
-});
-
-describe('旧 stock-watch-add: 兼容路径', () => {
-  it('合法代码仍解析、回灌文案保持原样', () => {
-    for (const code of ['sh600519', 'sz300750', 'hk00700', 'usAAPL', 'usBRK.B']) {
-      expect(parseWatchAddCode(`${PREF_ADD_WATCH_SCHEME}${code}`)).toBe(code);
-    }
-    const text = watchAddUserMessage('sh600519');
-    expect(text).toContain('sh600519');
-    expect(text).toContain('加入我的自选');
-    expect(text).toContain('保存到本地偏好');
-  });
-
-  it('脏 href 仍静默拒绝', () => {
-    for (const bad of [
-      '', 'sh60051', 'sz300750/../../secrets/github_token',
-      'usAAPL&x=1', 'java\nscript:alert(1)', '600519',
-    ]) {
-      expect(parseWatchAddCode(`${PREF_ADD_WATCH_SCHEME}${bad}`)).toBeNull();
-    }
-    expect(parseWatchAddCode(null)).toBeNull();
   });
 });
 

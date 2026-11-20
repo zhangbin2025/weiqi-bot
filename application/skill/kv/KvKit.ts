@@ -4,7 +4,7 @@
  *
  * 装配方（ChatPage）只调这一句：
  *   const kv = createKvKit();
- *   primitives = createSkillRegistry([...createBasicPrimitives(webTools), ...kv.primitives, ...EVENT_PRIMITIVES]);
+ *   primitives = createSkillRegistry([...createBasicPrimitives(webTools), ...kv.primitives]);
  *   skillDeps.kvSuffix = kv.systemSuffix;
  *
  * 以后加域 / 加驱动 / 加能力都不用回来改这个文件：

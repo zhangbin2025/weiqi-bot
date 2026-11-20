@@ -43,13 +43,11 @@ import {
 } from '../../../../../application/skill/primitives/AuthFetchPrimitives';
 import { openSecretPromptDialog } from './SecretPromptDialog';
 import {
-  PREF_ADD_SCHEME, PREF_ADD_WATCH_SCHEME,
-  parsePrefAddHref, prefAddUserMessage, parseWatchAddCode, watchAddUserMessage,
+  PREF_ADD_SCHEME,
+  parsePrefAddHref, prefAddUserMessage,
 } from './PrefLink';
-import { EVENT_PRIMITIVES } from '../../../../../application/skill/primitives/EventImportPrimitives';
 import { UserSkillStore, type UserSkillEntry } from '../../../../../application/skill/dev/UserSkillStore';
 import { createSkillDevKit } from '../../../../../application/skill/dev/SkillDevTools';
-import { openEventTableDialog } from './EventTableDialog';
 import {
   createDefaultSkillCatalog, type SkillCatalogService,
   type SkillCatalogBrowseResult, type SkillBrowseItem,
@@ -176,7 +174,6 @@ export class ChatPage {
     const skillPrimitives = createSkillRegistry([
       ...createBasicPrimitives(webTools),
       ...kvKit.primitives,
-      ...EVENT_PRIMITIVES,
       // 通用带凭据直连：模型只给 url + secretKey，域名白名单 / header / 重认证
       // 状态全由配方 secrets 声明，宿主按 secretKey 查表执行。
       ...createAuthFetchPrimitives({
@@ -233,7 +230,6 @@ export class ChatPage {
 
     this.bindUI();
     this.bindLifecycle();
-    this.bindEventTableLinks();
     this.bindSecretPromptLinks();
     this.bindPrefLinks();
     // 先恢复上次会话（它会顺带定下该会话的角色），再刷新角色 UI 与输入状态
@@ -249,49 +245,9 @@ export class ChatPage {
   }
 
   /**
-   * 「表格编辑」工具返回的 event-table: 链接 → 打开可编辑对阵表弹框。
-   *
-   * 用 document 上的事件委托而非在渲染器里逐个 a 标签绑 click：回复走 marked +
-   * 打字机异步注入 DOM，渲染完成时链接可能还没出现；委托也能覆盖历史消息恢复
-   * （prependMessage）里重新渲染出来的旧链接。
-   *
-   * 弹框「导入」校验通过后回调这里，走的是**正常 send() 路径**：
-   * - ChatUseCase.send 会调 beginUserTurn() 推进人工确认闸门，因此 LLM 可以在
-   *   这一轮调 event_commit_draft 写库（同一条消息里自动写库仍被硬闸门拒绝）；
-   * - 历史里仍带图片附件，selectSkills 继续命中 event.import* 技能，commit 工具
-   *   保持挂载。
-   * 用户看到的是自己发出的一条确认消息，不是宿主偷偷替他说话。
-   */
-  private bindEventTableLinks(): void {
-    document.addEventListener('click', (event) => {
-      const target = event.target as HTMLElement | null;
-      const link = target?.closest('a[href^="event-table:"]') as HTMLAnchorElement | null;
-      if (!link) return;
-      event.preventDefault();
-      const token = link.getAttribute('href')?.slice('event-table:'.length) ?? '';
-      if (!token) return;
-      openEventTableDialog(token, () => {
-        void this.sendEventTableImport();
-      });
-    });
-  }
-
-  /** 弹框点「导入」后发出的确认消息：只描述意图，不复述数据 */
-  private async sendEventTableImport(): Promise<void> {
-    // 「导入赛事」是技能触发词：图片通道靠 hasImagePart 挂载，纯文字/历史窗口
-    // 滑出图片时靠触发词兜底，保证这一轮 event_commit_draft 一定可用。
-    const text =
-      '导入赛事：我已在对阵表弹框里核对并确认（可能已修改）全部场次，请调用 event_commit_draft 把这份草稿写入赛事库。';
-    // 直接走用例：send() 内部负责渲染用户气泡、落盘、beginUserTurn 闸门推进。
-    // 不复用 handleSend()，避免清空用户尚未发送的草稿文字、误带待发附件、
-    // 或触发一次无意义的标题精炼。
-    await this.useCase.send(text);
-  }
-
-  /**
    * 通用凭据配置链接（secret-prompt:<key>）→ 按 key 查规格 → 打开录入 / 修改弹框。
    *
-   * 与 event-table: 同款：用 document 事件委托而非给每个 a 标签绑 click ——
+   * 用 document 事件委托而非给每个 a 标签绑 click ——
    * 回复走 marked + 打字机异步注入 DOM，渲染完成时链接可能还没出现；委托也能
    * 覆盖历史消息恢复里重新渲染出来的旧链接。
    *
@@ -315,8 +271,7 @@ export class ChatPage {
   }
 
   /**
-   * 本地偏好写入链接（通用 prefs-add:<domain>:<key>:<value>，兼容旧
-   * stock-watch-add:<代码>）→ 回灌一条用户消息交给 LLM。
+   * 本地偏好写入链接（通用 prefs-add:<domain>:<key>:<value>）→ 回灌一条用户消息交给 LLM。
    *
    * 与 secret-prompt: 的**关键差别**：这里宿主一行存储都不写。prefs 域是
    * readable / model 写，就是设计给「LLM 调用本地存储接口」用的；宿主只负责把
@@ -327,7 +282,7 @@ export class ChatPage {
    * 2026-11-19 通用化：宿主**不认识任何业务键名**（weather.watchlist /
    * stock.watchlist 都由配方声明），新增 skill 存偏好只改配方、不改宿主。
    *
-   * 用 document 事件委托（同 event-table: / secret-prompt:）：回复走 marked +
+   * 用 document 事件委托（同 secret-prompt:）：回复走 marked +
    * 打字机异步注入 DOM，委托也能覆盖历史消息恢复后重新渲染出来的旧链接。
    * 链接只经形状校验，不携带整份待写入结构 / URL / JSON。
    */
@@ -335,21 +290,13 @@ export class ChatPage {
     document.addEventListener('click', (event) => {
       const target = event.target as HTMLElement | null;
       const href = target?.closest<HTMLAnchorElement>(
-        `a[href^="${PREF_ADD_SCHEME}"], a[href^="${PREF_ADD_WATCH_SCHEME}"]`,
+        `a[href^="${PREF_ADD_SCHEME}"]`,
       )?.getAttribute('href') ?? null;
       if (!href) return;
       event.preventDefault(); // 本 scheme 一律不交给浏览器导航
-      // 通用 scheme 优先；旧股票 scheme 作历史兼容。脏串一律静默忽略。
-      const general = parsePrefAddHref(href);
-      let message: string | null = null;
-      if (general) {
-        message = prefAddUserMessage(general);
-      } else {
-        const code = parseWatchAddCode(href);
-        if (code) message = watchAddUserMessage(code);
-      }
-      if (!message) return; // 形状不合法：绝不把脏 href 回灌成用户消息
-      void this.useCase.send(message);
+      const parsed = parsePrefAddHref(href);
+      if (!parsed) return; // 形状不合法：绝不把脏 href 回灌成用户消息
+      void this.useCase.send(prefAddUserMessage(parsed));
     });
   }
 

@@ -9,19 +9,12 @@
  * - 只用 primitives 全部存在于宿主注册表的技能，缺原语整条跳过；
  * - 声明了 requiredCapabilities 的技能，要求当前已启用能力库暴露的方法名
  *   并集包含每一项；缺一项整条跳过；
- * - 附件场景：hasAttachments 且技能 id 以 'event.import' 开头时，即使路由
- *   没给该 id 也保留 —— 上传图片时文字常只是「这个」「帮我看看」，
- *   「预览 → 用户确认」那一轮的「好的/确认」也不含明确意图。上下文里仍带
- *   图片附件即持续可用，直到图片滑出既有 maxMessages=20 历史窗口。
- *   这是环境事实（宿主知道有附件），不是对模型意图的猜测。
+ * - 附件信号由 SkillRouter 用于路由上下文；本阶段只认路由 id，不因有附件
+ *   额外放行任何技能（附件兜底后门已随对应业务功能删除）。
  * - 路由返回空 / 失败 → 无命中（本轮只挂基础 web 工具，零额外 token）。
  */
 
 import type { SkillPrimitive, SkillRecipe } from '@application/skill/SkillTypes';
-
-function matchesAttachmentEvent(id: string, hasAttachments: boolean): boolean {
-  return hasAttachments && id.startsWith('event.import');
-}
 
 /** 该技能引用的原语是否全部在宿主注册表里可用 */
 function hasAllPrimitives(skill: SkillRecipe, registry: ReadonlyMap<string, SkillPrimitive>): boolean {
@@ -48,11 +41,12 @@ export function hasAllCapabilities(
 
 /**
  * 选出本轮可用技能。保持 recipes 的原始顺序，不排序、不打分。
- * skillIds 由 SkillRouter 给出；未给出（空集）时只保留附件场景技能。
+ * skillIds 由 SkillRouter 给出；未给出（空集）时无命中。
  */
 export function selectSkills(
   skillIds: readonly string[],
-  hasAttachments: boolean,
+  /** 兼容调用方的位置参数；附件信号只用于路由上下文，选取阶段不据此放行 */
+  _hasAttachments: boolean,
   recipes: readonly SkillRecipe[],
   registry: ReadonlyMap<string, SkillPrimitive>,
   /** 当前已启用 llm-tool 能力库暴露的方法名；不传 = 无能力库 */
@@ -63,7 +57,7 @@ export function selectSkills(
   for (const skill of recipes) {
     if (!hasAllPrimitives(skill, registry)) continue;
     if (!hasAllCapabilities(skill, capabilities)) continue;
-    if (wanted.has(skill.id) || matchesAttachmentEvent(skill.id, hasAttachments)) {
+    if (wanted.has(skill.id)) {
       result.push(skill);
     }
   }

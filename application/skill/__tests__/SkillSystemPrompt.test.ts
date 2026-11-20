@@ -33,7 +33,6 @@ describe('buildSkillSystemPrompt', () => {
     const out = buildSkillSystemPrompt(base, [recipe()]);
     expect(out).toContain('secret-prompt:');
     expect(out).toContain('prefs-add:');
-    expect(out).toContain('stock-watch-add:');
     expect(out).toContain('把那一条链接原样贴给用户');
     expect(out).toContain('不改写、不补域名、不索要参数');
     // 禁令仍在，只是收窄到「自己编的 http(s) 外站网址」
@@ -42,7 +41,7 @@ describe('buildSkillSystemPrompt', () => {
 
   it('既有「写操作先预览等确认」尾句完整保留', () => {
     expect(buildSkillSystemPrompt(base, [recipe()])).toContain(
-      '技能只是提示，实际能力以本轮工具为准；改动业务库 / 外部状态的写操作（如导入赛事）必须先给预览、结束本轮回复，等用户下一条消息明确确认后再提交；',
+      '技能只是提示，实际能力以本轮工具为准；改动业务库 / 外部状态的写操作必须先给预览、结束本轮回复，等用户下一条消息明确确认后再提交；',
     );
   });
 

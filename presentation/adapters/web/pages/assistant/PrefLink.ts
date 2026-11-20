@@ -11,13 +11,12 @@
  *
  * 为什么走 markdown 链接 + document 事件委托，而不是 ToolOutcome.actionLink：
  * AssistantRenderer.resolvePath 会把自定义 scheme 改写成站内路径，只有 markdown
- * 链接能原样落到 DOM（与 event-table: / secret-prompt: 同款）。
+ * 链接能原样落到 DOM（与 secret-prompt: 同款）。
  *
  * ## 2026-11-19 通用化：任何 skill 存用户数据都不再改宿主
  *
- * 旧 `stock-watch-add:<代码>` 把 scheme 名、股票代码正则、回灌文案全部写死在
- * 宿主里，天气 / 后续任何「加入自选」类技能都得再注册一个 scheme、再改一次
- * 事件委托与白名单，配方里还要抄一遍流程。
+ * 早期曾为单一场景把 scheme 名、代码正则、回灌文案写死在宿主里，导致每加
+ * 一类「加入自选」技能都要再注册 scheme、再改事件委托与白名单；现已统一。
  *
  * 现在统一为 `prefs-add:<domain>:<key>:<value>`：
  * - 宿主**不认识任何业务键名**（weather.watchlist / stock.watchlist 仍由配方声明），
@@ -30,17 +29,13 @@
  * - 新增技能要存偏好时，只需在配方里贴出这种链接并声明 domain/key，
  *   **不需要改宿主**。
  *
- * 旧 `stock-watch-add:` 仍保留（兼容历史会话里已渲染的旧链接），
- * 但新配方一律用通用 scheme。
+ * 2026-11-20：旧专用 scheme 的兼容路径已移除，宿主只认通用 scheme。
  */
 
 import { KV_DOMAIN_NAME_RE } from '../../../../../application/skill/kv/KvDomains';
 
 /** 通用自定义 scheme：点击 = 请 LLM 按技能说明把一条值存入本地偏好 */
 export const PREF_ADD_SCHEME = 'prefs-add:';
-
-/** 旧 scheme（股票自选，仅历史链接兼容；新配方不要再使用） */
-export const PREF_ADD_WATCH_SCHEME = 'stock-watch-add:';
 
 /**
  * 键名形状：与 KvService 的 KV_KEY_RE 同源（字母数字 _ . -，长度上限沿用宿主
@@ -70,9 +65,6 @@ const MAX_HREF_CHARS = 2048;
 
 /** 单个标识的长度上限（同上，协议护栏）：值是一个标识，不是整份列表 / JSON / 正文 */
 const MAX_VALUE_CHARS = 256;
-
-/** 旧兼容路径的股票代码形状（与配方代码转换口径同源：市场前缀 + 位数） */
-const STOCK_CODE_RE = /^(?:sh\d{6}|sz\d{6}|hk\d{5}|us[A-Za-z0-9.]{1,10})$/;
 
 /** 通用 scheme 解析结果 */
 export interface PrefAddTarget {
@@ -128,18 +120,4 @@ export function prefAddUserMessage(t: PrefAddTarget): string {
 /** 构造一条通用链接（给配方作者 / 测试用；模型侧按配方里的格式原样贴出即可） */
 export function buildPrefAddHref(domain: string, key: string, value: string): string {
   return `${PREF_ADD_SCHEME}${domain}:${key}:${value}`;
-}
-
-// ---- 旧 scheme 兼容（保留既有导出名，历史链接与既有单测不受影响） ----
-
-/** 校验旧链接里携带的股票代码。只做形状约束，不做行情语义判断。 */
-export function parseWatchAddCode(href: string | null | undefined): string | null {
-  if (typeof href !== 'string' || !href.startsWith(PREF_ADD_WATCH_SCHEME)) return null;
-  const code = href.slice(PREF_ADD_WATCH_SCHEME.length);
-  return STOCK_CODE_RE.test(code) ? code : null;
-}
-
-/** 旧回灌文案（股票专用，保持原样） */
-export function watchAddUserMessage(code: string): string {
-  return `把 ${code} 加入我的自选，请按技能说明保存到本地偏好并回执。`;
 }

@@ -18,7 +18,7 @@
  *
  * 「下次不再弹框」不靠状态位：凭据存在且服务端不再返回重认证状态时，调用直接成功。
  * 链接是消息里的 markdown（`[🔑 …](secret-prompt:…)`），宿主用 document 事件委托
- * 接管（同 event-table:）。不走 ToolOutcome.actionLink：AssistantRenderer.resolvePath
+ * 接管（同 secret-prompt:）。不走 ToolOutcome.actionLink：AssistantRenderer.resolvePath
  * 会把自定义 scheme 改写成站内路径，只有 markdown 链接能原样落到 DOM。
  *
  * 边界：

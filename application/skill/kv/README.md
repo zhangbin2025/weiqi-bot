@@ -80,17 +80,20 @@
   接入新的认证 API = 加一条配方声明，不改内核 / 工具签名 / 弹框。
 - **P2' 使用偏好（自选股池）—— 已落地**：`prefs` 域的第一个真实场景，与 `secrets`
   刻意做成镜像。配方 `stock.quote` v3 在报价后附一条
-  `[添加到自选](stock-watch-add:<代码>)` markdown 链接；宿主 `ChatPage.bindPrefLinks()`
-  用 document 事件委托接管，**一行存储都不写**，只回灌一条正常用户消息
-  （`watchAddUserMessage`），由 LLM 按配方指令自己调 `kv_read('prefs','stock.watchlist')`
-  → 去重 → `kv_write` 保存并回执。用户说「查询自选股票当前股价」时同样由 LLM 读回
-  代码列表、一次 `web_fetch` 多代码查询、按列表播报。
+  `[添加到自选](prefs-add:prefs:stock.watchlist:<代码>)` markdown 链接；宿主
+  `ChatPage.bindPrefLinks()` 用 document 事件委托接管，**一行存储都不写**，只回灌
+  一条带 domain / key / 值的正常用户消息（`prefAddUserMessage`），由 LLM 按配方
+  指令自己调 `kv_read('prefs','stock.watchlist')` → 去重 → `kv_write` 保存并回执。
+  用户说「查询自选股票当前股价」时同样由 LLM 读回代码列表、一次 `web_fetch`
+  多代码查询、按列表播报。
   - 宿主不托管写入，是为了模型上下文里始终有这份偏好，不会出现「宿主偷偷写了、
     模型下一轮却不知道」的劈叉；也与 `secrets` 的「宿主独占写、明文不过模型」形成对照。
-  - 链接只带一个经形状校验的股票代码（`PrefLink.ts` 的 `STOCK_CODE_RE`），
-    不携带待写入的值 / URL / JSON，脏 href 静默忽略。
+  - 通用 scheme `prefs-add:<domain>:<key>:<value>` 只做形状校验（`PrefLink.ts`
+    的 `parsePrefAddHref`），宿主不认识任何业务键名；不携带待写入的整份值 / URL /
+    JSON，脏 href 静默忽略。2026-11-20 起旧专用 scheme 的兼容路径已移除。
   - **没有新增原语**：`kv_*` 是 chat 角色恒定挂载的通用能力，配方直接引用即可；
-    这也验证了「加场景不改内核 / 工具签名 / 装配」的扩展点。
+    新增任何「存偏好」场景只需在配方里声明 domain / key 并贴通用链接，
+    「加场景不改内核 / 工具签名 / 装配」由此坐实。
 - **P3 compact / checkpoint —— 已落地（P3a）**：`ConversationCompactor` 在每轮
   `ChatUseCase.runTurn()` 前**同步**执行（用户 2026-11-19 决策①）：
   `planConversationWindow()` 算出「完整历史里被窗口丢掉的旧消息」，只要真有丢弃就

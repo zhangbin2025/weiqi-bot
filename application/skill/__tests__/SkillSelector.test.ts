@@ -3,7 +3,7 @@
  *
  * 全部用最小假注册表与纯内存原语，不触网、不碰 IndexedDB、不依赖真实 web 工具。
  * 触发词匹配已删除：selectSkills 现在只按 LLM 路由给出的 id 做激活前硬门槛筛选。
- * 覆盖：路由 id 命中 / 未知 id 丢弃 / 附件场景 / 缺原语 / 缺能力库 / 去重 /
+ * 覆盖：路由 id 命中 / 未知 id 丢弃 / 缺原语 / 缺能力库 / 去重 /
  * PrimitiveResult→ToolOutcome 只填三个必填字段。
  */
 
@@ -69,20 +69,11 @@ describe('selectSkills（按 LLM 路由 id + 硬门槛）', () => {
     expect(selectSkills(['ghost.skill', 'x.one.typo'], false, [r], registry(['p_a']))).toEqual([]);
   });
 
-  it('附件场景命中 event.import* 技能，不要求路由给出该 id', () => {
-    const r = recipe({ id: 'event.import-pairing-image', primitives: ['p_a'] });
+  it('有附件但路由为空：不额外放行任何技能（附件后门已删）', () => {
     const reg = registry(['p_a']);
-    // 上传图片时文字常只是「这个」「帮我看看」；确认轮「好的」同理。
-    expect(selectSkills([], true, [r], reg)).toEqual([r]);
-    expect(selectSkills(['x.other'], true, [r], reg)).toEqual([r]);
-  });
-
-  it('附件场景但 id 不是 event.import* 前缀，或无附件 → 不命中', () => {
-    const reg = registry(['p_a']);
-    const notEvent = recipe({ id: 'puzzle.tsumego', primitives: ['p_a'] });
-    expect(selectSkills([], true, [notEvent], reg)).toEqual([]);
-    const eventSkill = recipe({ id: 'event.import-pairing-image', primitives: ['p_a'] });
-    expect(selectSkills([], false, [eventSkill], reg)).toEqual([]);
+    const r = recipe({ id: 'test.skill', primitives: ['p_a'] });
+    expect(selectSkills([], true, [r], reg)).toEqual([]);
+    expect(selectSkills([], false, [r], reg)).toEqual([]);
   });
 
   it('引用缺原语的技能整条跳过（在线资源可领先宿主）', () => {
@@ -169,7 +160,7 @@ describe('buildSkillSystemPrompt', () => {
     expect(out).toContain('本轮可用技能：');
     expect(out).toContain('- 名称：技能甲摘要\n  使用提示：甲提示');
     expect(out).toContain('- 名称：技能乙摘要\n  使用提示：乙提示');
-    expect(out).toContain('技能只是提示，实际能力以本轮工具为准；改动业务库 / 外部状态的写操作（如导入赛事）必须先给预览、结束本轮回复，等用户下一条消息明确确认后再提交；');
+    expect(out).toContain('技能只是提示，实际能力以本轮工具为准；改动业务库 / 外部状态的写操作必须先给预览、结束本轮回复，等用户下一条消息明确确认后再提交；');
     // 2026-11-19：本地偏好保存不需要二次确认（点链接那条用户消息本身即确认）
     expect(out).toContain('那条消息本身就是确认');
     expect(out).toContain(`${base}\n\n本轮可用技能：`);

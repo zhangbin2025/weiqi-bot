@@ -95,12 +95,12 @@ describe('routeSkills', () => {
     await routeSkills(gw, RECIPES, {
       recentUserTexts: ['好的，确认'],
       hasAttachments: true,
-      previousSkillIds: ['event.import-pairing-image'],
+      previousSkillIds: ['user.demo'],
     });
     const userText = (execute.mock.calls[0]![0] as ModelRequest).messages
       .find((m) => m.role === 'user')!.content as string;
     expect(userText).toContain('有图片附件：是');
-    expect(userText).toContain('上一轮技能：event.import-pairing-image');
+    expect(userText).toContain('上一轮技能：user.demo');
   });
 
   it('模型返回目录外 id → 过滤为空', async () => {
