@@ -82,8 +82,9 @@ const SKILL_WRITE_TOOL: ModelToolDefinition = {
         items: { type: 'object' },
         description: '可选。凭据规格数组：每项含 key / label / allowedHosts（纯域名数组）/ '
           + 'header:{name,prefix}，可选 setupUrl / hint / reauthStatuses（默认 [401]）。'
-          + '仅当引用 http_fetch_auth / secret_prompt 时需要；宿主据此限定可发往的域名与请求头，'
-          + '模型运行时只能给 url 和 secretKey。',
+          + 'POST 配方还可声明 method:"POST"、bodyStatic（固定 JSON 字段）、bodyQueryParams（允许从 URL query 搬进 body 的键白名单）；'
+          + '不声明 method 即缺省 GET。仅当引用 http_fetch_auth / secret_prompt 时需要；'
+          + '宿主据此限定可发往的域名、请求头、方法与 body 形状，模型运行时只能给 url 和 secretKey。',
       },
       prompt: {
         type: 'string',
@@ -156,8 +157,11 @@ function buildSystemSuffix(primitives: ReadonlyMap<string, SkillPrimitive>): str
       + 'id 可选，修订时填 skill_list 查到的同一 id（user. 开头），新建时省略。',
     'secrets 可选：引用 http_fetch_auth / secret_prompt 的配方要声明凭据规格数组，'
       + '每项 key / label / allowedHosts（纯域名）/ header:{name,prefix}，可选 setupUrl / hint。'
-      + '宿主据此限定凭据只能发往哪些域名、请求头怎么拼；模型调用时只给 url 和 secretKey，'
-      + '绝不传密钥或请求头，首次缺失时贴 secret-prompt 链接让用户在弹框录入并自动保存。',
+      + '接口只支持 POST 时再声明 method:"POST"、bodyStatic（固定 JSON 字段）、'
+      + 'bodyQueryParams（允许从 URL query 搬进 body 的键白名单）；不声明 method 即缺省 GET。'
+      + '宿主据此限定凭据只能发往哪些域名、请求头怎么拼、用哪个方法、body 有哪些字段；'
+      + '模型调用时只给 url 和 secretKey，绝不传密钥、请求头或 body 字段，'
+      + '首次缺失时贴 secret-prompt 链接让用户在弹框录入并自动保存。',
     'requiredCapabilities 可选：填本技能依赖的 llm-tool 能力库方法名数组（标识符，如 ["monthCalendar"]），'
       + '至少 1 条；缺任一方法时整条技能不激活、面板也标「缺能力库方法」不可装。'
       + '只写方法名，**不要写 libId**（本机安装指纹，跨机器不一致）。不填 = 不检查依赖。',

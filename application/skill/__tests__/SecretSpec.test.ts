@@ -62,6 +62,61 @@ describe('parseSecretSpec', () => {
     expect(() => parseSecretSpec({ ...GH, allowedHosts: [] }, 0)).toThrow(/allowedHosts/);
     expect(() => parseSecretSpecs([GH, GH])).toThrow(/重复/);
   });
+
+  it('缺省 method 的老配方逐字兼容，结果里不出现 POST 字段', () => {
+    const s = parseSecretSpec(GH, 0);
+    expect(s).toEqual(GH);
+    expect(s).not.toHaveProperty('method');
+    expect(s).not.toHaveProperty('bodyStatic');
+    expect(s).not.toHaveProperty('bodyQueryParams');
+  });
+
+  it('合法 POST 声明：method / bodyStatic / bodyQueryParams 原样通过', () => {
+    const s = parseSecretSpec({
+      ...GH,
+      key: 'tavily_api_key',
+      method: 'POST',
+      bodyStatic: { search_depth: 'basic', max_results: 5, include_answer: true },
+      bodyQueryParams: ['query', 'query'],
+    }, 0);
+    expect(s.method).toBe('POST');
+    expect(s.bodyStatic).toEqual({
+      search_depth: 'basic', max_results: 5, include_answer: true,
+    });
+    expect(s.bodyQueryParams).toEqual(['query']); // 去重
+  });
+
+  it('method 只收 GET / POST；body 字段名按标识符规则', () => {
+    expect(() => parseSecretSpec({ ...GH, method: 'DELETE' }, 0)).toThrow(/method/);
+    // 配方真实来源是 JSON.parse，那里 '__proto__' 是 own key（对象字面量不是）
+    const dirty = JSON.parse('{"__proto__":1}') as Record<string, unknown>;
+    expect(() => parseSecretSpec({ ...GH, method: 'POST', bodyStatic: dirty }, 0))
+      .toThrow(/bodyStatic/);
+    expect(() => parseSecretSpec({ ...GH, method: 'POST', bodyStatic: { constructor: 1 } }, 0))
+      .toThrow(/bodyStatic/);
+    expect(() => parseSecretSpec({ ...GH, method: 'POST', bodyQueryParams: ['__proto__'] }, 0))
+      .toThrow(/bodyQueryParams/);
+    expect(() => parseSecretSpec({ ...GH, method: 'POST', bodyQueryParams: ['bad-key'] }, 0))
+      .toThrow(/bodyQueryParams/);
+    expect(() => parseSecretSpec({ ...GH, method: 'POST', bodyQueryParams: 'query' }, 0))
+      .toThrow(/bodyQueryParams/);
+  });
+
+  it('POST 专属字段不能出现在 GET 里；POST 必须有 body 来源', () => {
+    expect(() => parseSecretSpec({ ...GH, bodyStatic: { a: 1 } }, 0)).toThrow(/POST/);
+    expect(() => parseSecretSpec({ ...GH, bodyQueryParams: ['q'] }, 0)).toThrow(/POST/);
+    expect(() => parseSecretSpec({ ...GH, method: 'GET', bodyQueryParams: ['q'] }, 0)).toThrow(/POST/);
+    expect(() => parseSecretSpec({ ...GH, method: 'POST' }, 0)).toThrow(/bodyStatic/);
+  });
+
+  it('bodyStatic 不可 JSON 序列化（BigInt / 循环引用）直接拒绝', () => {
+    expect(() => parseSecretSpec({ ...GH, method: 'POST', bodyStatic: { n: BigInt(1) } }, 0))
+      .toThrow(/序列化/);
+    const cyclic: Record<string, unknown> = {};
+    cyclic['self'] = cyclic;
+    expect(() => parseSecretSpec({ ...GH, method: 'POST', bodyStatic: cyclic }, 0))
+      .toThrow(/序列化/);
+  });
 });
 
 describe('collectSecretSpecs', () => {
@@ -99,5 +154,15 @@ describe('parseSkillRecipe 与 secrets', () => {
     const r = parseSkillRecipe({ ...base, secrets: [{ ...GH, allowedHosts: ['https://evil.com'] }] });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toContain('allowedHosts');
+  });
+
+  it('POST 规格透传到 skill（解析层不丢字段）', () => {
+    const spec = {
+      ...GH, key: 'tavily_api_key', method: 'POST',
+      bodyStatic: { max_results: 5 }, bodyQueryParams: ['query'],
+    };
+    const r = parseSkillRecipe({ ...base, secrets: [spec] });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.skill.secrets).toEqual([spec]);
   });
 });

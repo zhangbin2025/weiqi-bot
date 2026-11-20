@@ -75,8 +75,11 @@
   宿主弹框录入，保存后自动回灌继续请求。宿主接口（`put / readRaw / remove / listMeta`）
   保留给弹框与直连链路使用，不再做 UI 列表。
 - **P2 通用直连鉴权 —— 已落地**：`http_fetch_auth` 由宿主按配方 `secrets` 纯声明规格
-  （`allowedHosts` / header 拼法 / `reauthStatuses`）查表执行，端侧直连（不经代理），
-  `readRaw()` 取凭据拼 header；模型只给 `url` + `secretKey`，永远接触不到明文。
+  （`allowedHosts` / header 拼法 / `method` / `bodyStatic` / `bodyQueryParams` /
+  `reauthStatuses`）查表执行，端侧直连（不经代理），`readRaw()` 取凭据拼 header；
+  缺省 GET，POST 配方由宿主把 URL query 白名单键搬进 JSON body 并合并静态字段
+  （静态字段后写，模型无法覆盖）。模型只给 `url` + `secretKey`，永远接触不到明文，
+  也传不了 method / 请求头 / body 字段。
   接入新的认证 API = 加一条配方声明，不改内核 / 工具签名 / 弹框。
 - **P2' 使用偏好（自选股池）—— 已落地**：`prefs` 域的第一个真实场景，与 `secrets`
   刻意做成镜像。配方 `stock.quote` v3 在报价后附一条

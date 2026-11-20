@@ -7,14 +7,17 @@
  *     ├─ 凭据未保存 / 命中 reauthStatuses（默认 401）→ ok:false + secret-prompt:<key> 链接
  *     │    模型只把链接原样贴给用户，不索要、猜测、复述明文，不改 URL 重试
  *     └─ 正常 → 宿主 readRaw('secrets', key) 拼 `<header.name>: <prefix><token>`，
- *              端侧直连 fetch；观察只回 HTTP 状态 + 预览，完整正文写 WebFetchCache
+ *              按 spec.method 发 GET 或 POST（POST 时把 URL query 里白名单内的键
+ *              搬进 JSON body），端侧直连 fetch；观察只回 HTTP 状态 + 预览，
+ *              完整正文写 WebFetchCache
  *
  *   secret_prompt(secretKey) → 无论是否已配置都回同一条链接（「修改也弹框」）。
  *
  * **安全边界（宿主强制，模型无法绕过）**：模型参数只有 url 与 secretKey。
- * `allowedHosts` / header 名与前缀 / 重认证状态码全部来自配方声明，由宿主在
- * 装配期汇总进 SecretSpecRegistry；运行时模型传不进来，也就无法把某个 token
- * 发到别的站点、或改 header 拼法。规格表里没有的 key 一律拒绝。
+ * `allowedHosts` / header 名与前缀 / method / body 形状 / 重认证状态码全部来自
+ * 配方声明，由宿主在装配期汇总进 SecretSpecRegistry；运行时模型传不进来，也
+ * 就无法把某个 token 发到别的站点、改 header 拼法、或扩张 POST body 的字段。
+ * 规格表里没有的 key 一律拒绝。工具签名始终只有 url + secretKey 两个参数。
  *
  * 「下次不再弹框」不靠状态位：凭据存在且服务端不再返回重认证状态时，调用直接成功。
  * 链接是消息里的 markdown（`[🔑 …](secret-prompt:…)`），宿主用 document 事件委托
@@ -22,7 +25,9 @@
  * 会把自定义 scheme 改写成站内路径，只有 markdown 链接能原样落到 DOM。
  *
  * 边界：
- * - 只 HTTPS 绝对 URL、只 GET；禁 userinfo / 端口 / 片段；host 精确匹配规格白名单。
+ * - 只 HTTPS 绝对 URL；GET（缺省）或 POST（配方显式声明）；禁 userinfo / 端口 /
+ *   片段；host 精确匹配规格白名单。POST 的 body 只由配方静态字段 + URL query
+ *   白名单键合成，不含凭据。
  * - 不带浏览器 cookie（credentials:'omit'）、不写缓存（cache:'no-store'）。
  * - token 只在宿主内存里活到 fetch 完成，不进观察 / 缓存 / 日志 / 会话历史。
  * - 数值出处：观察长度与预览取 CONTEXT_LIMITS.maxCharsPerMessage；请求超时取宿主
@@ -44,9 +49,12 @@ export const SECRET_PROMPT_SCHEME = 'secret-prompt:';
 export const HTTP_FETCH_AUTH_TOOL: ModelToolDefinition = {
   name: HTTP_FETCH_AUTH_TOOL_NAME,
   description:
-    '带凭据的 HTTPS GET 直连。只传 url 和 secretKey（配方里声明的凭据名）；'
-    + '允许访问哪些域名、请求头怎么拼、哪些状态码算凭据失效，全部由宿主按已启用配方决定，模型不能指定。'
-    + '认证由宿主自动完成，模型拿不到也传不了任何密钥或请求头。'
+    '带凭据的 HTTPS 直连（GET 或 POST 由配方声明决定，缺省 GET）。只传 url 和 secretKey（配方里声明的凭据名）；'
+    + '允许访问哪些域名、请求头怎么拼、用哪个 HTTP 方法、POST body 的形状、哪些状态码算凭据失效，'
+    + '全部由宿主按已启用配方决定，模型不能指定。'
+    + 'POST 时把 url 的 query 参数按配方白名单搬进 JSON body（如 ?query=… → body.query），'
+    + '其余参数由配方写成固定值，模型改不了；url 里多余的 query 参数一律丢弃。'
+    + '认证由宿主自动完成，模型拿不到也传不了任何密钥、请求头或 body 字段。'
     + '返回 HTTP 状态与正文预览；完整正文存入宿主缓存，用 web_cache_read（url 填本观察里的 URL，'
     + 'mode=slice 分页 / mode=grep 查找）继续读，未显示的部分绝不能凭猜测补写。'
     + '若凭据未配置或已失效，会返回一条配置链接：只把链接原样贴给用户并结束本轮，'
@@ -54,7 +62,7 @@ export const HTTP_FETCH_AUTH_TOOL: ModelToolDefinition = {
   parameters: {
     type: 'object',
     properties: {
-      url: { type: 'string', description: '要请求的 https 绝对 URL，host 必须在当前配方声明的允许列表内' },
+      url: { type: 'string', description: '要请求的 https 绝对 URL，host 必须在当前配方声明的允许列表内；POST 配方把 query 参数当搜索词输入（见配方说明）' },
       secretKey: { type: 'string', description: '配方 secrets 里声明的凭据 key，如 github_token' },
     },
     required: ['url', 'secretKey'],
@@ -129,6 +137,39 @@ export function validateAuthUrl(raw: string, spec: SecretSpec): string {
   return u.toString();
 }
 
+/**
+ * 由「已校验的 URL + 配方规格」构造真实请求。POST 的 body 只取配方白名单里的
+ * query 键 + 配方静态字段；静态字段后写，保证模型无法用 query 覆盖固定值。
+ * 返回 requestUrl 也只保留白名单内的 query，其余参数不发给对端。
+ */
+export interface AuthRequestShape {
+  requestUrl: string;
+  method: 'GET' | 'POST';
+  /** JSON 字符串，仅 POST 有 */
+  body?: string;
+}
+
+export function buildAuthRequest(rawUrl: string, spec: SecretSpec): AuthRequestShape {
+  const url = validateAuthUrl(rawUrl, spec);
+  const method = spec.method ?? 'GET';
+  if (method === 'GET') return { requestUrl: url, method };
+
+  const parsed = new URL(url);
+  const kept = new URLSearchParams();
+  const fromQuery: Record<string, unknown> = {};
+  for (const key of spec.bodyQueryParams ?? []) {
+    const value = parsed.searchParams.get(key);
+    if (value !== null) {
+      kept.set(key, value);
+      fromQuery[key] = value;
+    }
+  }
+  const body = { ...fromQuery, ...(spec.bodyStatic ?? {}) };
+  const qs = kept.toString();
+  const requestUrl = `${parsed.origin}${parsed.pathname}${qs ? `?${qs}` : ''}`;
+  return { requestUrl, method, body: JSON.stringify(body) };
+}
+
 function promptLink(key: string, label: string): string {
   return `[🔑 配置 / 修改${label}](${SECRET_PROMPT_SCHEME}${key})`;
 }
@@ -194,11 +235,11 @@ export function createAuthFetchPrimitives(deps: AuthFetchPrimitivesDeps): SkillP
             ok: false, detail: `未知凭据 ${secretKey}`,
           };
         }
-        let url: string;
+        let request: AuthRequestShape;
         try {
           const raw = args['url'];
           if (typeof raw !== 'string' || !raw.trim()) throw new Error('缺少 url 参数');
-          url = validateAuthUrl(raw.trim(), spec);
+          request = buildAuthRequest(raw.trim(), spec);
         } catch (error) {
           const reason = error instanceof Error ? error.message : String(error);
           return {
@@ -206,6 +247,7 @@ export function createAuthFetchPrimitives(deps: AuthFetchPrimitivesDeps): SkillP
             ok: false, detail: `参数无效：${reason}`,
           };
         }
+        const url = request.requestUrl;
 
         // 宿主侧读明文：这条路径不经过模型、不进会话历史、不落日志。
         let token: unknown;
@@ -226,13 +268,20 @@ export function createAuthFetchPrimitives(deps: AuthFetchPrimitivesDeps): SkillP
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), deps.timeoutMs);
         try {
-          const response = await fetchImpl(url, {
-            method: 'GET',
-            headers: { [spec.header.name]: `${spec.header.prefix}${token.trim()}` },
+          // header 只由配方拼；POST 时额外加 Content-Type，body 里绝不含凭据。
+          const headers: Record<string, string> = {
+            [spec.header.name]: `${spec.header.prefix}${token.trim()}`,
+          };
+          if (request.method === 'POST') headers['Content-Type'] = 'application/json';
+          const init: RequestInit = {
+            method: request.method,
+            headers,
             signal: controller.signal,
             cache: 'no-store',
             credentials: 'omit', // 只带宿主拼的 header，绝不带浏览器 cookie
-          });
+            ...(request.body !== undefined ? { body: request.body } : {}),
+          };
+          const response = await fetchImpl(url, init);
 
           if (reauth.includes(response.status)) {
             await response.text().catch(() => '');

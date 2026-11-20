@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import {
-  createAuthFetchPrimitives, createSecretSpecRegistry, validateAuthUrl,
+  createAuthFetchPrimitives, createSecretSpecRegistry, validateAuthUrl, buildAuthRequest,
   HTTP_FETCH_AUTH_TOOL_NAME, SECRET_PROMPT_TOOL_NAME, SECRET_PROMPT_SCHEME,
 } from '../AuthFetchPrimitives';
 import { createMemoryWebFetchCache } from '../../../../application/chat/WebFetchCache';
@@ -52,6 +52,17 @@ function setup(opts: {
 const call = (url: string, secretKey = 'github_token') =>
   JSON.stringify({ url, secretKey });
 
+/** POST 配方：只把 query 里的 query 键搬进 body，其余参数写成固定值 */
+const TAVILY: SecretSpec = {
+  key: 'tavily_api_key',
+  label: 'Tavily API Key',
+  allowedHosts: ['api.tavily.com'],
+  header: { name: 'Authorization', prefix: 'Bearer ' },
+  method: 'POST',
+  bodyStatic: { search_depth: 'basic', max_results: 5, include_answer: true, include_raw_content: false },
+  bodyQueryParams: ['query'],
+};
+
 describe('validateAuthUrl（host 白名单由配方声明，模型无法扩张）', () => {
   it('只收 https、host 精确匹配、禁 userinfo / 端口 / 片段', () => {
     expect(validateAuthUrl('https://api.github.com/user?per_page=30', GH))
@@ -69,6 +80,38 @@ describe('validateAuthUrl（host 白名单由配方声明，模型无法扩张�
       'https://user:pw@api.github.com/user',
       'https://api.github.com/user#frag',
     ]) expect(() => validateAuthUrl(u, GH)).toThrow();
+  });
+});
+
+describe('buildAuthRequest（POST body 由配方强制，模型只能给 query）', () => {
+  it('GET 配方：URL 原样，不产生 body', () => {
+    const r = buildAuthRequest('https://api.github.com/user?per_page=30', GH);
+    expect(r).toEqual({ requestUrl: 'https://api.github.com/user?per_page=30', method: 'GET' });
+  });
+
+  it('POST 配方：query 白名单键进 body，静态字段补齐，多余参数丢弃', () => {
+    const r = buildAuthRequest(
+      'https://api.tavily.com/search?query=%E6%9C%80%E6%96%B0%20AI%20Agent&max_results=99&evil=1',
+      TAVILY,
+    );
+    expect(r.method).toBe('POST');
+    // 只保留白名单内的 query 参数，模型夹带的 max_results=99 / evil=1 不发对端
+    expect(r.requestUrl).toBe('https://api.tavily.com/search?query=%E6%9C%80%E6%96%B0+AI+Agent');
+    expect(JSON.parse(r.body!)).toEqual({
+      query: '最新 AI Agent',
+      search_depth: 'basic', max_results: 5,
+      include_answer: true, include_raw_content: false,
+    });
+  });
+
+  it('POST 配方白名单外的 host 在建请求时就被拒，body 不会生成', () => {
+    expect(() => buildAuthRequest('https://evil.com/search?query=x', TAVILY)).toThrow(/允许发往/);
+  });
+
+  it('静态字段后写：模型无法用同名 query 覆盖配方固定值', () => {
+    const spec: SecretSpec = { ...TAVILY, bodyQueryParams: ['query', 'max_results'] };
+    const r = buildAuthRequest('https://api.tavily.com/search?query=x&max_results=99', spec);
+    expect(JSON.parse(r.body!).max_results).toBe(5);
   });
 });
 
@@ -169,6 +212,41 @@ describe('http_fetch_auth', () => {
     const init = fetchImpl.mock.calls[0]![1] as RequestInit;
     expect((init.headers as Record<string, string>)['X-Key']).toBe('Token ghp_VALID_TOKEN_1234');
     expect(init.headers).not.toHaveProperty('Authorization');
+  });
+
+  it('POST 配方：按 spec 发 POST，header 由宿主拼，body 不含明文、观察/缓存/detail 也不含', async () => {
+    const token = 'tvly_SECRET_KEY_1234';
+    const { auth, fetchImpl, cache } = setup({
+      specs: [TAVILY], token,
+      response: jsonResponse(200, '{"query":"x","results":[]}'),
+    });
+    const r = await auth.execute(call(
+      'https://api.tavily.com/search?query=weiqi&evil=1', 'tavily_api_key',
+    ));
+    expect(r.ok).toBe(true);
+    const [url, init] = fetchImpl.mock.calls[0]! as [string, RequestInit];
+    expect(url).toBe('https://api.tavily.com/search?query=weiqi');
+    expect(init.method).toBe('POST');
+    expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/json');
+    expect((init.headers as Record<string, string>)['Authorization']).toBe(`Bearer ${token}`);
+    expect(init.credentials).toBe('omit');
+    expect(JSON.parse(init.body as string)).toEqual({
+      query: 'weiqi',
+      search_depth: 'basic', max_results: 5,
+      include_answer: true, include_raw_content: false,
+    });
+    // 明文只活在 header 值里；body / URL / 观察 / 缓存 / detail 一律不含
+    expect(init.body as string).not.toContain(token);
+    expect(url).not.toContain(token);
+    expect(r.observation).not.toContain(token);
+    expect(r.detail).not.toContain(token);
+    expect(JSON.stringify(cache.get('https://api.tavily.com/search?query=weiqi'))).not.toContain(token);
+  });
+
+  it('POST 配方仍只收 url + secretKey 两个参数（工具签名不变）', () => {
+    const { auth } = setup({ specs: [TAVILY] });
+    expect(Object.keys(auth.definition.parameters.properties as object)).toEqual(['url', 'secretKey']);
+    expect(auth.definition.parameters.additionalProperties).toBe(false);
   });
 
   it('readRaw 抛错 / fetch 抛错都如实回执，不编造正文', async () => {
