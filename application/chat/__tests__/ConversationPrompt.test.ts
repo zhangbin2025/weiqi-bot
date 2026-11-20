@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildConversationMessages, CONVERSATION_SYSTEM_PROMPT, CONTEXT_LIMITS,
+  buildConversationMessages, buildOverflowFallbackMessages,
+  planConversationWindow, CONVERSATION_SYSTEM_PROMPT, CONTEXT_LIMITS,
 } from '../ConversationPrompt';
 
 describe('buildConversationMessages', () => {
@@ -31,6 +32,44 @@ describe('buildConversationMessages', () => {
     const long = 'x'.repeat(CONTEXT_LIMITS.maxCharsPerMessage + 500);
     const msgs = buildConversationMessages([{ role: 'user', content: long }]);
     expect(msgs[1]!.content.length).toBe(CONTEXT_LIMITS.maxCharsPerMessage);
+  });
+
+  it('传入摘要时插在主 system 之后，历史逐字不变（独立 system 不被 ToolLoop 替换冲掉）', () => {
+    const history = [
+      { role: 'user' as const, content: '柯洁和申真谞谁厉害' },
+      { role: 'assistant' as const, content: '两人互有胜负' },
+      { role: 'user' as const, content: '那他跟李世石呢' },
+    ];
+    const plain = buildConversationMessages(history);
+    const withSummary = buildConversationMessages(history, {
+      seq: 3, summary: '用户偏好简洁回答；上文在比较棋手。', firstKeptIndex: 8,
+    });
+    expect(withSummary[0]).toEqual(plain[0]);
+    expect(withSummary[1]!.role).toBe('system');
+    expect(withSummary[1]!.content).toContain('第 3 版');
+    expect(withSummary[1]!.content).toContain('用户偏好简洁回答');
+    expect(withSummary.slice(2)).toEqual(plain.slice(1));
+  });
+
+  it('溢出兜底只留当前句 + 摘要，常量一个都不改', () => {
+    const history = Array.from({ length: 25 }, (_, i) => ({
+      role: 'user' as const, content: `msg-${i}`,
+    }));
+    const msgs = buildOverflowFallbackMessages(history, {
+      seq: 1, summary: '旧要点', firstKeptIndex: 20,
+    });
+    expect(msgs).toHaveLength(3); // system + 摘要 + 当前句
+    expect(msgs[2]).toEqual({ role: 'user', content: 'msg-24' });
+    expect(CONTEXT_LIMITS.maxMessages).toBe(20);
+  });
+
+  it('planConversationWindow 的 dropped 覆盖被条数上限整段挤出去的旧消息', () => {
+    const history = Array.from({ length: 25 }, (_, i) => ({
+      role: 'user' as const, content: `msg-${i}`,
+    }));
+    const plan = planConversationWindow(history);
+    expect(plan.dropped.map((m) => m.content)).toEqual(history.slice(0, 5).map((m) => m.content));
+    expect(plan.kept).toHaveLength(CONTEXT_LIMITS.maxMessages);
   });
 
   it('总预算超限时从最旧开始丢，但当前句一定保留', () => {

@@ -12,7 +12,8 @@
  * 复用现状：
  * - prefs / secrets → LocalStorageAdapter（**独立命名空间 'weiqi-bot-kv'**：listKeys() 根本
  *   枚举不到 UserSkillStore / PluginConfig 等其它模块的 'weiqi-bot' 键，隔离由适配器契约保证）
- * - checkpoints     → IndexedDBAdapter（专属 dbName/storeName，容量不与 localStorage 抢）
+ * - checkpoints     → IndexedDBAdapter（专属 dbName/storeName，容量不与 localStorage 抢）；
+ *                     compact 摘要由宿主内部写，模型只读、不可写（见下）
  * - 未来 files      → IndexedDBFileAdapter（IFileStorage，已支持 Blob / readChunk / listFiles）
  * - 未来 search     → 自建索引驱动 + 'query' capability（KvDriver.query 语义由驱动解释）
  *
@@ -33,7 +34,12 @@ export const KV_DOMAIN_NAME_RE = /^[a-z][a-z0-9_]*$/;
  * 默认域清单。这里只放「框架自带、与具体业务无关」的三类：
  * - prefs      ：使用偏好（自选股、默认分类、回复风格…），模型可读写
  * - secrets    ：敏感数据（API key / token / 任何不该进上下文的东西），宿主独占写、模型不可读
- * - checkpoints：长会话摘要 / 任务状态，大对象走 IndexedDB，模型可读写
+ * - checkpoints：长会话 compact 摘要 / 任务状态，大对象走 IndexedDB，**宿主独占写、模型只读**
+ *
+ * checkpoints 为何是 host-only（用户 2026-11-19 决策②）：checkpoint 是宿主对「模型
+ * 本轮所见上下文」的内部快照，不是模型可以自己编造/改写的业务数据。若允许模型
+ * kv_write，一条幻觉就可能污染后续所有轮次的摘要，且模型无法自证内容来自真实历史。
+ * 模型仍可 kv_read / kv_slice 分页查看已生成的 checkpoint（域是 readable）。
  *
  * ⚠️ 配额数字是**显式声明的业务约束**，不是扫验证集挑出来的经验值：
  * prefs 单条上限直接取宿主具名常量 CONTEXT_LIMITS.maxCharsPerMessage（一条偏好
@@ -62,10 +68,10 @@ export function createDefaultKvDomains(): KvDomainDescriptor[] {
     },
     {
       name: 'checkpoints',
-      summary: '长会话 compact 摘要与长期任务状态。大对象存 IndexedDB，模型可分页读写。',
+      summary: '宿主生成的长会话 compact 摘要与长期任务状态。大对象存 IndexedDB，模型只可分页读取，写入/删除由宿主内部完成。',
       driver: new IndexedDbKvDriver('weiqi-skill-kv', 'checkpoints'),
       visibility: 'readable',
-      writableBy: 'model',
+      writableBy: 'host',
       physicalPrefix: 'skill.kv.checkpoints.',
     },
   ];

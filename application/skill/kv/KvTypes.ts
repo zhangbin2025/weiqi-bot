@@ -57,15 +57,16 @@ export const KV_TOOL_NAMES: Readonly<Record<KvCapability, string>> = {
 
 /**
  * 可见性：决定 kv_* 能不能把「值」回给模型。
- * - 'readable'：值可回显（偏好 / 检查点本来就是给模型看的）
+ * - 'readable'：值可回显（偏好 / 检查点本来就是给模型看的；checkpoint 可读但 host-only 写）
  * - 'opaque'  ：值永不经模型上下文，只回元信息。不限于密钥，任何敏感数据域都可用。
  */
 export type KvVisibility = 'readable' | 'opaque';
 
 /**
  * 谁能写这个域（只约束「模型发起的 kv_write / kv_delete」）：
- * - 'model'：模型可写（偏好 / 检查点）
- * - 'host' ：只有宿主代码（设置面板等）可写，模型一律拒绝（敏感数据）
+ * - 'model'：模型可写（偏好）
+ * - 'host' ：只有宿主代码（设置面板 / compact 引擎等）可写，模型一律拒绝
+ *            （敏感数据、宿主内部生成的 checkpoint）
  * - 'both' ：两者都可写
  * 宿主内部编程接口 KvService.put() 不受此限制（面板录入敏感数据走它）。
  */

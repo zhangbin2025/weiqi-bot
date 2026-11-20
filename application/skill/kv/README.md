@@ -46,7 +46,7 @@
 |---|---|---|---|---|
 | `prefs` | localStorage | readable | model | 自选股、默认分类等使用偏好；模型可读写（`stock.quote` v3 自选股池即存这里的 `stock.watchlist`） |
 | `secrets` | localStorage | **opaque** | **host** | 敏感数据（不止密钥）：模型读不到值、不能写/删，只有宿主凭据弹框 / 直连链路可录入 |
-| `checkpoints` | IndexedDB | readable | model | 长会话 compact 摘要 / 任务状态，大值用 `kv_slice` 分页 |
+| `checkpoints` | IndexedDB | readable | **host** | 宿主内部生成的长会话 compact 摘要 / 任务状态；模型只可 `kv_read` / `kv_slice` 分页查看，不可写/删，大值用 `kv_slice` 分页 |
 
 `opaque` 是**通用敏感策略**，不限于 API key：任何域标成 opaque，模型经
 `read`/`list`/`slice`/`query` 都拿不到值，只回元信息。宿主代码用
@@ -91,5 +91,32 @@
     不携带待写入的值 / URL / JSON，脏 href 静默忽略。
   - **没有新增原语**：`kv_*` 是 chat 角色恒定挂载的通用能力，配方直接引用即可；
     这也验证了「加场景不改内核 / 工具签名 / 装配」的扩展点。
-- **P3 compact / checkpoint**：`ChatUseCase` 在窗口裁剪前后写
-  `checkpoints` 域，属宿主内部行为，不必暴露给模型。**尚未做**。
+- **P3 compact / checkpoint —— 已落地（P3a）**：`ConversationCompactor` 在每轮
+  `ChatUseCase.runTurn()` 前**同步**执行（用户 2026-11-19 决策①）：
+  `planConversationWindow()` 算出「完整历史里被窗口丢掉的旧消息」，只要真有丢弃就
+  触发；没有丢弃不触发。触发判据是**可观测事实**，不是「快满了」的比例阈值，
+  不引入新 magic number，只消费既有 `CONTEXT_LIMITS`。
+  - 摘要走 `chat.compact` 旁路纯文本调用（同 `generateSessionTitle()` 范式）：不挂工具、
+    不入历史、不进过程块、不进会话历史；**增量蒸馏**（只喂上一版摘要 + 新增被丢消息），
+    不把全量历史反复喂给端点。
+  - 每次 compact **追加**一条 checkpoint（`version / seq / sessionId / summary /
+    firstKeptIndex / fromTs / toTs / reason / createdAt`），链与「最新 seq」指针留在
+    `checkpoints` 域；当前会话只注入最新一条。完整历史不删，仍在
+    `ChatHistoryManager` / `FavoriteService`。
+  - 下一轮上下文 = `[主 system] + [摘要 system] + [最近 kept（含当前句）]`。摘要是
+    独立 system 消息，避免被 ToolLoop 的 `systemPrompt` 替换制冲掉。
+  - `checkpoints` 域 **`writableBy:'host'`（决策②）**：checkpoint 是宿主对「模型本轮
+    所见上下文」的内部快照，不是模型可自己编造/改写的业务数据；模型仍可读、可分页。
+    域清单与工具描述已同步为「仅宿主可写，模型只读」，并有单测锁住。
+  - 会话 id 形如 `session:1690000000000:abc123`（含冒号），不符合 `KV_KEY_RE`；
+    用 `md5(sessionId)` 的确定性短前缀做键，不新增常量、不改会话 id 生成规则。
+  - 摘要请求**不带图片 / PDF base64**，只带 `describeAttachment()` 的文字描述；
+    旧附件本体仍留在完整历史里。摘要输出按 `CONTEXT_LIMITS.maxCharsPerMessage`
+    硬截断兜底（宿主已有的单条上限，不是新阈值）。
+  - 失败静默降级：摘要失败 / 存储不可用 / gateway 未就绪 → 退回现有窗口裁剪，
+    对话照常，不抛错、不提示、不重试。
+  - 溢出恢复：端点报上下文超限 → 同一 turn **封顶重试 1 次**，窗口收到最小
+    （主 system + 摘要 + 当前句），不改任何窗口常量；普通错误照旧渲染失败提示。
+  - 暂未做（P3b）：wire 层精确溢出错误识别（当前是保守文案匹配 + 可注入钩子）、
+    手动 `/compact`、UI 显示「已压缩 N 轮」。跨会话 / 向量检索 / 记忆外置 /
+    模型自主决定 compact 不在本期范围。

@@ -18,7 +18,7 @@ import { CONTEXT_LIMITS } from '@application/chat/ConversationPrompt';
 import { KvService } from '../KvService';
 import { KvDomainRegistry } from '../KvDomains';
 import { MemoryKvDriver } from '../KvDrivers';
-import { createKvPrimitives, buildKvSystemSuffix } from '../KvPrimitives';
+import { createKvPrimitives, buildKvSystemSuffix, renderDomains } from '../KvPrimitives';
 import { KV_TOOL_NAMES } from '../KvTypes';
 import type { KvDomainDescriptor, KvCapability, KvArgs, KvOutcome, KvStoredValue } from '../KvTypes';
 
@@ -35,8 +35,8 @@ function makeRegistry(domains?: KvDomainDescriptor[]): KvDomainRegistry {
       visibility: 'opaque', writableBy: 'host', physicalPrefix: 's.',
     },
     {
-      name: 'checkpoints', summary: '检查点', driver: new MemoryKvDriver({ id: 'mem-cp' }),
-      visibility: 'readable', writableBy: 'model', physicalPrefix: 'c.',
+      name: 'checkpoints', summary: '宿主内部检查点', driver: new MemoryKvDriver({ id: 'mem-cp' }),
+      visibility: 'readable', writableBy: 'host', physicalPrefix: 'c.',
     },
   ]);
 }
@@ -112,6 +112,34 @@ describe('敏感数据域（通用策略，不限密钥）', () => {
     expect(meta[0]!.key).not.toContain('s.'); // 面板看到的是逻辑键，不是物理键
     await s.remove('secrets', 'cred');
     expect(await s.readRaw('secrets', 'cred')).toBeNull();
+  });
+});
+
+describe('checkpoints 是宿主内部域（用户 2026-11-19 决策②）', () => {
+  it('模型不能写 / 删 checkpoint，宿主 put 仍可写且模型可读', async () => {
+    const s = makeService();
+    const w = await call(s, 'write', { domain: 'checkpoints', key: 's1', value: { summary: '伪造摘要' } });
+    expect(w.ok).toBe(false);
+    expect(w.observation).toContain('设置面板');
+    expect((await call(s, 'remove', { domain: 'checkpoints', key: 's1' })).ok).toBe(false);
+    expect((await s.put('checkpoints', 's1', { summary: '宿主生成的摘要' })).ok).toBe(true);
+    const r = await call(s, 'read', { domain: 'checkpoints', key: 's1' });
+    expect(r.ok).toBe(true);
+    expect(r.observation).toContain('宿主生成的摘要');
+  });
+
+  it('域清单与 system 后缀都写明「仅宿主可写 / 模型只读」，不暗示模型可写摘要', () => {
+    const s = makeService();
+    const domainsText = renderDomains(s.domains());
+    const suffix = buildKvSystemSuffix(s);
+    expect(domainsText).toContain('checkpoints');
+    expect(domainsText).toContain('仅宿主可写，模型只读');
+    expect(domainsText).not.toContain('模型可分页读写');
+    expect(suffix).toContain('checkpoints');
+    expect(suffix).toContain('该域模型只读');
+    expect(suffix).toContain('不要写入或删除');
+    expect(suffix).toContain('宿主内部');
+    expect(suffix).not.toContain('模型可分页读写');
   });
 });
 

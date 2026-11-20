@@ -76,28 +76,43 @@ export interface ConversationHistoryMessage {
   attachments?: readonly ChatAttachment[];
 }
 
+/** 带完整历史下标的窗口消息：compact 要用它算压缩边界 */
+export type WindowedMessage = ConversationHistoryMessage & { historyIndex: number };
+
+/** 窗口规划结果：`kept` 是连续最新一段，`dropped` 是它之前的全部旧消息 */
+export interface ConversationWindowPlan {
+  kept: ReadonlyArray<WindowedMessage>;
+  dropped: ReadonlyArray<WindowedMessage>;
+}
+
 /**
- * 从「当前会话的全部消息（含刚写入的当前句）」构造发给模型的消息数组。
+ * 计算本轮模型可见窗口 —— **唯一裁剪口径**。
  *
- * 会话里只有干净的 user / assistant 文本 + 独立 attachments 字段，
- * 因此无需按变体筛选，直接倒序取窗口即可。
- * agent loop 内部的 tool_calls / tool 观察只存在单次 turn 的内存里，不落盘。
+ * `buildConversationMessages()` 与 `ConversationCompactor` 都消费这个函数：
+ * 前者拿 kept 构造上下文，后者拿 dropped 作为 compact 的触发判据与摘要输入。
+ * 因此「有旧消息被丢」是严格可观测的事实，不需要另设「快满了」的比例阈值，
+ * 也不会出现「压缩边界」与「实际发送的历史」对不上的劈叉。
  *
  * 裁剪顺序：先限条数 → 再截单条文本 → 最后按总文本预算从最旧开始丢，
  * 保证最后一条（当前句）一定保留。字符预算只累计文本；
  * 附件 base64 转成 ModelPart 后挂在同一条消息上，不参与累加（决策 5A）。
  */
-export function buildConversationMessages(
+export function planConversationWindow(
   history: ReadonlyArray<ConversationHistoryMessage>,
-): Array<ModelMessageForPrompt> {
-  const windowed = history.slice(-CONTEXT_LIMITS.maxMessages).map((m) => ({
-    role: m.role,
+): ConversationWindowPlan {
+  // 完整历史逐条编号（单条文本按同一上限截断），dropped 才能覆盖「被条数上限
+  // 整段挤出去」的旧消息 —— 长会话里那才是主要情形，不能只看窗口内被预算丢的几条。
+  // 用展开保留原始消息的其它字段（尤其 timestamp）：checkpoint 的 fromTs/toTs
+  // 来自这里，不能因为重建窗口消息就把时间抹掉。
+  const all: WindowedMessage[] = history.map((m, i) => ({
+    ...m,
     content: m.content.slice(0, CONTEXT_LIMITS.maxCharsPerMessage),
-    ...(m.attachments && m.attachments.length > 0 ? { attachments: m.attachments } : {}),
+    historyIndex: i,
   }));
+  const windowed = all.slice(-CONTEXT_LIMITS.maxMessages);
 
   // 从最新往回累加，超预算就停止（保留连续的最新一段，而不是挖掉中间）
-  const kept: typeof windowed = [];
+  const kept: WindowedMessage[] = [];
   let total = 0;
   for (let i = windowed.length - 1; i >= 0; i--) {
     const msg = windowed[i]!;
@@ -107,19 +122,87 @@ export function buildConversationMessages(
   }
   kept.reverse();
 
+  const firstKept = kept.length > 0 ? kept[0]!.historyIndex : history.length;
+  const dropped = all.filter((m) => m.historyIndex < firstKept);
+  return { kept, dropped };
+}
+
+/**
+ * 注入上下文的摘要段最小结构面。
+ * 故意只声明用到的三个字段：`ConversationCompactor` 的完整 checkpoint 结构兼容它，
+ * 但本文件不必 import compactor（避免循环依赖），也不把存储形状绑进上下文构造。
+ */
+export interface ConversationSummary {
+  seq: number;
+  summary: string;
+  firstKeptIndex: number;
+}
+
+/**
+ * 摘要段以**独立 system 消息**插在主 system 之后，而不是合并进 messages[0]。
+ * 原因：ToolLoop 的 `systemPrompt` 是替换制，chat 角色拼装技能 / kv 后缀时会重写
+ * messages[0]；合并进去会被冲掉。独立一条 system 不受替换影响，且端点普遍接受
+ * 多条 system 消息。摘要明确标注「宿主生成 + 覆盖到哪一条」，不伪装成用户原话。
+ */
+function summaryMessage(s: ConversationSummary): ModelMessageForPrompt {
+  return {
+    role: 'system' as const,
+    content: [
+      `【此前对话摘要｜宿主 compact 生成，第 ${s.seq} 版】`,
+      `摘要覆盖完整历史中第 0 ~ ${s.firstKeptIndex - 1} 条消息；完整原文仍在会话历史里，本轮不再逐字发送。`,
+      '以下要点与当前问题相关时请直接沿用，不要要求用户重复已经说过的内容：',
+      s.summary,
+    ].join('\n'),
+  };
+}
+
+/** WindowedMessage → 发给模型的消息（文本 + 附件 parts） */
+function toPromptMessage(m: WindowedMessage): ModelMessageForPrompt {
+  if (!m.attachments || m.attachments.length === 0) {
+    return { role: m.role, content: m.content };
+  }
+  const parts: ModelPart[] = [
+    { type: 'text', text: m.content },
+    ...attachmentsToModelParts(m.attachments as ChatAttachment[]),
+  ];
+  return { role: m.role, content: parts };
+}
+
+/**
+ * 从「当前会话的全部消息（含刚写入的当前句）」构造发给模型的消息数组。
+ *
+ * 下一轮上下文 = [主 system] + [可选摘要] + [最近 kept（含当前句）]。
+ * 不传 summary 时与旧版逐字一致（既有装配与测试不用改）。
+ */
+export function buildConversationMessages(
+  history: ReadonlyArray<ConversationHistoryMessage>,
+  summary?: ConversationSummary,
+): Array<ModelMessageForPrompt> {
   return [
     { role: 'system' as const, content: CONVERSATION_SYSTEM_PROMPT },
-    ...kept.map((m) => {
-      if (!m.attachments || m.attachments.length === 0) {
-        return { role: m.role, content: m.content } as ModelMessageForPrompt;
-      }
-      // 文本 + 附件 part 合成多模态 content（附件文字不按字符上限裁剪）
-      const parts: ModelPart[] = [
-        { type: 'text', text: m.content },
-        ...attachmentsToModelParts(m.attachments as ChatAttachment[]),
-      ];
-      return { role: m.role, content: parts } as ModelMessageForPrompt;
-    }),
+    ...(summary ? [summaryMessage(summary)] : []),
+    ...planConversationWindow(history).kept.map(toPromptMessage),
+  ];
+}
+
+/**
+ * 溢出恢复用的最小上下文：[主 system] + [可选摘要] + [当前句]。
+ *
+ * 来源明说（不是扫出来的阈值）：端点报「上下文超限」说明宿主本轮给出的文本量
+ * 超过它容量；宿主能立刻减量、且仍必须保留当前用户这一句的唯一动作就是把窗口
+ * 收到最小（1 条 = 当前句）。已有摘要照常注入，因此旧信息不会比正常轮次更亏。
+ * 只在「同一 turn 溢出重试一次」这条路径调用，不改任何窗口常量。
+ */
+export function buildOverflowFallbackMessages(
+  history: ReadonlyArray<ConversationHistoryMessage>,
+  summary?: ConversationSummary,
+): Array<ModelMessageForPrompt> {
+  const { kept } = planConversationWindow(history);
+  const tail = kept.length > 0 ? [toPromptMessage(kept[kept.length - 1]!)] : [];
+  return [
+    { role: 'system' as const, content: CONVERSATION_SYSTEM_PROMPT },
+    ...(summary ? [summaryMessage(summary)] : []),
+    ...tail,
   ];
 }
 

@@ -28,7 +28,12 @@ import type { ChatHistoryManager } from '../assistant/ChatHistoryManager';
 import type { IMessageRenderer } from '../assistant/IMessageRenderer';
 import type { ChatAttachment } from './ChatAttachment';
 import { describeAttachment } from './ChatAttachment';
-import { buildConversationMessages, CONVERSATION_SYSTEM_PROMPT, CONTEXT_LIMITS } from './ConversationPrompt';
+import {
+  buildConversationMessages, buildOverflowFallbackMessages,
+  CONVERSATION_SYSTEM_PROMPT, CONTEXT_LIMITS,
+} from './ConversationPrompt';
+import type { ConversationSummary } from './ConversationPrompt';
+import type { ConversationCompactor } from './ConversationCompactor';
 import { clampTitle, generateSessionTitle } from './SessionTitle';
 import { resourceFromFile } from './ResourceInput';
 import { processImage, processPdf } from './ResourceProcessors';
@@ -177,6 +182,11 @@ export class ChatUseCase {
      * 不传则完全不挂，既有测试与精简装配逐字沿用旧行为。plugin 开发角色不接触。
      */
     private readonly kvKit?: KvKit,
+    /**
+     * 可选：会话上下文压缩器（宿主内部行为）。不传则逐字沿用旧窗口裁剪，
+     * 既有测试与精简装配零变化；传入时在每轮构造上下文前同步 compact。
+     */
+    private readonly compactor?: ConversationCompactor,
   ) {}
 
   isReady(): boolean {
@@ -296,7 +306,26 @@ export class ChatUseCase {
 
     this.renderer.showTyping();
     try {
-      const result = await this.runTurn(usePlugin, devMode, local.parts, onTrace);
+      // 同步 compact（用户 2026-11-19 决策①）：本轮就摘要、落 checkpoint、
+      // 把摘要注入本轮上下文，不做 fire-and-forget。失败由 compactor 静默降级。
+      const sessionId = this.history.getCurrentSession()?.sessionId ?? '';
+      const checkpoint = this.compactor && sessionId
+        ? await this.compactor.maybeCompact(this.history.getMessages(), sessionId)
+        : null;
+      const summary: ConversationSummary | undefined = checkpoint
+        ? { seq: checkpoint.seq, summary: checkpoint.summary, firstKeptIndex: checkpoint.firstKeptIndex }
+        : undefined;
+      let result: ToolLoopResult;
+      try {
+        result = await this.runTurn(usePlugin, devMode, local.parts, onTrace, summary);
+      } catch (error) {
+        // 溢出恢复：同一 turn 只重试一次（封顶 1 次），且只在 compactor 认出是
+        // 上下文溢出时触发。重试把窗口收到最小（主 system + 摘要 + 当前句），
+        // 不改任何 CONTEXT_LIMITS 常量；其它错误照旧走下面的失败提示。
+        const isOverflow = this.compactor?.isOverflowError(error) === true;
+        if (!isOverflow) throw error;
+        result = await this.runTurn(usePlugin, devMode, local.parts, onTrace, summary, true);
+      }
 
       // 工具这一轮读到的资源落进用户消息，下一轮追问能重放。
       // 用 duck typing 兼容旧实现 / 测试替身：没有该方法就跳过，不抛错。
@@ -362,8 +391,12 @@ export class ChatUseCase {
     devMode: boolean,
     localParts: ModelPart[],
     onTrace?: (step: PluginTraceStep) => void,
+    summary?: ConversationSummary,
+    overflowFallback = false,
   ): Promise<ToolLoopResult> {
-    const messages: ModelMessage[] = buildConversationMessages(this.history.getMessages());
+    const history = this.history.getMessages();
+    const build = overflowFallback ? buildOverflowFallbackMessages : buildConversationMessages;
+    const messages: ModelMessage[] = build(history, summary);
     // 本地附件的多模态 parts 注入「当前句」：历史构造已把用户消息放在最后，
     // 这里把它从 string 提升为 part 数组，追加图片 / 原生 PDF。
     if (localParts.length > 0) {
@@ -379,6 +412,8 @@ export class ChatUseCase {
     // chat 角色没装网络工具依赖时退回单次纯文本调用（精简装配场景）。
     // 保留 options.jsonMode=false，与既有配置口径一致。
     if (!usePlugin && !this.webTools) {
+      // 纯文本降级分支：错误本来就冒泡到 send() 的失败提示 / 溢出重试逻辑，
+      // 不需要 ToolLoop 那层 rethrow 开关。
       const result = await this.gateway.execute({
         task: 'chat.reply',
         messages,
@@ -409,6 +444,11 @@ export class ChatUseCase {
         // 只有插件工具集带动态 system；chat 沿用 messages[0] 的 CONVERSATION_SYSTEM_PROMPT
         ...(kit.systemPrompt ? { systemPrompt: kit.systemPrompt } : {}),
         ...(kit.maxTurns !== undefined ? { maxTurns: kit.maxTurns } : {}),
+        // 只在装了 compactor 且不是溢出重试那一轮时挂：让上下文超限错误冒泡，
+        // 供 send() 缩小上下文重试一次；其它所有错误仍由 ToolLoop 转成失败回复。
+        ...(this.compactor && !overflowFallback
+          ? { rethrow: (e: unknown) => this.compactor!.isOverflowError(e) }
+          : {}),
         source,
       },
       {

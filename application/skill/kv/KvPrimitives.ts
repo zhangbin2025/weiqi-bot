@@ -20,13 +20,20 @@ import type { ModelToolDefinition } from '@application/model/IModelGateway';
 import type { KvCapability, KvToolFactor, KvServiceLike, KvOutcome, KvDomainDescriptor } from './KvTypes';
 import { KV_TOOL_NAMES } from './KvTypes';
 
-/** 域清单文本：让模型在注册工具那一刻就知道有哪些域、各自放什么 */
+/**
+ * 域清单文本：让模型在注册工具那一刻就知道有哪些域、各自放什么、能不能写。
+ * 可读性与写权限都从域描述符直接取（单一出处），不把「哪些域不能写」写死在
+ * 某个工具描述里 —— 否则改 `writableBy` 后工具说明会悄悄过期。
+ */
 export function renderDomains(domains: readonly KvDomainDescriptor[]): string {
   if (domains.length === 0) return '（当前没有可用域）';
-  return domains.map((d) =>
-    `- ${d.name}：${d.summary}`
-    + `（${d.visibility === 'opaque' ? '敏感值不回显，仅用户面板可写' : '值可回显'}）`,
-  ).join('\n');
+  return domains.map((d) => {
+    const read = d.visibility === 'opaque' ? '敏感值不回显' : '值可回显';
+    const write = d.writableBy === 'model'
+      ? '模型可读写'
+      : (d.writableBy === 'host' ? '仅宿主可写，模型只读' : '模型与宿主均可写');
+    return `- ${d.name}：${d.summary}（${read}；${write}）`;
+  }).join('\n');
 }
 
 /** 所有工具共用的 domain 参数说明 */
@@ -58,7 +65,8 @@ export const KV_FACTORS: Readonly<Record<KvCapability, KvToolFactor>> = {
       name: KV_TOOL_NAMES.write,
       description:
         '把一条可 JSON 序列化的值保存到本地数据层（覆盖同键）。domain 只给逻辑名。'
-        + '敏感域只允许用户在设置面板录入，模型写入会被拒绝；不要试图写到别的域绕过。'
+        + '仅「模型可读写」的域可写；宿主独占域（如 secrets 凭据、checkpoints 摘要）由宿主/用户面板维护，'
+        + '模型写入一律被拒绝，不要试图写到别的域绕过。'
         + '值必须能放进单条观察（超出该域声明的上限会被拒绝，如实告知用户，不要改域）。'
         + '\n可用域：\n' + domains,
       parameters: {
@@ -76,7 +84,7 @@ export const KV_FACTORS: Readonly<Record<KvCapability, KvToolFactor>> = {
     definition: (domains) => ({
       name: KV_TOOL_NAMES.remove,
       description:
-        '删除本地数据层里的一条。敏感域只允许用户在设置面板删除，模型删除会被拒绝。'
+        '删除本地数据层里的一条。仅「模型可读写」的域可删；宿主独占域模型删除会被拒绝。'
         + '\n可用域：\n' + domains,
       parameters: {
         type: 'object',
@@ -215,8 +223,9 @@ export function buildKvSystemSuffix(service: KvServiceLike): string {
     + '用户明确说「记住 / 加入自选 / 以后默认」时用 kv_write 保存并回执。',
     '敏感域（API key / token / 任何凭据）由用户在设置面板录入，模型既读不到值也不能写入；'
     + '需要带鉴权访问时由宿主直连消费，不要向用户索要明文、也不要把凭据写进任何消息。',
-    '长会话 / 长期任务的状态与 compact 摘要放 checkpoints 域，大值用 kv_slice 分页读，'
-    + '未读完就继续翻页，绝不凭预览编造。',
+    '长会话 / 长期任务的状态与 compact 摘要由**宿主内部**生成并放进 checkpoints 域，'
+    + '该域模型只读：可用 kv_read / kv_slice 分页查看，不要写入或删除、也不要自己编造一份摘要；'
+    + '大值未读完就继续翻页，绝不凭预览编造。',
     '写入失败（受限 / 超上限 / 后端不可用）如实说明，不要谎报已保存。',
   ].join('\n');
 }

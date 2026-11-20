@@ -102,6 +102,13 @@ export interface ToolLoopDeps {
   source?: PluginTraceStep['source'];
   /** 自主决策轮数上限；不传用 DEFAULT_PLUGIN_MAX_ATTEMPTS + 1。修复/只读延续不占此预算 */
   maxTurns?: number;
+  /**
+   * 可选：模型调用抛错时，是否把它**原样抛给调用方**而不是转成一条失败回复。
+   * 默认不传 → 逐字沿用旧行为（所有错误都变 observation 文本，loop 不抛）。
+   * 宿主在做「上下文溢出 → 缩小上下文重试一次」时注入，只对该类错误返回 true；
+   * 其它错误仍照旧吞掉，不影响闲聊 / 插件开发的既有行为。
+   */
+  rethrow?: (error: unknown) => boolean;
 }
 
 export interface ToolLoopRequest {
@@ -207,6 +214,9 @@ export async function runToolLoop(
         tools: deps.tools,
       });
     } catch (error) {
+      // 只有显式注入了 rethrow 且它认这个错误才冒泡（供外层溢出重试）；
+      // 缺省 / 其它错误仍转成一条失败回复，与旧版逐字一致。
+      if (deps.rethrow?.(error)) throw error;
       const reason = error instanceof Error ? error.message : String(error);
       push(decisionNo, 'decision', false, `模型调用失败：${reason}`);
       return done(`模型调用失败：${reason}`, decisionNo, false);

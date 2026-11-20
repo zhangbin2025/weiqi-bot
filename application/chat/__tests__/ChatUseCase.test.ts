@@ -14,7 +14,7 @@ import {
   ChatUseCase, isSlashCommand,
   SLASH_COMMAND_HINT, NOT_READY_HINT, AGENT_UNAVAILABLE_HINT,
 } from '../ChatUseCase';
-import { CONVERSATION_SYSTEM_PROMPT } from '../ConversationPrompt';
+import { CONVERSATION_SYSTEM_PROMPT, CONTEXT_LIMITS } from '../ConversationPrompt';
 import { DEFAULT_PLUGIN_MAX_ATTEMPTS } from '../../plugin/PluginConfig';
 import type { ToolKit } from '../ToolLoop';
 import type { ChatRoleId } from '../ChatRole';
@@ -745,5 +745,103 @@ describe('llm-tool 按技能 requiredCapabilities 声明按需挂载', () => {
     const req = firstReq(gw);
     expect(namesOf(req)).toContain('llm_tool_call');
     expect(sysOf(req)).toContain('可用能力库');
+  });
+});
+
+/**
+ * compact / checkpoint 集成（P3a）
+ *
+ * 锁住「宿主内部行为」的四条边界：
+ * - 装了 compactor 时，窗口真丢消息才触发；摘要注入本轮上下文（独立 system 消息）；
+ * - 摘要调用不写会话历史、不渲染过程块、不挂工具；
+ * - 装 compactor 但没丢消息 → 一次额外模型调用都不发；
+ * - 上下文溢出 → 同一 turn 封顶重试一次，第二次窗口收最小，普通错误不重试。
+ */
+describe('ChatUseCase.send — compact 集成', () => {
+  /** 造一个必然触发窗口丢弃、但保存完整历史引用的用例 */
+  function longCase() {
+    const store = Array.from({ length: CONTEXT_LIMITS.maxMessages + 4 }, (_, i) => ({
+      role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
+      content: `旧-${i}`,
+    }));
+    const history = makeHistory(store);
+    const gateway = makeGateway();
+    const renderer = makeRenderer();
+    const compactor = {
+      maybeCompact: vi.fn().mockResolvedValue({
+        seq: 2, summary: '此前在比较棋手，用户偏好简洁回答', firstKeptIndex: 4,
+      }),
+      isOverflowError: vi.fn((e: unknown) =>
+        e instanceof Error && e.message.includes('context length')),
+    };
+    const uc = new ChatUseCase(
+      gateway, history, renderer, undefined, role('chat'), undefined,
+      undefined, undefined, undefined,
+      compactor as unknown as import('../ConversationCompactor').ConversationCompactor,
+    );
+    return { history, gateway, renderer, compactor, uc, store };
+  }
+
+  it('窗口丢弃 → 同步 compact，摘要作为独立 system 注入本轮，且当前句仍是最后一条', async () => {
+    const h = longCase();
+    await h.uc.send('那他跟李世石呢');
+    expect(h.compactor.maybeCompact).toHaveBeenCalledTimes(1);
+    const req = h.gateway.execute.mock.calls[0]![0];
+    expect(req.messages[0]!.content).toBe(CONVERSATION_SYSTEM_PROMPT);
+    expect(req.messages[1]!.role).toBe('system');
+    expect(req.messages[1]!.content).toContain('此前在比较棋手');
+    expect(req.messages[req.messages.length - 1]!.content).toBe('那他跟李世石呢');
+  });
+
+  it('compact 不写历史、不渲染过程块：历史只多出 user / assistant 两条', async () => {
+    const h = longCase();
+    const before = h.store.length;
+    await h.uc.send('继续');
+    expect(h.history.addMessage).toHaveBeenCalledTimes(2);
+    expect(h.history.getMessages().length).toBe(before + 2);
+    expect(h.renderer.beginPluginTrace).not.toHaveBeenCalled();
+    expect(h.renderer.appendPluginTraceStep).not.toHaveBeenCalled();
+    // 摘要段是 system，不是历史里的消息，也不冒充用户/助手
+    const req = h.gateway.execute.mock.calls[0]![0];
+    expect(req.messages.filter((m: { role: string }) => m.role === 'system')).toHaveLength(2);
+  });
+
+  it('compactor 降级返回 null 时上下文与旧版逐字一致，对话照常', async () => {
+    const h = longCase();
+    (h.compactor.maybeCompact as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    await h.uc.send('继续');
+    const req = h.gateway.execute.mock.calls[0]![0];
+    expect(req.messages[0]).toEqual({ role: 'system', content: CONVERSATION_SYSTEM_PROMPT });
+    expect(req.messages.filter((m: { role: string }) => m.role === 'system')).toHaveLength(1);
+    expect(req.messages[req.messages.length - 1]!.content).toBe('继续');
+    expect(h.renderer.renderMessage).toHaveBeenLastCalledWith(
+      '回复内容', false, null, null, undefined, undefined, true,
+    );
+  });
+
+  it('上下文溢出：封顶重试一次，重试窗口只留主 system + 摘要 + 当前句', async () => {
+    const h = longCase();
+    const ok: ModelResult = { text: '已恢复', truncated: false };
+    h.gateway.execute
+      .mockRejectedValueOnce(new Error('maximum context length exceeded'))
+      .mockResolvedValueOnce(ok);
+    await h.uc.send('那他跟李世石呢');
+    expect(h.gateway.execute).toHaveBeenCalledTimes(2);
+    const retry = h.gateway.execute.mock.calls[1]![0];
+    expect(retry.messages).toHaveLength(3);
+    expect(retry.messages[2]!.content).toBe('那他跟李世石呢');
+    expect(h.renderer.renderMessage).toHaveBeenLastCalledWith(
+      '已恢复', false, null, null, undefined, undefined, true,
+    );
+  });
+
+  it('普通错误不重试，照旧渲染失败提示', async () => {
+    const h = longCase();
+    h.gateway.execute.mockRejectedValue(new Error('请求超时'));
+    await h.uc.send('继续');
+    expect(h.gateway.execute).toHaveBeenCalledTimes(1);
+    expect(h.renderer.renderMessage).toHaveBeenLastCalledWith(
+      '❌ 对话失败：请求超时', false, null, null, undefined, undefined, false,
+    );
   });
 });

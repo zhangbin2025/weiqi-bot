@@ -75,12 +75,14 @@ export class OpenAIModelGateway implements IModelGateway {
 
   async execute(req: ModelRequest): Promise<ModelResult> {
     // 任务白名单保留：这些都走纯文本 chat completions，
-    // 只是调用方给的消息、jsonMode 与 tools 不同。chat.title / skill.route 是旁路短调用，
-    // 同样不挂 tools，避免被卷进 tool-calling loop。
+    // 只是调用方给的消息、jsonMode 与 tools 不同。chat.title / chat.compact /
+    // skill.route 是宿主内部旁路短调用，同样不挂 tools，避免被卷进 tool-calling loop；
+    // compact 尤其不能带工具，否则一次摘要会变成一次 agent turn。
     if (
       req.task !== 'chat.reply'
       && req.task !== 'plugin.generate'
       && req.task !== 'chat.title'
+      && req.task !== 'chat.compact'
       && req.task !== 'skill.route'
     ) {
       throw new Error(`模型能力「${req.task}」尚未实现`);

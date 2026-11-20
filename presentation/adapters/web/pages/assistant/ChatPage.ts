@@ -34,6 +34,7 @@ import type { SkillPrimitive, SkillRecipe } from '../../../../../application/ski
 import { createBasicPrimitives } from '../../../../../application/skill/primitives/BasicPrimitives';
 import { loadWebProxyOverride } from '../../../../../infrastructure/config/WebProxyOverride';
 import { createKvKit } from '../../../../../application/skill/kv/KvKit';
+import { ConversationCompactor } from '../../../../../application/chat/ConversationCompactor';
 import type { KvKit } from '../../../../../application/skill/kv/KvKit';
 import { collectSecretSpecs } from '../../../../../application/skill/SecretSpec';
 import {
@@ -224,6 +225,9 @@ export class ChatPage {
       this.plugin?.llmToolKit,
       // Skill 本地数据层：域 / 驱动 / 能力均在 createKvKit() 内注册，装配方只传这一句
       kvKit,
+      // 会话上下文 compact：host-only 写 checkpoints 域（kvKit.service 的宿主专用接口），
+      // 摘要走同一个 gateway 的 chat.compact 旁路任务。不挂任何模型工具。
+      new ConversationCompactor({ gateway, store: kvKit.service }),
     );
 
     this.bindUI();
