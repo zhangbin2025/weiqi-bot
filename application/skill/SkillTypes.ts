@@ -37,6 +37,15 @@ export interface PrimitiveResult {
    * 历史里留下 &amp; → 下一轮照抄旧链接」的多轮退化。
    */
   actionLink?: { url: string; label: string };
+  /**
+   * 宿主生成的结构化 markdown 展示块（如新闻表格）——数据旁路通道。
+   * 由宿主直接渲染进用户可见层：绝不写进模型观察 / 回复文本 / ChatMessage.content，
+   * 只作为独立字段落历史供 renderSession 回放。buildConversationMessages 与
+   * ConversationCompactor 都只消费 content，因此它天然不进模型上下文。
+   * 安全前提：字符串由宿主用固定骨架 + 逐项转义过的外部字段拼成
+   * （见 NewsTablePrimitive），在线纯 JSON 配方无法构造本字段。
+   */
+  displayMarkdown?: string;
 }
 
 /** 一条技能 = 纯 JSON 配方，只引用宿主原语，不含任何可执行代码 */

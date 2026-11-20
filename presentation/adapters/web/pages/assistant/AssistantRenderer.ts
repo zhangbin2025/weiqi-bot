@@ -102,7 +102,8 @@ export class AssistantRenderer implements IMessageRenderer {
     useTypewriter: boolean = true,
     taskId?: string,
     timestamp?: number,
-    variant?: 'chat'
+    variant?: 'chat',
+    displayMarkdown?: string
   ): Promise<void> {
     const chatContainer = document.getElementById('chatContainer');
     if (!chatContainer) return;
@@ -164,7 +165,9 @@ export class AssistantRenderer implements IMessageRenderer {
     messageDiv.scrollIntoView({ behavior: 'smooth', block: 'end' });
     if (!isUser) {
       await this.renderMarkdownContent(contentDiv, text, useTypewriter);
-      // 渲染完成后美化内容（URL 卡片、SGF 卡片）
+      // 渲染完成后美化内容（URL 卡片、SGF 卡片）；展示块稍后单独 append，
+      // 让 beautifyLinks / beautifySgfBlocks / taskId / schedule 这些后处理
+      // 完全看不到它（表格由宿主固定骨架生成，不需要也不该被改写）。
       this.beautifyContent(contentDiv);
       // 渲染完成后处理 taskId 链接
       this.processTaskIdLinks(contentDiv);
@@ -192,6 +195,12 @@ export class AssistantRenderer implements IMessageRenderer {
       actionBtn.textContent = actionText;
       contentDiv.appendChild(actionBtn);
     }
+
+    // 宿主结构化展示块（新闻表格等）最后 append：不打字机、不进模型上下文，
+    // 也不被上面任何「针对模型 markdown 输出」的后处理触碰。
+    if (!isUser && displayMarkdown) {
+      await this.renderDisplayBlock(contentDiv, displayMarkdown);
+    }
   }
   /**
    * 美化 AI 消息中的 URL 和 SGF 内容
@@ -210,7 +219,12 @@ export class AssistantRenderer implements IMessageRenderer {
    * 仅处理独占一行的链接（前后无其他文本）
    */
   private beautifyLinks(container: Element): void {
-    const links = container.querySelectorAll<HTMLAnchorElement>('.markdown-content a');
+    // 宿主展示块（.display-block）里的链接是表格标题，标题文本 ≠ href，
+    // 但单元格只有一个 <a> 时会被下面的 isStandaloneLink 误判成「独占一行链接」
+    // 并替换成 URL 卡片。展示块由宿主按固定骨架生成，不做链接卡片后处理。
+    const links = container.querySelectorAll<HTMLAnchorElement>(
+      '.markdown-content:not(.display-block) a',
+    );
     
     links.forEach(link => {
       const href = link.getAttribute('href') || '';
@@ -458,6 +472,40 @@ export class AssistantRenderer implements IMessageRenderer {
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
+  }
+
+  /**
+   * 渲染宿主生成的结构化 markdown 展示块（数据旁路通道）。
+   *
+   * 安全边界：displayMarkdown 不是模型输出，而是宿主用固定骨架 + 逐项转义过的
+   * 外部字段拼成的可信 markdown（见 NewsTablePrimitive 的 cell / safeHttpUrl）。
+   * 这与「助手文本先过 safeReply 再交给 marked」是同一套模型：交给 marked/innerHTML
+   * 之前，不可信部分已由宿主转义。因此这里不重复 safeReply（那会把表格骨架也毁掉），
+   * 也绝不接受来自模型回复文本的任何内容走这条通道。失败时降级为 textContent 纯文本。
+   * 复用既有 .markdown-content table 样式，无需新增 CSS。
+   */
+  private async renderDisplayBlock(contentDiv: HTMLElement, md: string): Promise<void> {
+    try {
+      const { marked } = await import('marked');
+      marked.setOptions({ breaks: true, gfm: true });
+      const htmlContent = await marked.parse(md);
+      const block = document.createElement('div');
+      block.className = 'markdown-content display-block';
+      block.innerHTML = htmlContent;
+      // 表格里的原文链接走宿主校验过的 http(s) 绝对 URL；聊天页是单页应用，
+      // 同窗口跳走会丢掉会话视图，因此统一新窗口 + noopener/noreferrer。
+      block.querySelectorAll<HTMLAnchorElement>('a[href^="http://"], a[href^="https://"]')
+        .forEach((a) => {
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+        });
+      contentDiv.appendChild(block);
+    } catch {
+      const block = document.createElement('div');
+      block.className = 'display-block';
+      block.textContent = md;
+      contentDiv.appendChild(block);
+    }
   }
 
   private async renderMarkdownContent(

@@ -357,16 +357,29 @@ export class ChatUseCase {
       // 这样历史里没有任何链接文本可供下一轮模型「照抄改字」，从根上消除
       // 「第一次对、第二次换条件就错」的多轮退化。
       const link = result.actionLink;
-      await this.renderer.renderMessage(
-        safe, false, null, null,
-        link?.url, link?.label,
-        true,
-      );
-      // 历史里只有干净的 user/assistant 文本 + 结构化 actionUrl/actionText，
-      // trace 与 tool 消息永远不进来；链接可随会话恢复重现。
+      // 宿主结构化展示块（新闻表格等）：数据旁路，走独立渲染参数，绝不塞进回复文本。
+      // 只在真的有展示块时才补第 11 参；普通回复逐字保持旧版 7 参调用形状，
+      // 既有 toHaveBeenLastCalledWith 断言与无技能装配路径零变化。
+      const display = result.displayMarkdown;
+      if (display) {
+        await this.renderer.renderMessage(
+          safe, false, null, null,
+          link?.url, link?.label,
+          true, undefined, undefined, undefined, display,
+        );
+      } else {
+        await this.renderer.renderMessage(
+          safe, false, null, null,
+          link?.url, link?.label,
+          true,
+        );
+      }
+      // 历史里只有干净的 user/assistant 文本 + 结构化字段，trace 与 tool 消息永远不进来；
+      // 展示块与 content 分栏，刷新后可回放，但 buildConversationMessages 不会读它。
       await this.history.addMessage({
         role: 'assistant', content: safe,
         ...(link ? { actionUrl: link.url, actionText: link.label } : {}),
+        ...(display ? { displayMarkdown: display } : {}),
       });
     } catch (error) {
       this.renderer.hideTyping();
@@ -489,6 +502,8 @@ export class ChatUseCase {
           executors[p.name] = async (argsJson: string) => {
             const r = await p.execute(argsJson);
             const out: ToolOutcome = { observation: r.observation, ok: r.ok, detail: r.detail };
+            if (r.actionLink) out.actionLink = r.actionLink;
+            if (r.displayMarkdown) out.displayMarkdown = r.displayMarkdown;
             if (r.preparatory) out.preparatory = true;
             return out;
           };

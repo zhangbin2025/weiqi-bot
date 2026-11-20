@@ -158,7 +158,8 @@ export class ChatPage {
       timeoutMs: config?.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS,
     };
     // 技能是安装制：本地库是唯一生效来源，在线源只浏览/安装，绝不自动叠加。
-    // - primitives 是宿主内置且固定的执行器注册表（基础 web 原语 + 赛事导入两阶段原语），
+    // - primitives 是宿主内置且固定的执行器注册表（基础 web 原语 + news_table 展示原语
+    //   + 赛事导入两阶段原语），
     //   同时供 selectSkills 挂工具、面板标「缺原语不可装」、SkillCatalogService 安装校验；
     // - 本地技能库 / 在线源管理 / 面板 / 开发工具共用同一批实例；
     // - 装配失败也不阻塞对话页，绝不在运行时加载 / 执行远程 JS。
@@ -704,10 +705,20 @@ export class ChatPage {
     const sorted = [...messages].sort((a, b) => a.timestamp - b.timestamp);
     for (const msg of sorted) {
       // 历史恢复不用打字机，避免刷新后逐字动画
-      await this.renderer.renderMessage(
-        msg.content, msg.role === 'user', null, null,
-        msg.actionUrl, msg.actionText, false, undefined, msg.timestamp,
-      );
+      // 有展示块才补第 11 参回放（新闻表格等）：它不是 content，不会被重放进模型上下文；
+      // 普通历史消息保持旧版 9 参调用形状。
+      if (msg.displayMarkdown) {
+        await this.renderer.renderMessage(
+          msg.content, msg.role === 'user', null, null,
+          msg.actionUrl, msg.actionText, false, undefined, msg.timestamp,
+          undefined, msg.displayMarkdown,
+        );
+      } else {
+        await this.renderer.renderMessage(
+          msg.content, msg.role === 'user', null, null,
+          msg.actionUrl, msg.actionText, false, undefined, msg.timestamp,
+        );
+      }
       // 附件摘要跟在该条气泡后面：只显示文件名/类型，绝不打印 base64。
       // 资源本体由 buildConversationMessages 重放进模型上下文（多轮追问）。
       if (msg.attachments?.length) {

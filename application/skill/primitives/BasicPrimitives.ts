@@ -1,5 +1,6 @@
 /**
- * 宿主通用原语：4 个 web 工具（含 web_cache_read）+ navigate_to 指路原语。
+ * 宿主通用原语：4 个 web 工具（含 web_cache_read）+ navigate_to 指路原语
+ * + news_table 宿主展示原语（数据旁路，正文不进模型上下文）。
  * @module application/skill/primitives/BasicPrimitives
  *
  * 全部复用现有 web 工具的 definition 与执行器，不新造能力、不引入依赖。
@@ -22,6 +23,7 @@ import {
 } from '@application/chat/WebResourceTools';
 import {
   WEB_CACHE_READ_TOOL, WEB_CACHE_READ_TOOL_NAME, executeWebCacheRead,
+  defaultWebFetchCache,
 } from '@application/chat/WebFetchCache';
 import type { ModelToolDefinition } from '@application/model/IModelGateway';
 import type { SkillPrimitive, PrimitiveResult } from '@application/skill/SkillTypes';
@@ -29,6 +31,7 @@ import {
   buildNavigateToPath, isValidNavigateToPath, sanitizeNavigateToQuery,
   navigateToObservation,
 } from './NavigateToPath';
+import { createNewsTablePrimitive } from './NewsTablePrimitive';
 
 /** navigate_to 工具名（与 definition.name 一致） */
 export const NAVIGATE_TO_TOOL_NAME = 'navigate_to';
@@ -60,20 +63,23 @@ export const NAVIGATE_TO_TOOL: ModelToolDefinition = {
   },
 };
 
-/** tool 执行结果 → 原语结果：三个必填字段 + 可选宿主注入链接 + 只读准备标记 */
+/** tool 执行结果 → 原语结果：三个必填字段 + 可选宿主注入链接 / 展示块 + 只读准备标记 */
 function toPrimitiveResult(r: {
   observation: string; ok: boolean; detail: string;
   actionLink?: { url: string; label: string };
+  displayMarkdown?: string;
   preparatory?: boolean;
 }): PrimitiveResult {
   const out: PrimitiveResult = { observation: r.observation, ok: r.ok, detail: r.detail };
   if (r.actionLink) out.actionLink = r.actionLink;
+  if (r.displayMarkdown) out.displayMarkdown = r.displayMarkdown;
   if (r.preparatory) out.preparatory = true;
   return out;
 }
 
 /**
- * 构造 5 个通用原语：web_fetch / web_cache_read / web_read_pdf / web_read_image / navigate_to。
+ * 构造 6 个通用原语：web_fetch / web_cache_read / web_read_pdf / web_read_image /
+ * navigate_to / news_table（宿主展示，数据旁路）。
  * webDeps 由上层（接线方）注入，与 createWebToolKit 用的是同一份依赖。
  */
 export function createBasicPrimitives(webDeps: WebFetchToolDeps): SkillPrimitive[] {
@@ -133,5 +139,8 @@ export function createBasicPrimitives(webDeps: WebFetchToolDeps): SkillPrimitive
         };
       },
     },
+    // 宿主展示原语：读 WebFetchCache 里的同花顺新闻 JSON → markdown 表格 → displayMarkdown。
+    // 正文全程不进模型上下文；只有引用它的配方被命中时才会挂进 tools[]。
+    createNewsTablePrimitive(webDeps.cache ?? defaultWebFetchCache),
   ];
 }

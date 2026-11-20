@@ -64,6 +64,12 @@ export interface ToolOutcome {
    */
   actionLink?: { url: string; label: string };
   /**
+   * 宿主生成的结构化 markdown 展示块（数据旁路通道）。
+   * 与 actionLink 一样由 ChatUseCase 直接交给渲染层并落历史，绝不回填给模型：
+   * runToolLoop 只把 outcome.observation 追加进 messages，本字段不进任何 role:'tool'。
+   */
+  displayMarkdown?: string;
+  /**
    * 本轮观察是一次「确定性验收失败」（模型提交的源码没过试算，需重写）。
    * 语义：这是同一次自主决策的延续，不计入决策轮数上限；连续失败次数由
    * loop 按 maxTurns - 1（= maxAttempts）封顶。仅插件工具集在试算失败时置位，
@@ -123,6 +129,8 @@ export interface ToolLoopResult {
   trace: PluginTraceStep[];
   /** 本轮工具产出的宿主注入链接（取最后一个），不写会话历史文本 */
   actionLink?: { url: string; label: string };
+  /** 本轮工具产出的宿主展示块（取最后一个），不进模型上下文、不写 content */
+  displayMarkdown?: string;
   /** 本轮工具读到的资源附件，交给上层落到用户消息上（多轮追问） */
   attachments: ChatAttachment[];
   /** 实际决策轮数 */
@@ -178,10 +186,13 @@ export async function runToolLoop(
     try { req.onTrace?.(step); } catch { /* 纯展示，单步失败不影响主流程 */ }
   };
 
-  // 本轮工具产出的宿主注入链接；取最后一个（同一轮多次 navigate_to 以最后一次为准）
+  // 本轮工具产出的宿主注入链接 / 展示块；取最后一个（同一轮多次以最后一次为准）
   let actionLink: ToolLoopResult['actionLink'];
+  let displayMarkdown: ToolLoopResult['displayMarkdown'];
   const done = (reply: string, turns: number, exhausted: boolean): ToolLoopResult =>
-    ({ reply, trace, attachments, turns, exhausted, ...(actionLink ? { actionLink } : {}) });
+    ({ reply, trace, attachments, turns, exhausted,
+      ...(actionLink ? { actionLink } : {}),
+      ...(displayMarkdown ? { displayMarkdown } : {}) });
 
   // 总调用轮数 guard：唯一防无限循环的硬约束，来源见头部口径（maxTurns × maxTurns）。
   // decisions 只数「实质动作」；repairable/preparatory 是同一次决策的延续，不推进 decisions，
@@ -242,6 +253,7 @@ export async function runToolLoop(
       const outcome = await runOneTool(call, deps);
       push(decisionNo, 'observe', outcome.ok, `${call.name}：${outcome.detail}`, outcome.code);
       if (outcome.actionLink) actionLink = outcome.actionLink;
+      if (outcome.displayMarkdown) displayMarkdown = outcome.displayMarkdown;
       messages.push({
         role: 'tool',
         content: clipObservation(outcome.observation),

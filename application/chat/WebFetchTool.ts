@@ -7,11 +7,13 @@
  *
  * 边界（和已验收的 weiqi-proxy 一致）：
  * - 只做「把字节送到」，不搜索、不解析 HTML、不判语义、不落日志。
- * - 完整正文始终存入宿主缓存（WebFetchCache）。观察按体积分两种：
+ * - 完整正文始终存入宿主缓存（WebFetchCache）。观察分三种：
+ *   · storeOnly=true → 只回 URL / 状态 / 字符数句柄，不回任何正文或预览；
+ *     供宿主侧展示原语读缓存后直接渲染给用户（数据旁路，大 JSON 不进模型上下文）；
  *   · 短响应（整份 head + 正文 + foot ≤ 单条上限）→ **直接给完整正文**，
  *     不再需要 web_cache_read 翻页，少了整串「预览→分页→重发历史」的模型往返；
  *   · 长响应 → 只回元信息 + 预览 + 句柄，其余由 web_cache_read 分页 / 正则读取。
- *   判据只有 CONTEXT_LIMITS.maxCharsPerMessage 一个既有常量，不另造阈值。
+ *   后两种的判据只有 CONTEXT_LIMITS.maxCharsPerMessage 一个既有常量，不另造阈值。
  * - web_fetch 只回文本：HTML / JSON / 纯文本由模型自己归纳；
  *   图片 / PDF 等二进制不往上下文塞。读 PDF / 图片请用独立工具
  *   web_read_pdf / web_read_image（见 WebResourceTools.ts），它们复用本文件的
@@ -40,6 +42,9 @@ export const WEB_FETCH_TOOL: ModelToolDefinition = {
     '用 web_cache_read（url 填本观察里的 URL）按 mode=slice 分页或 mode=grep 正则查找，' +
     '分页时从预览末尾的 offset 继续，不要从 0 重读已给过的内容。' +
     '同一个 URL 再次调用会重新取回并覆盖缓存。' +
+    '可选 storeOnly=true：完整正文只写宿主缓存，观察只回 URL / 状态 / 字符数句柄，'
+    + '不回任何正文或预览，供宿主侧展示原语（如 news_table）直接渲染给用户，'
+    + '大体积 JSON 不进模型上下文；此时不要用 web_cache_read 读回来，也不要凭句柄猜测正文。' +
     '只用于 GET；只传 http/https 绝对 URL。返回的是原始文本，不是搜索结果。',
   parameters: {
     type: 'object',
@@ -47,6 +52,12 @@ export const WEB_FETCH_TOOL: ModelToolDefinition = {
       url: {
         type: 'string',
         description: '要取回的公开网页绝对 URL，必须是 http:// 或 https:// 开头',
+      },
+      storeOnly: {
+        type: 'boolean',
+        description:
+          '可选，默认 false。true = 只把完整正文存入宿主缓存，观察只回句柄、不含任何正文或预览；'
+          + '用于「取数 → 宿主工具直接展示」的数据旁路，让大体积 JSON 不进入模型上下文。',
       },
     },
     required: ['url'],
@@ -118,12 +129,15 @@ export function validateWebFetchUrl(raw: string): string {
  */
 export async function executeWebFetch(argsJson: string, deps: WebFetchToolDeps): Promise<WebFetchResult> {
   let url: string;
+  let storeOnly = false;
   try {
-    const args = JSON.parse(argsJson) as { url?: unknown };
+    const args = JSON.parse(argsJson) as { url?: unknown; storeOnly?: unknown };
     if (typeof args.url !== 'string' || !args.url.trim()) {
       throw new Error('缺少 url 参数');
     }
     url = validateWebFetchUrl(args.url.trim());
+    // storeOnly 只认严格布尔 true；其它值一律按缺省（完整观察）处理，不静默吞正文。
+    storeOnly = args.storeOnly === true;
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     const observation = `web_fetch 参数无效：${reason}。请给出 http/https 开头的公开网页绝对 URL。`;
@@ -169,6 +183,22 @@ export async function executeWebFetch(argsJson: string, deps: WebFetchToolDeps):
     };
     (deps.cache ?? defaultWebFetchCache).put(url, entry);
     const lineCount = text.split('\n').length;
+
+    // ---- storeOnly：正文只留在宿主缓存，观察只回句柄（数据旁路） ----
+    // 宿主侧展示原语（news_table 等）按这个 URL 从 WebFetchCache 读全文并直接渲染给用户，
+    // 模型既不收到正文也不收到预览，因此大体积 JSON 不产生延迟 / token 开销。
+    // 这里只回元信息，不含一个字符的新闻正文；也不指路 web_cache_read（默认流程不该读回来）。
+    if (storeOnly) {
+      return {
+        observation: `web_fetch：${url}\n`
+          + `HTTP ${response.status} ${response.statusText}\n`
+          + `完整正文 ${text.length} 字符 / ${lineCount} 行，已存入宿主缓存（storeOnly：正文不进上下文）。\n`
+          + `这份资源交给宿主展示工具按上面的 URL 直接呈现给用户，不要调用 web_cache_read 读取正文，`
+          + `也不要凭这段句柄猜测或补写内容。`,
+        ok: response.ok,
+        detail: `${url} → HTTP ${response.status}，${text.length} 字符（storeOnly，仅缓存）`,
+      };
+    }
 
     // ---- 短响应：整份观察能否装进单条上限？能就直接给全文 ----
     const fullHead = `web_fetch：${url}\n`
