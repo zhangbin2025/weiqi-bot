@@ -51,6 +51,12 @@ export interface ContractCheck {
   entryFound: boolean;
   outputIsArray: boolean;
   missingFields: string[];
+  /**
+   * 校验器给出的可操作诊断（含具体行/列定位）。
+   * 框架只透传、不解读；由扩展点行为的 contractHint 原样带出给模型，
+   * 避免只有一句笼统结论导致 LLM 反复盲改。可选：通用校验器可不提供。
+   */
+  hint?: string;
 }
 
 /** 沙箱执行结果（成功） */

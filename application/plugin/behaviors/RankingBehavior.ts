@@ -124,12 +124,17 @@ export const rankingBehavior: ExtensionPointBehavior = {
       entryFound: check.ok,
       outputIsArray: false,
       missingFields: check.missingFields,
+      // 原样透传详细定位；A2 重构曾在此丢弃 hint，导致契约失败观察退化成笼统文案。
+      ...(check.hint !== undefined ? { hint: check.hint } : {}),
     };
   },
 
   contractHint(check: ContractCheck): string {
     const detail = check.missingFields.join('、') || '未知原因';
-    return `排名表不符合契约（${detail}）：必须返回 { columns, rows } 对象，列名为汉字，cells 只能是数值或数值数组`;
+    const general = `排名表不符合契约（${detail}）：必须返回 { columns, rows } 对象，列名为汉字，cells 只能是数值或数值数组`;
+    // validateRankingOutput 的 hint 定位到具体行/列（不回带真实分数/姓名），
+    // 原样附在通用说明后；不另造解释、不引入新口径。
+    return check.hint !== undefined ? `${general}\n具体定位：${check.hint}` : general;
   },
 
   formatResult(outputs: readonly unknown[]): string {
