@@ -11,7 +11,7 @@
  * - 「同一个插件」判据 = 工件 catalogRef.registryUrl + resourceId 同时相等。
  *   「有更新」判据 = 远端 code 与本地 code 字符串不等（全量源码，无 magic number）。
  * - 校验在安装前由 PluginValidator 快筛；真正输出契约由 QuickJS 试跑 +
- *   validatePluginOutput 完成（按 pointId 分派：ranking 验排名表、llm-tool 比对 smoke.expect）。
+ *   validatePluginOutput 完成（按 pointId 查扩展点行为注册表分派，框架不解读业务语义）。
  * - 任何一步失败都不抛到 UI 层炸弹框：逐条降级为 unavailable / incompatible。
  */
 
@@ -234,7 +234,7 @@ export class PluginCatalogService {
    * 区分依据不是猜的阈值，而是宿主 FailurePhase 的既定语义：
    * crash/timeout/oom 由 QuickJsRuntime.makeFailure 在 Worker 起不来/被强制终止时产生，
    * 与被测源码无关；compile/runtime/contract 才来自源码执行。
-   * 工件始终默认停用，启用时排名管线会再校验一次，这里放行不会绕过安全闸门。
+   * 工件始终默认停用，启用时宿主会再校验一次，这里放行不会绕过安全闸门。
    */
   private async tryRun(
     code: string,

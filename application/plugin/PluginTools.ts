@@ -770,7 +770,7 @@ export function createPluginToolKit(deps: PluginToolDeps): PluginToolKit {
     const picked = codeOf(artifact, version);
     if (!picked) return fail(`插件 ${id} 没有 v${version}，请先 plugin_history`);
     // 回滚与新建/修订同构：历史源码也要过同一确定性验收，不合规就不落库。
-    // 按工件自身的扩展点分派：能力库要跑 smoke，不是排名样例。
+    // 按工件自身的扩展点分派：用例与验收口径由行为注册表提供。
     const spec = artifact.spec ?? resolvePluginSpec(artifact.pointId) ?? Object.values(PLUGIN_SPECS)[0]!;
     const behavior = behaviorOf(spec);
     const result = await trialOf(picked.code, spec, {

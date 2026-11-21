@@ -11,7 +11,11 @@
  * 2026-11-14：旧的自造 JSON 动作协议 + 双层循环 + verifier 全部删除，
  * 改为「一张工具表挂到通用 tool-calling loop」。`toolKit` 是聊天侧 plugin
  * 角色唯一需要的东西；调试/启停/历史/回滚/应用等都在工具集里，和 UI 面板
- * 共用同一批 service。排名仍只有一条管线 computeRanking(matches, impl)。
+ * 共用同一批 service。
+ *
+ * 2026-11-21：装配根创建扩展点行为注册表并注入 toolKit / catalog，
+ * 框架只认 ExtensionPointBehavior 契约，ranking / llm-tool / 未来扩展点平级；
+ * applyRanking 是赛事页的业务入口，仍走唯一管线 computeRanking(matches, impl)。
  */
 
 import type { IModelGateway } from '@application/model/IModelGateway';

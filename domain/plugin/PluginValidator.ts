@@ -3,8 +3,8 @@
  * @module domain/plugin/PluginValidator
  *
  * 定位：写入工件前的「快筛」，真正隔离由 QuickJS 沙箱保证。
- * 输出结构的正式校验在 domain/ranking/RankingTable.validateRankingOutput，
- * 由统一管线 computeRanking 调用；这里只提供同一校验的轻量包装，便于诊断回喂。
+ * 输出结构的正式校验由注入的扩展点行为提供（validatePluginOutput 只负责传参），
+ * 框架不 import 任何业务校验器；contractCheckHint 的人话诊断亦由行为配方给出。
  */
 
 import type { ContractCheck, PluginSpec } from '@domain/plugin/types';
