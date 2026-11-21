@@ -205,7 +205,7 @@ export class PluginCatalogService {
       ok: true,
       action: 'installed',
       artifact: created,
-      message: '已安装（默认停用），请到「本地插件」标签页启用',
+      message: '已安装（默认停用），请在「本地插件」里启用',
     };
     if (trial.warning !== undefined) installed.warning = trial.warning;
     return installed;

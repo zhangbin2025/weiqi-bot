@@ -90,11 +90,11 @@ export class ChatPage {
   private plugin: PluginSystem | undefined;
   /** 在线插件平台：复用同一套工件服务与沙箱运行时，装配失败时降级为不可用 */
   private catalog: PluginCatalogService | undefined;
-  /** 插件面板当前标签页；默认本地插件（不改变原有入口行为） */
+  /** 插件面板当前标签页；默认本地插件。安装/更新操作后强制切回 local */
   private pluginPanelTab: 'local' | 'online' = 'local';
   /** 一次性操作反馈，随下一次面板渲染出现后清空 */
   private pluginPanelFlash: { text: string; error: boolean } | undefined;
-  /** 操作后要定位回的条目；新装插件带 enableHint，切到本地页并提示手动启用 */
+  /** 操作后要定位回本地库里的条目；新装插件带 enableHint 提示手动启用 */
   private pluginPanelFocus: PanelFocus | undefined;
   /** 面板刷新序号：异步 list() 期间用户可能关掉/重开面板，旧结果必须丢弃 */
   private pluginPanelSeq = 0;
@@ -106,10 +106,10 @@ export class ChatPage {
   private kvKit: KvKit | undefined;
   /** 配方声明的凭据规格表：每轮由 loadSkills 用已启用配方刷新，模型无法写入 */
   private secretSpecs: ReturnType<typeof createSecretSpecRegistry> | undefined;
-  /** 技能面板当前标签页；默认「我的技能」 */
+  /** 技能面板当前标签页；默认「我的技能」。安装/更新操作后强制切回 local */
   private skillPanelTab: 'local' | 'online' = 'local';
   private skillPanelFlash: { text: string; error: boolean } | undefined;
-  /** 技能操作后要定位回的条目（按 recipe.id） */
+  /** 技能操作后要定位回本地库里的条目（按 recipe.id） */
   private skillPanelFocus: PanelFocus | undefined;
   private skillPanelSeq = 0;
   /** 当前会话的模型角色。角色绑定会话，切换角色会新建会话。 */
@@ -1163,7 +1163,7 @@ export class ChatPage {
     return box;
   }
 
-  /** 在线条目卡片。安装/更新按钮只在 new / update 时出现；tool 只展示 */
+  /** 在线条目卡片。安装/更新按钮只在 new / update 时出现；成功后切本地页 */
   private buildCatalogCard(entry: CatalogEntry, catalog: PluginCatalogService): HTMLElement {
     const card = document.createElement('div');
     card.className = 'plugin-panel__card';
@@ -1235,17 +1235,21 @@ export class ChatPage {
               ? out.message
               : `${out.message}（${out.warning}）`;
             this.pluginPanelFlash = { text, error: !out.ok };
-            if (out.ok && out.action === 'installed' && out.artifact !== undefined) {
-              // 新装工件由 install() 建为 enabled:false：切到「本地插件」并定位到它，
-              // 同时给一条醒目提示，让用户明确「还需手动启用」，不能当成装完就生效。
+            if (out.ok) {
+              // 安装 / 更新一律落到「本地插件」标签页（2026-11-21 决策）：
+              // 用户刚装完/更新完，要看到的是本地工件的状态（启停、版本、源码），
+              // 不是在线源里那条已经变状态的条目。切页与定位分开：
+              // catalog.install() 的 installed / updated / unchanged 正常都带 artifact，
+              // 万一没有也仍然切到本地页，只是没法高亮某一张卡片（applyPanelFocus
+              // 找不到目标会静默跳过），绝不退回在线页。
               this.pluginPanelTab = 'local';
-              this.pluginPanelFocus = {
-                key: `local:${out.artifact.id}`,
-                enableHint: true,
-              };
-            } else if (out.ok) {
-              // 更新 / 无需变更仍停在在线页，定位回刚操作的这条。
-              this.pluginPanelFocus = { key: `online:${entry.resourceId}` };
+              if (out.artifact !== undefined) {
+                this.pluginPanelFocus = out.action === 'installed'
+                  // 新装工件由 install() 建为 enabled:false：额外给一条醒目提示，
+                  // 让用户明确「还需手动启用」，不能当成装完就生效。
+                  ? { key: `local:${out.artifact.id}`, enableHint: true }
+                  : { key: `local:${out.artifact.id}` };
+              }
             }
             await this.refreshPluginPanel();
           } catch (error) {
@@ -1731,7 +1735,7 @@ export class ChatPage {
 
   /**
    * 在线源里的配方：状态来自 browse()（已装 / 有更新 / 未安装 / 缺原语不可用）。
-   * 安装 / 更新写进本地库后刷新面板；「我的技能」与对话才会看到它。
+   * 安装 / 更新写进本地库后切到「我的技能」并定位该条目再刷新面板。
    */
   private buildOnlineSkillCard(
     item: SkillBrowseItem, source: SkillSource, catalog: SkillCatalogService,
@@ -1768,8 +1772,11 @@ export class ChatPage {
           const out = await catalog.install(recipe);
           this.skillPanelFlash = { text: out.message, error: !out.ok };
           if (out.ok) {
-            // 技能安装即刻生效、不需要手动启用提示；仅定位回刚操作的条目。
-            this.skillPanelFocus = { key: `online:${recipe.id}` };
+            // 安装 / 更新一律落到「我的技能」标签页，并定位到本地库里那一条：
+            // 装完要看到的是本地配方（启停、版本、原语），不是在线源里的镜像
+            // （2026-11-21 决策）。技能安装即刻生效，无需手动启用提示。
+            this.skillPanelTab = 'local';
+            this.skillPanelFocus = { key: `local:${recipe.id}` };
           }
           await this.refreshSkillPanel();
         })();
