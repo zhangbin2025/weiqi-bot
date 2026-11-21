@@ -251,6 +251,17 @@ function createMainWindow() {
       }
       
       if (url.startsWith('http://') || url.startsWith('https://')) {
+        // 带凭据 / 带 body 的非简单请求不能 redirectURL：302 语义会把
+        // Authorization 等自定义头与 JSON body 全丢（见 3d07cc2 的 LLM 401）。
+        // http_fetch_auth（Tavily / GitHub 等配方）本就直连 CORS 友好的 API，
+        // 与 Android、纯 Web 一致放行；需要绕 CORS 的业务请求早已拼成同源
+        // /proxy?url=... 本地地址，在本函数第一批就放行，不会走到这里。
+        // GET / HEAD 资源请求维持原有代理行为不变。
+        const method = (details.method || 'GET').toUpperCase();
+        if (method !== 'GET' && method !== 'HEAD') {
+          callback({});
+          return;
+        }
         const proxyUrl = `http://127.0.0.1:8765/proxy/?url=${encodeURIComponent(url)}`;
         callback({ redirectURL: proxyUrl });
         return;
