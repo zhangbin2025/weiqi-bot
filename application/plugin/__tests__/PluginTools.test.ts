@@ -3,7 +3,7 @@
  *
  * 核心验收：根治「第一版快、验收后迭代做不下去」——
  * 新建 / 第二版 / 第三版全部走同一个 plugin_write 执行器，没有重载特殊循环、
- * 没有 verifier、没有 diff 闸门。每次写入都做确定性试算并回填排名表。
+ * 没有 verifier、没有 diff 闸门。每次写入都做确定性试算并按扩展点行为回填观察。
  *
  * 同时锁住：试算失败不落库、调试不修改工件、历史/回滚/启停/应用/删除，
  * 以及 plugin_apply 必须兼容赛事页选择键。
@@ -311,7 +311,7 @@ describe('查看 / 历史 / 启停 / 回滚 / 删除 / 应用', () => {
     expect(h.applySelection).toHaveBeenCalledWith(id);
 
     const back = await call(h, PLUGIN_TOOL_NAMES.apply, {});
-    expect(back.observation).toContain('已切回内置排名');
+    expect(back.observation).toContain('已切回内置口径');
     expect(h.applySelection).toHaveBeenLastCalledWith(undefined);
   });
 

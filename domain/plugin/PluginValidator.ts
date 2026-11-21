@@ -77,16 +77,9 @@ export function validateGenericOutput(output: unknown): ContractCheck {
   }
 }
 
-/** 把 ContractCheck 转成可回喂 LLM 的人话提示（业务措辞由行为提供） */
-export function contractCheckHint(check: ContractCheck, behavior?: ExtensionPointBehavior): string {
-  if (check.missingFields.length > 0) {
-    // 注入行为时由行为给出该扩展点的人话诊断；未注入时沿用既有详细诊断文案
-    // （既有测试直接单参数调用本函数并依赖该文案，2b 再统一收口）。
-    if (behavior !== undefined) return behavior.contractHint(check);
-    const generic = check.missingFields.some((f) => f.startsWith('输出'));
-    if (generic) return `输出不符合契约（${check.missingFields.join('、')}）`;
-    return `排名表不符合契约（${check.missingFields.join('、')}）：必须返回 { columns, rows } 对象，列名为汉字，cells 只能是数值或数值数组`;
-  }
-  if (!check.entryFound) return '入口未返回合法的 { columns, rows } 对象，请检查 rank 是否被调用';
+/** 把 ContractCheck 转成可回喂 LLM 的人话提示（业务措辞由注入的行为提供） */
+export function contractCheckHint(check: ContractCheck, behavior: ExtensionPointBehavior): string {
+  if (check.missingFields.length > 0) return behavior.contractHint(check);
+  if (!check.entryFound) return `${behavior.label}入口未产出符合契约的输出，请检查入口函数是否被调用`;
   return '输出结构符合契约';
 }

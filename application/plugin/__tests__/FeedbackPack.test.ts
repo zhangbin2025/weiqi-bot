@@ -62,6 +62,7 @@ describe('toFeedback', () => {
     const fb = toFeedback(failure({ phase: 'contract', contract: { entryFound: false, outputIsArray: false, missingFields: ['rank'] } }), 2, 3);
     expect(fb.contract?.missingFields).toContain('rank');
     expect(fb.hint).toContain('rank');
+    expect(fb.hint).toContain('契约');
   });
 
   it('沙箱已给 hint 时优先沿用', () => {

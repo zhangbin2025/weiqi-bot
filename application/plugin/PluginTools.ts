@@ -127,10 +127,10 @@ const TOOL_GUIDE = [
   '- plugin_history：看某个插件的版本链摘要（版本号 / 触发 / 时间 / 反馈）。',
   '- plugin_write：写入一份完整源码。不带 artifactId = 新建；带 artifactId = 修订该插件、',
   '  自动产生新版本并追加快照。参数 code 是完整 JS 源码字符串，不是 diff、不是片段。',
-  '  宿主会用代表性对阵样例自动试算并把结果回填给你；试算失败则不落库。',
+  '  宿主会按扩展点行为做确定性试算并把结果回填给你；试算失败则不落库。',
   '  写能力库时另带 pointId:"llm-tool" + exposes[] + smoke[]，宿主改跑自检样例。',
   '- plugin_debug：对任意源码单独试算。可指定 artifactId(+version) 读已存插件、或直接给 code 试未落库的临时源码；',
-  '  matches 可自定义对阵表，不传则用内置样例。返回排名表或明确错误诊断。',
+  '  matches 可自定义对阵表，不传则用内置样例。返回试算结果或明确错误诊断。',
   '  调试 llm-tool 时把 artifactId 指向能力库工件，或给 code 并带 exposes[]/smoke[]；matches 不适用。',
   '- plugin_toggle：启用/停用插件，enabled 省略则按当前状态翻转。',
   '- plugin_delete：删除插件。',
@@ -170,7 +170,7 @@ async function buildSystemPrompt(
     TOOL_GUIDE,
     '',
     '【迭代开发】改插件就是再调一次 plugin_write 并带上 artifactId，和新建走完全相同的路径：',
-    '每次写入都会自动试算，观察里会返回这一版的排名表（能力库则是自检结果）。看结果不满意、或用户提出新要求，',
+    '每次写入都会自动试算，观察里会按扩展点行为返回这一版的试算结果。看结果不满意、或用户提出新要求，',
     '就调 plugin_show 读当前源码 → 按新要求改 → 再 plugin_write，如此反复直到收敛。',
     '不要用会话记忆猜源码或 id：用 plugin_list / plugin_show 的真实观察。',
     '需要验算特定对阵时用 plugin_debug 自定义 matches；调试能力库临时源码时给 pointId:"llm-tool" 加 exposes/smoke；'
@@ -730,9 +730,9 @@ export function createPluginToolKit(deps: PluginToolDeps): PluginToolKit {
       try {
         await deps.applySelection(undefined);
       } catch (e) {
-        return fail(`切回内置排名失败：${e instanceof Error ? e.message : String(e)}`);
+        return fail(`切回内置口径失败：${e instanceof Error ? e.message : String(e)}`);
       }
-      return ok('已切回内置排名（清除赛事页的插件选择）。', '切回内置排名');
+      return ok('已切回内置口径（清除赛事页的插件选择）。', '切回内置口径');
     }
     const artifact = await requireArtifact(deps, id);
     if (!artifact) return fail(`找不到插件 ${id}，请先 plugin_list`);

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { PluginValidator, validatePluginOutput, contractCheckHint } from '../PluginValidator';
 import { RANKING_SPEC, type PluginSpec } from '@domain/plugin/types';
 import { SAMPLE_RANKING_INPUT } from '@domain/ranking/sampleInput';
+import { rankingBehavior } from '@application/plugin/behaviors';
 
 const validator = new PluginValidator();
 const spec = (overrides?: Partial<PluginSpec>): PluginSpec => ({
@@ -24,8 +25,8 @@ function goodOutput(): unknown {
   };
 }
 
-/** 校验输出时用同一份代表性对阵 */
-const check = (output: unknown) => validatePluginOutput(output, spec(), SAMPLE_RANKING_INPUT);
+/** 校验输出时用同一份代表性对阵；口径由 ranking 扩展点行为提供 */
+const check = (output: unknown) => validatePluginOutput(output, rankingBehavior, SAMPLE_RANKING_INPUT);
 
 describe('PluginValidator.validate', () => {
   it('正常纯计算代码通过', () => {
@@ -92,19 +93,19 @@ describe('PluginValidator.validate', () => {
   });
 });
 
-describe('validatePluginOutput（统一排名表契约）', () => {
+describe('validatePluginOutput（按扩展点行为校验输出契约）', () => {
   it('结构正确的 { columns, rows } 对象通过；outputIsArray 恒为 false', () => {
     const c = check(goodOutput());
     expect(c.outputIsArray).toBe(false);
     expect(c.entryFound).toBe(true);
     expect(c.missingFields).toEqual([]);
-    expect(contractCheckHint(c)).toContain('符合契约');
+    expect(contractCheckHint(c, rankingBehavior)).toContain('符合契约');
   });
 
   it('非对象 / 数组输入 → entryFound=false', () => {
     expect(check({ id: 1, rank: 1 }).entryFound).toBe(false);
     expect(check([]).entryFound).toBe(false);
-    expect(contractCheckHint(check([]))).toContain('对象');
+    expect(contractCheckHint(check([]), rankingBehavior)).toContain('对象');
   });
 
   it('缺 columns / rows → 汇总缺失字段', () => {
@@ -179,12 +180,12 @@ describe('validatePluginOutput（统一排名表契约）', () => {
 
   it('hint 对缺字段给出可操作提示（含数值数组说明）', () => {
     const c = check({ columns: [{ key: 'score', label: '积分' }], rows: [] });
-    expect(contractCheckHint(c)).toContain('cells');
-    expect(contractCheckHint(c)).toContain('数值数组');
+    expect(contractCheckHint(c, rankingBehavior)).toContain('cells');
+    expect(contractCheckHint(c, rankingBehavior)).toContain('数值数组');
   });
 
   it('省略 input 时按代表性对阵样例校验（合法输出仍通过）', () => {
-    const c = validatePluginOutput(goodOutput(), spec());
+    const c = validatePluginOutput(goodOutput(), rankingBehavior);
     expect(c.entryFound).toBe(true);
   });
 });

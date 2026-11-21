@@ -71,6 +71,8 @@ describe('createPluginSystem', () => {
     expect(s.toolKit).toBeDefined();
     expect(s.toolKit.tools.map((t) => t.name)).toContain('plugin_write');
     expect(s.toolKit.maxTurns).toBe(DEFAULT_PLUGIN_MAX_ATTEMPTS + 1);
+    // A2：装配根暴露行为注册表，ranking / llm-tool 平级，无默认主分支
+    expect(Object.keys(s.behaviors).sort()).toEqual(['llm-tool', 'ranking']);
     expect(s.artifacts).toBeDefined();
     expect(s.snapshot).toBeDefined();
     expect(s.maxAttempts).toBe(DEFAULT_PLUGIN_MAX_ATTEMPTS);
