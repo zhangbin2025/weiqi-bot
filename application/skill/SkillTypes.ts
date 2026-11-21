@@ -74,6 +74,11 @@ export interface SkillRecipe {
    * 缺省 = 本技能不涉及凭据，老配方逐字兼容。
    */
   secrets?: SecretSpec[];
+  /**
+   * 可选：面板筛选用的分类标签（纯展示，不进 LLM 提示词、不参与激活判定）。
+   * 由发布方在 skills/registry.json 标注；缺省时宿主按 id 命名空间兜底推导。
+   */
+  category?: string;
   /** 命中后追加到 system 的自然语言指令（纯文本，无代码、无 URL 模板注入） */
   prompt: string;
 }

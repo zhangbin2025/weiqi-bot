@@ -158,6 +158,12 @@ export class PluginCatalogService {
 
     const local = await this.findLocal(entry);
     const code = entry.remoteCode;
+    // 分类是清单侧标注，发布方可能只改标签不改源码；安装/更新都把它同步进工件，
+    // 本地面板的筛选才能跟着在线清单走。category 可能缺省（老清单）→ 清掉旧值，
+    // 让 UI 按 pointId 兜底推导，避免留着过期的显式标签。
+    const syncCategory = async (): Promise<void> => {
+      if (local !== undefined) await this.artifacts.syncCategory(local.id, entry.category);
+    };
     // llm-tool 的契约（exposes[]/smoke[]）也是工件的一部分：远端只改 manifest、
     // 源码不变时仍要同步，否则模型侧工具声明会停在旧版本。新建与更新共用这一份。
     const nextContract = entry.exposes !== undefined && entry.smoke !== undefined
@@ -165,6 +171,7 @@ export class PluginCatalogService {
       : undefined;
     if (local !== undefined) {
       const contractChanged = !contractsEqual(local.llmTool, nextContract);
+      await syncCategory();
       if (local.code === code && !contractChanged) {
         return { ok: true, action: 'unchanged', artifact: local, message: '已是最新，无需更新' };
       }
@@ -200,6 +207,7 @@ export class PluginCatalogService {
       spec,
       catalogRef: { registryUrl: entry.registryUrl, resourceId: entry.resourceId },
       ...(nextContract ? { llmTool: nextContract } : {}),
+      ...(entry.category !== undefined ? { category: entry.category } : {}),
     });
     const installed: InstallResult = {
       ok: true,
@@ -306,6 +314,8 @@ export class PluginCatalogService {
     };
     if (typeof r.pointId === 'string') base.pointId = r.pointId;
     if (typeof r.specVersion === 'number') base.specVersion = r.specVersion;
+    // 分类以 registry 条目为准；manifest 里的同名字段只是冗余标注，不覆盖
+    if (typeof r.category === 'string') base.category = r.category;
 
     // 工具声明镜像：只展示，不取源码、不提供安装
     if (r.type === 'tool') {
@@ -338,6 +348,10 @@ export class PluginCatalogService {
       intent: manifest.intent,
       origin: manifest.origin,
     };
+    // 清单没写分类时，允许 manifest 单独补一份（兼容先给条目加标注的发布流程）
+    if (enriched.category === undefined && manifest.category !== undefined) {
+      enriched.category = manifest.category;
+    }
     if (manifest.exposes !== undefined) enriched.exposes = manifest.exposes;
     if (manifest.smoke !== undefined) enriched.smoke = manifest.smoke;
 
@@ -424,6 +438,7 @@ function fromStatic(
   };
   if (s.pointId !== undefined) entry.pointId = s.pointId;
   if (s.specVersion !== undefined) entry.specVersion = s.specVersion;
+  if (s.category !== undefined) entry.category = s.category;
   if (s.remoteCode !== undefined) entry.remoteCode = s.remoteCode;
   if (s.intent !== undefined) entry.intent = s.intent;
   if (s.origin !== undefined) entry.origin = s.origin;

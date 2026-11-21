@@ -68,6 +68,69 @@ import {
   getRole, parseRoleId, type ChatRoleId,
 } from '../../../../../application/chat/ChatRole';
 
+/**
+ * 扩展资源分类（面板筛选用）—— 纯展示逻辑，内联在本控制器里、不新建模块：
+ * 长驻 vite dev 对「新建 .ts」的 import 解析有缓存坑（TOOLS.md 2026-11-17），
+ * 改已存在文件则能被 HMR 感知。取值与 weiqi-assets 的
+ * scripts/validate.mjs KNOWN_CATEGORIES、两份 registry 的 category 标注三处同步。
+ *
+ * 标签来源（项目铁律：每个常数都要能说清出处，不拟合、不抄来路不明的值）：
+ * 1. 资源清单显式 category —— 人工业务标注，唯一事实源；
+ * 2. 缺省按现有稳定字段兜底推导：插件 pointId 是 PLUGIN_SPECS 的注册键，
+ *    技能 id 第一段是发布方给资源分组的命名空间（stock.* / puzzle.* …），
+ *    映射逐条写在下表里，可复算、可争议；
+ * 3. 都推不出 → 「未分类」，绝不把未知资源硬塞进某个类。
+ * 纯展示：不参与安装 / 兼容 / 激活判定，也不进 LLM 提示词。
+ */
+export const EXTENSION_CATEGORIES = [
+  '排名', '模型工具', '围棋', '财经', '搜索', '生活', '开发', '未分类',
+] as const;
+export type ExtensionCategory = (typeof EXTENSION_CATEGORIES)[number];
+
+/** 「全部」哨兵：不是分类，不会出现在资源上；默认筛选值 */
+export const CATEGORY_ALL = '__all__' as const;
+export type CategoryFilter = ExtensionCategory | typeof CATEGORY_ALL;
+
+/** 插件扩展点 → 中文分类；键 = domain/plugin/types.ts 的 PLUGIN_SPECS 注册键 */
+const PLUGIN_POINT_CATEGORY: Readonly<Record<string, ExtensionCategory>> = {
+  ranking: '排名',
+  'llm-tool': '模型工具',
+};
+/** 技能 id 第一段 → 中文分类；键 = weiqi-assets 官方清单实际出现的命名空间 */
+const SKILL_NS_CATEGORY: Readonly<Record<string, ExtensionCategory>> = {
+  puzzle: '围棋', play: '围棋', player: '围棋',
+  stock: '财经',
+  weather: '生活', user: '生活', calendar: '生活',
+  tavily: '搜索', search: '搜索',
+  github: '开发',
+};
+
+/** 显式 category 归一：去空白、必须落在白名单，否则当没写（走兜底） */
+export function normalizeCategory(raw: unknown): ExtensionCategory | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  return (EXTENSION_CATEGORIES as readonly string[]).includes(trimmed)
+    ? trimmed as ExtensionCategory
+    : undefined;
+}
+/** 插件：优先清单标注，缺省按 pointId 推导 */
+export function pluginCategory(pointId: string | undefined, explicit?: string): ExtensionCategory {
+  const declared = normalizeCategory(explicit);
+  if (declared !== undefined) return declared;
+  if (pointId !== undefined) {
+    const derived = PLUGIN_POINT_CATEGORY[pointId];
+    if (derived !== undefined) return derived;
+  }
+  return '未分类';
+}
+/** 技能：优先清单标注，缺省按 id 第一段（命名空间）推导 */
+export function skillCategory(id: string, explicit?: string): ExtensionCategory {
+  const declared = normalizeCategory(explicit);
+  if (declared !== undefined) return declared;
+  const ns = id.split('.')[0] ?? '';
+  return SKILL_NS_CATEGORY[ns] ?? '未分类';
+}
+
 /** 与功能助手 'chat-session' 隔离，导出/清空天然只覆盖对话页会话 */
 const CHAT_CATEGORY = 'chat-conversation';
 const LAST_SESSION_KEY = 'chat:lastSessionId';
@@ -92,6 +155,8 @@ export class ChatPage {
   private catalog: PluginCatalogService | undefined;
   /** 插件面板当前标签页；默认本地插件。安装/更新操作后强制切回 local */
   private pluginPanelTab: 'local' | 'online' = 'local';
+  /** 插件面板分类筛选（本地/在线标签共用）；默认「全部」不筛选 */
+  private pluginCategoryFilter: CategoryFilter = CATEGORY_ALL;
   /** 一次性操作反馈，随下一次面板渲染出现后清空 */
   private pluginPanelFlash: { text: string; error: boolean } | undefined;
   /** 操作后要定位回本地库里的条目；新装插件带 enableHint 提示手动启用 */
@@ -108,6 +173,8 @@ export class ChatPage {
   private secretSpecs: ReturnType<typeof createSecretSpecRegistry> | undefined;
   /** 技能面板当前标签页；默认「我的技能」。安装/更新操作后强制切回 local */
   private skillPanelTab: 'local' | 'online' = 'local';
+  /** 技能面板分类筛选（本地/在线标签共用）；默认「全部」不筛选 */
+  private skillCategoryFilter: CategoryFilter = CATEGORY_ALL;
   private skillPanelFlash: { text: string; error: boolean } | undefined;
   /** 技能操作后要定位回本地库里的条目（按 recipe.id） */
   private skillPanelFocus: PanelFocus | undefined;
@@ -942,6 +1009,8 @@ export class ChatPage {
     this.toggleMenu(false);
     // 每次重新打开面板都从干净状态开始，别把上次会话残留的定位目标带过来。
     this.pluginPanelFocus = undefined;
+    // 每次打开都回到「全部」，不把上次筛选残留带进新会话（默认列表显示全部）
+    this.pluginCategoryFilter = CATEGORY_ALL;
     // show() 是阻塞式 Promise（点关闭才 resolve），DOM 同步插入；
     // 先发起显示再填充内容，与 showHistory 同一套路。
     // 两个标签页共用同一个 dialog：本地工件 + 在线插件源。
@@ -954,6 +1023,7 @@ export class ChatPage {
         + '<button type="button" class="plugin-panel__tab" data-tab="local">本地插件</button>'
         + '<button type="button" class="plugin-panel__tab" data-tab="online">在线插件</button>'
         + '</div>'
+        + '<div class="plugin-panel__categories" id="pluginPanelCategories"></div>'
         + '<div class="plugin-panel__body" id="pluginPanelBody"></div>'
         + '</div>',
       buttons: [{ id: 'close', text: '关闭' }],
@@ -977,7 +1047,14 @@ export class ChatPage {
     const seq = ++this.pluginPanelSeq;
     const root = document.getElementById('pluginPanelRoot');
     const body = document.getElementById('pluginPanelBody');
+    const bar = document.getElementById('pluginPanelCategories');
     if (!root || !body) return;
+    if (bar) {
+      this.buildCategoryBar(bar, [], this.pluginCategoryFilter, (next) => {
+        this.pluginCategoryFilter = next;
+        this.selectPluginCategory(next);
+      });
+    }
 
     // 标签高亮与当前选择一致（切页/重开都同步）
     root.querySelectorAll<HTMLButtonElement>('.plugin-panel__tab').forEach((btn) => {
@@ -1018,11 +1095,22 @@ export class ChatPage {
       this.applyFlash(body);
       return;
     }
+    const present: ExtensionCategory[] = [];
     for (const artifact of artifacts) {
       const card = this.buildPluginCard(artifact, plugin);
+      const category = pluginCategory(artifact.pointId, artifact.category);
+      card.dataset['category'] = category;
       card.dataset['panelKey'] = `local:${artifact.id}`;
+      present.push(category);
       body.appendChild(card);
     }
+    if (bar) {
+      this.buildCategoryBar(bar, present, this.pluginCategoryFilter, (next) => {
+        this.pluginCategoryFilter = next;
+        this.selectPluginCategory(next);
+      });
+    }
+    this.applyCategoryFilter(body, this.pluginCategoryFilter);
     this.applyFlash(body);
   }
 
@@ -1070,11 +1158,23 @@ export class ChatPage {
           : '当前源里没有插件。',
       ));
     } else {
+      const present: ExtensionCategory[] = [];
       for (const entry of plugins) {
         const card = this.buildCatalogCard(entry, catalog);
+        const category = pluginCategory(entry.pointId, entry.category);
+        card.dataset['category'] = category;
         card.dataset['panelKey'] = `online:${entry.resourceId}`;
+        present.push(category);
         body.appendChild(card);
       }
+      const bar = document.getElementById('pluginPanelCategories');
+      if (bar) {
+        this.buildCategoryBar(bar, present, this.pluginCategoryFilter, (next) => {
+          this.pluginCategoryFilter = next;
+          this.selectPluginCategory(next);
+        });
+      }
+      this.applyCategoryFilter(body, this.pluginCategoryFilter);
     }
     this.applyFlash(body);
     if (noStore) {
@@ -1173,6 +1273,7 @@ export class ChatPage {
     const name = document.createElement('span');
     name.className = 'plugin-panel__name';
     name.textContent = entry.name;
+    this.appendCategoryBadge(head, pluginCategory(entry.pointId, entry.category));
     const state = document.createElement('span');
     state.className = 'plugin-panel__state';
     const stateText: Record<CatalogEntry['state'], string> = {
@@ -1243,6 +1344,9 @@ export class ChatPage {
               // 万一没有也仍然切到本地页，只是没法高亮某一张卡片（applyPanelFocus
               // 找不到目标会静默跳过），绝不退回在线页。
               this.pluginPanelTab = 'local';
+              // 若用户此前在按分类筛选，刚装的条目可能不属于当前标签 → 回「全部」，
+              // 否则跳过去后卡片被隐藏、applyPanelFocus 找不到可见目标（2026-11-21 决策的延续）。
+              this.pluginCategoryFilter = CATEGORY_ALL;
               if (out.artifact !== undefined) {
                 this.pluginPanelFocus = out.action === 'installed'
                   // 新装工件由 install() 建为 enabled:false：额外给一条醒目提示，
@@ -1271,6 +1375,87 @@ export class ChatPage {
     // type: tool 的声明镜像不提供任何安装按钮
     card.appendChild(actions);
     return card;
+  }
+
+  /**
+   * 点分类标签：只切换当前 body 里卡片的可见性 + 重绘标签条选中态。
+   * **不重新 browse**：筛选是纯前端行为，点一下标签不该再去打在线源、
+   * 也不该让列表闪一次「正在读取…」。卡片上的 data-category 在渲染时已写好。
+   */
+  private selectPluginCategory(next: CategoryFilter): void {
+    this.pluginCategoryFilter = next;
+    this.applyCategorySelection('pluginPanelCategories', 'pluginPanelBody', next,
+      (n) => this.selectPluginCategory(n));
+  }
+
+  private selectSkillCategory(next: CategoryFilter): void {
+    this.skillCategoryFilter = next;
+    this.applyCategorySelection('skillPanelCategories', 'skillPanelBody', next,
+      (n) => this.selectSkillCategory(n));
+  }
+
+  private applyCategorySelection(
+    barId: string, bodyId: string, next: CategoryFilter,
+    onSelect: (n: CategoryFilter) => void,
+  ): void {
+    const body = document.getElementById(bodyId);
+    const bar = document.getElementById(barId);
+    if (!body) return;
+    const present: ExtensionCategory[] = [];
+    body.querySelectorAll<HTMLElement>('.plugin-panel__card').forEach((card) => {
+      const c = normalizeCategory(card.dataset['category']);
+      if (c !== undefined && !present.includes(c)) present.push(c);
+      card.hidden = false;
+    });
+    if (bar) this.buildCategoryBar(bar, present, next, onSelect);
+    this.applyCategoryFilter(body, next);
+  }
+
+  /**
+   * 分类标签条：「全部 + 本列表实际出现的分类」，单选、默认全部。
+   * 只展示列表里已经存在的分类（不摆一排永远点不出东西的空标签）；
+   * 从未分类兜底推导出来的标签也照常可筛。计数按本次渲染的条目算。
+   */
+  private buildCategoryBar(
+    container: HTMLElement,
+    present: readonly ExtensionCategory[],
+    current: CategoryFilter,
+    onSelect: (next: CategoryFilter) => void,
+  ): void {
+    container.replaceChildren();
+    const seen = new Set<ExtensionCategory>();
+    const ordered: ExtensionCategory[] = [];
+    for (const c of EXTENSION_CATEGORIES) {
+      if (present.includes(c) && !seen.has(c)) { seen.add(c); ordered.push(c); }
+    }
+    // 当前筛选值若因列表变化不再存在，仍保留按钮：让用户能点回「全部」，
+    // 而不是卡在一个看不见的筛选状态里。
+    if (current !== CATEGORY_ALL && !seen.has(current)) ordered.unshift(current);
+    const makeBtn = (label: string, value: CategoryFilter): HTMLButtonElement => {
+      const btn = this.pluginAction(label, () => onSelect(value), 'plugin-panel__category');
+      btn.dataset['category'] = value;
+      if (value === current) btn.classList.add('plugin-panel__category--active');
+      return btn;
+    };
+    container.appendChild(makeBtn('全部', CATEGORY_ALL));
+    for (const c of ordered) container.appendChild(makeBtn(c, c));
+  }
+
+  /** 卡片头部的小分类标签：纯展示，textContent 防注入 */
+  private appendCategoryBadge(head: HTMLElement, category: ExtensionCategory): void {
+    const tag = document.createElement('span');
+    tag.className = 'plugin-panel__category-tag';
+    tag.textContent = category;
+    head.appendChild(tag);
+  }
+
+  /** 按当前筛选隐藏不匹配的卡片；只对 .plugin-panel__card 生效，
+   *  源管理器 / flash / enable-hint / 空态提示一律不动。 */
+  private applyCategoryFilter(body: HTMLElement, selected: CategoryFilter): void {
+    if (selected === CATEGORY_ALL) return;
+    body.querySelectorAll<HTMLElement>('.plugin-panel__card').forEach((card) => {
+      if (card.dataset['category'] !== selected) card.hidden = true;
+    });
   }
 
   /** 一次性操作反馈：随下一次面板渲染出现，随后清空 */
@@ -1337,6 +1522,7 @@ export class ChatPage {
     const name = document.createElement('span');
     name.className = 'plugin-panel__name';
     name.textContent = artifact.name;
+    this.appendCategoryBadge(head, pluginCategory(artifact.pointId, artifact.category));
     const state = document.createElement('span');
     state.className = `plugin-panel__state${artifact.enabled ? ' plugin-panel__state--on' : ''}`;
     state.textContent = artifact.enabled ? '已启用' : '停用';
@@ -1456,6 +1642,8 @@ export class ChatPage {
   private async showSkillPanel(): Promise<void> {
     this.toggleMenu(false);
     this.skillPanelFocus = undefined;
+    // 每次打开都回到「全部」，不把上次筛选残留带进新会话（默认列表显示全部）
+    this.skillCategoryFilter = CATEGORY_ALL;
     void this.dialog.show({
       type: 'custom',
       title: '技能管理',
@@ -1465,6 +1653,7 @@ export class ChatPage {
         + '<button type="button" class="plugin-panel__tab" data-tab="local">我的技能</button>'
         + '<button type="button" class="plugin-panel__tab" data-tab="online">在线技能</button>'
         + '</div>'
+        + '<div class="plugin-panel__categories" id="skillPanelCategories"></div>'
         + '<div class="plugin-panel__body" id="skillPanelBody"></div>'
         + '</div>',
       buttons: [{ id: 'close', text: '关闭' }],
@@ -1487,7 +1676,14 @@ export class ChatPage {
     const seq = ++this.skillPanelSeq;
     const root = document.getElementById('skillPanelRoot');
     const body = document.getElementById('skillPanelBody');
+    const bar = document.getElementById('skillPanelCategories');
     if (!root || !body) return;
+    if (bar) {
+      this.buildCategoryBar(bar, [], this.skillCategoryFilter, (next) => {
+        this.skillCategoryFilter = next;
+        this.selectSkillCategory(next);
+      });
+    }
     root.querySelectorAll<HTMLButtonElement>('.plugin-panel__tab').forEach((btn) => {
       btn.classList.toggle('plugin-panel__tab--active', btn.dataset['tab'] === this.skillPanelTab);
     });
@@ -1522,11 +1718,22 @@ export class ChatPage {
       this.applySkillFlash(body);
       return;
     }
+    const present: ExtensionCategory[] = [];
     for (const entry of entries) {
       const card = this.buildUserSkillCard(entry, catalog);
+      const category = skillCategory(entry.recipe.id, entry.recipe.category);
+      card.dataset['category'] = category;
       card.dataset['panelKey'] = `local:${entry.recipe.id}`;
+      present.push(category);
       body.appendChild(card);
     }
+    if (bar) {
+      this.buildCategoryBar(bar, present, this.skillCategoryFilter, (next) => {
+        this.skillCategoryFilter = next;
+        this.selectSkillCategory(next);
+      });
+    }
+    this.applyCategoryFilter(body, this.skillCategoryFilter);
     this.applySkillFlash(body);
   }
 
@@ -1567,11 +1774,23 @@ export class ChatPage {
         result.error !== undefined ? '暂时没有可显示的配方。' : '当前源里没有技能配方。',
       ));
     } else {
+      const present: ExtensionCategory[] = [];
       for (const item of result.items) {
         const card = this.buildOnlineSkillCard(item, result.source, catalog);
+        const category = skillCategory(item.recipe.id, item.recipe.category);
+        card.dataset['category'] = category;
         card.dataset['panelKey'] = `online:${item.recipe.id}`;
+        present.push(category);
         body.appendChild(card);
       }
+      const bar = document.getElementById('skillPanelCategories');
+      if (bar) {
+        this.buildCategoryBar(bar, present, this.skillCategoryFilter, (next) => {
+          this.skillCategoryFilter = next;
+          this.selectSkillCategory(next);
+        });
+      }
+      this.applyCategoryFilter(body, this.skillCategoryFilter);
     }
     this.applySkillFlash(body);
     if (noStore) {
@@ -1649,6 +1868,8 @@ export class ChatPage {
   /** 配方卡片共用部分：名称 / 状态 / 元信息 / 触发词 / 原语 / 摘要 */
   private buildSkillCardHead(recipe: SkillRecipe, state: { text: string; on: boolean }): HTMLElement {
     const card = document.createElement('div');
+    const category = skillCategory(recipe.id, recipe.category);
+    card.dataset['category'] = category;
     card.className = 'plugin-panel__card';
     const head = document.createElement('div');
     head.className = 'plugin-panel__head';
@@ -1659,6 +1880,7 @@ export class ChatPage {
     badge.className = `plugin-panel__state${state.on ? ' plugin-panel__state--on' : ''}`;
     badge.textContent = state.text;
     head.append(name, badge);
+    this.appendCategoryBadge(head, category);
     card.appendChild(head);
 
     const meta = document.createElement('div');
@@ -1776,6 +1998,8 @@ export class ChatPage {
             // 装完要看到的是本地配方（启停、版本、原语），不是在线源里的镜像
             // （2026-11-21 决策）。技能安装即刻生效，无需手动启用提示。
             this.skillPanelTab = 'local';
+            // 同上：装完要看到本地条目，别让上一次的分类筛选把它藏起来。
+            this.skillCategoryFilter = CATEGORY_ALL;
             this.skillPanelFocus = { key: `local:${recipe.id}` };
           }
           await this.refreshSkillPanel();

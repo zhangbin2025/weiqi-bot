@@ -300,3 +300,68 @@ describe('PluginCatalogSources 单源模型', () => {
     expect((await sources.current()).official).toBe(true);
   });
 });
+
+
+// ---------- 分类标签（2026-11-21）：registry → CatalogEntry → 工件，更新时同步 ----------
+describe('分类标签 category 落地', () => {
+  it('registry 声明的 category 出现在 browse 条目里，安装写进工件', async () => {
+    const raw = registry(CODE_V1);
+    (raw.resources[0] as Record<string, unknown>)['category'] = '排名';
+    const client = new PluginCatalogClient({
+      fetchImpl: (async (url: string | URL | Request) => {
+        if (String(url).endsWith('registry.json')) {
+          return { ok: true, status: 200, text: async () => JSON.stringify(raw) } as Response;
+        }
+        return makeFetch(CODE_V1)(url);
+      }) as unknown as typeof fetch,
+    });
+    const ls = fakeLocalStorage();
+    const store = new InMemoryPluginArtifactStore();
+    const artifacts = new PluginArtifactService(store);
+    const service = new PluginCatalogService({
+      client,
+      sources: new PluginCatalogSources({ localStorage: ls }),
+      cache: new PluginCatalogCache({ localStorage: ls }),
+      artifacts,
+    });
+    const entry = await pluginEntry(service);
+    expect(entry?.category).toBe('排名');
+    const out = await service.install(entry!);
+    expect(out.artifact?.category).toBe('排名');
+    expect((await artifacts.list())[0]!.category).toBe('排名');
+  });
+
+  it('只改清单标注（源码不变）→ 更新同步分类；撤掉标注 → 清掉旧值', async () => {
+    const ls = fakeLocalStorage();
+    const store = new InMemoryPluginArtifactStore();
+    const artifacts = new PluginArtifactService(store);
+    let category: string | undefined = '排名';
+    const client = new PluginCatalogClient({
+      fetchImpl: (async (url: string | URL | Request) => {
+        if (String(url).endsWith('registry.json')) {
+          const raw = registry(CODE_V1);
+          if (category !== undefined) (raw.resources[0] as Record<string, unknown>)['category'] = category;
+          return { ok: true, status: 200, text: async () => JSON.stringify(raw) } as Response;
+        }
+        return makeFetch(CODE_V1)(url);
+      }) as unknown as typeof fetch,
+    });
+    const service = new PluginCatalogService({
+      client,
+      sources: new PluginCatalogSources({ localStorage: ls }),
+      cache: new PluginCatalogCache({ localStorage: ls }),
+      artifacts,
+    });
+    const first = await service.install((await pluginEntry(service))!);
+    expect(first.artifact?.category).toBe('排名');
+
+    category = '模型工具';
+    const second = await service.install((await pluginEntry(service))!);
+    expect(second.action).toBe('unchanged');
+    expect((await artifacts.list())[0]!.category).toBe('模型工具');
+
+    category = undefined;
+    await service.install((await pluginEntry(service))!);
+    expect((await artifacts.list())[0]!.category).toBeUndefined();
+  });
+});

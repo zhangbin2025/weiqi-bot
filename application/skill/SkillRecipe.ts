@@ -96,6 +96,17 @@ function readRequiredCapabilities(
  * 可选 secrets：缺省表示不涉及凭据；显式给值时逐条过 parseSecretSpecs，
  * 结构/域名/头名不合规直接拒绝，绝不带着半份声明进运行时。
  */
+/**
+ * 可选 category：纯展示字段，宽松解析 —— 未知值/空串一律当缺省（走 id 兜底推导），
+ * 绝不因为一个标签不认识就拒掉整条合法配方。
+ */
+function readCategory(raw: Record<string, unknown>): FieldResult<string | undefined> {
+  const value = raw['category'];
+  if (value === undefined) return { ok: true, value: undefined };
+  if (typeof value !== 'string' || !value.trim()) return { ok: true, value: undefined };
+  return { ok: true, value: value.trim() };
+}
+
 function readSecrets(raw: Record<string, unknown>): FieldResult<SkillRecipe['secrets']> {
   if (raw['secrets'] === undefined) return { ok: true, value: undefined };
   try {
@@ -127,6 +138,8 @@ export function parseSkillRecipe(
   if (!primitives.ok) return primitives;
   const requiredCapabilities = readRequiredCapabilities(raw);
   if (!requiredCapabilities.ok) return requiredCapabilities;
+  const category = readCategory(raw);
+  if (!category.ok) return category;
   const secrets = readSecrets(raw);
   if (!secrets.ok) return secrets;
   const prompt = readString(raw, 'prompt', 'prompt');
@@ -144,6 +157,7 @@ export function parseSkillRecipe(
       ? { requiredCapabilities: requiredCapabilities.value }
       : {}),
     ...(secrets.value !== undefined ? { secrets: secrets.value } : {}),
+    ...(category.value !== undefined ? { category: category.value } : {}),
     prompt: prompt.value,
   };
   return { ok: true, skill };

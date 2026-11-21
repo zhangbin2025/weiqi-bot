@@ -186,6 +186,28 @@
         .plugin-panel__tab--active {
             color: #5546a8; font-weight: 600; border-bottom-color: #667eea;
         }
+        /* 分类筛选条：默认「全部」，单选；只列出当前列表里实际出现的分类。
+           放在滚动区之外，与标签页一样始终可见，切标签不用滚回顶部。 */
+        .plugin-panel__categories {
+            display: flex; flex-wrap: wrap; gap: 6px;
+            padding: 2px 0 10px; flex: 0 0 auto;
+        }
+        .plugin-panel__actions .plugin-panel__category,
+        .plugin-panel__categories button.plugin-panel__category {
+            border: 1px solid #dcdcf0; border-radius: 14px;
+            background: #fff; color: #666; font-size: 12px;
+            padding: 3px 10px; cursor: pointer; font-family: inherit;
+            line-height: 1.4;
+        }
+        .plugin-panel__categories button.plugin-panel__category:hover { background: #ece9ff; }
+        .plugin-panel__categories button.plugin-panel__category--active {
+            background: #667eea; border-color: #667eea; color: #fff; font-weight: 600;
+        }
+        /* 卡片头部分类标签：与状态徽章同款尺寸，不抢主色 */
+        .plugin-panel__category-tag {
+            font-size: 11px; padding: 1px 7px; border-radius: 10px;
+            background: #f0eefc; color: #5546a8; white-space: nowrap;
+        }
         /* 仅条目列表区滚动：撑满剩余高度、显示滚动条（含 WebKit 常显轨道） */
         .plugin-panel__body {
             flex: 1 1 auto; min-height: 0;

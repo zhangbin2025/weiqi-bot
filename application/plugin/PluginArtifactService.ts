@@ -28,6 +28,8 @@ export interface CreatePluginArtifactInput {
   catalogRef?: PluginCatalogRef;
   /** llm-tool 安装时写入资源契约（exposes[]/smoke[]），随工件持久化 */
   llmTool?: PluginArtifact['llmTool'];
+  /** 在线插件清单声明的分类标签，随工件持久化，供本地面板筛选 */
+  category?: string;
 }
 
 export interface RevisePluginArtifactInput {
@@ -111,6 +113,7 @@ export class PluginArtifactService {
     if (input.llmTool !== undefined) {
       artifact.llmTool = JSON.parse(JSON.stringify(input.llmTool)) as NonNullable<PluginArtifact['llmTool']>;
     }
+    if (input.category !== undefined) artifact.category = input.category;
     await this.store.create(artifact);
     return artifact;
   }
@@ -150,6 +153,16 @@ export class PluginArtifactService {
       history: updated.history,
     });
     return updated;
+  }
+
+  /**
+   * 在线源安装/更新时同步分类标签（纯展示字段）。传 undefined 表示清单撤掉标注，
+   * 清掉旧值让 UI 按 pointId 兜底推导。与 llmTool 契约同步同一套路。
+   */
+  async syncCategory(id: string, category: string | undefined): Promise<void> {
+    await this.requireArtifact(id);
+    // exactOptionalPropertyTypes 下用 `in` 语义的 patch 才能表达「显式清空」
+    await this.store.update(id, { category } as unknown as Partial<PluginArtifact>);
   }
 
   /** 人工闸门：显式启用 / 停用；顺带刷新 updatedAt 让清单排序反映这次变更 */

@@ -29,6 +29,8 @@ export interface RegistryResource {
   path?: string;
   pointId?: string;
   specVersion?: number;
+  /** 可选：面板筛选分类（人工标注），缺省时宿主按 pointId 兜底推导 */
+  category?: string;
 }
 
 /** 插件条目 manifest（plugin.json） */
@@ -46,6 +48,8 @@ export interface PluginManifest {
   readme?: string;
   license?: string;
   tags?: string[];
+  /** 可选：面板筛选分类；与 registry 条目一致时才采用（以 registry 为准） */
+  category?: string;
   /** llm-tool 专用：方法白名单；宿主据此生成工具声明与 method 校验 */
   exposes?: LlmToolExposure[];
   /** llm-tool 专用：安装前沙箱自检样例 */
@@ -96,6 +100,8 @@ export interface CatalogEntry {
   summary: string;
   pointId?: string;
   specVersion?: number;
+  /** 可选：清单声明的分类标签（纯展示），缺省由 UI 按 pointId 兜底推导 */
+  category?: string;
   state: CatalogEntryState;
   /** 远端源码全文；只有成功取到的 plugin 才有 */
   remoteCode?: string;

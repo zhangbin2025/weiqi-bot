@@ -191,6 +191,9 @@ export interface PluginArtifact {
   conversationRef?: string;
   /** 从在线插件源安装的工件才带；LLM/手工新建的工件没有此字段 */
   catalogRef?: PluginCatalogRef;
+  /** 可选：面板筛选用的分类标签（纯展示）。在线安装时取 registry 的 category；
+   *  缺省由宿主按 pointId 兜底推导，见 presentation/adapters/web/pages/assistant/ChatPage.ts 的 pluginCategory() */
+  category?: string;
   /** 仅 llm-tool 工件带：安装时把方法白名单与自检样例一起落库，离线也能重建工具声明 */
   llmTool?: LlmToolArtifactContract;
 }

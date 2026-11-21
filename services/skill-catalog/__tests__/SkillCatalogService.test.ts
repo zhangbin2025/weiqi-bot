@@ -381,3 +381,48 @@ describe('SkillCatalogService.browse — 手动刷新绕过 HTTP 缓存', () => 
     expect(calls[0]?.init?.cache).toBe('no-store');
   });
 });
+
+
+// ---------- 分类标签（2026-11-21）：可选字段，宽松解析，安装落库 ----------
+describe('分类标签 category（可选、纯展示）', () => {
+  it('parseSkillRecipe 保留合法 category，缺省 / 空串 / 非字符串一律当没写', () => {
+    const withCat = parseSkillRecipe(recipe({ category: '财经' }));
+    expect(withCat.ok).toBe(true);
+    if (withCat.ok) expect(withCat.skill.category).toBe('财经');
+    const trimmed = parseSkillRecipe(recipe({ category: '  围棋  ' }));
+    expect(trimmed.ok).toBe(true);
+    if (trimmed.ok) expect(trimmed.skill.category).toBe('围棋');
+    for (const raw of [undefined, '', 42, null]) {
+      const parsed = parseSkillRecipe(recipe({ category: raw }));
+      expect(parsed.ok).toBe(true);
+      if (parsed.ok) expect(parsed.skill.category).toBeUndefined();
+    }
+  });
+
+  it('未知 category 值不拒配方（交给 UI 兜底推导），整份 registry 照样解析', () => {
+    const parsed = parseSkillRegistry(registryOf([
+      recipe({ id: 'a', category: '火星' }),
+      recipe({ id: 'b', category: '财经' }),
+    ]));
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.registry.skills[0]!.category).toBe('火星');
+      expect(parsed.registry.skills[1]!.category).toBe('财经');
+    }
+  });
+
+  it('在线安装把 category 写进本地库；老配方没写也不影响安装', async () => {
+    const withCat = recipe({ id: 'stock.quote', category: '财经', version: 2 });
+    const withoutCat = recipe({ id: 'puzzle.tsumego', version: 2 });
+    const catalog = catalogWith(fetchReturning(registryOf([withCat, withoutCat])));
+    const { items } = await catalog.browse();
+    expect(items.map((i) => i.recipe.category)).toEqual(['财经', undefined]);
+    const out1 = await catalog.install(items[0]!.recipe);
+    const out2 = await catalog.install(items[1]!.recipe);
+    expect(out1.ok).toBe(true);
+    expect(out2.ok).toBe(true);
+    const saved = await catalog.userStore().list();
+    expect(saved.find((e) => e.recipe.id === 'stock.quote')?.recipe.category).toBe('财经');
+    expect(saved.find((e) => e.recipe.id === 'puzzle.tsumego')?.recipe.category).toBeUndefined();
+  });
+});

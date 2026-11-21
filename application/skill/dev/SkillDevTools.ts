@@ -86,6 +86,11 @@ const SKILL_WRITE_TOOL: ModelToolDefinition = {
           + '不声明 method 即缺省 GET。仅当引用 http_fetch_auth / secret_prompt 时需要；'
           + '宿主据此限定可发往的域名、请求头、方法与 body 形状，模型运行时只能给 url 和 secretKey。',
       },
+      category: {
+        type: 'string',
+        description: '可选。分类标签（如 围棋 / 财经 / 搜索 / 生活 / 开发），只用于面板筛选展示；'
+          + '不填时宿主按技能 id 自动归类，填了不认识的值也按自动归类处理。',
+      },
       prompt: {
         type: 'string',
         description: '命中后追加给对话的自然语言指令（纯文本，不写代码、不写网址模板）',
@@ -271,6 +276,7 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
         ? { requiredCapabilities: args['requiredCapabilities'] }
         : {}),
       ...(args['secrets'] !== undefined ? { secrets: args['secrets'] } : {}),
+      ...(args['category'] !== undefined ? { category: args['category'] } : {}),
       prompt: args['prompt'],
     });
     if (!parsed.ok) {

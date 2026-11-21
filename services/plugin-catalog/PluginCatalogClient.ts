@@ -116,6 +116,7 @@ export class PluginCatalogClient {
         return c;
       });
     }
+    if (typeof parsed['category'] === 'string') manifest.category = parsed['category'];
     if (manifest.type !== 'plugin') throw new Error('type 不是 plugin');
     if (item.resource.id !== undefined && manifest.id !== item.resource.id) {
       throw new Error('manifest.id 与 registry 条目不一致');
@@ -176,6 +177,7 @@ function toRegistryResource(raw: unknown): RegistryResource {
   if (typeof raw['path'] === 'string') r.path = raw['path'];
   if (typeof raw['pointId'] === 'string') r.pointId = raw['pointId'];
   if (typeof raw['specVersion'] === 'number') r.specVersion = raw['specVersion'];
+  if (typeof raw['category'] === 'string') r.category = raw['category'];
   return r;
 }
 

@@ -25,6 +25,7 @@ export interface StaticCatalogEntry {
   summary: string;
   pointId?: string;
   specVersion?: number;
+  category?: string;
   remoteCode?: string;
   intent?: string;
   origin?: 'llm' | 'manual';
@@ -86,6 +87,7 @@ function toStatic(entry: CatalogEntry): StaticCatalogEntry {
   };
   if (entry.pointId !== undefined) s.pointId = entry.pointId;
   if (entry.specVersion !== undefined) s.specVersion = entry.specVersion;
+  if (entry.category !== undefined) s.category = entry.category;
   if (entry.remoteCode !== undefined) s.remoteCode = entry.remoteCode;
   if (entry.intent !== undefined) s.intent = entry.intent;
   if (entry.origin !== undefined) s.origin = entry.origin;

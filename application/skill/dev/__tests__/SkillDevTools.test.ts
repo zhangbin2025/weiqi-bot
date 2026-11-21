@@ -235,3 +235,20 @@ describe('makeUserSkillId', () => {
     expect(makeUserSkillId('另一个')).not.toBe(a);
   });
 });
+
+
+// ---------- 分类标签（2026-11-21）：skill_write 可选参数 ----------
+describe('skill_write 可选 category', () => {
+  it('schema 放行 category，填了就落进本地配方', async () => {
+    const { users, dev, exec } = kit();
+    const schema = dev.tools.find((t) => t.name === 'skill_write')!.parameters;
+    expect(schema.properties).toHaveProperty('category');
+    const r = await exec('skill_write', {
+      name: '查天气', summary: '查天气', primitives: ['web_fetch'],
+      prompt: '查天气', category: '生活',
+    });
+    expect(r.ok).toBe(true);
+    const saved = await users.list();
+    expect(saved[0]!.recipe.category).toBe('生活');
+  });
+});
