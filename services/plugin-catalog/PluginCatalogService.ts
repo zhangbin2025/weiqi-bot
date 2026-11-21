@@ -16,12 +16,14 @@
  */
 
 import { PluginValidator, validatePluginOutput } from '@domain/plugin/PluginValidator';
-import {
-  validateLlmToolContract, llmToolTrialCases, deepEqual, contractsEqual,
-} from '@application/plugin/LlmToolContract';
+import { contractsEqual } from '@application/plugin/LlmToolContract';
+import type {
+  ExtensionPointBehaviorRegistry,
+} from '@domain/plugin/ExtensionPointBehavior';
+import { resolveExtensionPointBehavior } from '@domain/plugin/ExtensionPointBehavior';
+import { createExtensionPointBehaviors } from '@application/plugin/behaviors';
 import { resolvePluginSpec, PLUGIN_SPECS } from '@domain/plugin/types';
 import type { PluginArtifact, IPluginRuntime, PluginRunResult, PluginSpec } from '@domain/plugin/types';
-import { SAMPLE_RANKING_INPUT } from '@domain/ranking/sampleInput';
 import type { PluginArtifactService } from '@application/plugin/PluginArtifactService';
 import { PluginCatalogClient } from './PluginCatalogClient';
 import type { ParsedRegistryResource } from './PluginCatalogClient';
@@ -49,6 +51,8 @@ export interface PluginCatalogServiceDeps {
   runtime?: IPluginRuntime;
   /** 静态预检器，缺省新建 */
   validator?: PluginValidator;
+  /** 扩展点行为注册表；由装配根注入，缺省时用默认注册表（测试便利） */
+  behaviors?: ExtensionPointBehaviorRegistry;
 }
 
 export interface InstallResult {
@@ -69,6 +73,7 @@ export class PluginCatalogService {
   private readonly artifacts: PluginArtifactService;
   private readonly runtime: IPluginRuntime | undefined;
   private readonly validator: PluginValidator;
+  private readonly behaviors: ExtensionPointBehaviorRegistry;
 
   constructor(deps: PluginCatalogServiceDeps) {
     this.client = deps.client ?? new PluginCatalogClient();
@@ -77,6 +82,7 @@ export class PluginCatalogService {
     this.artifacts = deps.artifacts;
     this.runtime = deps.runtime;
     this.validator = deps.validator ?? new PluginValidator();
+    this.behaviors = deps.behaviors ?? createExtensionPointBehaviors();
   }
 
   /** 源管理直接透传（单源：当前源 + 替换 + 恢复默认） */
@@ -138,7 +144,7 @@ export class PluginCatalogService {
     if (entry.remoteCode === undefined) {
       return { ok: false, action: 'rejected', message: '源码不可用，无法安装' };
     }
-    const compatible = checkCompatibility(entry, this.validator);
+    const compatible = checkCompatibility(entry, this.validator, this.behaviors);
     if (compatible !== undefined) {
       return { ok: false, action: 'rejected', message: compatible };
     }
@@ -236,18 +242,22 @@ export class PluginCatalogService {
     entry: CatalogEntry,
   ): Promise<{ rejected?: string; warning?: string }> {
     if (this.runtime === undefined) return {};
-    // ranking 用代表性对阵样例；llm-tool 逐条跑资源声明的 smoke[]，比对 expect。
+    const behavior = resolveExtensionPointBehavior(this.behaviors, spec.pointId);
+    if (behavior === undefined) {
+      return { rejected: `扩展点 ${spec.pointId} 未注册行为，无法试跑` };
+    }
+    // 用例构造（代表性输入 / 资源自检样例）与契约形状全部由行为提供，框架不解读。
     const contract = entry.exposes !== undefined && entry.smoke !== undefined
       ? { exposes: entry.exposes, smoke: entry.smoke }
       : undefined;
-    const trialCases = contract === undefined ? [] : llmToolTrialCases(contract);
-    const cases = spec.pointId === 'ranking'
-      ? [{ input: SAMPLE_RANKING_INPUT as unknown, expect: undefined as unknown }]
-      : trialCases.map((c) => ({ input: { method: c.method, args: c.args } as unknown, expect: c.expect }));
-    if (cases.length === 0) {
-      return { rejected: 'llm-tool 资源缺少 smoke[] 自检样例，无法验证' };
+    const built = behavior.buildTrialCases({ ...(contract !== undefined ? { contract } : {}) });
+    if (!built.ok) {
+      return { rejected: `${behavior.label}试算输入不合法：${built.reason}` };
     }
-    for (const [index, c] of cases.entries()) {
+    if (built.cases.length === 0) {
+      return { rejected: `${behavior.label}缺少代表性试算用例，无法验证` };
+    }
+    for (const [index, c] of built.cases.entries()) {
       let result: PluginRunResult;
       try {
         result = await this.runtime.run(code, c.input, spec);
@@ -263,12 +273,13 @@ export class PluginCatalogService {
           ? { warning: `沙箱环境不可用，已跳过试跑（${detail}）` }
           : { rejected: `试跑失败（${detail}）` };
       }
-      const check = validatePluginOutput(result.output, spec, SAMPLE_RANKING_INPUT);
+      const check = validatePluginOutput(result.output, behavior, c.input);
       if (!check.entryFound) {
-        return { rejected: `输出不符合契约：${check.missingFields.join('、') || '未知原因'}` };
+        return { rejected: `输出不符合契约：${behavior.contractHint(check)}` };
       }
-      // llm-tool：结果还要与资源声明的 expect 逐字段相等，防止装进一个「能跑但算错」的库。
-      if (c.expect !== undefined && !deepEqual(result.output, c.expect)) {
+      // 「能跑但算错也拒」：期望值比对由行为提供，框架不解读业务语义。
+      if (c.expect !== undefined && behavior.matchesExpect !== undefined
+        && !behavior.matchesExpect(result.output, c.expect)) {
         return {
           rejected: `自检样例 ${index + 1} 结果不符：期望 ${JSON.stringify(c.expect)}，实际 ${JSON.stringify(result.output)}`,
         };
@@ -338,7 +349,7 @@ export class PluginCatalogService {
     }
     const withCode: CatalogEntry = { ...enriched, remoteCode: code };
 
-    const incompatible = checkCompatibility(withCode, this.validator);
+    const incompatible = checkCompatibility(withCode, this.validator, this.behaviors);
     if (incompatible !== undefined) {
       return { ...withCode, state: 'incompatible', reason: incompatible };
     }
@@ -367,7 +378,11 @@ export class PluginCatalogService {
 }
 
 /** 兼容 + 静态预检：返回人话原因，undefined 表示通过 */
-function checkCompatibility(entry: CatalogEntry, validator: PluginValidator): string | undefined {
+function checkCompatibility(
+  entry: CatalogEntry,
+  validator: PluginValidator,
+  behaviors: ExtensionPointBehaviorRegistry,
+): string | undefined {
   const spec = resolvePluginSpec(entry.pointId);
   if (spec === undefined) {
     return `扩展点不匹配：资源声明 ${entry.pointId ?? '（缺失）'}，宿主注册了 ${Object.keys(PLUGIN_SPECS).join('、')}`;
@@ -379,8 +394,11 @@ function checkCompatibility(entry: CatalogEntry, validator: PluginValidator): st
   if (!entryPattern(spec.entry).test(entry.remoteCode)) {
     return `源码未声明入口函数 ${spec.entry}`;
   }
-  if (spec.pointId === 'llm-tool') {
-    const bad = validateLlmToolContract({ exposes: entry.exposes, smoke: entry.smoke });
+  // 资源契约快筛由扩展点行为声明；这里仍需保留 llm-tool 的 exposes[]/smoke[]
+  // 原校验口径（validateLlmToolContract 一行未改），通过行为间接调用。
+  const behavior = resolveExtensionPointBehavior(behaviors, spec.pointId);
+  if (behavior?.validateContract !== undefined) {
+    const bad = behavior.validateContract({ exposes: entry.exposes, smoke: entry.smoke });
     if (bad !== undefined) return bad;
   }
   const result = validator.validate(entry.remoteCode, spec);

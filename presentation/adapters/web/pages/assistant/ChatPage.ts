@@ -139,6 +139,7 @@ export class ChatPage {
       this.catalog = new PluginCatalogService({
         artifacts: this.plugin.artifacts,
         runtime: this.plugin.runtime,
+        behaviors: this.plugin.behaviors,
       });
     } catch {
       this.plugin = undefined;

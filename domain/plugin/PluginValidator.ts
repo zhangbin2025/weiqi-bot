@@ -8,10 +8,7 @@
  */
 
 import type { ContractCheck, PluginSpec } from '@domain/plugin/types';
-import { RANKING_POINT_ID } from '@domain/plugin/types';
-import type { RankingInput } from '@domain/ranking/types';
-import { validateRankingOutput } from '@domain/ranking/RankingTable';
-import { SAMPLE_RANKING_INPUT } from '@domain/ranking/sampleInput';
+import type { ExtensionPointBehavior } from '@domain/plugin/ExtensionPointBehavior';
 
 /** 浏览器 / 宿主全局访问：沙箱里本就不存在，但提前给出更清楚的报错 */
 const BROWSER_GLOBALS =
@@ -55,28 +52,16 @@ export class PluginValidator {
 }
 
 /**
- * 输出契约校验：委托给统一管线的 validateRankingOutput（同一份约束，不另立解释）。
- * input 省略时用代表性对阵样例，方便诊断/测试单独调用时也能核对选手身份。
- * 注意：新契约输出是 { columns, rows } 对象，不再是数组；outputIsArray 恒为 false。
+ * 输出契约校验：纯函数，口径由注入的扩展点行为提供。
+ * 框架不认识任何具体扩展点；行为自带代表性输入与校验器，宿主只负责传参与回传。
+ * input 省略时由行为回落到自带代表性样例（例如 ranking 的代表性对阵表）。
  */
 export function validatePluginOutput(
   output: unknown,
-  spec: PluginSpec,
-  input: RankingInput = SAMPLE_RANKING_INPUT,
+  behavior: ExtensionPointBehavior,
+  input?: unknown,
 ): ContractCheck {
-  // ranking 沿用原来的严格结构校验，逐字不动。
-  if (spec.pointId === RANKING_POINT_ID) {
-    const check = validateRankingOutput(output, input);
-    return {
-      entryFound: check.ok,
-      outputIsArray: false,
-      missingFields: check.missingFields,
-    };
-  }
-  // llm-tool 等通用扩展点：输出形状由资源自己声明，宿主只要求「可 JSON 序列化」。
-  // runtime.run 已经用 JSON.stringify 取过结果（QuickJsExecutor），这里再对
-  // unknown 值做一次纯函数检查，避免调用方绕过 runtime 时把不可序列化的值放过去。
-  return validateGenericOutput(output);
+  return behavior.validateOutput(output, input);
 }
 
 /** 通用扩展点输出校验：只验可 JSON 序列化，不解读业务语义 */
@@ -92,11 +77,12 @@ export function validateGenericOutput(output: unknown): ContractCheck {
   }
 }
 
-/** 把 ContractCheck 转成可回喂 LLM 的人话提示 */
-export function contractCheckHint(check: ContractCheck): string {
+/** 把 ContractCheck 转成可回喂 LLM 的人话提示（业务措辞由行为提供） */
+export function contractCheckHint(check: ContractCheck, behavior?: ExtensionPointBehavior): string {
   if (check.missingFields.length > 0) {
-    // ranking 的详细提示逐字保留（既有诊断文案与测试依赖它）；通用扩展点
-    // 的缺失字段来自 validateGenericOutput，用不带排名语义的短提示。
+    // 注入行为时由行为给出该扩展点的人话诊断；未注入时沿用既有详细诊断文案
+    // （既有测试直接单参数调用本函数并依赖该文案，2b 再统一收口）。
+    if (behavior !== undefined) return behavior.contractHint(check);
     const generic = check.missingFields.some((f) => f.startsWith('输出'));
     if (generic) return `输出不符合契约（${check.missingFields.join('、')}）`;
     return `排名表不符合契约（${check.missingFields.join('、')}）：必须返回 { columns, rows } 对象，列名为汉字，cells 只能是数值或数值数组`;

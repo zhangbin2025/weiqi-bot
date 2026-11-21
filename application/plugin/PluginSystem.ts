@@ -28,6 +28,7 @@ import { PluginValidator } from '@domain/plugin/PluginValidator';
 import { PluginArtifactService } from './PluginArtifactService';
 import { PluginContextProvider } from './PluginContextProvider';
 import { createPluginToolKit, type PluginToolKit } from './PluginTools';
+import { createExtensionPointBehaviors } from './behaviors';
 import { createLlmToolKit, type LlmToolKitDeps } from './LlmToolKit';
 import { createPluginRanking } from './RankingPluginAdapter';
 import { loadPluginMaxAttempts } from './PluginConfig';
@@ -100,6 +101,8 @@ export interface PluginSystem {
    * - 插件执行/校验失败一律回落内置（标准口径）结果，保证页面不白屏
    */
   applyRanking(matches: MatchData[], selectedArtifactId?: string): Promise<RankingTable>;
+  /** 装配根持有的扩展点行为注册表；在线平台与工具集共用同一份 */
+  behaviors: ReturnType<typeof createExtensionPointBehaviors>;
   /** 渲染前安全处理 LLM 文本 */
   safeReply(text: string): string;
   dispose(): Promise<void>;
@@ -121,6 +124,9 @@ export async function createPluginSystem(options: PluginSystemOptions = {}): Pro
   const artifacts = new PluginArtifactService(store);
   const snapshot = new PluginContextProvider(store);
   const validator = new PluginValidator();
+  // 唯一的业务接线点：ranking / llm-tool / 未来扩展点在这里平级注册，
+  // 框架各层只按 pointId 查这张表，不再硬编码分派。
+  const behaviors = createExtensionPointBehaviors();
 
   // 赛事页选择键：与 EventDetailPage 用同一个 namespace / key / write/delete 口径。
   // 工具集不依赖具体存储实现，通过窄函数注入。
@@ -137,6 +143,7 @@ export async function createPluginSystem(options: PluginSystemOptions = {}): Pro
     validator,
     snapshot,
     applySelection,
+    behaviors,
     maxAttempts,
   });
 
@@ -151,6 +158,7 @@ export async function createPluginSystem(options: PluginSystemOptions = {}): Pro
     snapshot,
     toolKit,
     llmToolKit,
+    behaviors,
     maxAttempts,
     applyRanking: async (matches: MatchData[], selectedArtifactId?: string) => {
       const builtin = (): Promise<RankingTable> => computeRanking(matches, new BuiltinRanking());
