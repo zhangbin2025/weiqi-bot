@@ -62,6 +62,8 @@ export class MMPlayPage implements IPage {
   
   // 新增属性
   private gameState: MMGameState = 'idle';
+  /** 结束收尾流程是否已启动，防止「点结束 / onGameEnd / 状态同步」重复数目与弹框 */
+  private endFlowStarted = false;
   private currentOptions: any = null;
   private kataGoEngine?: any;
   private historyManager?: any;
@@ -247,6 +249,7 @@ export class MMPlayPage implements IPage {
   async startAutoPlay(options: any): Promise<void> {
     try {
       this.currentOptions = options;
+      this.endFlowStarted = false; // 新对局：允许重新走结束收尾流程
       // 新对局：清空上一局的领地数据与显示开关，避免显示过期归属
       this.resetTerritory();
       this.setGameState('loading');
@@ -618,20 +621,26 @@ export class MMPlayPage implements IPage {
    * 处理提前结束
    */
   private async handleEarlyStop(): Promise<void> {
-    if (this.gameState === 'running') {
+    // 用局部变量记住「本次是否由我暂停」，不依赖 this.gameState：
+    // 确认框等待期间状态同步定时器仍可能改动它，原实现据此判断会漏 resume。
+    const wasRunning = this.gameState === 'running';
+    if (wasRunning) {
       this.mmPlayApp.pause();
+      this.setGameState('paused');
     }
-    
+
     const confirmed = await this.showConfirmDialog('提前结束对局？', 'AI 将进行数目判断胜负。');
-    
+
     if (!confirmed) {
-      if (this.gameState === 'paused') {
+      // 取消：恢复原本在跑的对局（且只恢复本次确实暂停过的）
+      if (wasRunning) {
         this.mmPlayApp.resume();
         this.setGameState('running');
       }
       return;
     }
-    
+
+    // 确定：executeGameEnd 内部会先 forceEndGame（停循环 + 取消 AI + 标记 ended）
     await this.executeGameEnd();
   }
 
@@ -644,28 +653,33 @@ export class MMPlayPage implements IPage {
       const titleEl = document.getElementById('confirmTitle');
       const messageEl = document.getElementById('confirmMessage');
       const cancelBtn = document.getElementById('confirmCancelBtn');
-      
-      if (!dialog || !titleEl || !messageEl) {
+
+      // DOM 缺失时不能默认「取消」了事：那会让「结束对局」永远走不掉。
+      // 保持对局现状并给出明确日志，避免静默失败。
+      if (!dialog || !titleEl || !messageEl || !cancelBtn) {
+        console.error('[MMPlayPage] 确认框 DOM 缺失，无法确认结束对局');
         resolve(false);
         return;
       }
-      
+
       titleEl.textContent = title;
       messageEl.textContent = message;
       dialog.style.display = 'flex';
-      
-      const handleOk = () => {
-        resolve(true);
+
+      let settled = false;
+      const finish = (confirmed: boolean) => {
+        if (settled) return;
+        settled = true;
+        dialog.style.display = 'none';
         window.removeEventListener('confirmOk', handleOk);
+        cancelBtn?.removeEventListener('click', handleCancel);
+        resolve(confirmed);
       };
-      
-      const handleCancel = () => {
-        resolve(false);
-        window.removeEventListener('confirmOk', handleOk);
-      };
-      
-      window.addEventListener('confirmOk', handleOk, { once: true });
-      cancelBtn?.addEventListener('click', handleCancel, { once: true });
+      const handleOk = () => finish(true);
+      const handleCancel = () => finish(false);
+
+      window.addEventListener('confirmOk', handleOk);
+      cancelBtn?.addEventListener('click', handleCancel);
     });
   }
 
@@ -673,6 +687,15 @@ export class MMPlayPage implements IPage {
    * 执行对局结束流程
    */
   private async executeGameEnd(): Promise<void> {
+    // 幂等：结束流程可能被「用户点结束」「onGameEnd 回调」「状态同步」同时触发，只跑一次
+    if (this.endFlowStarted) return;
+    this.endFlowStarted = true;
+
+    // 关键修复：先把底层对局确定地结束 —— 停循环、取消正在进行的 AI 思考、标记 ended。
+    // 原实现只做数目/保存/弹框，后台自对弈循环仍在跑，所以「结束对局」后对方还能继续落子。
+    this.mmPlayApp.forceEndGame();
+    this.running = false;
+
     this.uiUpdater?.updateStatusBar('AI 正在数目...');
     
     // eslint-disable-next-line no-useless-assignment
@@ -833,6 +856,7 @@ export class MMPlayPage implements IPage {
       await this.mmPlayApp.restoreFromDraft(draft);
       this.moveCount = draft.moveCount;
       this.running = true;
+      this.endFlowStarted = false; // 恢复的对局同样允许结束收尾
       
       const modelInfoEl = document.getElementById('modelInfo');
       if (modelInfoEl && this.modelId) {

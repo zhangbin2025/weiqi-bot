@@ -45,6 +45,8 @@ export class MMPlayApp {
   pause = (): void => this.requirePlay().pause();
   resume = (): void => this.requirePlay().resume();
   stop = (): void => this.requirePlay().stop();
+  /** 强制结束对局：立即停循环、取消 AI 思考并标记已结束（供「结束对局」菜单使用） */
+  forceEndGame = (): void => this.requirePlay().forceEndGame();
   step = (): Promise<boolean> => this.requirePlay().step();
   getState = (): IMMPlayState => this.requirePlay().getState();
   setCallbacks = (callbacks: IMMPlayCallbacks): void => this.requirePlay().setCallbacks(callbacks);

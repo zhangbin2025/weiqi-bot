@@ -134,6 +134,20 @@ export class MMPlayService implements IMMPlayService {
     this.notifier.notifyStatusChange(false, false);
   }
 
+  /**
+   * 强制结束对局（用户点「结束对局」）
+   * @description 立即终止自对弈循环、取消正在进行的 AI 思考，并把领域对局标记为结束。
+   * 之后由页面执行数目 / 保存 / 弹框等收尾。与「连续两次 pass」的自然终局区分开。
+   */
+  forceEndGame(): void {
+    // 先停循环（内部会 cancel 正在思考的 AI 并设置停止标志，保证不再落子）
+    this.loopRunner.stop();
+    this.controller.stop();
+    // 再把领域状态置为 ended：循环条件、落子校验、getState 都据此判定
+    this.stateManager.endGame();
+    this.notifier.notifyStatusChange(false, false);
+  }
+
   async step(): Promise<boolean> {
     if (!this.config) throw new Error('请先调用 setup() 配置自对弈');
     return this.loopRunner.executeMove(this.config, () => this.saveDraft());

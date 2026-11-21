@@ -19,6 +19,7 @@ export class MMPlayLoopRunner {
   private isRunning: boolean = false;
   private isPaused: boolean = false;
   private pauseRequested: boolean = false;
+  private stopRequested: boolean = false; // 主动结束/停止请求（区别于暂停）
   private consecutivePasses: number = 0; // 连续 pass 计数器
 
   constructor(
@@ -34,6 +35,8 @@ export class MMPlayLoopRunner {
   async runLoop(config: IMMPlayConfig, saveDraft: () => Promise<void>): Promise<void> {
     this.isRunning = true;
     this.isPaused = false;
+    this.pauseRequested = false;
+    this.stopRequested = false;
     this.consecutivePasses = 0; // 重置 pass 计数器
 
     while (this.isRunning && !this.stateManager.isGameEnded()) {
@@ -63,6 +66,8 @@ export class MMPlayLoopRunner {
    * 执行单步落子
    */
   async executeMove(config: IMMPlayConfig, saveDraft: () => Promise<void>): Promise<boolean> {
+    // 已被主动结束：不再执行任何一手（防止数目期间后台继续落子）
+    if (this.stopRequested) return false;
     try {
       const currentPlayer = this.stateManager.getCurrentPlayer();
       const moveHistory = this.stateManager.getMoveHistory().map((m) => ({
@@ -100,9 +105,12 @@ export class MMPlayLoopRunner {
         config.visits  // 直接传 visits
       );
 
+      // 思考期间被「结束对局」取消：丢弃结果，既不落子也不记成 pass
+      if (this.stopRequested) return false;
+
       if (!move) {
-        // AI 选择 pass（停一手）
-        if (this.pauseRequested) return false;
+        // AI 选择 pass（停一手）；暂停/结束导致的取消不是真 pass
+        if (this.stopRequested || this.pauseRequested) return false;
         
         this.consecutivePasses++;
         console.log(`[MMPlayLoopRunner] AI pass，连续 pass 次数: ${this.consecutivePasses}`);
@@ -193,6 +201,9 @@ export class MMPlayLoopRunner {
     this.isRunning = false;
     this.isPaused = false;
     this.pauseRequested = false;
+    this.stopRequested = true;
+    // 取消正在进行的 AI 思考，避免结束后仍返回一手落子
+    this.aiController.cancel();
   }
 
   /**

@@ -158,9 +158,11 @@ export class MMStateManager {
   /**
    * 结束对局
    */
-  endGame(blackScore?: number, whiteScore?: number): void {
-    // Game 通过连续 pass 自动结束，这里可以强制结束
-    // TODO: 如果需要手动结束，可以在 Game 中添加 forceEnd 方法
+  endGame(_blackScore?: number, _whiteScore?: number): void {
+    // 提前终局 / 达到最大手数：把领域对局强制置为已结束。
+    // 自然终局（Game 连续两次 pass 已自动置 ended）走到这里时 forceEnd 是幂等的。
+    // 分数由 UI 的数目流程另行处理，这里不写入状态。
+    this.game.forceEnd();
   }
 
   /**

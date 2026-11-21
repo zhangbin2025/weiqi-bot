@@ -90,6 +90,15 @@ export class Game implements IGame {
     this.currentPlayer = getOpponentColor(this.currentPlayer);
   }
 
+  /**
+   * 强制结束对局（提前终局 / 手动数目）
+   * @description 只把对局阶段置为 ended，不改动棋盘与着法历史。
+   * 之后 placeStone 会被拒绝、getState().phase 为 ended、自对弈循环随之终止。
+   */
+  forceEnd(): void {
+    this.phase = 'ended';
+  }
+
   undo(): boolean {
     if (this.moveHistory.length === 0) return false;
     this.moveHistory.pop();

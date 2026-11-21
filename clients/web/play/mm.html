@@ -84,6 +84,18 @@
   
   <!-- 弹框容器 -->
   <div id="dialogContainer"></div>
+
+  <!-- 提前结束对局确认框（原页面缺失该 DOM，导致「结束对局」永远无法确认） -->
+  <div class="dialog-overlay" id="confirmDialog" style="display:none;">
+    <div class="dialog">
+      <div class="dialog-title" id="confirmTitle">提前结束对局？</div>
+      <div class="dialog-message" id="confirmMessage">AI 将进行数目判断胜负。</div>
+      <div class="dialog-btn-group">
+        <button class="dialog-btn secondary" id="confirmCancelBtn">取消</button>
+        <button class="dialog-btn primary" id="confirmOkBtn">确定结束</button>
+      </div>
+    </div>
+  </div>
   
   <!-- 加载覆盖层 -->
   <div id="loadingOverlay">

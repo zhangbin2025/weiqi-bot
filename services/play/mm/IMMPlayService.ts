@@ -82,6 +82,13 @@ export interface IMMPlayService {
   stop(): void;
 
   /**
+   * 强制结束对局（用户主动提前终局）
+   * @description 立即终止自对弈循环、取消正在进行的 AI 思考，并把领域对局标记为结束。
+   * 之后再执行数目 / 保存等收尾流程。
+   */
+  forceEndGame(): void;
+
+  /**
    * 单步执行（用于调试）
    * @returns 是否成功执行
    */
