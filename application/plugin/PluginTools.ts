@@ -93,9 +93,7 @@ function contractLinesOf(behaviors: ExtensionPointBehaviorRegistry): string {
   return Object.values(behaviors)
     .map((b) => `【${b.label}｜${b.pointId}】
 ${b.contractLines}`)
-    .join('
-
-');
+    .join('\n\n');
 }
 
 /** 从行为注册表收集 pointId 说明，供工具参数 description 使用 */
