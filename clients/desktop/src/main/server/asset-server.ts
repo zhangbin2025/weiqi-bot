@@ -131,6 +131,21 @@ export class AssetServer {
 
     // /proxy 反向代理路由（对齐 Android）
     if (uri === '/proxy' || uri === '/proxy/' || reqUrl.includes('/proxy?') || reqUrl.includes('/proxy/?')) {
+      // CORS 预检必须在进入 handleProxy 之前短路（对齐 Android AssetServer.serve()）。
+      // 页面里带 Authorization + application/json 的 POST 会先发 OPTIONS；经 Electron
+      // onBeforeRequest 重定向后预检落到本 /proxy 路由。若把 OPTIONS 转发给上游，
+      // api.tavily.com 一类端点对裸 OPTIONS 直接返回 405 → 浏览器判定预检非 2xx、
+      // 真正的 POST 根本发不出去（net::ERR_FAILED）。Android 就在这里先回 200。
+      if (method === 'OPTIONS') {
+        res.writeHead(200, {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': '*',
+          'Access-Control-Max-Age': '86400',
+        });
+        res.end();
+        return;
+      }
       console.log(`[AssetServer] Routing to handleProxy`);
       this.handleProxy(req, res);
       return;
