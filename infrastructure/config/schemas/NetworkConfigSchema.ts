@@ -22,7 +22,7 @@ export interface INetworkConfig {
   /** 重试次数 */
   retryCount: number;
 
-  /** 是否启用缓存 */
+  /** 是否启用缓存（默认 false；provider 层 fetch 已统一 no-store） */
   enableCache: boolean;
 }
 
@@ -65,9 +65,9 @@ export const NetworkConfigSchema: IConfigSchemaDefinition<INetworkConfig> = {
   },
   enableCache: {
     type: 'boolean',
-    default: true,
+    default: false,
     required: true,
-    description: '是否启用缓存',
+    description: '是否启用缓存（默认关闭；provider 层已统一 cache: no-store）',
     platformOverrides: {
       [Platform.Server]: false, // 服务端通常不需要缓存
     },

@@ -41,7 +41,8 @@ export class NetworkManager {
     this.config = {
       defaultTimeout: config.defaultTimeout ?? 30000,
       retryCount: config.retryCount ?? 3,
-      enableCache: config.enableCache ?? true,
+      // 默认关闭；provider 层 fetch 已统一 cache: 'no-store'，此字段为预留开关
+      enableCache: config.enableCache ?? false,
     };
 
     this.registry = new ProviderRegistry();

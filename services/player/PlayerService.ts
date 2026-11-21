@@ -32,6 +32,9 @@ export class PlayerService implements IPlayerService {
     this.playerCache = new ResourceCache<PlayerQueryResult>(cacheStorage, {
       keyPrefix: CACHE_PREFIX,
       defaultTTL: 3600000,
+      // 自愈：历史坏缓存（网络失败被存成 found:false + error）命中时判无效，
+      // 删除并重新联网查询，网络恢复后即可自动恢复。
+      validate: (result) => !result.shoutan.error,
     });
     this.yichafenClient = new YichafenClient();
   }
@@ -39,36 +42,47 @@ export class PlayerService implements IPlayerService {
   async query(name: string): Promise<PlayerQueryResult> {
     const config = await this.getConfig();
 
+    const download = async (): Promise<PlayerQueryResult> => {
+      const [shoutan, yichafen] = await Promise.allSettled([
+        this.queryShoutan(name),
+        this.queryYichafen(name),
+      ]);
+
+      const getError = (p: PromiseSettledResult<unknown>): string => {
+        if (p.status === 'rejected') {
+          const e = p.reason;
+          return e instanceof Error ? e.message : String(e);
+        }
+        return '查询失败';
+      };
+
+      return {
+        name,
+        shoutan: shoutan.status === 'fulfilled' ? shoutan.value : {
+          found: false, count: 0, players: [], error: getError(shoutan),
+        },
+        yichafen: yichafen.status === 'fulfilled' ? yichafen.value : {
+          found: false, error: getError(yichafen),
+        },
+        cachedAt: new Date().toISOString(),
+      };
+    };
+
+    // 棋手信息会变：默认不缓存，每次直接联网查询。网络异常时的「查不到」
+    // 因此不会被固化，网络恢复后下一次查询立即恢复正常（这正是「换浏览器 /
+    // 重装 App 才恢复」的根因）。只有显式 opt-in 才走缓存。
+    if (!config.enablePlayerCache) {
+      return download();
+    }
+
     return this.playerCache.getOrDownload(
       name,
-      async () => {
-        const [shoutan, yichafen] = await Promise.allSettled([
-          this.queryShoutan(name),
-          this.queryYichafen(name),
-        ]);
-
-        const getError = (p: PromiseSettledResult<unknown>): string => {
-          if (p.status === 'rejected') {
-            const e = p.reason;
-            return e instanceof Error ? e.message : String(e);
-          }
-          return '查询失败';
-        };
-
-        const result: PlayerQueryResult = {
-          name,
-          shoutan: shoutan.status === 'fulfilled' ? shoutan.value : {
-            found: false, count: 0, players: [], error: getError(shoutan),
-          },
-          yichafen: yichafen.status === 'fulfilled' ? yichafen.value : {
-            found: false, error: getError(yichafen),
-          },
-          cachedAt: new Date().toISOString(),
-        };
-
-        return result;
-      },
-      config.playerCacheTTL
+      download,
+      config.playerCacheTTL,
+      // 手谈是唯一真正发网络请求的数据源；它抛错被 catch 吞成
+      // { found:false, error } 时属于网络失败，绝不落盘。判据来源明确：
+      // queryShoutan 的 catch 分支必然带 error 字段。
+      (result) => !result.shoutan.error
     );
   }
 

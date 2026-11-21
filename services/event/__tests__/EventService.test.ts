@@ -256,7 +256,17 @@ describe('EventService', () => {
   });
 
   describe('getAllRounds', () => {
-    it('应返回缓存结果（如果存在）', async () => {
+    it('显式开启缓存时应返回缓存结果', async () => {
+      (mockConfig.getModuleConfig as ReturnType<typeof vi.fn>).mockResolvedValue({
+        proxyUrl: 'https://api.weiqi.lol',
+        eventsBaseUrl: 'https://data-center.yunbisai.com/api/lswl-events',
+        groupsBaseUrl: 'https://open.yunbisai.com/api/event/feel/list',
+        againstPlanBaseUrl: 'https://api.yunbisai.com/request/Group/Againstplan',
+        eventpartBaseUrl: 'https://api.yunbisai.com/request/Group/Eventpart',
+        timeout: 30000,
+        eventCacheTTL: 1800000,
+        enableEventCache: true,
+      });
       const cached = {
         matches: [{ bout: 1, p1Id: 1, p1Name: '黑', p1Score: 2, p2Id: 2, p2Name: '白', p2Score: 0 }],
         totalRounds: 5,
@@ -302,7 +312,19 @@ describe('EventService', () => {
       expect(result.matches.length).toBe(2);
       expect(result.totalRounds).toBe(2);
       expect(progress.length).toBeGreaterThan(0);
-      expect(mockCache.set).toHaveBeenCalled();
+      expect(mockCache.set).not.toHaveBeenCalled(); // 默认不缓存
+    });
+
+    it('默认不缓存：应从网络拉取', async () => {
+      (mockNetwork.request as ReturnType<typeof vi.fn>).mockResolvedValue({
+        data: { error: 1 },
+        status: 200,
+      });
+
+      await service.getAllRounds(101);
+
+      expect(mockNetwork.request).toHaveBeenCalled();
+      expect(mockCache.set).not.toHaveBeenCalled();
     });
 
     it('无对阵数据时返回空结果', async () => {

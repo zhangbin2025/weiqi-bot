@@ -65,7 +65,7 @@ const DEFAULT_PLAYER_CONFIG = {
   yichafenBaseUrl: '',
   timeout: 30000,
   playerCacheTTL: 3600000,
-  enablePlayerCache: true,
+  enablePlayerCache: false, // 棋手信息会变，默认不缓存
 };
 
 const DEFAULT_EVENT_CONFIG = {
@@ -76,7 +76,7 @@ const DEFAULT_EVENT_CONFIG = {
   eventpartBaseUrl: 'https://api.yunbisai.com/request/Group/Eventpart',
   timeout: 30000,
   eventCacheTTL: 1800000,
-  enableEventCache: true,
+  enableEventCache: false, // 赛事对阵会变，默认不缓存
 };
 
 const DEFAULT_GAME_CONFIG = {
@@ -98,7 +98,7 @@ const DEFAULT_GAME_CONFIG = {
   yikeShaoerApiUrl: 'https://mo.yikeweiqi.com/yikemo/anon/ayalyse/init',
   yuanluoboApiUrl: 'https://jupiter.yuanluobo.com/r2/chess/wq/sdr/v3/record/detail',
   gameCacheTTL: 3600000,
-  enableGameCache: true,
+  enableGameCache: false, // 查询结果默认不缓存；棋谱归档缓存独立保留
 };
 
 const DEFAULT_JOSEKI_CONFIG = {

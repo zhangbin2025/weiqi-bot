@@ -32,6 +32,31 @@ describe('ResourceCache 核心功能', () => {
       expect(await mockStorage.get('test:key1')).toEqual('downloaded');
     });
 
+    it('validate 判为无效的旧缓存应删除并重新下载', async () => {
+      const mockStorage = createMockCacheStorage();
+      const cache = new ResourceCache(mockStorage, {
+        keyPrefix: 'test',
+        validate: (data) => data !== 'bad',
+      });
+
+      await mockStorage.set('test:key1', 'bad');
+
+      const downloader = jest.fn(async () => 'fresh');
+      const result = await cache.getOrDownload('key1', downloader);
+
+      expect(downloader).toHaveBeenCalled();
+      expect(result).toEqual('fresh');
+    });
+
+    it('shouldCache 返回 false 时不写入缓存', async () => {
+      const mockStorage = createMockCacheStorage();
+      const cache = new ResourceCache(mockStorage, { keyPrefix: 'test' });
+
+      await cache.getOrDownload('key1', jest.fn(async () => 'data'), undefined, () => false);
+
+      expect(mockStorage.set).not.toHaveBeenCalled();
+    });
+
     it('禁用缓存时应直接下载', async () => {
       const mockStorage = createMockCacheStorage();
       const cache = new ResourceCache(mockStorage, { keyPrefix: 'test', enabled: false });

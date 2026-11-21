@@ -26,7 +26,7 @@ export interface IEventConfig {
   /** 赛事查询缓存 TTL（毫秒），默认 30 分钟 */
   eventCacheTTL: number;
 
-  /** 是否启用赛事查询缓存，默认 true */
+  /** 是否启用赛事查询缓存，默认 false（会变数据，需 opt-in） */
   enableEventCache: boolean;
 }
 
@@ -87,7 +87,7 @@ export const EventConfigSchema: IConfigSchemaDefinition<IEventConfig> = {
   enableEventCache: {
     type: 'boolean',
     required: false,
-    description: '是否启用赛事查询缓存',
-    defaultValue: true,
+    description: '是否启用赛事查询缓存（会变数据，默认关闭；需显式开启）',
+    defaultValue: false,
   },
 };

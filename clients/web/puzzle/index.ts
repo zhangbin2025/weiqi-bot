@@ -20,7 +20,8 @@ async function main() {
     containerId: 'page-root',
     moduleConfigs: {
       game: {
-        enableCache: true,
+        // 会变的查询结果默认不缓存；棋谱归档缓存由 GameArchiveCache 独立管理
+        enableCache: false,
         maxHistorySize: 100,
       },
     },

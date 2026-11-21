@@ -34,6 +34,8 @@ export class EventService implements IEventService {
     this.roundsCache = new ResourceCache<AllRoundsResult>(cacheStorage, {
       keyPrefix: `${CACHE_PREFIX}rounds`,
       defaultTTL: 3600000, // 1小时
+      // 自愈：首轮请求失败被固化成空结果时，命中判无效并重新拉取。
+      validate: (result) => result.totalRounds > 0,
     });
   }
 
@@ -140,36 +142,45 @@ export class EventService implements IEventService {
   async getAllRounds(groupId: number, onProgress?: ProgressCallback, forceRefresh: boolean = false): Promise<AllRoundsResult> {
     const config = await this.getConfig();
 
-    // 强制刷新时清除缓存
+    // 强制刷新时清除缓存（默认不缓存路径下也会顺手清掉历史遗留的旧缓存）
     if (forceRefresh) {
       await this.roundsCache.clear(String(groupId));
     }
 
+    const fetchRounds = async (): Promise<AllRoundsResult> => {
+      onProgress?.('加载第 1 轮对阵数据...', 10);
+      const first = await this.getAgainstPlan(groupId, 1);
+      if (!first.success || first.totalBout === 0) {
+        return { matches: [], totalRounds: 0, completedRounds: 0 };
+      }
+
+      const totalRounds = first.totalBout;
+      const matches = [...first.rows];
+      let completed = isRoundCompleted(first.rows) ? 1 : 0;
+
+      for (let bout = 2; bout <= totalRounds; bout++) {
+        onProgress?.(`加载第 ${bout}/${totalRounds} 轮...`, 10 + Math.floor(((bout - 1) / totalRounds) * 70));
+        const round = await this.getAgainstPlan(groupId, bout);
+        if (!round.success) break;
+        matches.push(...round.rows);
+        if (isRoundCompleted(round.rows)) completed++;
+      }
+
+      onProgress?.('完成', 100);
+      return { matches, totalRounds, completedRounds: completed };
+    };
+
+    // 赛事对阵会变：默认不缓存，每次直接联网拉取。opt-in 时也不缓存
+    // 「首轮请求失败」产生的空结果，避免网络异常被固化。
+    if (!config.enableEventCache) {
+      return fetchRounds();
+    }
+
     return this.roundsCache.getOrDownload(
       String(groupId),
-      async () => {
-        onProgress?.('加载第 1 轮对阵数据...', 10);
-        const first = await this.getAgainstPlan(groupId, 1);
-        if (!first.success || first.totalBout === 0) {
-          return { matches: [], totalRounds: 0, completedRounds: 0 };
-        }
-
-        const totalRounds = first.totalBout;
-        const matches = [...first.rows];
-        let completed = isRoundCompleted(first.rows) ? 1 : 0;
-
-        for (let bout = 2; bout <= totalRounds; bout++) {
-          onProgress?.(`加载第 ${bout}/${totalRounds} 轮...`, 10 + Math.floor(((bout - 1) / totalRounds) * 70));
-          const round = await this.getAgainstPlan(groupId, bout);
-          if (!round.success) break;
-          matches.push(...round.rows);
-          if (isRoundCompleted(round.rows)) completed++;
-        }
-
-        onProgress?.('完成', 100);
-        return { matches, totalRounds, completedRounds: completed };
-      },
-      config.eventCacheTTL
+      fetchRounds,
+      config.eventCacheTTL,
+      (result) => result.totalRounds > 0
     );
   }
 

@@ -40,7 +40,15 @@ describe('PlayerService', () => {
   });
 
   describe('query', () => {
-    it('应返回缓存结果（如果存在）', async () => {
+    it('显式开启缓存时应返回缓存结果', async () => {
+      (mockConfig.getModuleConfig as ReturnType<typeof vi.fn>).mockResolvedValue({
+        proxyUrl: 'https://api.weiqi.lol',
+        shoutanBaseUrl: 'https://v.dzqzd.com/SpBody.aspx',
+        yichafenBaseUrl: 'https://api.weiqi.lol/yichafen',
+        timeout: 30000,
+        playerCacheTTL: 3600000,
+        enablePlayerCache: true,
+      });
       const cachedResult = {
         name: '柯洁',
         shoutan: { found: true, count: 1, players: [] },
@@ -53,6 +61,37 @@ describe('PlayerService', () => {
 
       expect(result).toEqual(cachedResult);
       expect(mockNetwork.request).not.toHaveBeenCalled();
+    });
+
+    it('默认不缓存：既不读缓存也不写缓存', async () => {
+      (mockNetwork.request as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('网络异常'));
+      const yichafenClient = (service as any).yichafenClient;
+      vi.spyOn(yichafenClient, 'loadPlayers').mockResolvedValue([]);
+
+      await service.query('柯洁');
+
+      expect(mockCache.get).not.toHaveBeenCalled();
+      expect(mockCache.set).not.toHaveBeenCalled();
+    });
+
+    it('开启缓存时网络失败的负结果不落盘', async () => {
+      (mockConfig.getModuleConfig as ReturnType<typeof vi.fn>).mockResolvedValue({
+        proxyUrl: 'https://api.weiqi.lol',
+        shoutanBaseUrl: 'https://v.dzqzd.com/SpBody.aspx',
+        yichafenBaseUrl: 'https://api.weiqi.lol/yichafen',
+        timeout: 30000,
+        playerCacheTTL: 3600000,
+        enablePlayerCache: true,
+      });
+      (mockCache.get as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+      (mockNetwork.request as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('手谈网络失败'));
+      const yichafenClient = (service as any).yichafenClient;
+      vi.spyOn(yichafenClient, 'loadPlayers').mockResolvedValue([]);
+
+      const result = await service.query('柯洁');
+
+      expect(result.shoutan.error).toBeDefined();
+      expect(mockCache.set).not.toHaveBeenCalled();
     });
 
     it('应并行查询手谈和易查分', async () => {

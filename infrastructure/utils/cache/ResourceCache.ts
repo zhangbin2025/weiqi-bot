@@ -17,7 +17,7 @@ import { isCacheStorage, getFromStorage, setToStorage } from './ResourceCacheHel
  * @description 统一的缓存获取/下载逻辑
  */
 export class ResourceCache<T> {
-  private config: IResourceCacheConfig;
+  private config: IResourceCacheConfig<T>;
   private pendingDownloads: Map<string, Promise<T>> = new Map(); // 正在下载的 Promise
 
   /**
@@ -27,7 +27,7 @@ export class ResourceCache<T> {
    */
   constructor(
     private readonly storage: ICacheStorage | IDocumentStorage<{ id: string; blob: T; timestamp: number; size: number }>,
-    config: IResourceCacheConfig
+    config: IResourceCacheConfig<T>
   ) {
     this.config = {
       enabled: config.enabled ?? true,
@@ -43,12 +43,14 @@ export class ResourceCache<T> {
    * @param key - 资源标识
    * @param downloader - 下载函数
    * @param ttl - 缓存时间（毫秒），可选，不传使用默认值
+   * @param shouldCache - 可选，返回 false 时本次结果不写入缓存（用于排除网络失败的空结果）
    * @returns 资源数据
    */
   async getOrDownload(
     key: string,
     downloader: () => Promise<T>,
-    ttl?: number
+    ttl?: number,
+    shouldCache?: (data: T) => boolean
   ): Promise<T> {
     if (!this.config.enabled) {
       return downloader();
@@ -59,8 +61,10 @@ export class ResourceCache<T> {
     // 1. 尝试从缓存读取
     const cached = await getFromStorage<T>(this.storage, cacheKey);
     if (cached !== null) {
-      // 验证缓存数据是否有效（例如 Blob.size > 0）
-      const isValid = await this.validateCachedData(cached);
+      // 验证缓存数据是否有效：先做通用校验（Blob.size > 0），再做业务校验。
+      // 业务校验可自愈历史遗留的坏结果（例如网络失败被固化成「查不到」）。
+      const isValid = (await this.validateCachedData(cached))
+        && (!this.config.validate || this.config.validate(cached));
       if (isValid) {
         console.log(`[ResourceCache] Cache hit for key: ${key}`);
         return cached;
@@ -84,9 +88,11 @@ export class ResourceCache<T> {
       try {
         const data = await downloader();
         
-        // 4. 存储到缓存
-        const effectiveTTL = ttl ?? this.config.defaultTTL;
-        await setToStorage(this.storage, cacheKey, data, effectiveTTL);
+        // 4. 存储到缓存（shouldCache 返回 false 时跳过，例如网络失败的负结果）
+        if (!shouldCache || shouldCache(data)) {
+          const effectiveTTL = ttl ?? this.config.defaultTTL;
+          await setToStorage(this.storage, cacheKey, data, effectiveTTL);
+        }
         
         console.log(`[ResourceCache] Download complete for key: ${key}`);
         return data;
@@ -208,7 +214,7 @@ export class ResourceCache<T> {
    * 更新配置
    * @param config - 新配置
    */
-  updateConfig(config: Partial<IResourceCacheConfig>): void {
+  updateConfig(config: Partial<IResourceCacheConfig<T>>): void {
     this.config = { ...this.config, ...config };
   }
 

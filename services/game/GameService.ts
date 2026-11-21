@@ -227,7 +227,10 @@ export class GameService implements IGameService {
           yikeShaoerApiUrl: 'https://mo.yikeweiqi.com/yikemo/anon/ayalyse/init',
           yuanluoboApiUrl: 'https://jupiter.yuanluobo.com/r2/chess/wq/sdr/v3/record/detail',
           gameCacheTTL: 3600000,
-          enableGameCache: true,
+          // 无读取方的历史遗留开关，与其他模块口径一致设为 false。
+          // 内容不变的棋谱 SGF 归档缓存由 GameArchiveCache 独立管理并保留，
+          // 不受此开关影响（URL → archiveId → SGF，直播 URL 本来就跳过）。
+          enableGameCache: false,
         };
       }
     }

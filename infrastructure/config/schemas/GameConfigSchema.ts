@@ -48,7 +48,7 @@ export interface IGameConfig {
   /** 棋谱缓存 TTL（毫秒），默认 1 小时 */
   gameCacheTTL: number;
 
-  /** 是否启用棋谱缓存，默认 true */
+  /** 是否启用棋谱缓存，默认 false（棋谱归档缓存独立保留） */
   enableGameCache: boolean;
 }
 
@@ -175,7 +175,7 @@ export const GameConfigSchema: IConfigSchemaDefinition<IGameConfig> = {
   enableGameCache: {
     type: 'boolean',
     required: false,
-    description: '是否启用棋谱缓存',
-    defaultValue: true,
+    description: '是否启用棋谱缓存（默认关闭；棋谱归档缓存由 GameArchiveCache 独立管理）',
+    defaultValue: false,
   },
 };

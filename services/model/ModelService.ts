@@ -89,6 +89,10 @@ export class ModelService implements IModelService {
     const config = await this.configProvider.getModuleConfig<IModelConfig>('model');
     const urls = getDownloadUrls(model);
 
+    // 模型权重内容不变：默认保留缓存（避免每次重复下载几十 MB）。
+    // 只有显式 enableModelCache=false 才改为每次重新下载。
+    this.cache.updateConfig({ enabled: config?.enableModelCache !== false });
+
     // 标记是否真的下载了
     let wasDownloaded = false;
     

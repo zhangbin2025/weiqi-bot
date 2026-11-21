@@ -24,7 +24,7 @@ export interface IPlayerConfig {
   /** 棋手查询缓存 TTL（毫秒），默认 1 小时 */
   playerCacheTTL: number;
 
-  /** 是否启用棋手查询缓存，默认 true */
+  /** 是否启用棋手查询缓存，默认 false（会变数据，需 opt-in） */
   enablePlayerCache: boolean;
 }
 
@@ -78,7 +78,7 @@ export const PlayerConfigSchema: IConfigSchemaDefinition<IPlayerConfig> = {
   enablePlayerCache: {
     type: 'boolean',
     required: false,
-    description: '是否启用棋手查询缓存',
-    defaultValue: true,
+    description: '是否启用棋手查询缓存（会变数据，默认关闭；需显式开启）',
+    defaultValue: false,
   },
 };
