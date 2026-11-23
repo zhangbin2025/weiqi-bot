@@ -31,7 +31,7 @@ import {
   resolvePluginSpec, PLUGIN_SPECS,
   type IPluginRuntime, type PluginArtifact, type PluginRevision,
   type PluginContextEntry, type PluginRunResult, type PluginSpec,
-  type LlmToolArtifactContract,
+  type OperatorArtifactContract,
 } from '@domain/plugin/types';
 import type {
   ExtensionPointBehavior, ExtensionPointBehaviorRegistry,
@@ -101,7 +101,7 @@ function pointIdDescriptionOf(behaviors: ExtensionPointBehaviorRegistry): string
   return Object.values(behaviors).map((b) => b.pointIdDescription).join('；');
 }
 
-/** 从行为注册表收集 tool-calling 额外参数（如 llm-tool 的 exposes/smoke） */
+/** 从行为注册表收集 tool-calling 额外参数（如 workflow-operator 的 exposes/smoke） */
 function extraParamsOf(behaviors: ExtensionPointBehaviorRegistry): Record<string, Record<string, unknown>> {
   const out: Record<string, Record<string, unknown>> = {};
   for (const b of Object.values(behaviors)) {
@@ -126,10 +126,10 @@ const TOOL_GUIDE = [
   '- plugin_write：写入一份完整源码。不带 artifactId = 新建；带 artifactId = 修订该插件、',
   '  自动产生新版本并追加快照。参数 code 是完整 JS 源码字符串，不是 diff、不是片段。',
   '  宿主会按扩展点行为做确定性试算并把结果回填给你；试算失败则不落库。',
-  '  写能力库时另带 pointId:"llm-tool" + exposes[] + smoke[]，宿主改跑自检样例。',
+  '  写工作流算子时另带 pointId:"workflow-operator" + exposes[] + smoke[]，宿主改跑自检样例。',
   '- plugin_debug：对任意源码单独试算。可指定 artifactId(+version) 读已存插件、或直接给 code 试未落库的临时源码；',
   '  matches 可自定义对阵表，不传则用内置样例。返回试算结果或明确错误诊断。',
-  '  调试 llm-tool 时把 artifactId 指向能力库工件，或给 code 并带 exposes[]/smoke[]；matches 不适用。',
+  '  调试 workflow-operator 时把 artifactId 指向算子工件，或给 code 并带 exposes[]/smoke[]；matches 不适用。',
   '- plugin_toggle：启用/停用插件，enabled 省略则按当前状态翻转。',
   '- plugin_delete：删除插件。',
   '- plugin_apply：把某个已启用且支持页面口径的插件设为当前口径；省略 artifactId = 切回内置。',
@@ -171,7 +171,7 @@ async function buildSystemPrompt(
     '每次写入都会自动试算，观察里会按扩展点行为返回这一版的试算结果。看结果不满意、或用户提出新要求，',
     '就调 plugin_show 读当前源码 → 按新要求改 → 再 plugin_write，如此反复直到收敛。',
     '不要用会话记忆猜源码或 id：用 plugin_list / plugin_show 的真实观察。',
-    '需要验算特定对阵时用 plugin_debug 自定义 matches；调试能力库临时源码时给 pointId:"llm-tool" 加 exposes/smoke；'
+    '需要验算特定对阵时用 plugin_debug 自定义 matches；调试工作流算子临时源码时给 pointId:"workflow-operator" 加 exposes/smoke；'
     + '要对比/回退用 plugin_history / plugin_rollback。',
     '',
     '【状态变更铁律】查看/启停/删除/新建/修订都必须真的调用对应工具，不能只在回复里声称完成。',
@@ -216,9 +216,9 @@ function bool(obj: Record<string, unknown>, key: string): boolean | undefined {
   return typeof v === 'boolean' ? v : undefined;
 }
 
-/** 从工件读 llm-tool 契约；缺失时明确报错（自建能力库必须带契约才能被闲聊角色调用） */
-function contractOfArtifact(artifact: PluginArtifact): LlmToolArtifactContract | undefined {
-  return artifact.llmTool;
+/** 从工件读 workflow-operator 契约；缺失时明确报错（自建算子必须带契约才能注册进算子表） */
+function contractOfArtifact(artifact: PluginArtifact): OperatorArtifactContract | undefined {
+  return artifact.operatorContract;
 }
 
 function fail(reason: string, detail?: string): ToolOutcome {
@@ -257,7 +257,7 @@ interface TrialSuccess {
 
 /**
  * 一次确定性试算：快筛 → 按 pointId 查行为注册表 → 沙箱逐例执行 → 输出契约校验。
- * 框架不认识 ranking / llm-tool：用例构造、契约校验、结果文案、expect 比对全部委托行为。
+ * 框架不认识 ranking / workflow-operator：用例构造、契约校验、结果文案、expect 比对全部委托行为。
  * 所有扩展点共用同一个沙箱、同一套配额、同一条失败回喂链路。
  */
 async function trial(
@@ -275,7 +275,7 @@ async function trial(
     return { ok: false, outcome: fail(`代码预检未通过：${pre.reason ?? '不合法'}。请修正后重新给出完整源码。` ) };
   }
 
-  // 资源契约（例如 llm-tool 的 exposes[]/smoke[]）由调用方从工具参数解析好传入；
+  // 算子契约（例如 workflow-operator 的 exposes[]/smoke[]）由调用方从工具参数解析好传入；
   // 形状与合法性的进一步校验由行为声明，框架只负责传递与回喂。
   const contract = options.contract;
   if (behavior.validateContract !== undefined) {
@@ -588,7 +588,7 @@ export function createPluginToolKit(deps: PluginToolDeps): PluginToolKit {
         const created = await deps.artifacts.create({
           name, intent, code, pointId: spec.pointId, origin: 'llm', spec,
           ...(result.artifactContract !== undefined
-            ? { llmTool: result.artifactContract as LlmToolArtifactContract } : {}),
+            ? { operatorContract: result.artifactContract as OperatorArtifactContract } : {}),
         });
         const behavior = behaviorOf(spec);
         const label = behavior?.resultLabel ?? '试算结果';
@@ -612,8 +612,8 @@ export function createPluginToolKit(deps: PluginToolDeps): PluginToolKit {
       });
       // 资源契约随源码版本一起更新；不带契约的扩展点不碰，避免无意义的清空写。
       if (result.artifactContract !== undefined) {
-        await deps.artifacts.syncLlmToolContract(
-          id, result.artifactContract as LlmToolArtifactContract | undefined,
+        await deps.artifacts.syncOperatorContract(
+          id, result.artifactContract as OperatorArtifactContract | undefined,
         );
       }
       const behavior = behaviorOf(spec);
@@ -772,7 +772,7 @@ export function createPluginToolKit(deps: PluginToolDeps): PluginToolKit {
     const spec = artifact.spec ?? resolvePluginSpec(artifact.pointId) ?? Object.values(PLUGIN_SPECS)[0]!;
     const behavior = behaviorOf(spec);
     const result = await trialOf(picked.code, spec, {
-      ...(artifact.llmTool !== undefined ? { contract: artifact.llmTool } : {}),
+      ...(artifact.operatorContract !== undefined ? { contract: artifact.operatorContract } : {}),
     });
     if (!result.ok) return { ...result.outcome, repairable: true, code: picked.code };
     try {

@@ -1,9 +1,9 @@
 /**
- * llm-tool 资源契约（宿主侧共享定义与纯校验）
- * @module application/plugin/LlmToolContract
+ * workflow-operator 资源契约（宿主侧共享定义与纯校验）
+ * @module application/plugin/OperatorContract
  *
- * 一条 llm-tool 工件除了 call({method,args}) 的源码，还必须带一份声明：
- *   exposes[] —— 方法白名单 + 说明 + 参数 JSON Schema（模型侧工具声明的来源）
+ * 一条 workflow-operator 工件除了 call({method,args}) 的源码，还必须带一份声明：
+ *   exposes[] —— 算子方法白名单 + 说明 + 参数 JSON Schema（注册进宿主算子表的来源）
  *   smoke[]   —— 安装/写入前的确定性自检样例（结果与 expect 逐字段相等才落库）
  *
  * 两条链路共用这一份规则：
@@ -15,17 +15,17 @@
  * 输出体积由 DEFAULT_PLUGIN_LIMITS.maxOutputBytes 约束。
  */
 
-import type { LlmToolArtifactContract } from '@domain/plugin/types';
+import type { OperatorArtifactContract } from '@domain/plugin/types';
 
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
 /** 契约形状快筛：返回第一条人话错误，合法返回 undefined */
-export function validateLlmToolContract(contract: unknown): string | undefined {
+export function validateOperatorContract(contract: unknown): string | undefined {
   if (typeof contract !== 'object' || contract === null || Array.isArray(contract)) {
-    return 'llm-tool 契约必须是对象（exposes[] + smoke[]）';
+    return 'workflow-operator 契约必须是对象（exposes[] + smoke[]）';
   }
-  const { exposes, smoke } = contract as Partial<LlmToolArtifactContract>;
-  if (!Array.isArray(exposes) || exposes.length === 0) return 'llm-tool 资源缺少 exposes[] 方法白名单';
+  const { exposes, smoke } = contract as Partial<OperatorArtifactContract>;
+  if (!Array.isArray(exposes) || exposes.length === 0) return 'workflow-operator 资源缺少 exposes[] 方法白名单';
   const names = new Set<string>();
   for (const e of exposes) {
     if (!e || typeof e.name !== 'string' || !IDENTIFIER.test(e.name)) {
@@ -40,7 +40,7 @@ export function validateLlmToolContract(contract: unknown): string | undefined {
       return `exposes[].params 不是对象：${e.name}`;
     }
   }
-  if (!Array.isArray(smoke) || smoke.length === 0) return 'llm-tool 资源缺少 smoke[] 自检样例';
+  if (!Array.isArray(smoke) || smoke.length === 0) return 'workflow-operator 资源缺少 smoke[] 自检样例';
   for (const s of smoke) {
     if (!s || !Array.isArray(s.args) || s.args.length !== 1) {
       return 'smoke[].args 必须是含一个参数对象的数组';
@@ -54,13 +54,13 @@ export function validateLlmToolContract(contract: unknown): string | undefined {
 }
 
 /** 资源声明转成试算输入；method 省略时回落 exposes[0].name */
-export interface LlmToolTrialCase {
+export interface OperatorTrialCase {
   method: string;
   args: unknown[];
   expect: unknown;
 }
 
-export function llmToolTrialCases(contract: LlmToolArtifactContract): LlmToolTrialCase[] {
+export function operatorTrialCases(contract: OperatorArtifactContract): OperatorTrialCase[] {
   const first = contract.exposes[0]!.name;
   return contract.smoke.map((s) => ({
     method: s.method ?? first,
@@ -90,8 +90,8 @@ export function deepEqual(a: unknown, b: unknown): boolean {
 
 /** 契约是否相等（纯 JSON 结构），用于 catalog 判断「只改了 manifest」 */
 export function contractsEqual(
-  a: LlmToolArtifactContract | undefined,
-  b: LlmToolArtifactContract | undefined,
+  a: OperatorArtifactContract | undefined,
+  b: OperatorArtifactContract | undefined,
 ): boolean {
   if (a === undefined && b === undefined) return true;
   if (a === undefined || b === undefined) return false;

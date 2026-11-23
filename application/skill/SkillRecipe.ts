@@ -15,9 +15,6 @@ import { parseSecretSpecs } from './SecretSpec';
 /** 原语名即宿主注册表的固定 id：小写字母开头，只允许小写字母 / 数字 / 下划线。 */
 const PRIMITIVE_NAME_RE = /^[a-z][a-z0-9_]*$/;
 
-/** 能力名是资源契约 exposes[].name：标识符形状，与 LlmToolContract.IDENTIFIER 同源。 */
-const CAPABILITY_NAME_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
-
 type FieldResult<T> =
   | { ok: true; value: T }
   | { ok: false; reason: string };
@@ -58,34 +55,6 @@ function readPrimitives(raw: Record<string, unknown>): FieldResult<string[]> {
     const item: unknown = items[i];
     if (typeof item !== 'string' || !PRIMITIVE_NAME_RE.test(item)) {
       return { ok: false, reason: `字段「primitives」第 ${i + 1} 项必须匹配 /^[a-z][a-z0-9_]*$/` };
-    }
-    out.push(item);
-  }
-  return { ok: true, value: out };
-}
-
-/**
- * 可选字段：缺省（undefined）表示不检查依赖，老配方逐字兼容。
- * 显式给值时必须是至少 1 条、每项匹配标识符形状的字符串数组；空数组视为
- * 配方写错（写了字段却什么都不要求，通常是漏填），直接拒绝，不静默当成「无依赖」。
- */
-function readRequiredCapabilities(
-  raw: Record<string, unknown>,
-): FieldResult<string[] | undefined> {
-  const value = raw['requiredCapabilities'];
-  if (value === undefined) return { ok: true, value: undefined };
-  if (!Array.isArray(value) || value.length === 0) {
-    return { ok: false, reason: '字段「requiredCapabilities」必须是至少包含 1 条的字符串数组' };
-  }
-  const items: readonly unknown[] = value;
-  const out: string[] = [];
-  for (let i = 0; i < items.length; i += 1) {
-    const item: unknown = items[i];
-    if (typeof item !== 'string' || !CAPABILITY_NAME_RE.test(item)) {
-      return {
-        ok: false,
-        reason: `字段「requiredCapabilities」第 ${i + 1} 项必须匹配 /^[A-Za-z_$][A-Za-z0-9_$]*$/`,
-      };
     }
     out.push(item);
   }
@@ -136,8 +105,6 @@ export function parseSkillRecipe(
   if (!summary.ok) return summary;
   const primitives = readPrimitives(raw);
   if (!primitives.ok) return primitives;
-  const requiredCapabilities = readRequiredCapabilities(raw);
-  if (!requiredCapabilities.ok) return requiredCapabilities;
   const category = readCategory(raw);
   if (!category.ok) return category;
   const secrets = readSecrets(raw);
@@ -153,9 +120,6 @@ export function parseSkillRecipe(
     name: name.value,
     summary: summary.value,
     primitives: primitives.value,
-    ...(requiredCapabilities.value !== undefined
-      ? { requiredCapabilities: requiredCapabilities.value }
-      : {}),
     ...(secrets.value !== undefined ? { secrets: secrets.value } : {}),
     ...(category.value !== undefined ? { category: category.value } : {}),
     prompt: prompt.value,

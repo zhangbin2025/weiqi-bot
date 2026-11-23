@@ -71,12 +71,6 @@ const SKILL_WRITE_TOOL: ModelToolDefinition = {
         type: 'array', items: { type: 'string' },
         description: '引用的宿主原语名数组，至少 1 条，必须来自「可用原语」清单',
       },
-      requiredCapabilities: {
-        type: 'array', items: { type: 'string' },
-        description: '可选。本技能依赖的 llm-tool 能力库方法名数组（如 ["monthCalendar"]），至少 1 条；'
-          + '只有已启用能力库暴露了全部这些方法时技能才激活。写方法名，不要写 libId（那是本机安装指纹，会跨机器失效）。'
-          + '不填表示不检查依赖。',
-      },
       secrets: {
         type: 'array',
         items: { type: 'object' },
@@ -167,13 +161,10 @@ function buildSystemSuffix(primitives: ReadonlyMap<string, SkillPrimitive>): str
       + '宿主据此限定凭据只能发往哪些域名、请求头怎么拼、用哪个方法、body 有哪些字段；'
       + '模型调用时只给 url 和 secretKey，绝不传密钥、请求头或 body 字段，'
       + '首次缺失时贴 secret-prompt 链接让用户在弹框录入并自动保存。',
-    'requiredCapabilities 可选：填本技能依赖的 llm-tool 能力库方法名数组（标识符，如 ["monthCalendar"]），'
-      + '至少 1 条；缺任一方法时整条技能不激活、面板也标「缺能力库方法」不可装。'
-      + '只写方法名，**不要写 libId**（本机安装指纹，跨机器不一致）。不填 = 不检查依赖。',
     '',
     '硬性规则：',
     '- 只写声明 JSON，绝不生成代码；primitives 出现上表以外的名字会被宿主拒绝；'
-      + 'requiredCapabilities / secrets 写错形状同样会被 parseSkillRecipe 拒绝。',
+      + 'secrets 写错形状同样会被 parseSkillRecipe 拒绝。',
     '- 每次提交都是整份配方（不是 diff）；修订时把全部字段重新给全。',
     '- 保存后可让用户直接说一句触发词，在同一会话里当场验收；不满意就按同一 id 再写一次修订。',
     '- 技能只保存在当前浏览器；在线技能要在 ⋮ →「🧠 技能」→「在线技能」里点安装，装进本地库后才会生效，模型不负责安装。',
@@ -201,9 +192,6 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
         id: e.recipe.id, name: e.recipe.name, version: e.recipe.version,
         source: e.source, enabled: e.enabled,
         primitives: e.recipe.primitives,
-        ...(e.recipe.requiredCapabilities !== undefined
-          ? { requiredCapabilities: e.recipe.requiredCapabilities }
-          : {}),
         ...(e.recipe.secrets !== undefined ? { secrets: e.recipe.secrets } : {}),
         summary: e.recipe.summary,
         prompt: e.recipe.prompt,
@@ -272,9 +260,6 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
       name: args['name'],
       summary: args['summary'],
       primitives: args['primitives'],
-      ...(args['requiredCapabilities'] !== undefined
-        ? { requiredCapabilities: args['requiredCapabilities'] }
-        : {}),
       ...(args['secrets'] !== undefined ? { secrets: args['secrets'] } : {}),
       ...(args['category'] !== undefined ? { category: args['category'] } : {}),
       prompt: args['prompt'],
@@ -291,9 +276,6 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
       const observation = [
         `已保存技能「${entry.recipe.name}」（id=${entry.recipe.id}，v${entry.recipe.version}）。`,
         `描述：${entry.recipe.summary}；引用原语：${entry.recipe.primitives.join('、')}。`,
-        ...(entry.recipe.requiredCapabilities !== undefined
-          ? [`依赖能力库方法：${entry.recipe.requiredCapabilities.join('、')}（缺任一则不激活）。`]
-          : []),
         ...(entry.recipe.secrets !== undefined
           ? [`声明凭据：${entry.recipe.secrets.map((s) => s.key).join('、')}`
             + `（仅允许发往 ${entry.recipe.secrets.map((s) => s.allowedHosts.join('/')).join('、')}）。`]

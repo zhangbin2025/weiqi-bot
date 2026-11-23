@@ -19,8 +19,8 @@
 export type ExtensionPointId = string;
 
 export const RANKING_POINT_ID = 'ranking';
-/** 模型能力插件：对话页 chat / skill-dev 角色可调用，入口 call({method,args}) */
-export const LLM_TOOL_POINT_ID = 'llm-tool';
+/** 工作流算子插件：注册进宿主算子表（OperatorRegistry），阶段二 workflow runner 按名调用，入口 call({method,args}) */
+export const WORKFLOW_OPERATOR_POINT_ID = 'workflow-operator';
 
 /** 执行失败分类，用于归一成回喂 LLM 的反馈包 */
 export type FailurePhase =
@@ -94,7 +94,7 @@ export const DEFAULT_PLUGIN_LIMITS: PluginLimits = {
   timeoutMs: 2000,
   memoryBytes: 32 * 1024 * 1024,
   maxStackBytes: 512 * 1024,
-  // 放宽到 64KB（2026-11-17）：llm-tool.lunar 装入 1901–2100 全量节气事实表后，
+  // 放宽到 64KB（2026-11-17）：workflow-operator.lunar 装入 1901–2100 全量节气事实表后，
   // 可读源码实测约 40KB，旧 32KB 会卡在安装预检。此值不是扫描/拟合出来的阈值：
   // 取 2 的幂上取整到「实测字节 + 余量」的自然边界，仅为「一份事实表源码放得下」。
   // 真正防失控的是运行时 memoryBytes / maxStackBytes / timeoutMs / maxOutputBytes，
@@ -124,13 +124,13 @@ export const RANKING_SPEC: PluginSpec = {
 };
 
 /**
- * 模型能力插件的契约快照。与 ranking 共用同一套工件 / 存储 / 沙箱 / 配额，
+ * 工作流算子插件的契约快照。与 ranking 共用同一套工件 / 存储 / 沙箱 / 配额，
  * 差别只在入口与输出语义：call({method,args}) → 任意可 JSON 序列化的值。
  * 方法白名单与安装自检样例由资源侧 plugin.json 的 exposes[] / smoke[] 声明，
  * 不放进 spec —— spec 是宿主常量，不随资源变化。
  */
-export const LLM_TOOL_SPEC: PluginSpec = {
-  pointId: LLM_TOOL_POINT_ID,
+export const WORKFLOW_OPERATOR_SPEC: PluginSpec = {
+  pointId: WORKFLOW_OPERATOR_POINT_ID,
   version: 1,
   entry: 'call',
   hostApi: [],
@@ -140,7 +140,7 @@ export const LLM_TOOL_SPEC: PluginSpec = {
 /** 宿主已注册的扩展点。新增扩展点只需在这里加一条，不要在各处硬编码 pointId */
 export const PLUGIN_SPECS: Readonly<Record<string, PluginSpec>> = {
   [RANKING_POINT_ID]: RANKING_SPEC,
-  [LLM_TOOL_POINT_ID]: LLM_TOOL_SPEC,
+  [WORKFLOW_OPERATOR_POINT_ID]: WORKFLOW_OPERATOR_SPEC,
 };
 
 /** 按 pointId 取宿主 spec；不认识返回 undefined（catalog 据此标 incompatible） */
@@ -172,8 +172,8 @@ export interface PluginRevision {
   outcome: 'accepted' | 'rejected';
 }
 
-/** llm-tool 工件随源码一起持久化的资源契约（来自 plugin.json 的 exposes[]/smoke[]） */
-export interface LlmToolArtifactContract {
+/** workflow-operator 工件随源码一起持久化的算子契约（来自 plugin.json 的 exposes[]/smoke[]） */
+export interface OperatorArtifactContract {
   exposes: Array<{ name: string; description: string; params: Record<string, unknown> }>;
   smoke: Array<{ method?: string; args: unknown[]; expect: unknown }>;
 }
@@ -200,8 +200,8 @@ export interface PluginArtifact {
   /** 可选：面板筛选用的分类标签（纯展示）。在线安装时取 registry 的 category；
    *  缺省由宿主按 pointId 兜底推导，见 presentation/adapters/web/pages/assistant/ChatPage.ts 的 pluginCategory() */
   category?: string;
-  /** 仅 llm-tool 工件带：安装时把方法白名单与自检样例一起落库，离线也能重建工具声明 */
-  llmTool?: LlmToolArtifactContract;
+  /** 仅 workflow-operator 工件带：安装时把方法白名单与自检样例一起落库，离线也能重建宿主算子表条目 */
+  operatorContract?: OperatorArtifactContract;
 }
 
 /** 注入 system prompt 的插件清单条目 */
@@ -262,4 +262,19 @@ export interface IPluginArtifactStore {
 export interface IPluginContextProvider {
   snapshot(): Promise<PluginContextEntry[]>;
   withCode(id: string): Promise<PluginContextEntry | null>;
+}
+
+// ---------- 算子层统一地基（阶段一） ----------
+
+/** 算子统一出参：连线只认 value；effects 走既有宿主渲染/动作通道 */
+export interface StepResult {
+  value: unknown;                 // 任意可 JSON 序列化值
+  effects?: { displayMarkdown?: string; actionLink?: string }[];
+  meta?: Record<string, unknown>;
+}
+/** 算子表条目：按名执行 value→value */
+export interface OperatorSpec {
+  name: string;                   // 内置 snake_case；插件 `<slug>.<exposes[].name>`
+  idempotent: boolean;            // kv_write / secret_prompt 为 false
+  run(args: Record<string, unknown>): Promise<StepResult>;
 }

@@ -50,22 +50,22 @@ export interface PluginManifest {
   tags?: string[];
   /** 可选：面板筛选分类；与 registry 条目一致时才采用（以 registry 为准） */
   category?: string;
-  /** llm-tool 专用：方法白名单；宿主据此生成工具声明与 method 校验 */
-  exposes?: LlmToolExposure[];
-  /** llm-tool 专用：安装前沙箱自检样例 */
-  smoke?: LlmToolSmokeCase[];
+  /** workflow-operator 专用：算子方法白名单；宿主据此注册算子表条目与 method 校验 */
+  exposes?: OperatorExposure[];
+  /** workflow-operator 专用：安装前沙箱自检样例 */
+  smoke?: OperatorSmokeCase[];
 }
 
-/** llm-tool 资源对外暴露的一个方法 */
-export interface LlmToolExposure {
+/** workflow-operator 资源对外暴露的一个方法 */
+export interface OperatorExposure {
   name: string;
   description: string;
-  /** 参数 JSON Schema，直接作为模型工具声明里的 parameters */
+  /** 参数 JSON Schema，作为宿主算子表条目的参数形状 */
   params: Record<string, unknown>;
 }
 
-/** llm-tool 安装自检的一条：用 args 调 call，结果与 expect 逐字段相等才落库 */
-export interface LlmToolSmokeCase {
+/** workflow-operator 安装自检的一条：用 args 调 call，结果与 expect 逐字段相等才落库 */
+export interface OperatorSmokeCase {
   /** 该样例调用的方法名；省略时用 exposes[0].name（单方法库的常见情形） */
   method?: string;
   args: unknown[];
@@ -108,9 +108,9 @@ export interface CatalogEntry {
   /** 安装用：manifest.intent / origin */
   intent?: string;
   origin?: 'llm' | 'manual';
-  /** llm-tool 专用：随条目透传，安装试跑与工具声明都要用 */
-  exposes?: LlmToolExposure[];
-  smoke?: LlmToolSmokeCase[];
+  /** workflow-operator 专用：随条目透传，安装试跑与算子表条目都要用 */
+  exposes?: OperatorExposure[];
+  smoke?: OperatorSmokeCase[];
   /** 已匹配的本地工件 id（installed / update） */
   localArtifactId?: string;
   /** 状态说明（不兼容/不可用/仅声明的原因） */

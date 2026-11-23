@@ -95,7 +95,7 @@ export class PluginCatalogClient {
       origin: parsed['origin'] === 'llm' ? 'llm' : 'manual',
       intent: requireString(parsed, 'intent'),
     };
-    // llm-tool 的可选契约字段：宽松解析，逐条校验由 validate.mjs 在发布侧把关，
+    // workflow-operator 的可选算子契约字段：宽松解析，逐条校验由 validate.mjs 在发布侧把关，
     // 宿主侧使用时再逐项检查；未知字段一律不进类型。
     const exposures = parsed['exposes'];
     if (Array.isArray(exposures)) {

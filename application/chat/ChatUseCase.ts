@@ -7,7 +7,7 @@
  * 分流依据不是「猜这句话属于哪个意图」，而是用户显式选定的模型角色（ChatRole）。
  * 两个角色共用**同一个**标准 tool-calling agent loop（ToolLoop.ts）：
  * - chat 角色：挂网页 / PDF / 图片工具，system 用 CONVERSATION_SYSTEM_PROMPT，source='web'；
- *   命中声明 requiredCapabilities 的技能时才追加 llm_tool_call 工具与动态能力库清单。
+ *   命中技能时按配方引用的原语追加工具与技能说明。
  * - plugin 角色：挂插件开发工具集（列/查/写/试算/启停/删除/应用/回滚），
  *   system 由工具集动态生成（实时插件清单 + 沙箱契约），source='plugin'。
  *
@@ -43,7 +43,6 @@ import { runToolLoop, type ToolKit, type ToolLoopResult, type ToolExecutor, type
 import { createWebToolKit } from './WebToolLoop';
 import type { WebFetchToolDeps } from './WebFetchTool';
 import { safeReply } from './safeReply';
-import type { createLlmToolKit } from '../plugin/LlmToolKit';
 import type { SkillPrimitive, SkillRecipe } from '../skill/SkillTypes';
 import type { SkillDevKit } from '../skill/dev/SkillDevTools';
 import { selectSkills } from '../skill/SkillSelector';
@@ -78,7 +77,7 @@ export interface SkillDeps {
   /**
    * 可选：技能路由。缺省时由宿主用当前 gateway 做一次轻量 LLM 路由
    * （见 SkillRouter.routeSkills）；注入桩主要用于测试或特殊装配，不改路由契约。
-   * 返回本轮要激活的技能 id，宿主仍会用 selectSkills 过原语 / 能力库硬门槛。
+   * 返回本轮要激活的技能 id，宿主仍会用 selectSkills 过原语硬门槛。
    */
   routeSkills?: (
     recipes: readonly SkillRecipe[],
@@ -171,12 +170,6 @@ export class ChatUseCase {
     private readonly webTools?: WebFetchToolDeps,
     /** 可选：在线技能配方（仅 chat 角色生效）。不传则行为与旧版完全一致。 */
     private readonly skills?: SkillDeps,
-    /**
-     * 可选：模型能力插件工具集。不传则完全不挂；传入时也只在本轮命中的技能
-     * 声明了 requiredCapabilities 时才挂 llm_tool_call + 能力库清单，
-     * 不因「装过农历库」就把无关工具塞进每一轮（如 GitHub 请求）。
-     */
-    private readonly llmToolKit?: ReturnType<typeof createLlmToolKit>,
     /**
      * 可选：Skill 本地数据层（kv_* 原语 + system 说明）。chat / skill-dev 角色恒定挂载，
      * 不传则完全不挂，既有测试与精简装配逐字沿用旧行为。plugin 开发角色不接触。
@@ -440,11 +433,11 @@ export class ChatUseCase {
     // chat 角色：基础 web 工具恒定挂载；装了技能系统时，先由 LLM 路由理解本轮意图
     // 给出技能 id，再经 selectSkills 硬门槛筛出可用配方，只把原语追加进 tools[]。
     // 路由失败 / 无需技能时返回空激活，正常对话继续，零额外工具。
-    // chat 角色：技能系统与 llm-tool 能力库只要装了任一个，就走拼装路径。
+    // chat 角色：技能系统与本地数据层只要装了任一个，就走拼装路径。
     // 两者都没装才逐字返回基础 web kit（保持旧行为、零额外 token）。
     const kit: ToolKit = usePlugin
       ? this.pluginToolKit!
-      : (this.skills || this.llmToolKit || this.kvKit)
+      : (this.skills || this.kvKit)
         ? await this.buildChatToolKit(messages, localParts.length > 0, devMode)
         : createWebToolKit(this.webTools!);
     const source: PluginTraceStep['source'] = usePlugin ? 'plugin' : 'web';
@@ -474,8 +467,6 @@ export class ChatUseCase {
   /**
    * 拼装 chat / skill-dev 角色本轮的工具集：
    * - 基础 web 工具（3 个）恒定挂载，行为与旧版一致；
-   * - llm-tool 只在本轮命中的技能声明了 requiredCapabilities 时才追加，
-   *   与 SkillSelector 的激活前硬检查同源；无关技能（如 github.rest）不会被挂上农历库；
    * - 命中技能引用的原语按 name 去重后追加（基础工具优先，避免同名执行器被覆盖）；
    * - system 由 buildSkillSystemPrompt 在 CONVERSATION_SYSTEM_PROMPT 之上补本轮技能说明；
    *   闲聊无命中时原样返回基础 kit（无 systemPrompt，模型上下文与旧版逐字相同）。
@@ -490,7 +481,7 @@ export class ChatUseCase {
     devMode: boolean,
   ): Promise<ToolKit> {
     let base = createWebToolKit(this.webTools!);
-    // 本地数据层：chat 超集，基础 web 工具之上恒定追加（与 llm-tool 同一套去重口径）。
+    // 本地数据层：chat 超集，基础 web 工具之上恒定追加（同一套去重口径）。
     // kv_* 是通用能力，不依赖技能命中；技能配方也可在 primitives 里引用同名原语。
     const kv = this.kvKit;
     if (kv) {
@@ -511,9 +502,6 @@ export class ChatUseCase {
       }
       base = { ...base, tools, executors };
     }
-    // llm-tool 是否挂载要看本轮命中的技能声明（见下方 needsLlm），这里先取引用：
-    // capabilities 的激活前硬检查无论挂不挂工具都要用，故独立调用 listCapabilities()。
-    const llm = this.llmToolKit;
     let recipes: readonly SkillRecipe[] = [];
     try {
       recipes = this.skills ? await this.skills.loadSkills() : [];
@@ -549,16 +537,10 @@ export class ChatUseCase {
         // 默认路由的 reason 供未来可观测性使用，当前静默降级不消费。
       } catch { routedIds = []; }
     }
-    // requiredCapabilities 的激活前硬检查：取当前已启用能力库暴露的方法名并集。
-    // 与 buildSystemSuffix 共用 listActive() 同一份工件存储读取，不另建清单；
-    // 装配失败 / 未注入 llm-tool 时按空集处理，有依赖的技能一律不激活。
-    let capabilities: string[] = [];
-    if (llm) {
-      try { capabilities = await llm.listCapabilities(); } catch { capabilities = []; }
-    }
+    // 激活前硬检查：只认路由 id + 原语全部存在（见 SkillSelector）。
     const active = this.skills
       ? selectSkills(
-        routedIds, contextHasImage, recipes, this.skills.primitives, capabilities,
+        routedIds, contextHasImage, recipes, this.skills.primitives,
       )
       : [];
     // 下一轮的承接语靠这个信号续上；本轮没激活就清空，避免技能粘连。
@@ -567,34 +549,10 @@ export class ChatUseCase {
     this.previousSkillIds = active.map((s) => s.id);
     const dev = devMode ? this.skills?.devKit : undefined;
 
-    // llm-tool 按需挂载：只有本轮命中的技能真的声明了 requiredCapabilities 才挂。
-    // 声明是「我需要能力库」的唯一契约来源（与 SkillSelector / SkillCatalogService 同源）：
-    // github.rest / 天气 / 股价等配方缺省该字段 = 不依赖，模型本轮看不到 llm_tool_call、
-    // 也看不到农历能力库清单，不会白起一次 QuickJS 沙箱；月历配方声明
-    // ['monthCalendar'] 才把工具与清单挂上。装过某个库 ≠ 每轮都要把它塞给模型。
-    const needsLlm = active.some(
-      (s) => s.requiredCapabilities !== undefined && s.requiredCapabilities.length > 0,
-    );
-    if (llm && needsLlm) {
-      const tools = [...base.tools];
-      const executors: Record<string, ToolExecutor> = { ...base.executors };
-      for (const t of llm.tools) {
-        if (llm.executors[t.name] && !executors[t.name]) {
-          tools.push(t);
-          executors[t.name] = llm.executors[t.name]!;
-        }
-      }
-      base = { ...base, tools, executors };
-    }
-
-    // 闲聊且无命中、也没有 llm-tool 依赖：逐字返回基础 kit（零额外 token、无 system 覆盖）。
-    let llmSuffix = '';
-    if (llm && needsLlm) {
-      try { llmSuffix = await llm.buildSystemSuffix(); } catch { llmSuffix = ''; }
-    }
+    // 闲聊且无命中：逐字返回基础 kit（零额外 token、无 system 覆盖）。
     // 挂了 kv 就必须走拼装路径，让它的 system 说明进入本轮（ToolLoop 是替换制）。
     const kvSuffix = kv?.systemSuffix ?? '';
-    if (active.length === 0 && !dev && !llmSuffix && !kvSuffix) return base;
+    if (active.length === 0 && !dev && !kvSuffix) return base;
 
     const parts = this.skills
       ? buildSkillToolParts(active, this.skills.primitives)
@@ -615,11 +573,8 @@ export class ChatUseCase {
       for (const t of dev.tools) appendTool(t, dev.executors[t.name]);
       systemPrompt = `${systemPrompt}\n\n${dev.systemSuffix}`;
     }
-    // llm-tool 的能力库清单是动态片段（每次请求读工件存储，启用/停用即时生效）。
-    // ToolLoop.systemPrompt 是替换制，因此必须追加到已拼好的完整 system 尾部，
-    // 不能单独返回片段，否则会冲掉闲聊 / 技能 / 技能开发说明。
-    if (llmSuffix) systemPrompt = `${systemPrompt}\n\n${llmSuffix}`;
-    // 本地数据层的域清单与边界说明追加到完整 system 尾部，不冲掉技能 / 开发 / 能力库片段。
+    // ToolLoop.systemPrompt 是替换制，因此域清单与边界说明必须追加到已拼好的
+    // 完整 system 尾部，不冲掉闲聊 / 技能 / 技能开发说明。
     if (kvSuffix) systemPrompt = `${systemPrompt}\n\n${kvSuffix}`;
     return { tools, executors, systemPrompt };
   }

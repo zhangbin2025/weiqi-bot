@@ -16,7 +16,7 @@
  */
 
 import { PluginValidator, validatePluginOutput } from '@domain/plugin/PluginValidator';
-import { contractsEqual } from '@application/plugin/LlmToolContract';
+import { contractsEqual } from '@application/plugin/OperatorContract';
 import type {
   ExtensionPointBehaviorRegistry,
 } from '@domain/plugin/ExtensionPointBehavior';
@@ -164,19 +164,19 @@ export class PluginCatalogService {
     const syncCategory = async (): Promise<void> => {
       if (local !== undefined) await this.artifacts.syncCategory(local.id, entry.category);
     };
-    // llm-tool 的契约（exposes[]/smoke[]）也是工件的一部分：远端只改 manifest、
-    // 源码不变时仍要同步，否则模型侧工具声明会停在旧版本。新建与更新共用这一份。
+    // workflow-operator 的算子契约（exposes[]/smoke[]）也是工件的一部分：远端只改 manifest、
+    // 源码不变时仍要同步，否则宿主算子表条目会停在旧版本。新建与更新共用这一份。
     const nextContract = entry.exposes !== undefined && entry.smoke !== undefined
       ? { exposes: entry.exposes, smoke: entry.smoke }
       : undefined;
     if (local !== undefined) {
-      const contractChanged = !contractsEqual(local.llmTool, nextContract);
+      const contractChanged = !contractsEqual(local.operatorContract, nextContract);
       await syncCategory();
       if (local.code === code && !contractChanged) {
         return { ok: true, action: 'unchanged', artifact: local, message: '已是最新，无需更新' };
       }
       if (local.code === code) {
-        await this.artifacts.syncLlmToolContract(local.id, nextContract);
+        await this.artifacts.syncOperatorContract(local.id, nextContract);
         return {
           ok: true, action: 'updated', artifact: local,
           message: '已同步资源契约（方法白名单 / 自检样例）',
@@ -187,9 +187,9 @@ export class PluginCatalogService {
         trigger: 'manual',
         feedback: `在线插件源更新：${entry.resourceId}（${entry.registryUrl}）`,
       });
-      // manifest 的 exposes[]/smoke[] 变了也要同步，否则工具声明会停在旧版本。
+      // manifest 的 exposes[]/smoke[] 变了也要同步，否则算子契约会停在旧版本。
       // revise 只改 code/version/history，这里按新契约覆盖（没有则清空旧值）。
-      await this.artifacts.syncLlmToolContract(local.id, nextContract);
+      await this.artifacts.syncOperatorContract(local.id, nextContract);
       const result: InstallResult = {
         ok: true, action: 'updated', artifact: updated,
         message: '已更新源码（保留历史版本）',
@@ -206,7 +206,7 @@ export class PluginCatalogService {
       origin: entry.origin ?? 'manual',
       spec,
       catalogRef: { registryUrl: entry.registryUrl, resourceId: entry.resourceId },
-      ...(nextContract ? { llmTool: nextContract } : {}),
+      ...(nextContract ? { operatorContract: nextContract } : {}),
       ...(entry.category !== undefined ? { category: entry.category } : {}),
     });
     const installed: InstallResult = {
@@ -408,8 +408,8 @@ function checkCompatibility(
   if (!entryPattern(spec.entry).test(entry.remoteCode)) {
     return `源码未声明入口函数 ${spec.entry}`;
   }
-  // 资源契约快筛由扩展点行为声明；这里仍需保留 llm-tool 的 exposes[]/smoke[]
-  // 原校验口径（validateLlmToolContract 一行未改），通过行为间接调用。
+  // 算子契约快筛由扩展点行为声明；这里仍需保留 workflow-operator 的 exposes[]/smoke[]
+  // 原校验口径（validateOperatorContract 一行未改），通过行为间接调用。
   const behavior = resolveExtensionPointBehavior(behaviors, spec.pointId);
   if (behavior?.validateContract !== undefined) {
     const bad = behavior.validateContract({ exposes: entry.exposes, smoke: entry.smoke });
@@ -420,7 +420,7 @@ function checkCompatibility(
   return undefined;
 }
 
-/** llm-tool 资源契约快筛：方法白名单与自检样例必须齐全且形状合法 */
+/** workflow-operator 算子契约快筛：方法白名单与自检样例必须齐全且形状合法 */
 function fromStatic(
   s: StaticCatalogEntry,
   source: CatalogSource,

@@ -1,10 +1,13 @@
 /**
  * 宿主通用原语：4 个 web 工具（含 web_cache_read）+ navigate_to 指路原语
- * + display_json_list 通用展示原语（按配方声明渲染列表/表格，数据旁路，正文不进模型上下文）。
+ * + json_extract 内置提取算子（纯 value→value，承接已删 json-query 插件的 path/where/pick）
+ * + display_json_list 通用展示原语（纯渲染：吃已解析好的数组 value → 列表/表格，数据旁路，正文不进模型上下文）。
  * @module application/skill/primitives/BasicPrimitives
  *
  * 全部复用现有 web 工具的 definition 与执行器，不新造能力、不引入依赖。
  * navigate_to 只生成站内链接文本（宿主不自动跳转），路径做最小合法性校验。
+ * 提取（json_extract）与渲染（display_json_list）在阶段一各自独立注册；
+ * 阶段二 workflow runner 把 json_extract 的 value 注入 display_json_list 的 value。
  *
  * 契约前移（2026-11-16 用户实测）：「宿主注入链接、模型绝不写 URL」这条约束
  * 原先只写在 navigateToObservation（工具执行后才回喂），模型在决定 tool_calls
@@ -23,7 +26,6 @@ import {
 } from '@application/chat/WebResourceTools';
 import {
   WEB_CACHE_READ_TOOL, WEB_CACHE_READ_TOOL_NAME, executeWebCacheRead,
-  defaultWebFetchCache,
 } from '@application/chat/WebFetchCache';
 import type { ModelToolDefinition } from '@application/model/IModelGateway';
 import type { SkillPrimitive, PrimitiveResult } from '@application/skill/SkillTypes';
@@ -32,6 +34,7 @@ import {
   navigateToObservation,
 } from './NavigateToPath';
 import { createDisplayJsonListPrimitive } from './DisplayJsonListPrimitive';
+import { jsonExtractPrimitive } from './JsonExtractPrimitive';
 
 /** navigate_to 工具名（与 definition.name 一致） */
 export const NAVIGATE_TO_TOOL_NAME = 'navigate_to';
@@ -78,8 +81,8 @@ function toPrimitiveResult(r: {
 }
 
 /**
- * 构造 6 个通用原语：web_fetch / web_cache_read / web_read_pdf / web_read_image /
- * navigate_to / display_json_list（通用展示，数据旁路）。
+ * 构造 7 个通用原语：web_fetch / web_cache_read / web_read_pdf / web_read_image /
+ * navigate_to / json_extract（纯提取）/ display_json_list（纯渲染，数据旁路）。
  * webDeps 由上层（接线方）注入，与 createWebToolKit 用的是同一份依赖。
  */
 export function createBasicPrimitives(webDeps: WebFetchToolDeps): SkillPrimitive[] {
@@ -139,9 +142,12 @@ export function createBasicPrimitives(webDeps: WebFetchToolDeps): SkillPrimitive
         };
       },
     },
-    // 通用展示原语：读 WebFetchCache 里的结构化 JSON，按配方声明的 path/fields/format
-    // 生成 markdown 列表或表格 → displayMarkdown。宿主不认识任何业务字段；
-    // 正文全程不进模型上下文；只有引用它的配方被命中时才会挂进 tools[]。
-    createDisplayJsonListPrimitive(webDeps.cache ?? defaultWebFetchCache),
+    // 内置提取算子：纯 value→value，零网络 / 零时钟，承接已删 json-query 插件的
+    // path/where/pick 语义；阶段二 workflow 把它的 value 注入下游算子。
+    jsonExtractPrimitive,
+    // 通用展示原语：纯渲染，吃已是数组的 value，按 fields/format/note 生成
+    // markdown 列表或表格 → displayMarkdown。不读缓存、不解析 JSON、不提取字段；
+    // 宿主不认识任何业务字段；正文全程不进模型上下文。
+    createDisplayJsonListPrimitive(),
   ];
 }

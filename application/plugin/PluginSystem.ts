@@ -14,7 +14,7 @@
  * 共用同一批 service。
  *
  * 2026-11-21：装配根创建扩展点行为注册表并注入 toolKit / catalog，
- * 框架只认 ExtensionPointBehavior 契约，ranking / llm-tool / 未来扩展点平级；
+ * 框架只认 ExtensionPointBehavior 契约，ranking / workflow-operator / 未来扩展点平级；
  * applyRanking 是赛事页的业务入口，仍走唯一管线 computeRanking(matches, impl)。
  */
 
@@ -33,7 +33,6 @@ import { PluginArtifactService } from './PluginArtifactService';
 import { PluginContextProvider } from './PluginContextProvider';
 import { createPluginToolKit, type PluginToolKit } from './PluginTools';
 import { createExtensionPointBehaviors } from './behaviors';
-import { createLlmToolKit, type LlmToolKitDeps } from './LlmToolKit';
 import { createPluginRanking } from './RankingPluginAdapter';
 import { loadPluginMaxAttempts } from './PluginConfig';
 import { safeReply, DEFAULT_REPLY_MAX_CHARS } from '../chat/safeReply';
@@ -94,8 +93,6 @@ export interface PluginSystem {
   snapshot: PluginContextProvider;
   /** 挂到通用 ToolLoop 的插件工具集（plugin 角色唯一入口） */
   toolKit: PluginToolKit;
-  /** 模型能力插件工具集（chat / skill-dev 角色）；与 plugin 角色共用同一批 service */
-  llmToolKit: ReturnType<typeof createLlmToolKit>;
   /** 决策预算的同一来源：ToolLoop.maxTurns = maxAttempts + 1；修复/只读延续不占决策 */
   maxAttempts: number;
   /**
@@ -128,7 +125,7 @@ export async function createPluginSystem(options: PluginSystemOptions = {}): Pro
   const artifacts = new PluginArtifactService(store);
   const snapshot = new PluginContextProvider(store);
   const validator = new PluginValidator();
-  // 唯一的业务接线点：ranking / llm-tool / 未来扩展点在这里平级注册，
+  // 唯一的业务接线点：ranking / workflow-operator / 未来扩展点在这里平级注册，
   // 框架各层只按 pointId 查这张表，不再硬编码分派。
   const behaviors = createExtensionPointBehaviors();
 
@@ -151,17 +148,12 @@ export async function createPluginSystem(options: PluginSystemOptions = {}): Pro
     maxAttempts,
   });
 
-  // llm-tool：同一批 artifacts / runtime，挂到闲聊与技能开发角色的工具表。
-  // 不新建存储、不新建沙箱、不新建下载链路；人工启用闸门由工件 enabled 承担。
-  const llmToolKit = createLlmToolKit({ artifacts, runtime });
-
   return {
     gateway,
     runtime,
     artifacts,
     snapshot,
     toolKit,
-    llmToolKit,
     behaviors,
     maxAttempts,
     applyRanking: async (matches: MatchData[], selectedArtifactId?: string) => {

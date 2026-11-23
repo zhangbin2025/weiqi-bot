@@ -3,14 +3,14 @@
  *
  * 全部用最小假注册表与纯内存原语，不触网、不碰 IndexedDB、不依赖真实 web 工具。
  * 触发词匹配已删除：selectSkills 现在只按 LLM 路由给出的 id 做激活前硬门槛筛选。
- * 覆盖：路由 id 命中 / 未知 id 丢弃 / 缺原语 / 缺能力库 / 去重 /
+ * 覆盖：路由 id 命中 / 未知 id 丢弃 / 缺原语 / 去重 /
  * PrimitiveResult→ToolOutcome 只填三个必填字段。
  */
 
 import { describe, it, expect } from 'vitest';
 import type { ModelToolDefinition } from '@application/model/IModelGateway';
 import type { SkillPrimitive, SkillRecipe, PrimitiveResult } from '@application/skill/SkillTypes';
-import { selectSkills, hasAllCapabilities } from '../SkillSelector';
+import { selectSkills } from '../SkillSelector';
 import { buildSkillSystemPrompt } from '../SkillSystemPrompt';
 import { createSkillRegistry, buildSkillToolParts } from '../SkillRegistry';
 
@@ -93,54 +93,6 @@ describe('selectSkills（按 LLM 路由 id + 硬门槛）', () => {
     const b = recipe({ id: 'x.b', primitives: ['p_b'] });
     const reg = registry(['p_a', 'p_b']);
     expect(selectSkills(['x.b', 'x.a', 'x.b'], false, [a, b], reg)).toEqual([a, b]);
-  });
-});
-
-describe('requiredCapabilities（激活前硬门槛）', () => {
-  /** recipe() 不透传可选字段，这里显式补上 */
-  function withCaps(requiredCapabilities: string[]): SkillRecipe {
-    return {
-      schemaVersion: 1,
-      id: 'x.calendar',
-      version: 1,
-      name: '月历',
-      summary: '需要 monthCalendar 能力',
-      primitives: ['p_a'],
-      requiredCapabilities,
-      prompt: '生成月历表格',
-    };
-  }
-
-  it('缺任一依赖方法 → 整条跳过（与缺原语同一层）', () => {
-    const skill = withCaps(['monthCalendar', 'solarTerms']);
-    const reg = registry(['p_a']);
-    expect(selectSkills(['x.calendar'], false, [skill], reg, ['monthCalendar'])).toEqual([]);
-    expect(selectSkills(['x.calendar'], false, [skill], reg, [])).toEqual([]);
-    expect(selectSkills(['x.calendar'], false, [skill], reg, new Set(['monthCalendar']))).toEqual([]);
-  });
-
-  it('依赖全部齐备 → 正常激活', () => {
-    const skill = withCaps(['monthCalendar']);
-    const reg = registry(['p_a']);
-    expect(selectSkills(['x.calendar'], false, [skill], reg, ['monthCalendar'])).toEqual([skill]);
-    expect(selectSkills(['x.calendar'], false, [skill], reg, new Set(['monthCalendar', 'festivals'])))
-      .toEqual([skill]);
-  });
-
-  it('未注入能力清单（第 5 参省略）→ 有依赖的技能不激活，老配方不受影响', () => {
-    const old = recipe({ id: 'x.old', primitives: ['p_a'] });
-    const skill = withCaps(['monthCalendar']);
-    const reg = registry(['p_a']);
-    expect(selectSkills(['x.old'], false, [old], reg)).toEqual([old]);
-    expect(selectSkills(['x.old', 'x.calendar'], false, [old, skill], reg)).toEqual([old]);
-  });
-
-  it('hasAllCapabilities：缺省字段恒真，空数组恒真，重复方法名不影响', () => {
-    expect(hasAllCapabilities(recipe())).toBe(true);
-    expect(hasAllCapabilities(withCaps([]))).toBe(true);
-    expect(hasAllCapabilities(withCaps(['monthCalendar']), ['monthCalendar', 'monthCalendar']))
-      .toBe(true);
-    expect(hasAllCapabilities(withCaps(['monthCalendar']), new Set())).toBe(false);
   });
 });
 

@@ -26,8 +26,8 @@ export interface CreatePluginArtifactInput {
   conversationRef?: string;
   /** 在线插件安装时写入来源标记，供后续比对更新；LLM/手工新建时为 undefined */
   catalogRef?: PluginCatalogRef;
-  /** llm-tool 安装时写入资源契约（exposes[]/smoke[]），随工件持久化 */
-  llmTool?: PluginArtifact['llmTool'];
+  /** workflow-operator 安装时写入算子契约（exposes[]/smoke[]），随工件持久化 */
+  operatorContract?: PluginArtifact['operatorContract'];
   /** 在线插件清单声明的分类标签，随工件持久化，供本地面板筛选 */
   category?: string;
 }
@@ -110,8 +110,8 @@ export class PluginArtifactService {
         resourceId: input.catalogRef.resourceId,
       };
     }
-    if (input.llmTool !== undefined) {
-      artifact.llmTool = JSON.parse(JSON.stringify(input.llmTool)) as NonNullable<PluginArtifact['llmTool']>;
+    if (input.operatorContract !== undefined) {
+      artifact.operatorContract = JSON.parse(JSON.stringify(input.operatorContract)) as NonNullable<PluginArtifact['operatorContract']>;
     }
     if (input.category !== undefined) artifact.category = input.category;
     await this.store.create(artifact);
@@ -157,7 +157,7 @@ export class PluginArtifactService {
 
   /**
    * 在线源安装/更新时同步分类标签（纯展示字段）。传 undefined 表示清单撤掉标注，
-   * 清掉旧值让 UI 按 pointId 兜底推导。与 llmTool 契约同步同一套路。
+   * 清掉旧值让 UI 按 pointId 兜底推导。与 operatorContract 契约同步同一套路。
    */
   async syncCategory(id: string, category: string | undefined): Promise<void> {
     await this.requireArtifact(id);
@@ -172,22 +172,22 @@ export class PluginArtifactService {
   }
 
   /**
-   * 在线源更新 llm-tool 工件时同步资源契约（exposes[]/smoke[]）。
+   * 在线源更新 workflow-operator 工件时同步算子契约（exposes[]/smoke[]）。
    * 与 revise 分开是因为 revise 是「模型/用户改源码」的通用语义，不该隐式改契约；
    * 这里只由 catalog 安装链路调用。传 undefined 表示清掉旧契约（远端不再声明）。
    */
-  async syncLlmToolContract(
+  async syncOperatorContract(
     id: string,
-    contract: NonNullable<PluginArtifact['llmTool']> | undefined,
+    contract: NonNullable<PluginArtifact['operatorContract']> | undefined,
   ): Promise<void> {
     await this.requireArtifact(id);
     // IPluginArtifactStore.update 的 patch 是 Partial<PluginArtifact>：在
     // exactOptionalPropertyTypes 下无法表达「显式把可选字段清空」这一语义。
     // 端口类型不动（其它实现共享），只在这一处用 unknown 中转一次；
-    // mergePluginArtifact 用 'llmTool' in patch 判定，undefined 会 delete 掉旧值。
+    // mergePluginArtifact 用 'operatorContract' in patch 判定，undefined 会 delete 掉旧值。
     const patch = contract === undefined
-      ? { llmTool: undefined }
-      : { llmTool: JSON.parse(JSON.stringify(contract)) as NonNullable<PluginArtifact['llmTool']> };
+      ? { operatorContract: undefined }
+      : { operatorContract: JSON.parse(JSON.stringify(contract)) as NonNullable<PluginArtifact['operatorContract']> };
     await this.store.update(id, patch as unknown as Partial<PluginArtifact>);
   }
 
@@ -201,6 +201,17 @@ export class PluginArtifactService {
 
   async list(): Promise<PluginArtifact[]> {
     return this.store.list();
+  }
+
+  /**
+   * 阶段一算子表地基：只读「已启用」工件快照（人工启用闸门）。
+   * pointId 等进一步过滤由调用方（OperatorRegistry）按扩展点决定，
+   * 这里不写死任何扩展点，保持工件服务的通用性。
+   * 存储/装配失败由调用方按空集降级（与旧 listActive 口径一致）。
+   */
+  async listActive(): Promise<PluginArtifact[]> {
+    const all = await this.store.list();
+    return all.filter((a) => a.enabled);
   }
 
   private async requireArtifact(id: string): Promise<PluginArtifact> {

@@ -11,7 +11,7 @@
  */
 
 import { LocalStorageAdapter } from '@infrastructure/storage/adapters/web/LocalStorageAdapter';
-import type { CatalogEntry, LlmToolExposure, LlmToolSmokeCase } from './PluginCatalogTypes';
+import type { CatalogEntry, OperatorExposure, OperatorSmokeCase } from './PluginCatalogTypes';
 
 const CACHE_KEY = 'plugin-catalog:cache';
 
@@ -29,8 +29,8 @@ export interface StaticCatalogEntry {
   remoteCode?: string;
   intent?: string;
   origin?: 'llm' | 'manual';
-  exposes?: LlmToolExposure[];
-  smoke?: LlmToolSmokeCase[];
+  exposes?: OperatorExposure[];
+  smoke?: OperatorSmokeCase[];
 }
 
 export interface PluginCatalogCacheDeps {

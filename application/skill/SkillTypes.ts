@@ -16,6 +16,11 @@ export interface SkillPrimitive {
   name: string;
   /** 传给模型的 JSON Schema */
   definition: ModelToolDefinition;
+  /**
+   * 算子是否幂等；kv_write / secret_prompt 等非幂等原语显式标 false，
+   * 缺省由 OperatorRegistry 按 true 处理（纯计算默认幂等，明说约定不是拟合数值）。
+   */
+  idempotent?: boolean;
   execute(argsJson: string): Promise<PrimitiveResult>;
 }
 
@@ -46,6 +51,13 @@ export interface PrimitiveResult {
    * （见 DisplayJsonListPrimitive），在线纯 JSON 配方无法构造本字段。
    */
   displayMarkdown?: string;
+  /** 算子的纯 value 出参；阶段二 workflow 连线只认它。渲染/动作仍走 displayMarkdown / actionLink。 */
+  value?: unknown;
+  /**
+   * 算子是否幂等；kv_write / secret_prompt 等非幂等原语显式标 false，
+   * 缺省由 OperatorRegistry 按 true 处理（纯计算默认幂等，明说约定不是拟合数值）。
+   */
+  idempotent?: boolean;
 }
 
 /** 一条技能 = 纯 JSON 配方，只引用宿主原语，不含任何可执行代码 */
@@ -61,13 +73,6 @@ export interface SkillRecipe {
   summary: string;
   /** 引用的宿主原语名，必须全部存在于 SkillRegistry；否则该技能整条跳过 */
   primitives: string[];
-  /**
-   * 可选：本技能依赖的 llm-tool 能力（暴露方法名，如 ['monthCalendar']）。
-   * 只有当前已启用能力库的 exposes[].name 并集包含这里**每一项**时，技能才激活 /
-   * 可安装；缺一项整条跳过。写方法名而不是 libId：libId 是每次安装生成的本机
-   * 指纹，跨机器不可移植。字段缺省 = 不检查，老配方行为逐字不变。
-   */
-  requiredCapabilities?: string[];
   /**
    * 可选：本技能声明的凭据规格（纯数据）。http_fetch_auth 按 secretKey 查这张表
    * 决定 allowedHosts / header 拼法 / 重认证状态，模型运行时无法传这些参数。

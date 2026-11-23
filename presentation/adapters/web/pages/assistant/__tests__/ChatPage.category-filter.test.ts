@@ -99,7 +99,7 @@ const skillSource: SkillSource = { url: 'https://example.com/skills.json', offic
 describe('分类推导：来源清楚、可复算', () => {
   it('插件按 pointId 推导两个已注册扩展点', () => {
     expect(pluginCategory('ranking')).toBe('排名');
-    expect(pluginCategory('llm-tool')).toBe('模型工具');
+    expect(pluginCategory('workflow-operator')).toBe('算子');
     expect(pluginCategory('something-new')).toBe('未分类');
     expect(pluginCategory(undefined)).toBe('未分类');
   });
@@ -136,7 +136,7 @@ describe('本地插件列表：标签条 + 筛选', () => {
   it('默认「全部」：两张不同分类卡片都可见，各自带分类标签', async () => {
     const page = makePage();
     const list = vi.fn(async () => [
-      artifact('a1', 'ranking'), artifact('a2', 'llm-tool'),
+      artifact('a1', 'ranking'), artifact('a2', 'workflow-operator'),
     ]);
     page['plugin'] = { artifacts: { list } };
     dom({ root: 'pluginPanelRoot', categories: 'pluginPanelCategories', body: 'pluginPanelBody' });
@@ -146,21 +146,21 @@ describe('本地插件列表：标签条 + 筛选', () => {
     const listCards = cards('pluginPanelBody');
     expect(listCards).toHaveLength(2);
     expect(listCards[0]!.dataset['category']).toBe('排名');
-    expect(listCards[1]!.dataset['category']).toBe('模型工具');
+    expect(listCards[1]!.dataset['category']).toBe('算子');
     expect(listCards[0]!.hidden).toBe(false);
     expect(listCards[1]!.hidden).toBe(false);
     // 卡片头有可见分类标签
     expect(listCards[0]!.querySelector('.plugin-panel__category-tag')?.textContent).toBe('排名');
     // 标签条：全部 + 本列表实际出现的两个分类
     const labels = categoryButtons().map((b) => b.textContent);
-    expect(labels).toEqual(['全部', '排名', '模型工具']);
+    expect(labels).toEqual(['全部', '排名', '算子']);
     expect(categoryButtons()[0]!.classList.contains('plugin-panel__category--active')).toBe(true);
   });
 
-  it('点「排名」只隐藏模型工具卡片；不重新 list（不打网络）', async () => {
+  it('点「排名」只隐藏算子卡片；不重新 list（不打网络）', async () => {
     const page = makePage();
     const list = vi.fn(async () => [
-      artifact('a1', 'ranking'), artifact('a2', 'llm-tool'),
+      artifact('a1', 'ranking'), artifact('a2', 'workflow-operator'),
     ]);
     page['plugin'] = { artifacts: { list } };
     dom({ root: 'pluginPanelRoot', categories: 'pluginPanelCategories', body: 'pluginPanelBody' });
@@ -191,7 +191,7 @@ describe('在线插件列表：标签条 + 筛选', () => {
     const browse = vi.fn(async () => ({
       entries: [
         catalogEntry('ranking.total-score', 'ranking', '排名'),
-        catalogEntry('llm-tool.lunar', 'llm-tool', '模型工具'),
+        catalogEntry('workflow-operator.lunar', 'workflow-operator', '算子'),
       ],
       failures: [],
     }));
@@ -203,9 +203,9 @@ describe('在线插件列表：标签条 + 筛选', () => {
     await (page['refreshPluginPanel'] as () => Promise<void>).call(page);
     expect(browse).toHaveBeenCalledTimes(1);
     const listCards = cards('pluginPanelBody');
-    expect(listCards.map((c) => c.dataset['category'])).toEqual(['排名', '模型工具']);
+    expect(listCards.map((c) => c.dataset['category'])).toEqual(['排名', '算子']);
 
-    clickCategory('模型工具');
+    clickCategory('算子');
     expect(listCards[0]!.hidden).toBe(true);
     expect(listCards[1]!.hidden).toBe(false);
     expect(browse).toHaveBeenCalledTimes(1);

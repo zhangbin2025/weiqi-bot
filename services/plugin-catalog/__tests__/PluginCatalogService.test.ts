@@ -355,10 +355,10 @@ describe('分类标签 category 落地', () => {
     const first = await service.install((await pluginEntry(service))!);
     expect(first.artifact?.category).toBe('排名');
 
-    category = '模型工具';
+    category = '算子';
     const second = await service.install((await pluginEntry(service))!);
     expect(second.action).toBe('unchanged');
-    expect((await artifacts.list())[0]!.category).toBe('模型工具');
+    expect((await artifacts.list())[0]!.category).toBe('算子');
 
     category = undefined;
     await service.install((await pluginEntry(service))!);

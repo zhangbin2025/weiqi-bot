@@ -83,7 +83,7 @@ import {
  * 纯展示：不参与安装 / 兼容 / 激活判定，也不进 LLM 提示词。
  */
 export const EXTENSION_CATEGORIES = [
-  '排名', '模型工具', '围棋', '财经', '搜索', '生活', '开发', '未分类',
+  '排名', '算子', '围棋', '财经', '搜索', '生活', '开发', '未分类',
 ] as const;
 export type ExtensionCategory = (typeof EXTENSION_CATEGORIES)[number];
 
@@ -94,7 +94,7 @@ export type CategoryFilter = ExtensionCategory | typeof CATEGORY_ALL;
 /** 插件扩展点 → 中文分类；键 = domain/plugin/types.ts 的 PLUGIN_SPECS 注册键 */
 const PLUGIN_POINT_CATEGORY: Readonly<Record<string, ExtensionCategory>> = {
   ranking: '排名',
-  'llm-tool': '模型工具',
+  'workflow-operator': '算子',
 };
 /** 技能 id 第一段 → 中文分类；键 = weiqi-assets 官方清单实际出现的命名空间 */
 const SKILL_NS_CATEGORY: Readonly<Record<string, ExtensionCategory>> = {
@@ -251,15 +251,8 @@ export class ChatPage {
       }),
     ]);
     this.skillPrimitives = skillPrimitives;
-    // 面板与对话侧共用同一份能力库清单：requiredCapabilities 的判定口径必须同源，
-    // 否则会出现「面板说能装、对话却不激活」的劈叉。llmToolKit 装配失败时 undefined
-    // = 不注入检查器（面板保守跳过依赖检查），对话侧仍以空集做激活前硬门槛。
-    const llmKit = this.plugin?.llmToolKit;
     this.skillCatalog = createDefaultSkillCatalog({
       users: userSkills, sources: skillSources, primitives: skillPrimitives,
-      ...(llmKit !== undefined
-        ? { capabilities: () => llmKit.listCapabilities() }
-        : {}),
     });
     const skillDeps: SkillDeps = {
       loadSkills: async () => {
@@ -287,8 +280,6 @@ export class ChatPage {
       () => this.currentRole,
       webTools,
       skillDeps,
-      // llm-tool 能力库：与插件系统共用工件存储 + QuickJS 沙箱，装配失败时 undefined（降级为纯聊天）
-      this.plugin?.llmToolKit,
       // Skill 本地数据层：域 / 驱动 / 能力均在 createKvKit() 内注册，装配方只传这一句
       kvKit,
       // 会话上下文 compact：host-only 写 checkpoints 域（kvKit.service 的宿主专用接口），

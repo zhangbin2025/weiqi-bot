@@ -36,11 +36,11 @@ function cloneCatalogRef(ref: PluginCatalogRef): PluginCatalogRef {
   return { registryUrl: ref.registryUrl, resourceId: ref.resourceId };
 }
 
-/** llmTool 契约是纯 JSON 值（exposes/smoke 里没有函数 / Date / ArrayBuffer），用 JSON 往返等价 structured clone */
-function cloneLlmToolContract(
-  c: NonNullable<PluginArtifact['llmTool']>,
-): NonNullable<PluginArtifact['llmTool']> {
-  return JSON.parse(JSON.stringify(c)) as NonNullable<PluginArtifact['llmTool']>;
+/** operatorContract 契约是纯 JSON 值（exposes/smoke 里没有函数 / Date / ArrayBuffer），用 JSON 往返等价 structured clone */
+function cloneOperatorContract(
+  c: NonNullable<PluginArtifact['operatorContract']>,
+): NonNullable<PluginArtifact['operatorContract']> {
+  return JSON.parse(JSON.stringify(c)) as NonNullable<PluginArtifact['operatorContract']>;
 }
 
 function cloneSpec(spec: PluginSpec): PluginSpec {
@@ -96,8 +96,8 @@ export function clonePluginArtifact(artifact: PluginArtifact): PluginArtifact {
   if (artifact.category !== undefined) {
     copy.category = artifact.category;
   }
-  if (artifact.llmTool !== undefined) {
-    copy.llmTool = cloneLlmToolContract(artifact.llmTool);
+  if (artifact.operatorContract !== undefined) {
+    copy.operatorContract = cloneOperatorContract(artifact.operatorContract);
   }
   return copy;
 }
@@ -108,7 +108,7 @@ export function clonePluginArtifact(artifact: PluginArtifact): PluginArtifact {
  * - 逐字段覆盖：patch 中为 undefined 的字段视为「未提供」，
  *   绝不会写出 `scope: undefined` 这类属性（exactOptionalPropertyTypes）。
  * - 要清空可选字段请传空对象 / 空串，而不是 undefined；
- *   category / llmTool 两个字段例外，用 `in` 判定支持显式传 undefined 清空。
+ *   category / operatorContract 两个字段例外，用 `in` 判定支持显式传 undefined 清空。
  * - id 刻意不接受 patch：IndexedDB 以 id 为 keyPath，改 id 会留下孤儿记录。
  */
 export function mergePluginArtifact(
@@ -130,16 +130,16 @@ export function mergePluginArtifact(
   if (patch.scope !== undefined) merged.scope = cloneScope(patch.scope);
   if (patch.conversationRef !== undefined) merged.conversationRef = patch.conversationRef;
   if (patch.catalogRef !== undefined) merged.catalogRef = cloneCatalogRef(patch.catalogRef);
-  // category 与 llmTool 同款：用 `in` 判定支持显式清空（在线清单撤掉标注时）。
+  // category 与 operatorContract 同款：用 `in` 判定支持显式清空（在线清单撤掉标注时）。
   if ('category' in patch) {
     if (patch.category !== undefined) merged.category = patch.category;
     else delete merged.category;
   }
-  // llmTool 用 `in` 判定：catalog 更新时可能显式传 undefined 表示「远端不再声明契约」，
+  // operatorContract 用 `in` 判定：catalog 更新时可能显式传 undefined 表示「远端不再声明契约」，
   // 此时要清掉旧值；不传该字段的其它 patch 一律原样保留。
-  if ('llmTool' in patch) {
-    if (patch.llmTool !== undefined) merged.llmTool = cloneLlmToolContract(patch.llmTool);
-    else delete merged.llmTool;
+  if ('operatorContract' in patch) {
+    if (patch.operatorContract !== undefined) merged.operatorContract = cloneOperatorContract(patch.operatorContract);
+    else delete merged.operatorContract;
   }
   return merged;
 }

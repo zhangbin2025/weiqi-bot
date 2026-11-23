@@ -87,15 +87,13 @@ const PRIMS = new Map<string, SkillPrimitive>([
 function catalogWith(
   fetchImpl: typeof fetch,
   users: UserSkillStore = usersWithMem(),
-  capabilities?: () => Promise<readonly string[]>,
 ): SkillCatalogService {
   const deps: {
     fetchImpl: typeof fetch; onlineUrl: string; users: UserSkillStore;
-    primitives: Map<string, SkillPrimitive>; capabilities?: () => Promise<readonly string[]>;
+    primitives: Map<string, SkillPrimitive>;
   } = {
     fetchImpl, onlineUrl: ONLINE_URL, users, primitives: PRIMS,
   };
-  if (capabilities !== undefined) deps.capabilities = capabilities;
   return new SkillCatalogService(deps);
 }
 
@@ -243,89 +241,6 @@ describe('SkillCatalogService.install — 安装 / 更新 / 拒绝', () => {
     );
     expect(badShape.ok).toBe(false);
     expect(await users.list()).toEqual([]);
-  });
-});
-
-describe('requiredCapabilities — 面板 browse / install 与对话侧同源判定', () => {
-  /** 依赖 monthCalendar 的在线配方（原语用默认的 navigate_to，注册表里有） */
-  const needsMonth = () => recipe({ id: 'calendar.monthly', requiredCapabilities: ['monthCalendar'] });
-  const okCaps = async () => ['monthCalendar', 'solarTerms'] as const;
-  const noCaps = async () => [] as readonly string[];
-  const throwCaps = async (): Promise<readonly string[]> => { throw new Error('工件存储炸了'); };
-
-  it('browse：注入清单但缺依赖 → unavailable，中文原因点名缺哪个方法', async () => {
-    const { items } = await catalogWith(
-      fetchReturning(registryOf([needsMonth()])), usersWithMem(), noCaps,
-    ).browse();
-    expect(items[0]?.state).toBe('unavailable');
-    expect(items[0]?.reason).toContain('monthCalendar');
-  });
-
-  it('browse：依赖齐备 → 正常按同 id/version 判状态（本地空 → new）', async () => {
-    const { items } = await catalogWith(
-      fetchReturning(registryOf([needsMonth()])), usersWithMem(), okCaps,
-    ).browse();
-    expect(items[0]?.state).toBe('new');
-  });
-
-  it('browse：注入了检查器但取值抛错 → 按空集严格判缺（绝不静默放行）', async () => {
-    const { items } = await catalogWith(
-      fetchReturning(registryOf([needsMonth()])), usersWithMem(), throwCaps,
-    ).browse();
-    expect(items[0]?.state).toBe('unavailable');
-    expect(items[0]?.reason).toContain('monthCalendar');
-  });
-
-  it('browse：完全没注入检查器 → 不检查依赖（保守放行，不假装有清单）', async () => {
-    const { items } = await catalogWith(
-      fetchReturning(registryOf([needsMonth()])), usersWithMem(),
-    ).browse();
-    expect(items[0]?.state).toBe('new');
-  });
-
-  it('install：缺依赖 → rejected，不写本地库，提示去插件面板', async () => {
-    const users = usersWithMem();
-    const service = catalogWith(fetchReturning(registryOf([])), users, noCaps);
-    const out = await service.install(asRecipe(needsMonth()));
-    expect(out.ok).toBe(false);
-    expect(out.message).toContain('monthCalendar');
-    expect(await users.list()).toEqual([]);
-  });
-
-  it('install：注入检查器但取值抛错 → 按空集判缺，拒装', async () => {
-    const users = usersWithMem();
-    const service = catalogWith(fetchReturning(registryOf([])), users, throwCaps);
-    const out = await service.install(asRecipe(needsMonth()));
-    expect(out.ok).toBe(false);
-    expect(await users.list()).toEqual([]);
-  });
-
-  it('install：依赖齐备 → 正常安装', async () => {
-    const users = usersWithMem();
-    const service = catalogWith(fetchReturning(registryOf([])), users, okCaps);
-    const out = await service.install(asRecipe(needsMonth()));
-    expect(out).toMatchObject({ ok: true, action: 'installed' });
-    expect((await users.list())[0]?.recipe.requiredCapabilities).toEqual(['monthCalendar']);
-  });
-
-  it('install：没注入检查器 → 不检查依赖，照常安装', async () => {
-    const users = usersWithMem();
-    const service = catalogWith(fetchReturning(registryOf([])), users);
-    const out = await service.install(asRecipe(needsMonth()));
-    expect(out.ok).toBe(true);
-  });
-
-  it('parseSkillRecipe：空数组 / 非标识符 / 非数组一律拒绝，缺省字段放行', () => {
-    expect(parseSkillRecipe(recipe({ requiredCapabilities: [] })).ok).toBe(false);
-    expect(parseSkillRecipe(recipe({ requiredCapabilities: ['bad-name'] })).ok).toBe(false);
-    expect(parseSkillRecipe(recipe({ requiredCapabilities: 'monthCalendar' })).ok).toBe(false);
-    expect(parseSkillRecipe(recipe({ requiredCapabilities: [1] })).ok).toBe(false);
-    const ok = parseSkillRecipe(recipe({ requiredCapabilities: ['monthCalendar'] }));
-    expect(ok.ok).toBe(true);
-    if (ok.ok) expect(ok.skill.requiredCapabilities).toEqual(['monthCalendar']);
-    // 缺省字段不出现在解析结果里（exactOptionalPropertyTypes）
-    const plain = parseSkillRecipe(recipe());
-    if (plain.ok) expect('requiredCapabilities' in plain.skill).toBe(false);
   });
 });
 
