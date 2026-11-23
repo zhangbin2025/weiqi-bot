@@ -87,11 +87,11 @@ export interface WorkflowStep {
   args?: Record<string, unknown>;
   /** 依赖边集合；缺省 = 无上游依赖。 */
   bindings?: WorkflowBinding[];
-  /** 仅显式 true 的节点 .value 进模型上下文；缺省 false。 */
+  /** 仅显式 true 的节点 .value 进宿主结果汇总；成功观察只回完成+句柄、不回灌模型；缺省 false。 */
   yield?: boolean;
 }
 
-/** 模型在 yield 边界填空的参数契约（形状，不是代码）。 */
+/** 模型在 run_workflow 入口填空的参数契约（形状，不是代码）。 */
 export interface WorkflowInput {
   /** 参数名，在 inputs 内唯一。 */
   name: string;

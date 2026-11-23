@@ -66,9 +66,10 @@ export const RUN_WORKFLOW_TOOL: ModelToolDefinition = {
 
 /**
  * 把本轮 active 的 workflow 配方 id + inputs 契约拼进 description。
- * buildSkillSystemPrompt 只渲染 summary+prompt，不展示 inputs[]；模型要正确填
- * run_workflow({skillId, inputs}) 就得在工具定义里看到契约（字段名 / type / enum /
- * required / default）。这属于数据披露、不是新策略；没有配方时逐字退回静态定义。
+ * 路由目录（SkillRouter）给触发条件、这里给填参契约，两者合起来就是模型在
+ * workflow 路径需要的全部信息；buildSkillSystemPrompt 已不再为 workflow 配方注入
+ * summary + prompt + 尾句（2026-11-23 收窄）。这属于数据披露、不是新策略；
+ * 没有配方时逐字退回静态定义。
  */
 function describeInputs(decls: readonly WorkflowInput[] | undefined): string {
   if (!decls || decls.length === 0) return '（该技能无需填空参数）';

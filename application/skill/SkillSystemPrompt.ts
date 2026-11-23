@@ -1,9 +1,17 @@
 /**
- * 按本轮命中技能追加 system 指令。
+ * 按本轮命中的**散文技能**追加 system 指令。
  * @module application/skill/SkillSystemPrompt
  *
  * base 是 CONVERSATION_SYSTEM_PROMPT（本文件不修改它本身）。
  * active 为空时原样返回 base —— 零额外 token，闲聊完全不受影响。
+ *
+ * 2026-11-23 收窄（LLM 不再碰业务数据 / token 最小化）：
+ * 带 `workflow` 的配方**不进这里**。它的触发条件已在路由目录那一行
+ * `- id | name | summary`（SkillRouter.renderCatalog），填参契约已在
+ * `run_workflow` 工具定义的 `skillId` enum + inputs 描述（WorkflowTool.buildWorkflowTool），
+ * 结果走宿主旁路、成功观察只回「完成 + 句柄」——模型一轮只做一次决策，
+ * 不需要整段 summary + prompt + SKILL_FOOTER 说明书。散文配方命中路径原样保留，
+ * 不写兼容桥；本轮 active 全是 workflow 配方时逐字返回 base。
  */
 
 import type { SkillRecipe } from '@application/skill/SkillTypes';
@@ -40,11 +48,13 @@ function renderSkill(skill: SkillRecipe): string {
 }
 
 /**
- * 生成追加了技能说明的 system prompt。
- * 空 active → 返回 base 本身（不拼接、不追加空行）。
+ * 生成追加了**散文技能**说明的 system prompt。
+ * 空 active / active 全是 workflow 配方 → 返回 base 本身（不拼接、不追加空行）。
+ * 路由目录与 workflow 工具定义已经承载了 workflow 配方所需的全部触发 / 填参信息。
  */
 export function buildSkillSystemPrompt(base: string, active: readonly SkillRecipe[]): string {
-  if (active.length === 0) return base;
-  const lines = ['本轮可用技能：', ...active.map(renderSkill), SKILL_FOOTER];
+  const prose = active.filter((s) => s.workflow === undefined);
+  if (prose.length === 0) return base;
+  const lines = ['本轮可用技能：', ...prose.map(renderSkill), SKILL_FOOTER];
   return `${base}\n\n${lines.join('\n')}`;
 }

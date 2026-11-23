@@ -4,16 +4,22 @@
  */
 import { describe, it, expect } from 'vitest';
 import { buildSkillSystemPrompt } from '../SkillSystemPrompt';
-import type { SkillRecipe } from '../SkillTypes';
+import type { SkillRecipe, WorkflowSpec } from '../SkillTypes';
 
 const base = 'BASE_SYSTEM_PROMPT';
 
-function recipe(): SkillRecipe {
+function recipe(over: Partial<SkillRecipe> = {}): SkillRecipe {
   return {
     schemaVersion: 1, id: 'user.demo', version: 1, name: '示例',
     summary: '摘要', primitives: ['navigate_to'], prompt: '提示',
+    ...over,
   };
 }
+
+/** 最小合法 workflow 声明；本文件只关心「带 workflow 就不进 system」这一判据 */
+const workflow: WorkflowSpec = {
+  steps: [{ id: 'only', call: 'display_json_list' }],
+};
 
 describe('buildSkillSystemPrompt', () => {
   it('active 为空：逐字返回 base，零额外 token（闲聊路径不受影响）', () => {
@@ -57,5 +63,46 @@ describe('buildSkillSystemPrompt', () => {
     const out = buildSkillSystemPrompt(base, []);
     expect(out).toBe(base);
     expect(out).not.toContain('本地偏好保存');
+  });
+
+  // 2026-11-23：LLM 不再碰业务数据 / token 最小化。
+  // 触发条件在路由目录那一行，填参契约在 run_workflow 工具定义，
+  // workflow 配方命中不再需要整段说明书进 system。
+  it('带 workflow 的配方命中：逐字返回 base，零额外 token', () => {
+    const wf = recipe({
+      id: 'stock.news.10jqka', name: '财经新闻',
+      summary: '工作流触发条件（不该进 system）',
+      prompt: '工作流整段说明书（不该进 system）',
+      primitives: [], workflow,
+    });
+    const out = buildSkillSystemPrompt(base, [wf]);
+    expect(out).toBe(base);
+    expect(out).not.toContain('本轮可用技能');
+    expect(out).not.toContain('工作流触发条件');
+    expect(out).not.toContain('工作流整段说明书');
+    expect(out).not.toContain('技能只是提示');
+  });
+
+  it('散文 + workflow 混合命中：只渲染散文，SKILL_FOOTER 仍随散文送达一次', () => {
+    const prose = recipe({ summary: '散文摘要', prompt: '散文提示' });
+    const wf = recipe({
+      id: 'stock.news.10jqka', summary: '工作流触发条件',
+      prompt: '工作流整段说明书', primitives: [], workflow,
+    });
+    const out = buildSkillSystemPrompt(base, [prose, wf]);
+    expect(out.startsWith(`${base}\n\n`)).toBe(true);
+    expect(out).toContain('- 名称：散文摘要\n  使用提示：散文提示');
+    expect(out).not.toContain('工作流触发条件');
+    expect(out).not.toContain('工作流整段说明书');
+    // 尾句与指路契约仍原样保留（散文路径行为不变）
+    expect(out).toContain('技能只是提示，实际能力以本轮工具为准');
+    expect(out).toContain('链接一律由宿主以按钮注入');
+  });
+
+  it('散文单独命中：行为与收窄前逐字一致（回归护栏）', () => {
+    const out = buildSkillSystemPrompt(base, [recipe()]);
+    expect(out.startsWith(`${base}\n\n本轮可用技能：\n- 名称：摘要\n  使用提示：提示\n`)).toBe(true);
+    // 尾句紧接技能块，结构未被拆分或重排
+    expect(out).toContain('使用提示：提示\n技能只是提示，实际能力以本轮工具为准');
   });
 });
