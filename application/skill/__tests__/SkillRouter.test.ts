@@ -74,7 +74,7 @@ describe('routeSkills', () => {
     expect(execute.mock.calls.length).toBe(0);
   });
 
-  it('目录只用 id / name / summary，不塞 prompt；task=skill.route + jsonMode', async () => {
+  it('目录只用 id / name（一行触发条件），不塞 summary / prompt；task=skill.route + jsonMode', async () => {
     const { gw, execute } = gatewayWith('{"skillIds":["github.rest"]}');
     const out = await routeSkills(gw, RECIPES, input);
     expect(out.skillIds).toEqual(['github.rest']);
@@ -83,10 +83,17 @@ describe('routeSkills', () => {
     expect(req.options?.jsonMode).toBe(true);
     expect(req.tools).toBeUndefined();
     const userText = req.messages.find((m) => m.role === 'user')!.content as string;
-    expect(userText).toContain('github.rest | GitHub REST API | 查仓库');
+    // 每条技能恰好一行 id | name，两条都在
+    expect(userText).toContain('- github.rest | GitHub REST API');
+    expect(userText).toContain('- weather.wttr | 天气查询');
     expect(userText).toContain('查一下 weiqi-dev/weiqi-bot 的最后一个提交');
+    // summary 是执行说明（散文命中后由 buildSkillSystemPrompt 注入），不该进路由目录
+    expect(userText).not.toContain('查仓库 / Issue / PR / 提交');
+    expect(userText).not.toContain('查某地当前天气与预报');
     // prompt 是启用后才拼进对话 system 的指令，不该进路由目录
     expect(userText).not.toContain('使用提示');
+    // 不做字符串截断/启发式：目录行不应出现 name 后面的第三段
+    expect(userText).not.toContain('GitHub REST API |');
   });
 
   it('上下文信号写明有附件 / 上一轮技能，供承接语判断', async () => {
