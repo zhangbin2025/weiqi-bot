@@ -252,3 +252,46 @@ describe('skill_write 可选 category', () => {
     expect(saved[0]!.recipe.category).toBe('生活');
   });
 });
+
+// ---------- 一行触发条件（2026-11-23）：真机「拍照摆子」回归修复 ----------
+describe('skill_write 可选 routeHint', () => {
+  it('schema 放行 routeHint，system 片段讲清它是路由目录用的触发条件', () => {
+    const { dev } = kit();
+    const schema = dev.tools.find((t) => t.name === 'skill_write')!.parameters;
+    expect(schema.properties).toHaveProperty('routeHint');
+    expect(dev.systemSuffix).toContain('routeHint');
+    expect(dev.systemSuffix).toContain('一行触发条件');
+  });
+
+  it('填了就透传落库，未填不塞进配方（回落到 summary）', async () => {
+    const { users, exec } = kit();
+    const r = await exec('skill_write', {
+      name: '记谱', summary: '导航到记谱页',
+      routeHint: '用户想记录棋谱、拍照摆子、拍照还原棋局时',
+      primitives: ['navigate_to'], prompt: '调用 navigate_to',
+    });
+    expect(r.ok).toBe(true);
+    const saved = await users.list();
+    expect(saved[0]!.recipe.routeHint).toBe('用户想记录棋谱、拍照摆子、拍照还原棋局时');
+    expect(saved[0]!.recipe.summary).toBe('导航到记谱页');
+
+    const r2 = await exec('skill_write', {
+      name: '另一个', summary: '执行说明', primitives: ['web_fetch'], prompt: 'p',
+    });
+    expect(r2.ok).toBe(true);
+    const all = await users.list();
+    const plain = all.find((e) => e.recipe.name === '另一个')!;
+    expect(plain.recipe).not.toHaveProperty('routeHint');
+  });
+
+  it('含换行的 routeHint 在 parseSkillRecipe 阶段拒绝，不落库', async () => {
+    const { users, exec } = kit();
+    const r = await exec('skill_write', {
+      name: '坏提示', summary: 's', routeHint: '第一行\n第二行',
+      primitives: ['web_fetch'], prompt: 'p',
+    });
+    expect(r.ok).toBe(false);
+    expect(r.observation).toContain('一行文本');
+    expect(await users.list()).toEqual([]);
+  });
+});

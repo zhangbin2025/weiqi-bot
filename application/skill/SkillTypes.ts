@@ -117,8 +117,15 @@ export interface SkillRecipe {
   version: number;
   /** 展示名 */
   name: string;
-  /** 一句话，给模型看 */
+  /** 一句话，给模型看（散文命中后注入 system 的执行说明） */
   summary: string;
+  /**
+   * 可选：一行触发条件 = 「用户说什么话时该选这条」。只供技能路由目录消费，
+   * 与 summary（命中后的执行说明）正交：路由阶段只需判断要不要启用，不需要读
+   * 执行细节。取值由发布方从配方自身的「用户想X时 / 常见说法」逐字提炼，有出处，
+   * 不是宿主另造的词表 / 阈值。缺省 = 回落到 summary（自建技能、未标注配方零回归）。
+   */
+  routeHint?: string;
   /** 引用的宿主原语名，必须全部存在于 SkillRegistry；否则该技能整条跳过 */
   primitives: string[];
   /**

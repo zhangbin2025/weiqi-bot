@@ -66,7 +66,12 @@ const SKILL_WRITE_TOOL: ModelToolDefinition = {
         description: '可选。修订已有技能时填它的 id（user. 开头，来自 skill_list）；新建时省略。',
       },
       name: { type: 'string', description: '展示名称' },
-      summary: { type: 'string', description: '一句话说明该技能做什么（给模型看）' },
+      summary: { type: 'string', description: '一句话说明该技能做什么（命中后注入系统提示的执行说明）' },
+      routeHint: {
+        type: 'string',
+        description: '可选。一行触发条件：用户说什么话时该选这条（如「拍照摆子、拍照还原棋局时」），'
+          + '只供路由目录判断要不要启用，不写参数/凭据/执行细节；不填时路由回落到 summary。',
+      },
       primitives: {
         type: 'array', items: { type: 'string' },
         description: '引用的宿主原语名数组，至少 1 条，必须来自「可用原语」清单',
@@ -143,14 +148,15 @@ function buildSystemSuffix(primitives: ReadonlyMap<string, SkillPrimitive>): str
   return [
     '【技能开发能力】',
     '你是「技能开发」助手：既能像闲聊一样正常对话与使用网页/技能工具，也能在本机创建/修订「技能配方」。',
-    '技能是一条纯声明 JSON：LLM 路由根据「名称 + 描述」判断本轮是否启用；启用后给对话补一段提示并挂上若干宿主已有的「原语」工具。',
+    '技能是一条纯声明 JSON：LLM 路由根据「名称 + 一行触发条件」判断本轮是否启用；启用后给对话补一段提示并挂上若干宿主已有的「原语」工具。',
     '技能不含、也绝不能写任何可执行代码；你只能组合下面这些宿主已有的原语。',
     '',
     '可用原语（primitives 只能从这里挑，填原语名）：',
     renderPrimitives(primitives),
     '',
     '用 skill_list 查看本地技能（含 id、版本、来源、启用状态、完整配方）；用 skill_write 创建/修订自建技能。',
-    'skill_write 字段：name / summary（写清楚「什么场景、做什么」，路由靠它理解，不要写触发词）'
+    'skill_write 字段：name / summary（命中后的执行说明：什么场景、做什么）'
+      + '/ routeHint（可选，一行触发条件：用户说什么话时选这条，只供路由目录；不填回落到 summary）'
       + '/ primitives（原语名数组，至少 1 条，必须来自上表）'
       + '/ prompt（启用后追加的自然语言指令，纯文本）；'
       + 'id 可选，修订时填 skill_list 查到的同一 id（user. 开头），新建时省略。',
@@ -259,6 +265,7 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
       version: 1, // 占位；UserSkillStore.save 会按同 id 现有版本 +1 覆盖，模型永远不写版本号
       name: args['name'],
       summary: args['summary'],
+      ...(args['routeHint'] !== undefined ? { routeHint: args['routeHint'] } : {}),
       primitives: args['primitives'],
       ...(args['secrets'] !== undefined ? { secrets: args['secrets'] } : {}),
       ...(args['category'] !== undefined ? { category: args['category'] } : {}),

@@ -166,3 +166,46 @@ describe('parseSkillRecipe 与 secrets', () => {
     if (r.ok) expect(r.skill.secrets).toEqual([spec]);
   });
 });
+
+describe('parseSkillRecipe 与 routeHint（一行触发条件）', () => {
+  const base = {
+    schemaVersion: 1, id: 'user.x', version: 1, name: 'X', summary: 's',
+    primitives: ['navigate_to'], prompt: 'p',
+  };
+
+  it('缺省字段：老配方逐字兼容，结果里不出现 routeHint', () => {
+    const r = parseSkillRecipe(base);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.skill).not.toHaveProperty('routeHint');
+  });
+
+  it('合法一行触发提示透传（首尾空白 trim），不进 summary / prompt', () => {
+    const r = parseSkillRecipe({ ...base, routeHint: '  拍照摆子、拍照还原棋局时  ' });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.skill.routeHint).toBe('拍照摆子、拍照还原棋局时');
+      expect(r.skill.summary).toBe('s');
+      expect(r.skill.prompt).toBe('p');
+    }
+  });
+
+  it('空串 / 纯空白当缺省（宽松，不因此拒掉整条配方）', () => {
+    for (const v of ['', '   ']) {
+      const r = parseSkillRecipe({ ...base, routeHint: v });
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.skill).not.toHaveProperty('routeHint');
+    }
+  });
+
+  it('含换行拒绝：目录是「一条技能一行」，换行会破坏渲染', () => {
+    const r = parseSkillRecipe({ ...base, routeHint: '第一行\n第二行' });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toContain('一行文本');
+  });
+
+  it('非字符串当缺省，不抛错（与 category 同款宽松解析）', () => {
+    const r = parseSkillRecipe({ ...base, routeHint: 42 });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.skill).not.toHaveProperty('routeHint');
+  });
+});

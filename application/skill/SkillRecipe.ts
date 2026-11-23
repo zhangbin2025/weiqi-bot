@@ -84,6 +84,22 @@ function readCategory(raw: Record<string, unknown>): FieldResult<string | undefi
   return { ok: true, value: value.trim() };
 }
 
+/**
+ * 可选 routeHint：一行触发条件（「用户说什么话时选这条」），只供路由目录消费。
+ * 与 category 同款宽松解析：缺省 / 空串一律当缺省（路由回落到 summary），
+ * 不因为一个可选提示没写就拒掉整条配方。显式给值时要求是单行非空字符串：
+ * 目录是「一条技能一行」，换行会破坏渲染；不做任何词表 / 长度阈值校验。
+ */
+function readRouteHint(raw: Record<string, unknown>): FieldResult<string | undefined> {
+  const value = raw['routeHint'];
+  if (value === undefined) return { ok: true, value: undefined };
+  if (typeof value !== 'string' || !value.trim()) return { ok: true, value: undefined };
+  if (/[\r\n]/.test(value)) {
+    return { ok: false, reason: '字段「routeHint」必须是一行文本（不能含换行）' };
+  }
+  return { ok: true, value: value.trim() };
+}
+
 function readSecrets(raw: Record<string, unknown>): FieldResult<SkillRecipe['secrets']> {
   if (raw['secrets'] === undefined) return { ok: true, value: undefined };
   try {
@@ -324,6 +340,8 @@ export function parseSkillRecipe(
   if (!name.ok) return name;
   const summary = readString(raw, 'summary', 'summary');
   if (!summary.ok) return summary;
+  const routeHint = readRouteHint(raw);
+  if (!routeHint.ok) return routeHint;
   const primitives = readPrimitives(raw);
   if (!primitives.ok) return primitives;
   const category = readCategory(raw);
@@ -342,6 +360,7 @@ export function parseSkillRecipe(
     version: version.value,
     name: name.value,
     summary: summary.value,
+    ...(routeHint.value !== undefined ? { routeHint: routeHint.value } : {}),
     primitives: primitives.value,
     ...(secrets.value !== undefined ? { secrets: secrets.value } : {}),
     ...(category.value !== undefined ? { category: category.value } : {}),

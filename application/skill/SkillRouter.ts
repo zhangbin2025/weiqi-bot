@@ -3,16 +3,16 @@
  * @module application/skill/SkillRouter
  *
  * 取代旧的「包含即命中」触发词匹配：触发词需要人肉枚举、零词汇重叠的自然说法
- * 永远命中不了（如「获取最后一个提交」）。技能是低频对话场景，为省一次调用
- * 维护一套词表是负债；name 作为一行触发条件足以让模型判断要不要启用。
+ * 永远命中不了（如「获取最后一个提交」）。路由交给 LLM 按语义理解自然说法：
+ * 目录给「一行触发条件」（用户说什么话时选这条），不是让宿主去匹配词表。
  *
  * 边界：
  * - 只输出技能 id，不输出原语 / 参数 / 代码；未知 id 一律丢弃（防幻觉）。
  * - 路由失败（超时 / JSON 脏 / 端点异常）→ 空激活，正常对话继续，绝不打断用户。
- * - 目录只用 id / name（一行触发条件），不把 summary / prompt 塞进来
- *   （省每轮恒定 token、避免提示注入面扩大）。summary 的执行说明在散文命中后
- *   由 buildSkillSystemPrompt 注入、workflow 的填参契约由 run_workflow 工具定义给出，
- *   路由阶段只需判断「要不要这条」，不需要知道「怎么做」（2026-11-23 收窄）。
+ * - 目录只用 id / name / 一行触发条件（routeHint，缺省回落 summary），不塞完整
+ *   summary / prompt（省每轮恒定 token、避免提示注入面扩大）。触发条件只回答
+ *   「要不要这条」；命中后的执行说明由 buildSkillSystemPrompt 注入散文 system、
+ *   workflow 的填参契约由 run_workflow 工具定义给出（2026-11-23 二次收窄）。
  * - 调用走 IModelGateway 抽象层，options.jsonMode=true 由网关 wire 层落实；
  *   不直接碰 fetch / 凭据 / 端点配置。
  */
@@ -38,26 +38,27 @@ export interface SkillRouteInput {
 
 const ROUTER_SYSTEM =
   '你是技能路由器。根据用户消息与技能目录，判断本轮需要启用哪些技能。'
-  + '只依据技能的「名称」（一行触发条件）判断要不要启用，不要猜测目录外的能力。'
+  + '依据技能的「名称」和「触发条件」（用户说什么话时选它）判断要不要启用，不要猜测目录外的能力。'
   + '只输出严格 JSON：{"skillIds":["id",...]}。'
   + '规则：'
   + '1) skillIds 只能出现目录里列出的 id，绝不编造、绝不改写；'
   + '2) 不需要任何技能就输出 {"skillIds":[]}，不要为了「有用」硬选；'
   + '3) 用户消息只是承接上一轮（如「好的」「确认」「继续」「就这样」）且上下文信号里'
   + '   给了上一轮技能，就保留那些技能；'
-  + '4) 上下文有图片附件时，结合用户消息与技能名称判断是否需要处理图片 / 拍照 / 棋谱识别的技能；'
+  + '4) 上下文有图片附件时，结合用户消息与触发条件判断是否需要处理图片 / 拍照 / 棋谱识别的技能；'
   + '5) 只输出 JSON 对象本身，不写解释、不写 markdown、不写代码块。';
 
 /**
- * 目录文本：一条技能一行，只给 id + name（= 一行触发条件）。
- * 字段有清楚出处（配方本身），不引入新常量、不做字符串截断启发式。
- * summary 是执行说明，路由阶段不需要：散文命中后注入系统提示，
- * workflow 命中后填参契约由 run_workflow 工具定义给出。
+ * 目录文本：一条技能一行，给 id + name + 一行触发条件。
+ * 触发条件取配方自带的 routeHint（发布方从自身场景句提炼，有出处）；未标注的
+ * 配方 / 自建技能回落到 summary，逐条都不会瞎路由。字段都来自配方本身，
+ * 不引入新常量、不做字符串截断启发式。命中后的执行说明不进目录：散文由
+ * buildSkillSystemPrompt 注入、workflow 由 run_workflow 工具定义给出。
  */
 function renderCatalog(recipes: readonly SkillRecipe[]): string {
   if (recipes.length === 0) return '（目录为空）';
   return recipes
-    .map((s) => `- ${s.id} | ${s.name}`)
+    .map((s) => `- ${s.id} | ${s.name} | ${s.routeHint ?? s.summary}`)
     .join('\n');
 }
 
