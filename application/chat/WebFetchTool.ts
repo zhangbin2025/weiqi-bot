@@ -75,6 +75,12 @@ export interface WebFetchResult {
   ok: boolean;
   /** 一行人话摘要（过程块显示） */
   detail: string;
+  /**
+   * 可选：算子的纯 value 出参（阶段二 workflow 连线只认它）。
+   * 仅 storeOnly 分支产出：合法 JSON 给解析值、非 JSON 给原文字符串；
+   * 散文配方仍只看 observation，零回归。
+   */
+  value?: unknown;
 }
 
 /** 取回工具的可注入依赖，便于测试 */
@@ -193,6 +199,11 @@ export async function executeWebFetch(argsJson: string, deps: WebFetchToolDeps):
     // 模型既不收到正文也不收到预览，因此大体积 JSON 不产生延迟 / token 开销。
     // 这里只回元信息，不含一个字符的新闻正文；也不指路 web_cache_read（默认流程不该读回来）。
     if (storeOnly) {
+      // 阶段二命门修复：正文 text 已在手，把它作为算子的纯 value 出参交给 DAG runner
+      // （json_extract 要的是已解析 JSON、display_json_list 要的是已解析数组）。
+      // 合法 JSON 给解析值、非 JSON 给原文字符串；不新增阈值、不重试。仅本分支加。
+      let value: unknown;
+      try { value = JSON.parse(text) as unknown; } catch { value = text; }
       return {
         observation: `web_fetch：${url}\n`
           + `HTTP ${response.status} ${response.statusText}\n`
@@ -201,6 +212,7 @@ export async function executeWebFetch(argsJson: string, deps: WebFetchToolDeps):
           + `也不要凭这段句柄猜测或补写内容。`,
         ok: response.ok,
         detail: `${url} → HTTP ${response.status}，${text.length} 字符（storeOnly，仅缓存）`,
+        value,
       };
     }
 

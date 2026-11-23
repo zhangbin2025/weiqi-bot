@@ -39,6 +39,7 @@ import { resourceFromFile } from './ResourceInput';
 import { processImage, processPdf } from './ResourceProcessors';
 import { getRole, type ChatRoleId } from './ChatRole';
 import type { PluginTraceStep } from '@domain/plugin/types';
+import type { OperatorRegistry } from '../plugin/OperatorRegistry';
 import { runToolLoop, type ToolKit, type ToolLoopResult, type ToolExecutor, type ToolOutcome } from './ToolLoop';
 import { createWebToolKit } from './WebToolLoop';
 import type { WebFetchToolDeps } from './WebFetchTool';
@@ -48,6 +49,7 @@ import type { SkillDevKit } from '../skill/dev/SkillDevTools';
 import { selectSkills } from '../skill/SkillSelector';
 import { routeSkills, type SkillRouteInput } from '../skill/SkillRouter';
 import { buildSkillToolParts } from '../skill/SkillRegistry';
+import { buildWorkflowToolParts } from '../skill/WorkflowTool';
 import { buildSkillSystemPrompt } from '../skill/SkillSystemPrompt';
 import { beginUserTurn } from '../skill/SkillTurn';
 import type { KvKit } from '../skill/kv/KvKit';
@@ -180,6 +182,12 @@ export class ChatUseCase {
      * 既有测试与精简装配零变化；传入时在每轮构造上下文前同步 compact。
      */
     private readonly compactor?: ConversationCompactor,
+    /**
+     * 阶段二第 10 参（放最后，不动前 9 参顺序）：宿主统一算子表。
+     * 只在 chat 角色且本轮有带 workflow 的配方时挂 run_workflow 工具；
+     * 不传则阶段二 workflow 能力整条不挂，既有装配 / 测试零变化。
+     */
+    private readonly operatorRegistry?: OperatorRegistry,
   ) {}
 
   isReady(): boolean {
@@ -438,7 +446,7 @@ export class ChatUseCase {
     const kit: ToolKit = usePlugin
       ? this.pluginToolKit!
       : (this.skills || this.kvKit)
-        ? await this.buildChatToolKit(messages, localParts.length > 0, devMode)
+        ? await this.buildChatToolKit(messages, localParts.length > 0, devMode, onTrace)
         : createWebToolKit(this.webTools!);
     const source: PluginTraceStep['source'] = usePlugin ? 'plugin' : 'web';
 
@@ -479,6 +487,7 @@ export class ChatUseCase {
     messages: ModelMessage[],
     hasNewParts: boolean,
     devMode: boolean,
+    onTrace?: (step: PluginTraceStep) => void,
   ): Promise<ToolKit> {
     let base = createWebToolKit(this.webTools!);
     // 本地数据层：chat 超集，基础 web 工具之上恒定追加（同一套去重口径）。
@@ -551,8 +560,12 @@ export class ChatUseCase {
 
     // 闲聊且无命中：逐字返回基础 kit（零额外 token、无 system 覆盖）。
     // 挂了 kv 就必须走拼装路径，让它的 system 说明进入本轮（ToolLoop 是替换制）。
+    // 例外：有带 workflow 的配方时即使散文路径没命中也要挂 run_workflow（活性由 workflow 字段判）。
     const kvSuffix = kv?.systemSuffix ?? '';
-    if (active.length === 0 && !dev && !kvSuffix) return base;
+    const workflowActive = this.operatorRegistry
+      ? active.filter((s) => s.workflow !== undefined)
+      : [];
+    if (active.length === 0 && !dev && !kvSuffix && workflowActive.length === 0) return base;
 
     const parts = this.skills
       ? buildSkillToolParts(active, this.skills.primitives)
@@ -566,6 +579,14 @@ export class ChatUseCase {
       }
     };
     for (const t of parts.tools) appendTool(t, parts.executors[t.name]);
+
+    // 阶段二：有 operatorRegistry 且本轮有带 workflow 的配方时，并列挂一个 run_workflow。
+    // 去重按 name、沿用既有顺序（appendTool 已保证同名不覆盖基础工具）。
+    // 散文路径（buildSkillToolParts）原样保留，不删、不写兼容桥（B 决策）。
+    if (this.operatorRegistry && workflowActive.length > 0) {
+      const wf = buildWorkflowToolParts(workflowActive, this.operatorRegistry, onTrace);
+      for (const t of wf.tools) appendTool(t, wf.executors[t.name]);
+    }
 
     // 基础 system：闲聊 system + 本轮命中技能说明（active 为空时就是闲聊 system 本身）
     let systemPrompt = buildSkillSystemPrompt(CONVERSATION_SYSTEM_PROMPT, active);

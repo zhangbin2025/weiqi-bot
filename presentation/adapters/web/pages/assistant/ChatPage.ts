@@ -58,7 +58,11 @@ import { describeAttachment } from '../../../../../application/chat/ChatAttachme
 import { OpenAIModelGateway } from '../../../../../infrastructure/llm/OpenAIModelGateway';
 import { loadLLMConfig, DEFAULT_LLM_TIMEOUT_MS } from '../../../../../infrastructure/llm/LLMCredentialStore';
 import { createPluginSystem, type PluginSystem } from '../../../../../application/plugin/PluginSystem';
-import type { PluginArtifact } from '../../../../../domain/plugin/types';
+import type { PluginArtifactService } from '../../../../../application/plugin/PluginArtifactService';
+import { createOperatorRegistry, type OperatorRegistry, type OperatorRegistryDeps } from '../../../../../application/plugin/OperatorRegistry';
+import type {
+  IPluginRuntime, OperatorSpec, PluginArtifact, StepResult,
+} from '../../../../../domain/plugin/types';
 import { PluginCatalogService } from '../../../../../services/plugin-catalog/PluginCatalogService';
 import type {
   CatalogBrowseResult, CatalogEntry, CatalogSource,
@@ -169,6 +173,17 @@ export class ChatPage {
   private skillPrimitives: ReadonlyMap<string, SkillPrimitive> | undefined;
   /** 本地数据层：凭据弹框与 http_fetch_auth 共用同一 service 实例 */
   private kvKit: KvKit | undefined;
+  /**
+   * 阶段二：宿主统一算子表（ChatUseCase 第 10 参）。
+   * createOperatorRegistry 是 async，且插件启停/安装会改变「已启用工件」集合，
+   * 故用一个**稳定代理**注入用例：holder 里放当前真实 registry，refreshOperatorRegistry()
+   * 重建后替换 holder.item，代理本身不变（用例持有的引用永远有效、不会挂空）。
+   * 装配期 await 一次拿到初值；插件启停/删除/安装后调 refresh 刷新。
+   */
+  private operatorRegistryHolder: { item: OperatorRegistry | undefined } = { item: undefined };
+  private operatorRegistry: OperatorRegistry | undefined;
+  /** 插件启停/删除/安装后重建算子表快照（init 内赋值为 async 函数） */
+  private refreshOperatorRegistry: () => Promise<void> = async () => { /* init 内覆盖 */ };
   /** 配方声明的凭据规格表：每轮由 loadSkills 用已启用配方刷新，模型无法写入 */
   private secretSpecs: ReturnType<typeof createSecretSpecRegistry> | undefined;
   /** 技能面板当前标签页；默认「我的技能」。安装/更新操作后强制切回 local */
@@ -270,6 +285,61 @@ export class ChatPage {
       // 只有「技能开发」角色会挂这俩工具；闲聊角色完全不接触
       devKit: createSkillDevKit({ users: userSkills, primitives: skillPrimitives }),
     };
+
+    // 阶段二装配：宿主统一算子表。deps 三件都复用装配根现成实例/工厂：
+    // - primitives：createBasicPrimitives(webTools)（上面 skillPrimitives 用的同一份工厂/依赖）；
+    // - artifacts：this.plugin.artifacts（createPluginSystem 里 new PluginArtifactService(store)）；
+    // - runtime：this.plugin.runtime（QuickJsRuntime，一次性 Worker 沙箱）。
+    // 插件系统装配失败（this.plugin === undefined）时，用「内置原语 + 空工件表 + 空运行时」
+    // 的降级装配：内置算子照常可用，插件算子天然不注册（runner 会结构化报未注册），
+    // 与「装配失败不阻塞对话页」的既有兜底一致，不自造工件/运行时实例。
+    const operatorDeps: OperatorRegistryDeps = {
+      primitives: createBasicPrimitives(webTools),
+      artifacts: this.plugin?.artifacts ?? {
+        // 最小降级桩：只实现 createOperatorRegistry 会调的 listActive()。
+        // 类型由结构补齐（PluginArtifactService 的公开面较宽），用 as 收口避免把
+        // 整个 service 接口在装配根抄一遍；运行时永远不会用到其它方法。
+        listActive: async () => [] as PluginArtifact[],
+      } as unknown as PluginArtifactService,
+      runtime: this.plugin?.runtime ?? {
+        run: (_code: string, _input: unknown, _spec: unknown): Promise<never> => {
+          // 没有沙箱运行时就不该有插件算子被注册（listActive 为空）；
+          // 万一被调用也明确拒绝，不静默假装执行成功。
+          return Promise.reject(new Error('插件系统未装配，无法执行插件算子'));
+        },
+        dispose: async () => { /* 无运行时可释放 */ },
+      } as unknown as IPluginRuntime,
+    };
+    const rebuildOperatorRegistry = async (): Promise<OperatorRegistry> =>
+      createOperatorRegistry(operatorDeps);
+    // init 是 async，可以 await 一次拿到初值；失败则降级为「无 workflow 能力」，
+    // 绝不让页面装配挂掉（与插件系统装配失败同一口径）。
+    try {
+      this.operatorRegistryHolder.item = await rebuildOperatorRegistry();
+    } catch {
+      this.operatorRegistryHolder.item = undefined;
+    }
+    // 稳定代理：用例持有的是这个对象，holder 可随时被 refresh 替换，引用不挂空。
+    // get/run 都委托给 holder.item；未就绪时 get 返回 undefined（runner 会结构化报未注册）。
+    const holder = this.operatorRegistryHolder;
+    const registryProxy: OperatorRegistry = {
+      get specs(): ReadonlyMap<string, OperatorSpec> {
+        return holder.item?.specs ?? new Map();
+      },
+      get: (name: string) => holder.item?.get(name),
+      run: (name: string, args: Record<string, unknown>): Promise<StepResult> =>
+        holder.item
+          ? holder.item.run(name, args)
+          : Promise.reject(new Error('算子表未装配')),
+    };
+    this.operatorRegistry = registryProxy;
+    // 供插件启停/删除/安装后刷新已启用工件快照。
+    this.refreshOperatorRegistry = async (): Promise<void> => {
+      try {
+        holder.item = await rebuildOperatorRegistry();
+      } catch { /* 刷新失败保留旧表，不打断对话 */ }
+    };
+
     this.useCase = new ChatUseCase(
       gateway,
       this.history,
@@ -285,6 +355,8 @@ export class ChatPage {
       // 会话上下文 compact：host-only 写 checkpoints 域（kvKit.service 的宿主专用接口），
       // 摘要走同一个 gateway 的 chat.compact 旁路任务。不挂任何模型工具。
       new ConversationCompactor({ gateway, store: kvKit.service }),
+      // 阶段二第 10 参：宿主统一算子表（稳定代理）；不传则 workflow 能力整条不挂。
+      this.operatorRegistry,
     );
 
     this.bindUI();
@@ -1346,6 +1418,8 @@ export class ChatPage {
                   : { key: `local:${out.artifact.id}` };
               }
             }
+            // 新装/更新的是停用工件，启用集合可能变化（更新会换工件）：重建算子表快照。
+            if (out.ok) await this.refreshOperatorRegistry();
             await this.refreshPluginPanel();
           } catch (error) {
             btn.disabled = false;
@@ -1556,6 +1630,9 @@ export class ChatPage {
       void (async () => {
         try {
           await plugin.artifacts.setEnabled(artifact.id, !artifact.enabled);
+          // 插件算子来自「已启用」工件：启停后重建算子表快照，让 workflow 节点
+          // 立刻按新的白名单命中/未命中（稳定代理引用不变，用例无需重建）。
+          await this.refreshOperatorRegistry();
           // 刷新后面板会重建 DOM，定位回这个条目，别让用户从头找。
           this.pluginPanelFocus = { key: `local:${artifact.id}` };
           await this.refreshPluginPanel();
@@ -1577,6 +1654,7 @@ export class ChatPage {
         void (async () => {
           try {
             await plugin.artifacts.remove(artifact.id);
+            await this.refreshOperatorRegistry();
             await this.refreshPluginPanel();
           } catch (error) {
             this.showPluginError(`删除失败：${error instanceof Error ? error.message : String(error)}`);

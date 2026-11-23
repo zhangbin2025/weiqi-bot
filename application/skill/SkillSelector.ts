@@ -14,8 +14,24 @@
 
 import type { SkillPrimitive, SkillRecipe } from '@application/skill/SkillTypes';
 
-/** 该技能引用的原语是否全部在宿主注册表里可用 */
+/**
+ * 该技能引用的原语是否全部在宿主注册表里可用。
+ *
+ * 阶段二放宽：workflow 配方把能力声明为 workflow.steps[]（节点 call 算子名），
+ * 不需要也不该再靠 primitives 非空来放行 —— 它已由 parseSkillRecipe 在安装期做过
+ * 解析期静态校验（steps 非空、id 唯一、call 非空、bindings.from 指向更前 → 天然无环）。
+ * 因此只要 skill.workflow 存在且 steps 非空，就视为「已过静态校验」直接放行。
+ *
+ * 「节点 call 是否命中已启用算子白名单」不在这里判：白名单是运行时 OperatorRegistry
+ * 里已启用算子的集合，由 F 代理装配期（buildWorkflowToolParts 持有 registry）与
+ * G 代理 assets 侧 validateWorkflowSkill 各自校验，未命中按 runner 的失败短路 +
+ * 结构化回灌（需装某某算子）语义处理，不是本选择器的职责。
+ *
+ * 无 workflow（散文 prompt 配方）沿用原逻辑：primitives 必须非空且全部在 registry 里。
+ * 本选择器不改 selectSkills 行为：保持 recipes 原始顺序、不排序不打分、只认 wanted id。
+ */
 function hasAllPrimitives(skill: SkillRecipe, registry: ReadonlyMap<string, SkillPrimitive>): boolean {
+  if (skill.workflow !== undefined && skill.workflow.steps.length > 0) return true;
   return skill.primitives.length > 0 && skill.primitives.every((name) => registry.has(name));
 }
 

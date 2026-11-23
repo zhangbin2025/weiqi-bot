@@ -60,6 +60,54 @@ export interface PrimitiveResult {
   idempotent?: boolean;
 }
 
+/**
+ * 阶段二 workflow DAG 声明（纯 JSON、零代码、无表达式 / 无条件 / 无循环）。
+ * 语义出处：PHASE2-CONTRACT.md「DSL 语义条款」与「DSL 字段形状」。
+ * 连线只认上游 StepResult.value；effects 走既有宿主通道，不参与连线。
+ * 供 F 代理的 WorkflowRunner / WorkflowTool 与 G 代理的配方迁移按本类型 import。
+ */
+
+/** 一条有向依赖边：从上游节点 .value 按 path 取值，注入下游参数命名为 as。 */
+export interface WorkflowBinding {
+  /** 上游 step id；解析期必须指向本 steps 数组中「位置更靠前」的真实节点（即无环）。 */
+  from: string;
+  /** 纯引用取值路径（不做拼接 / 表达式 / 函数调用）；'$' 表示整个上游 value。 */
+  path: string;
+  /** 注入下游 args 时的参数名。 */
+  as: string;
+}
+
+/** DAG 的一个节点：调用一个算子，args 为字面量参数，bindings 覆写注入上游值。 */
+export interface WorkflowStep {
+  /** 节点 id，在 steps 内唯一；被 bindings[].from 引用。 */
+  id: string;
+  /** 算子名（内置 snake_case 或插件 <slug>.<method>）；白名单命中由装配期/运行时校验，解析期不查。 */
+  call: string;
+  /** 字面量参数对象（可由 bindings 覆写注入）；缺省 = 空对象。 */
+  args?: Record<string, unknown>;
+  /** 依赖边集合；缺省 = 无上游依赖。 */
+  bindings?: WorkflowBinding[];
+  /** 仅显式 true 的节点 .value 进模型上下文；缺省 false。 */
+  yield?: boolean;
+}
+
+/** 模型在 yield 边界填空的参数契约（形状，不是代码）。 */
+export interface WorkflowInput {
+  /** 参数名，在 inputs 内唯一。 */
+  name: string;
+  /** 参数形状；宿主 runner 合并时据此校验，解析期只验枚举，不与 default 做深度交叉校验。 */
+  type: 'string' | 'number' | 'integer' | 'boolean' | 'object' | 'array';
+  /** 是否必填；required:true 同时给 default 不算错。 */
+  required?: boolean;
+  /** 配方写死的缺省值；与 type 的一致性由宿主 runner 合并时处理，解析期不深验。 */
+  default?: unknown;
+  /** 可选枚举表（配方数据，宿主只做校验，PHASE2-CONTRACT L1960）。 */
+  enum?: unknown[];
+}
+
+/** DAG 声明：steps 顺序即拓扑序（bindings.from 只能指更前，天然无环）。 */
+export interface WorkflowSpec { steps: WorkflowStep[]; }
+
 /** 一条技能 = 纯 JSON 配方，只引用宿主原语，不含任何可执行代码 */
 export interface SkillRecipe {
   schemaVersion: 1;
@@ -86,6 +134,14 @@ export interface SkillRecipe {
   category?: string;
   /** 命中后追加到 system 的自然语言指令（纯文本，无代码、无 URL 模板注入） */
   prompt: string;
+  /**
+   * 可选：阶段二 workflow DAG 声明。存在且 steps 非空时，技能走 run_workflow 工具 +
+   * 宿主 DAG runner（与散文 prompt 路径并列、同一引擎的两种声明形态，不是兼容桥）。
+   * 由 parseSkillRecipe 在安装期做静态校验；primitives 可置空。
+   */
+  workflow?: WorkflowSpec;
+  /** 可选：模型在 yield 边界填空的参数契约；与 workflow 配套，runner 合并时消费。 */
+  inputs?: WorkflowInput[];
 }
 
 /** 在线清单 */

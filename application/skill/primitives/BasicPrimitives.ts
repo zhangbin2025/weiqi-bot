@@ -66,17 +66,23 @@ export const NAVIGATE_TO_TOOL: ModelToolDefinition = {
   },
 };
 
-/** tool 执行结果 → 原语结果：三个必填字段 + 可选宿主注入链接 / 展示块 + 只读准备标记 */
+/**
+ * tool 执行结果 → 原语结果：三个必填字段 + 可选宿主注入链接 / 展示块 + 只读准备标记。
+ * 阶段二命门修复：透传 value（web_fetch(storeOnly) 的正文 → OperatorRegistry 的
+ * StepResult.value → DAG runner 连线）。散文配方仍只看 observation，零回归。
+ */
 function toPrimitiveResult(r: {
   observation: string; ok: boolean; detail: string;
   actionLink?: { url: string; label: string };
   displayMarkdown?: string;
   preparatory?: boolean;
+  value?: unknown;
 }): PrimitiveResult {
   const out: PrimitiveResult = { observation: r.observation, ok: r.ok, detail: r.detail };
   if (r.actionLink) out.actionLink = r.actionLink;
   if (r.displayMarkdown) out.displayMarkdown = r.displayMarkdown;
   if (r.preparatory) out.preparatory = true;
+  if ('value' in r) out.value = r.value;
   return out;
 }
 
