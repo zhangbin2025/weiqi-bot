@@ -43,7 +43,7 @@ export interface PrimitiveResult {
    */
   actionLink?: { url: string; label: string };
   /**
-   * 宿主生成的结构化 markdown 展示块（结构化展示块）——数据旁路通道。
+   * 宿主生成的结构化 markdown 展示块 ——数据旁路通道。
    * 由宿主直接渲染进用户可见层：绝不写进模型观察 / 回复文本 / ChatMessage.content，
    * 只作为独立字段落历史供 renderSession 回放。buildConversationMessages 与
    * ConversationCompactor 都只消费 content，因此它天然不进模型上下文。

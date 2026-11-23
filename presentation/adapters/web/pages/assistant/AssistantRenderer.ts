@@ -196,7 +196,7 @@ export class AssistantRenderer implements IMessageRenderer {
       contentDiv.appendChild(actionBtn);
     }
 
-    // 宿主结构化展示块（新闻表格等）最后 append：不打字机、不进模型上下文，
+    // 宿主结构化展示块最后 append：不打字机、不进模型上下文，
     // 也不被上面任何「针对模型 markdown 输出」的后处理触碰。
     if (!isUser && displayMarkdown) {
       await this.renderDisplayBlock(contentDiv, displayMarkdown);
