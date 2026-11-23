@@ -167,7 +167,7 @@ describe('parseSkillRecipe 与 secrets', () => {
   });
 });
 
-describe('parseSkillRecipe 与 routeHint（一行触发条件）', () => {
+describe('parseSkillRecipe 与 routeHint（可选路由词，短语数组）', () => {
   const base = {
     schemaVersion: 1, id: 'user.x', version: 1, name: 'X', summary: 's',
     primitives: ['navigate_to'], prompt: 'p',
@@ -179,33 +179,38 @@ describe('parseSkillRecipe 与 routeHint（一行触发条件）', () => {
     if (r.ok) expect(r.skill).not.toHaveProperty('routeHint');
   });
 
-  it('合法一行触发提示透传（首尾空白 trim），不进 summary / prompt', () => {
-    const r = parseSkillRecipe({ ...base, routeHint: '  拍照摆子、拍照还原棋局时  ' });
+  it('合法数组透传（逐项 trim、过滤空白项），不进 summary / prompt', () => {
+    const r = parseSkillRecipe({
+      ...base,
+      routeHint: ['  用户说「查一下…」时  ', '  用户想核对一份清单时', '   '],
+    });
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(r.skill.routeHint).toBe('拍照摆子、拍照还原棋局时');
+      expect(r.skill.routeHint).toEqual([
+        '用户说「查一下…」时', '用户想核对一份清单时',
+      ]);
       expect(r.skill.summary).toBe('s');
       expect(r.skill.prompt).toBe('p');
     }
   });
 
-  it('空串 / 纯空白当缺省（宽松，不因此拒掉整条配方）', () => {
-    for (const v of ['', '   ']) {
+  it('非数组 / 空数组 / 全空白项 → 缺省（宽松，不因此拒掉整条配方）', () => {
+    for (const v of [undefined, '误写成单字符串', null, 42, {}, [], ['', '   ', '\t']]) {
       const r = parseSkillRecipe({ ...base, routeHint: v });
       expect(r.ok).toBe(true);
       if (r.ok) expect(r.skill).not.toHaveProperty('routeHint');
     }
   });
 
-  it('含换行拒绝：目录是「一条技能一行」，换行会破坏渲染', () => {
-    const r = parseSkillRecipe({ ...base, routeHint: '第一行\n第二行' });
+  it('数组含换行项 → 拒绝整条配方（目录一技能一行）', () => {
+    const r = parseSkillRecipe({ ...base, routeHint: ['正常短语', '第一行\n第二行'] });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toContain('一行文本');
+    if (!r.ok) expect(r.reason).toContain('单行非空短语');
   });
 
-  it('非字符串当缺省，不抛错（与 category 同款宽松解析）', () => {
-    const r = parseSkillRecipe({ ...base, routeHint: 42 });
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.skill).not.toHaveProperty('routeHint');
+  it('数组含非字符串项 → 拒绝整条配方', () => {
+    const r = parseSkillRecipe({ ...base, routeHint: ['用户说「查一下…」时', 42] });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toContain('单行非空短语');
   });
 });

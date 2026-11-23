@@ -50,7 +50,7 @@ export const WEB_READ_IMAGE_TOOL: ModelToolDefinition = {
   name: WEB_READ_IMAGE_TOOL_NAME,
   description:
     '读取一个公开图片（PNG/JPEG/GIF/WebP/BMP），把图片本身送入模型查看，' +
-    '适合识别图中文字、棋谱、表格、截图内容。' +
+    '适合识别图中文字、表格、截图等结构化内容。' +
     '需要当前端点支持图片输入，不支持时会明确失败。' +
     '只用于 GET；只传 http/https 绝对 URL。',
   parameters: {

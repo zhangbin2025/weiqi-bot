@@ -45,7 +45,7 @@ export const RUN_WORKFLOW_TOOL_NAME = 'run_workflow';
 export const RUN_WORKFLOW_TOOL: ModelToolDefinition = {
   name: RUN_WORKFLOW_TOOL_NAME,
   description:
-    '按技能的 workflow 声明由宿主一次跑完确定性 DAG（取数 / 提取 / 渲染 / 历法计算等），'
+    '按技能的 workflow 声明由宿主一次跑完确定性 DAG（取数 / 提取 / 渲染等确定性步骤），'
     + '调用前先在本轮可用技能里找带 workflow 的 skillId，并按该技能 inputs 契约填 inputs。'
     + '宿主按声明顺序执行：结果由宿主旁路（展示块 / 动作链接）直接交付用户，'
     + '你只会收到「完成 + 结果位置（句柄）」，不会拿到结果内容；'
@@ -66,7 +66,7 @@ export const RUN_WORKFLOW_TOOL: ModelToolDefinition = {
 
 /**
  * 把本轮 active 的 workflow 配方 id + inputs 契约拼进 description。
- * 路由目录（SkillRouter）给触发条件、这里给填参契约，两者合起来就是模型在
+ * 路由目录（SkillRouter）给可选路由词、这里给填参契约，两者合起来就是模型在
  * workflow 路径需要的全部信息；buildSkillSystemPrompt 已不再为 workflow 配方注入
  * summary + prompt + 尾句（2026-11-23 收窄）。这属于数据披露、不是新策略；
  * 没有配方时逐字退回静态定义。

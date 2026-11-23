@@ -4,10 +4,9 @@
  *
  * 阶段一只提供「按名执行 value→value」的统一地基：
  * - 内置算子：包装 createBasicPrimitives() 返回的 SkillPrimitive（D 代理保证 json_extract 在其中）。
- * - 插件算子：遍历已启用工件，按 pointId 分派：
- *   - workflow-operator：exposes[] 每项注册为 `<slug>.<method>`；
- *   - ranking：单入口 rank(input)，按资源 id 注册为一个算子（如 `ranking.total-score`）；
- *   - 其它扩展点不进算子表。
+ * - 插件算子：遍历已启用工件，按 pointId 查「算子适配注册表」分派；框架不认识任何
+ *   具体扩展点，未声明算子适配的扩展点不进算子表。新增扩展点只需在装配根
+ *   （createOperatorAdapters）加一条适配声明即可，本文件不用改。
  * - 解析配方 / 拓扑排序 / DAG / 步骤过程块 / 配方迁移 全部留给阶段二 workflow runner；
  *   本文件不解析配方、不做 DAG、不挂模型 tools[]、不进 system 清单，
  *   ChatUseCase / ChatPage / ToolLoop 也都不引用它（阶段二才接线）。
@@ -18,9 +17,8 @@
  *   配额沿用工件自带的 spec.limits（DEFAULT_PLUGIN_LIMITS）。
  * - 插件算子只认「已启用」工件（人工启用闸门），method 只作为 JSON 数据进入
  *   __PLUGIN_INPUT__，绝不拼进代码字符串；源码不进模型上下文。
- * - workflow-operator 契约入口固定 call({method,args})，其中 args 是含一个参数对象的数组
- *   （与 smoke[].args / 插件源码 call() 校验同形）；exposes[] 是方法白名单
- *   （安装前 smoke[] 已试跑通过）。ranking 契约入口是 rank(input)，input 直接是算子 args。
+ * - 各扩展点的入口 / 命名 / 输入形状由各自的适配声明给出（见 behaviors/OperatorAdapters），
+ *   框架不写死任何契约入口。
  *
  * 不引入任何新阈值 / 经验常数：idempotent 缺省 true 是明说的业务约定
  * （纯计算算子默认幂等，non-idempotent 需显式声明），不是拟合数值。
@@ -30,13 +28,11 @@ import type {
   IPluginRuntime,
   OperatorSpec,
   PluginArtifact,
-  PluginRunResult,
   StepResult,
-  PluginSpec,
 } from '@domain/plugin/types';
-import { WORKFLOW_OPERATOR_POINT_ID, RANKING_POINT_ID, RANKING_SPEC } from '@domain/plugin/types';
 import type { SkillPrimitive, PrimitiveResult } from '@application/skill/SkillTypes';
 import type { PluginArtifactService } from './PluginArtifactService';
+import { createOperatorAdapters, type OperatorAdapterRegistry } from './behaviors/OperatorAdapters';
 
 export interface OperatorRegistryDeps {
   /** 宿主内置原语；接线方传 createBasicPrimitives(webDeps) 的返回值 */
@@ -45,6 +41,8 @@ export interface OperatorRegistryDeps {
   artifacts: PluginArtifactService;
   /** QuickJS 沙箱运行时（QuickJsRuntime：一次 run = 一次性 Worker） */
   runtime: IPluginRuntime;
+  /** 算子适配注册表；由装配根注入，缺省时用默认注册表（测试便利） */
+  adapters?: OperatorAdapterRegistry;
 }
 
 export interface OperatorRegistry {
@@ -81,92 +79,6 @@ function primitiveToOperatorSpec(p: SkillPrimitive): OperatorSpec {
 }
 
 /**
- * 工件算子命名空间（slug）的唯一权威来源是 `catalogRef.resourceId`
- * ——远端资源声明、发布后稳定不变的 id。`artifact.id` 只是本地工件主键
- * （在线安装件是 `plugin:<ts>:<random>` 生成式），绝不拿来当算子命名空间。
- * 无 catalogRef 的 LLM/手工自建件没有远端稳定名，退回完整 artifact.id，不猜名字。
- */
-function artifactSlug(artifact: PluginArtifact): string {
-  const resourceId = artifact.catalogRef?.resourceId;
-  const prefix = `${WORKFLOW_OPERATOR_POINT_ID}.`;
-  let slug: string;
-  if (resourceId !== undefined && resourceId.startsWith(prefix))
-    slug = resourceId.slice(prefix.length);          // 'workflow-operator.calc' → 'calc'
-  else if (resourceId !== undefined)
-    slug = resourceId;                               // ranking 等情况：资源 id 本身即命名空间
-  else
-    slug = artifact.id;                              // LLM 自建件：完整生成式 id
-  return slug;
-}
-
-/**
- * 已启用工件 → 若干 OperatorSpec，按 pointId 分派：
- * - workflow-operator：exposes[] 每项注册为 `<slug>.<method>`，沿用既有
- *   call({method,args:[args]}) 输入 + 工件自带 spec（hostApi: [] + DEFAULT_PLUGIN_LIMITS）；
- * - ranking：单入口 rank(input)，input 就是算子 args，spec 用 RANKING_SPEC；算子名取
- *   资源 id 全名（资源 id 已带 `ranking.` 前缀时直接用整串，不重复拼前缀）；
- * - 其它 pointId：不进算子表。
- * 两类 run 复用同一 QuickJS 一次性 Worker 链，失败抛明确 Error（runner 包装结构化失败），
- * 成功取 result.output 作 StepResult.value；纯计算算子一律 idempotent: true。
- */
-function pluginArtifactToOperatorSpecs(
-  artifact: PluginArtifact,
-  runtime: IPluginRuntime,
-): OperatorSpec[] {
-  const slug = artifactSlug(artifact);
-
-  if (artifact.pointId === RANKING_POINT_ID) {
-    // ranking 是单入口 rank(input)：资源 id 本身即算子名（如 `ranking.total-score`），
-    // 不带 `ranking.` 前缀的 slug 才补前缀；LLM 自建件得到 `ranking.<artifact.id>`。
-    const rankingPrefix = `${RANKING_POINT_ID}.`;
-    const name = slug.startsWith(rankingPrefix) ? slug : `${rankingPrefix}${slug}`;
-    return [{
-      name,
-      idempotent: true,
-      run: async (args: Record<string, unknown>): Promise<StepResult> => {
-        const result: PluginRunResult = await runtime.run(artifact.code, args, RANKING_SPEC);
-        if (!result.ok) {
-          const reason = result.error?.message ?? result.phase;
-          throw new Error(`算子 ${name} 执行失败（${result.phase}）：${reason}`);
-        }
-        return { value: result.output ?? null };
-      },
-    }];
-  }
-
-  if (artifact.pointId === WORKFLOW_OPERATOR_POINT_ID) {
-    const contract = artifact.operatorContract;
-    if (contract === undefined || contract.exposes.length === 0) return [];
-    const spec: PluginSpec = artifact.spec; // 沿用工件落库时的 spec（hostApi: [] + DEFAULT_PLUGIN_LIMITS）
-    return contract.exposes.map((exposure) => {
-      const method = exposure.name;
-      return {
-        name: `${slug}.${method}`,
-        // 纯计算算子默认幂等；契约未标 non-idempotent 前一律 true（明说的业务约定，非拟合数值）
-        idempotent: true,
-        run: async (args: Record<string, unknown>): Promise<StepResult> => {
-          // 插件 call(input) 契约：input.args 是「含一个参数对象的数组」
-          // （见资源 plugin.json 的 smoke[].args 与插件源码的 call() 校验）。
-          // OperatorRegistry.run 收到的是单个参数对象，这里按既有契约包一层。
-          const result: PluginRunResult = await runtime.run(
-            artifact.code,
-            { method, args: [args] },
-            spec,
-          );
-          if (!result.ok) {
-            const reason = result.error?.message ?? result.phase;
-            throw new Error(`算子 ${slug}.${method} 执行失败（${result.phase}）：${reason}`);
-          }
-          return { value: result.output ?? null };
-        },
-      };
-    });
-  }
-
-  return []; // 其它扩展点：宿主算子表不认
-}
-
-/**
  * 建一张宿主统一算子表（阶段一地基）。
  * 先注册内置算子（createBasicPrimitives），再注册插件算子；重复名后者覆盖前者，
  * 与既有 createSkillRegistry 的「按 name 建 Map、同名后者覆盖前者」口径一致。
@@ -178,16 +90,17 @@ export async function createOperatorRegistry(deps: OperatorRegistryDeps): Promis
     map.set(p.name, primitiveToOperatorSpec(p));
   }
 
+  const adapters = deps.adapters ?? createOperatorAdapters();
   let active: PluginArtifact[] = [];
   try {
     active = await deps.artifacts.listActive();
   } catch {
     active = [];
   }
-  // 按 pointId 分派在 pluginArtifactToOperatorSpecs 内完成（ranking / workflow-operator 都进表，
-  // 其它扩展点返回空集）；这里不再按扩展点设卫兵。
   for (const artifact of active) {
-    for (const op of pluginArtifactToOperatorSpecs(artifact, deps.runtime)) {
+    const adapter = adapters[artifact.pointId];
+    if (!adapter) continue; // 未声明算子适配的扩展点不进算子表（通用规则，不是特判）
+    for (const op of adapter.toSpecs({ artifact, runtime: deps.runtime })) {
       map.set(op.name, op);
     }
   }

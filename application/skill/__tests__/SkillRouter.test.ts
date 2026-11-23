@@ -8,24 +8,26 @@ import type { IModelGateway, ModelRequest, ModelResult } from '@application/mode
 import type { SkillRecipe } from '@application/skill/SkillTypes';
 import { routeSkills, parseRouteReply } from '../SkillRouter';
 
-function recipe(id: string, name: string, summary: string, routeHint?: string): SkillRecipe {
+function recipe(
+  id: string, name: string, summary: string, routeHint?: string[],
+): SkillRecipe {
   return {
     schemaVersion: 1, id, version: 1, name, summary,
     ...(routeHint !== undefined ? { routeHint } : {}),
-    primitives: ['web_fetch'], prompt: 'p',
+    primitives: ['web_fetch'], prompt: '启用后执行的内部指令 PROMPT_DETAIL',
   };
 }
 
 const RECIPES: SkillRecipe[] = [
   recipe(
-    'github.rest', 'GitHub REST API',
-    '用通用 http_fetch_auth 原语直连 api.github.com 查仓库 / Issue / PR，Token 规格由 secrets 声明',
-    '用户想查 GitHub 仓库、Issue、Pull Request、最后一个提交、用户信息时',
+    'demo.a', '示例技能 A',
+    '执行说明细节：用某个原语取回一份结构化数据并渲染（含内部参数与凭据规格）',
+    ['用户说「查一下…」时', '用户想核对一份清单时'],
   ),
   recipe(
-    'weather.wttr', '天气查询',
-    '按需求选择 wttr.in 请求参数，默认当天精简 JSON，支持自选城市',
-    '用户想查某地天气 / 预报、或管理自选城市时',
+    'demo.b', '示例技能 B',
+    '执行说明细节：按需求选择参数并输出精简结果（含内部端点与默认值）',
+    ['用户说「帮我整理…」时'],
   ),
 ];
 
@@ -39,102 +41,116 @@ function gatewayWith(reply: string | (() => Promise<ModelResult>)): {
 }
 
 describe('parseRouteReply（严格只认目录内 id）', () => {
-  const known = new Set(['github.rest', 'weather.wttr']);
+  const known = new Set(['demo.a', 'demo.b']);
 
   it('正常 JSON → 按给出顺序返回', () => {
-    expect(parseRouteReply('{"skillIds":["github.rest"]}', known)).toEqual(['github.rest']);
-    expect(parseRouteReply('{"skillIds":["weather.wttr","github.rest"]}', known))
-      .toEqual(['weather.wttr', 'github.rest']);
+    expect(parseRouteReply('{"skillIds":["demo.a"]}', known)).toEqual(['demo.a']);
+    expect(parseRouteReply('{"skillIds":["demo.b","demo.a"]}', known))
+      .toEqual(['demo.b', 'demo.a']);
   });
 
   it('空数组 / 空内容 / 脏 JSON 一律空', () => {
     expect(parseRouteReply('{"skillIds":[]}', known)).toEqual([]);
     expect(parseRouteReply('', known)).toEqual([]);
     expect(parseRouteReply('不是 JSON', known)).toEqual([]);
-    expect(parseRouteReply('{"skillIds":"github.rest"}', known)).toEqual([]);
+    expect(parseRouteReply('{"skillIds":"demo.a"}', known)).toEqual([]);
     expect(parseRouteReply('null', known)).toEqual([]);
     expect(parseRouteReply('[]', known)).toEqual([]);
     expect(parseRouteReply('{}', known)).toEqual([]);
   });
 
   it('幻觉 id / 非字符串 / 重复 → 丢弃或去重', () => {
-    expect(parseRouteReply('{"skillIds":["ghost","github.rest"]}', known)).toEqual(['github.rest']);
-    expect(parseRouteReply('{"skillIds":[42,null,{},"github.rest","github.rest"]}', known))
-      .toEqual(['github.rest']);
+    expect(parseRouteReply('{"skillIds":["ghost","demo.a"]}', known)).toEqual(['demo.a']);
+    expect(parseRouteReply('{"skillIds":[42,null,{},"demo.a","demo.a"]}', known))
+      .toEqual(['demo.a']);
   });
 
   it('容忍 markdown 代码块包裹（端点偶发）', () => {
-    expect(parseRouteReply('```json\n{"skillIds":["github.rest"]}\n```', known))
-      .toEqual(['github.rest']);
+    expect(parseRouteReply('```json\n{"skillIds":["demo.a"]}\n```', known))
+      .toEqual(['demo.a']);
   });
 });
 
 describe('routeSkills', () => {
   const input = {
-    recentUserTexts: ['查一下 weiqi-dev/weiqi-bot 的最后一个提交'],
+    recentUserTexts: ['帮我核对一下这份清单'],
     hasAttachments: false,
     previousSkillIds: [],
   };
 
   it('空目录 → 不发模型调用，直接返回空', async () => {
-    const { gw, execute } = gatewayWith('{"skillIds":["github.rest"]}');
+    const { gw, execute } = gatewayWith('{"skillIds":["demo.a"]}');
     const out = await routeSkills(gw, [], input);
     expect(out.skillIds).toEqual([]);
     expect(execute.mock.calls.length).toBe(0);
   });
 
-  it('目录 = id | name | 一行触发条件，不塞 summary 执行细节 / prompt；task=skill.route + jsonMode', async () => {
-    const { gw, execute } = gatewayWith('{"skillIds":["github.rest"]}');
+  it('配了路由词 → 目录行含 join(\'、\') 的那一段；不塞 summary 执行细节 / prompt；task=skill.route + jsonMode', async () => {
+    const { gw, execute } = gatewayWith('{"skillIds":["demo.a"]}');
     const out = await routeSkills(gw, RECIPES, input);
-    expect(out.skillIds).toEqual(['github.rest']);
+    expect(out.skillIds).toEqual(['demo.a']);
     const req = execute.mock.calls[0]![0] as ModelRequest;
     expect(req.task).toBe('skill.route');
     expect(req.options?.jsonMode).toBe(true);
     expect(req.tools).toBeUndefined();
     const userText = req.messages.find((m) => m.role === 'user')!.content as string;
-    // 触发条件（一行）在目录里：name 回答不了的「最后一个提交」靠它命中
-    expect(userText).toContain('- github.rest | GitHub REST API | 用户想查 GitHub 仓库、Issue、Pull Request、最后一个提交、用户信息时');
-    expect(userText).toContain('- weather.wttr | 天气查询 | 用户想查某地天气 / 预报、或管理自选城市时');
-    expect(userText).toContain('查一下 weiqi-dev/weiqi-bot 的最后一个提交');
-    // summary 的执行细节（散文命中后由 buildSkillSystemPrompt 注入），不该进路由目录
-    expect(userText).not.toContain('http_fetch_auth');
-    expect(userText).not.toContain('wttr.in');
-    expect(userText).not.toContain('Token 规格由 secrets');
-    // prompt 是启用后才拼进对话 system 的指令，不该进路由目录
-    expect(userText).not.toContain('使用提示');
+    // 多路由词用顿号拼成一行，保持「目录一技能一行」
+    expect(userText).toContain(
+      '- demo.a | 示例技能 A | 用户说「查一下…」时、用户想核对一份清单时',
+    );
+    expect(userText).toContain('- demo.b | 示例技能 B | 用户说「帮我整理…」时');
+    expect(userText).toContain('帮我核对一下这份清单');
+    // summary / prompt 的执行细节（散文命中后由 buildSkillSystemPrompt 注入），不该进路由目录
+    expect(userText).not.toContain('用某个原语取回一份结构化数据并渲染');
+    expect(userText).not.toContain('含内部参数与凭据规格');
+    expect(userText).not.toContain('含内部端点与默认值');
+    // 夹具 prompt 是固定可辨识串，不该进路由目录
+    expect(userText).not.toContain('PROMPT_DETAIL');
   });
 
-  it('未标注 routeHint 的配方 / 自建技能：目录回落到 summary，不会瞎路由', async () => {
+  it('没配路由词 → 目录行严格只有 id | name（不回落 summary、不出现第三段）', async () => {
     const plain: SkillRecipe[] = [
-      recipe('recorder.open', '记谱', '记录棋谱、摆子出题、拍照摆子、拍照还原棋局'),
+      recipe('demo.c', '示例技能 C', '执行说明：某条不该进目录的内部细节'),
     ];
-    const { gw, execute } = gatewayWith('{"skillIds":["recorder.open"]}');
+    const { gw, execute } = gatewayWith('{"skillIds":["demo.c"]}');
     await routeSkills(gw, plain, input);
     const userText = (execute.mock.calls[0]![0] as ModelRequest).messages
       .find((m) => m.role === 'user')!.content as string;
-    expect(userText).toContain('- recorder.open | 记谱 | 记录棋谱、摆子出题、拍照摆子、拍照还原棋局');
+    const line = userText.split('\n').find((l) => l.startsWith('- demo.c |'))!;
+    expect(line).toBe('- demo.c | 示例技能 C');
+    expect(line).not.toContain(' | 示例技能 C |'); // 无第三段
+    expect(userText).not.toContain('执行说明：某条不该进目录的内部细节'); // summary 不回落
+    expect(userText).not.toContain('某条不该进目录的内部细节');
   });
 
-  it('触发条件覆盖 name 回答不了的自然说法（拍照摆子 → 记谱），修复第四步回归', async () => {
-    // 逐字取自 assets recorder.open 配方 prompt 的「常见说法」，有出处、不是造词表
+  it('路由词覆盖 name 回答不了的自然说法，且规则 4 不含具体能力词', async () => {
     const withHint: SkillRecipe[] = [
       recipe(
-        'recorder.open', '记谱', '（执行说明：导航到记谱页面的各种模式）',
-        '用户想记录棋谱、摆子出题、拍照摆子、拍照还原棋局、把照片里的棋盘摆成电子棋谱时',
+        'demo.d', '示例技能 D', '（执行说明：某项不该进目录的内部细节）',
+        ['用户说「查一下…」时', '用户想核对一份清单时'],
       ),
     ];
-    const { gw, execute } = gatewayWith('{"skillIds":["recorder.open"]}');
+    const { gw, execute } = gatewayWith('{"skillIds":["demo.d"]}');
     await routeSkills(gw, withHint, {
-      recentUserTexts: ['拍照摆子'], hasAttachments: true, previousSkillIds: [],
+      recentUserTexts: ['查一下这个'], hasAttachments: true, previousSkillIds: [],
     });
-    const userText = (execute.mock.calls[0]![0] as ModelRequest).messages
-      .find((m) => m.role === 'user')!.content as string;
-    // 断言完整目录行：触发线索确实进了目录，不靠「用户消息里恰好有这个词」蒙混过关
+    const req = execute.mock.calls[0]![0] as ModelRequest;
+    const userText = req.messages.find((m) => m.role === 'user')!.content as string;
+    const systemText = req.messages.find((m) => m.role === 'system')!.content as string;
+    // 断言完整目录行：路由词确实进了目录，不靠「用户消息里恰好有这个词」蒙混过关
     expect(userText).toContain(
-      '- recorder.open | 记谱 | 用户想记录棋谱、摆子出题、拍照摆子、拍照还原棋局、把照片里的棋盘摆成电子棋谱时',
+      '- demo.d | 示例技能 D | 用户说「查一下…」时、用户想核对一份清单时',
     );
     // 执行说明仍在配方里（散文命中后注入），但目录里不靠它触发
-    expect(userText).not.toContain('导航到记谱页面的各种模式');
+    expect(userText).not.toContain('某项不该进目录的内部细节');
+    // 规则 4 只讲结构，不枚举具体能力词
+    expect(systemText).toContain('上下文有图片附件时');
+    for (const word of ['图片 / 拍照', '棋谱识别', '拍照', '摆子', '记谱']) {
+      expect(systemText).not.toContain(word);
+    }
+    // 路由规则统一用「名称与路由词（若目录提供）」措辞，保留「不要猜测目录外的能力」
+    expect(systemText).toContain('名称与路由词（若目录提供）');
+    expect(systemText).toContain('不要猜测目录外的能力');
   });
 
   it('上下文信号写明有附件 / 上一轮技能，供承接语判断', async () => {

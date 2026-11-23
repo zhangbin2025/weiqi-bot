@@ -43,7 +43,7 @@ export interface PrimitiveResult {
    */
   actionLink?: { url: string; label: string };
   /**
-   * 宿主生成的结构化 markdown 展示块（如新闻列表 / 表格）——数据旁路通道。
+   * 宿主生成的结构化 markdown 展示块（结构化展示块）——数据旁路通道。
    * 由宿主直接渲染进用户可见层：绝不写进模型观察 / 回复文本 / ChatMessage.content，
    * 只作为独立字段落历史供 renderSession 回放。buildConversationMessages 与
    * ConversationCompactor 都只消费 content，因此它天然不进模型上下文。
@@ -120,12 +120,13 @@ export interface SkillRecipe {
   /** 一句话，给模型看（散文命中后注入 system 的执行说明） */
   summary: string;
   /**
-   * 可选：一行触发条件 = 「用户说什么话时该选这条」。只供技能路由目录消费，
+   * 可选路由词：短语数组，由配方自行声明「用户说什么话时选这条」，只供路由目录消费；
    * 与 summary（命中后的执行说明）正交：路由阶段只需判断要不要启用，不需要读
-   * 执行细节。取值由发布方从配方自身的「用户想X时 / 常见说法」逐字提炼，有出处，
-   * 不是宿主另造的词表 / 阈值。缺省 = 回落到 summary（自建技能、未标注配方零回归）。
+   * 执行细节。宿主不内置任何词、不解析词义、不做包含匹配；词由发布方从配方自身
+   * 场景句提炼（有出处），目录把多路由词拼成一行、保持一技能一行。
+   * 缺省 = 目录只给 id|name（自建技能、未标注配方零回归）。
    */
-  routeHint?: string;
+  routeHint?: string[];
   /** 引用的宿主原语名，必须全部存在于 SkillRegistry；否则该技能整条跳过 */
   primitives: string[];
   /**

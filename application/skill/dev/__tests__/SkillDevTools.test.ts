@@ -253,27 +253,42 @@ describe('skill_write 可选 category', () => {
   });
 });
 
-// ---------- 一行触发条件（2026-11-23）：真机「拍照摆子」回归修复 ----------
+// ---------- 可选路由词（短语数组）：宿主通用性整改 ----------
 describe('skill_write 可选 routeHint', () => {
-  it('schema 放行 routeHint，system 片段讲清它是路由目录用的触发条件', () => {
+  it('schema 的 routeHint 是 array / items:string，话术中性（不含具体技能场景词）', () => {
     const { dev } = kit();
     const schema = dev.tools.find((t) => t.name === 'skill_write')!.parameters;
-    expect(schema.properties).toHaveProperty('routeHint');
+    const props = schema.properties as Record<string, { type?: string; items?: { type?: string }; description?: string }>;
+    expect(props['routeHint']).toMatchObject({ type: 'array', items: { type: 'string' } });
+    expect(props['routeHint']!.description).toContain('可选路由词');
+    expect(props['routeHint']!.description).toContain('id|name');
+    for (const word of ['拍照', '摆子', '棋谱', '记谱', '还原']) {
+      expect(props['routeHint']!.description).not.toContain(word);
+    }
     expect(dev.systemSuffix).toContain('routeHint');
-    expect(dev.systemSuffix).toContain('一行触发条件');
+    expect(dev.systemSuffix).toContain('可选路由词');
+    for (const word of ['一行触发条件', '拍照', '摆子', '棋谱', '记谱']) {
+      expect(dev.systemSuffix).not.toContain(word);
+    }
+    // category 描述也不列举具体领域
+    for (const word of ['围棋', '财经', '搜索', '生活', '开发']) {
+      expect(props['category']!.description).not.toContain(word);
+    }
   });
 
-  it('填了就透传落库，未填不塞进配方（回落到 summary）', async () => {
+  it('填了数组就透传落库，未填不塞进配方（目录只给 id|name）', async () => {
     const { users, exec } = kit();
     const r = await exec('skill_write', {
-      name: '记谱', summary: '导航到记谱页',
-      routeHint: '用户想记录棋谱、拍照摆子、拍照还原棋局时',
+      name: '示例技能', summary: '执行说明',
+      routeHint: ['用户说「查一下…」时', '用户想核对一份清单时'],
       primitives: ['navigate_to'], prompt: '调用 navigate_to',
     });
     expect(r.ok).toBe(true);
     const saved = await users.list();
-    expect(saved[0]!.recipe.routeHint).toBe('用户想记录棋谱、拍照摆子、拍照还原棋局时');
-    expect(saved[0]!.recipe.summary).toBe('导航到记谱页');
+    expect(saved[0]!.recipe.routeHint).toEqual([
+      '用户说「查一下…」时', '用户想核对一份清单时',
+    ]);
+    expect(saved[0]!.recipe.summary).toBe('执行说明');
 
     const r2 = await exec('skill_write', {
       name: '另一个', summary: '执行说明', primitives: ['web_fetch'], prompt: 'p',
@@ -284,14 +299,14 @@ describe('skill_write 可选 routeHint', () => {
     expect(plain.recipe).not.toHaveProperty('routeHint');
   });
 
-  it('含换行的 routeHint 在 parseSkillRecipe 阶段拒绝，不落库', async () => {
+  it('含换行的数组项在 parseSkillRecipe 阶段拒绝，不落库', async () => {
     const { users, exec } = kit();
     const r = await exec('skill_write', {
-      name: '坏提示', summary: 's', routeHint: '第一行\n第二行',
+      name: '坏提示', summary: 's', routeHint: ['正常短语', '第一行\n第二行'],
       primitives: ['web_fetch'], prompt: 'p',
     });
     expect(r.ok).toBe(false);
-    expect(r.observation).toContain('一行文本');
+    expect(r.observation).toContain('单行非空短语');
     expect(await users.list()).toEqual([]);
   });
 });

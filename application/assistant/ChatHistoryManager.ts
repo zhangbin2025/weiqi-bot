@@ -32,7 +32,7 @@ export interface ChatMessage {
   /** 消息变体：'chat' 表示 LLM 闲聊回复，仅用于渲染时显示「聊天」意图标识（不影响分类/跳转规则） */
   variant?: 'chat';
   /**
-   * 宿主生成的结构化 markdown 展示块（如新闻表格），只给用户看、不进模型上下文。
+   * 宿主生成的结构化 markdown 展示块（结构化展示块），只给用户看、不进模型上下文。
    * 刻意与 content 分栏：buildConversationMessages / ConversationCompactor 只消费
    * content，所以刷新后由 ChatPage.renderSession 回放展示，但绝不会被重新喂给模型。
    * 安全前提同 IMessageRenderer：外部数据已由宿主在生成侧逐项转义。

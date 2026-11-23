@@ -85,19 +85,42 @@ function readCategory(raw: Record<string, unknown>): FieldResult<string | undefi
 }
 
 /**
- * 可选 routeHint：一行触发条件（「用户说什么话时选这条」），只供路由目录消费。
- * 与 category 同款宽松解析：缺省 / 空串一律当缺省（路由回落到 summary），
- * 不因为一个可选提示没写就拒掉整条配方。显式给值时要求是单行非空字符串：
- * 目录是「一条技能一行」，换行会破坏渲染；不做任何词表 / 长度阈值校验。
+ * 可选 routeHint（可选路由词）：短语数组，由配方自行声明「用户说什么话时选这条」，
+ * 只供路由目录消费；与 summary（命中后的执行说明）正交。
+ *
+ * 两种口径各有出处，别混：
+ * - 宽松缺省（沿用 category / 老 routeHint 的既有口径）：字段本身是可选的，
+ *   没写 / 写歪成非数组（含误写单字符串、null、数字）/ 空数组 / 数组里全是
+ *   空白项，一律当缺省（返回 undefined，不往配方上挂这个键）。可选字段不该
+ *   因为「写得不对」就拒掉整条合法配方；缺省 = 目录只给 id|name。
+ * - 严格内容（来自目录渲染约束）：一旦写成数组且过滤后仍有有效项，每一项都
+ *   必须是 string、trim 后非空、不含 \r\n。目录一技能一行，路由词必须是单行
+ *   非空短语，任一不满足就拒绝整条配方。
+ *
+ * 不设词数上限 / 长度阈值 / 截断启发式（项目铁律：不引入无出处的新常数）。
+ * 合法时返回 trim 后的 string[]（过滤掉 trim 后为空的项），保持配方给定顺序。
  */
-function readRouteHint(raw: Record<string, unknown>): FieldResult<string | undefined> {
+function readRouteWords(raw: Record<string, unknown>): FieldResult<string[] | undefined> {
   const value = raw['routeHint'];
-  if (value === undefined) return { ok: true, value: undefined };
-  if (typeof value !== 'string' || !value.trim()) return { ok: true, value: undefined };
-  if (/[\r\n]/.test(value)) {
-    return { ok: false, reason: '字段「routeHint」必须是一行文本（不能含换行）' };
+  if (value === undefined || !Array.isArray(value)) return { ok: true, value: undefined };
+  const items: readonly unknown[] = value;
+  const out: string[] = [];
+  for (const item of items) {
+    // 非数组已按宽松口径当缺省；数组内的项则按严格口径校验内容：
+    // 必须是 string 且不含 \r\n（换行不该被空白过滤悄悄吞掉），trim 后非空。
+    if (typeof item !== 'string' || /[\r\n]/.test(item)) {
+      return {
+        ok: false,
+        reason: '字段「routeHint」数组内每项必须是单行非空字符串短语（目录一技能一行，路由词不能含换行）',
+      };
+    }
+    const trimmed = item.trim();
+    if (trimmed.length === 0) continue; // 纯空白项：过滤掉，不算有效路由词
+    out.push(trimmed);
   }
-  return { ok: true, value: value.trim() };
+  return out.length > 0
+    ? { ok: true, value: out }
+    : { ok: true, value: undefined }; // 空数组 / 全空白 → 缺省
 }
 
 function readSecrets(raw: Record<string, unknown>): FieldResult<SkillRecipe['secrets']> {
@@ -340,7 +363,7 @@ export function parseSkillRecipe(
   if (!name.ok) return name;
   const summary = readString(raw, 'summary', 'summary');
   if (!summary.ok) return summary;
-  const routeHint = readRouteHint(raw);
+  const routeHint = readRouteWords(raw);
   if (!routeHint.ok) return routeHint;
   const primitives = readPrimitives(raw);
   if (!primitives.ok) return primitives;

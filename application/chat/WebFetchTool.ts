@@ -197,7 +197,7 @@ export async function executeWebFetch(argsJson: string, deps: WebFetchToolDeps):
     // web_fetch(storeOnly) 只写宿主缓存；阶段二 workflow 用 json_extract 从上游 value
     // 提取、display_json_list 纯渲染（display_json_list 不再读 WebFetchCache）。
     // 模型既不收到正文也不收到预览，因此大体积 JSON 不产生延迟 / token 开销。
-    // 这里只回元信息，不含一个字符的新闻正文；也不指路 web_cache_read（默认流程不该读回来）。
+    // 这里只回元信息，不含一个字符的正文；也不指路 web_cache_read（默认流程不该读回来）。
     if (storeOnly) {
       // 阶段二命门修复：正文 text 已在手，把它作为算子的纯 value 出参交给 DAG runner
       // （json_extract 要的是已解析 JSON、display_json_list 要的是已解析数组）。
