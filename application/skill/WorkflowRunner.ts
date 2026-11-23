@@ -17,7 +17,7 @@
  *   inputs[].type 注入**原始值**（不 String()）；规则② 字符串内嵌 → 逐字 String() 替换。
  *   不是 eval、不拼表达式、不递归展开替换结果、不引入转义/数值规则（条款 2）；
  * - 失败即短路 + 结构化错误（哪个节点 / 什么错 / 已完成节点列表），**宿主不自动重试**；
- * - 仅 `yield:true` 节点的 value 进结果汇总（进模型上下文用）；
+ * - 仅 `yield:true` 节点的 value 进结果汇总（宿主内部保留；成功观察只回完成+句柄，不回灌模型）；
  * - 不引入重试次数 / 超时 / 步数上限：确定性部分不消耗决策预算，
  *   模型驱动的多轮由既有 maxTurns 管住。
  *
@@ -72,9 +72,8 @@ const INPUTS_STEP_ID = '<inputs>';
  * 主代理 10:xx 增量校正优先于旧措辞）：
  * - 规则①：字符串**完整等于** `{{input.xxx}}` → 按 inputs[].type 注入**原始值**
  *   （integer/number/boolean/object/array 保持类型，**不 String()**）。
- *   月历 `{"year":"{{input.year}}"}`、`display` 的 `{"fields":"{{input.fields}}"}` 靠这条；
- *   否则 `lunar.monthCalendar` 会因为 year 变字符串校验失败、`display_json_list` 会因为
- *   fields 变字符串报错。
+ *   `display_json_list` 的 `{"fields":"{{input.fields}}"}` 靠这条：否则 fields
+ *   变字符串会报错（数组类参数必须保原始类型）。
  * - 规则②：字符串**内嵌** `{{input.xxx}}` → 逐字 `String()` 替换（URL 里的 page/tag/pagesize）。
  *   不 eval、不拼接表达式、不递归、不引入转义/数值规则。这是数据注入，不是 DSL 表达式。
  * 配方是严格 JSON，占位符只能是字符串值；裸 `{{...}}` 非合法 JSON、禁用。

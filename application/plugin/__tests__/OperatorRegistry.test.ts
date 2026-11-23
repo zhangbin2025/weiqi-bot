@@ -3,7 +3,7 @@
  *
  * 验收点：
  * - 插件算子命名空间（slug）唯一权威来源是 catalogRef.resourceId，不是生成式的 artifact.id；
- *   在线安装的 workflow-operator.lunar 必须注册成 lunar.monthCalendar 等，配方才能命中。
+ *   在线安装的 workflow-operator.calc 必须注册成 calc.add 等，配方才能命中。
  * - ranking 工件编进同一套算子表：单入口 rank(input)、按资源 id 全名注册。
  * - 禁用工件不进表；未注册算子执行抛明确错误；插件与内置同名时插件覆盖。
  *
@@ -54,11 +54,11 @@ function makeArtifact(
 /** 在线安装件的生成式 id（真实形状：plugin:<ts>:<random>） */
 const GENERATED_ID = 'plugin:1700000000000:abc123';
 
-const LUNAR_EXPOSES = [
-  { name: 'toLunar', description: '', params: {} },
-  { name: 'solarTerms', description: '', params: {} },
-  { name: 'festivals', description: '', params: {} },
-  { name: 'monthCalendar', description: '', params: {} },
+const CALC_EXPOSES = [
+  { name: 'add', description: '', params: {} },
+  { name: 'subtract', description: '', params: {} },
+  { name: 'multiply', description: '', params: {} },
+  { name: 'divide', description: '', params: {} },
 ];
 
 /** 假工件服务：listActive 按真实语义只给「已启用」工件（人工启用闸门） */
@@ -100,37 +100,37 @@ function deps(
 }
 
 describe('createOperatorRegistry：插件算子命名空间与 ranking 分派', () => {
-  it('① catalog 装 lunar：4 个方法按 catalogRef.resourceId 注册，不含生成式 id', async () => {
+  it('① catalog 装 calc：4 个方法按 catalogRef.resourceId 注册，不含生成式 id', async () => {
     const artifact = makeArtifact({
       id: GENERATED_ID,
       pointId: WORKFLOW_OPERATOR_POINT_ID,
       spec: WORKFLOW_OPERATOR_SPEC,
       enabled: true,
       origin: 'manual',
-      catalogRef: { registryUrl: 'https://example.com/registry.json', resourceId: 'workflow-operator.lunar' },
-      operatorContract: { exposes: LUNAR_EXPOSES, smoke: [] },
+      catalogRef: { registryUrl: 'https://example.com/registry.json', resourceId: 'workflow-operator.calc' },
+      operatorContract: { exposes: CALC_EXPOSES, smoke: [] },
     });
     const runtime = fakeRuntime();
     const registry = await createOperatorRegistry(deps([artifact], runtime));
 
     const names = [...registry.specs.keys()];
     expect(names).toEqual([
-      'lunar.toLunar', 'lunar.solarTerms', 'lunar.festivals', 'lunar.monthCalendar',
+      'calc.add', 'calc.subtract', 'calc.multiply', 'calc.divide',
     ]);
     expect(names.some((n) => n.startsWith('plugin:'))).toBe(false);
-    expect(registry.get('lunar.monthCalendar')?.idempotent).toBe(true);
+    expect(registry.get('calc.divide')?.idempotent).toBe(true);
 
     // workflow-operator 沿用既有 call({method,args:[args]}) 输入 + 工件自带 spec
-    const out = await registry.run('lunar.monthCalendar', { year: 2026, month: 11 });
+    const out = await registry.run('calc.divide', { a: 2026, b: 11 });
     expect(out.value).toBe('PLUGIN_VALUE');
     expect(runtime.run).toHaveBeenCalledWith(
       CODE,
-      { method: 'monthCalendar', args: [{ year: 2026, month: 11 }] },
+      { method: 'divide', args: [{ a: 2026, b: 11 }] },
       WORKFLOW_OPERATOR_SPEC,
     );
   });
 
-  it('② LLM 自建件（无 catalogRef）：注册名用完整 artifact.id，不猜 lunar', async () => {
+  it('② LLM 自建件（无 catalogRef）：注册名用完整 artifact.id，不猜 calc', async () => {
     const artifact = makeArtifact({
       id: GENERATED_ID,
       pointId: WORKFLOW_OPERATOR_POINT_ID,
@@ -141,7 +141,7 @@ describe('createOperatorRegistry：插件算子命名空间与 ranking 分派', 
     const registry = await createOperatorRegistry(deps([artifact], fakeRuntime()));
 
     expect(registry.get(`${GENERATED_ID}.foo`)).toBeDefined();
-    expect(registry.get('lunar.foo')).toBeUndefined();
+    expect(registry.get('calc.foo')).toBeUndefined();
     expect([...registry.specs.keys()]).toEqual([`${GENERATED_ID}.foo`]);
   });
 
@@ -175,13 +175,13 @@ describe('createOperatorRegistry：插件算子命名空间与 ranking 分派', 
       pointId: WORKFLOW_OPERATOR_POINT_ID,
       spec: WORKFLOW_OPERATOR_SPEC,
       enabled: false,
-      catalogRef: { registryUrl: 'https://example.com/registry.json', resourceId: 'workflow-operator.lunar' },
-      operatorContract: { exposes: LUNAR_EXPOSES, smoke: [] },
+      catalogRef: { registryUrl: 'https://example.com/registry.json', resourceId: 'workflow-operator.calc' },
+      operatorContract: { exposes: CALC_EXPOSES, smoke: [] },
     });
     const runtime = fakeRuntime();
     const registry = await createOperatorRegistry(deps([disabled], runtime));
 
-    expect(registry.get('lunar.monthCalendar')).toBeUndefined();
+    expect(registry.get('calc.divide')).toBeUndefined();
     expect(registry.specs.size).toBe(0);
     await expect(registry.run('不存在的算子', {})).rejects.toThrow('未注册的算子：不存在的算子');
     expect(runtime.run).not.toHaveBeenCalled();
@@ -193,15 +193,15 @@ describe('createOperatorRegistry：插件算子命名空间与 ranking 分派', 
       pointId: WORKFLOW_OPERATOR_POINT_ID,
       spec: WORKFLOW_OPERATOR_SPEC,
       enabled: true,
-      catalogRef: { registryUrl: 'https://example.com/registry.json', resourceId: 'workflow-operator.lunar' },
-      operatorContract: { exposes: [{ name: 'monthCalendar', description: '', params: {} }], smoke: [] },
+      catalogRef: { registryUrl: 'https://example.com/registry.json', resourceId: 'workflow-operator.calc' },
+      operatorContract: { exposes: [{ name: 'divide', description: '', params: {} }], smoke: [] },
     });
-    const builtin = fakePrimitive('lunar.monthCalendar', 'BUILTIN_VALUE');
+    const builtin = fakePrimitive('calc.divide', 'BUILTIN_VALUE');
     const runtime = fakeRuntime(okRun('PLUGIN_VALUE'));
     const registry = await createOperatorRegistry(deps([artifact], runtime, [builtin]));
 
-    expect(registry.specs.get('lunar.monthCalendar')?.idempotent).toBe(true);
-    const out = await registry.run('lunar.monthCalendar', {});
+    expect(registry.specs.get('calc.divide')?.idempotent).toBe(true);
+    const out = await registry.run('calc.divide', {});
     expect(out.value).toBe('PLUGIN_VALUE'); // 插件覆盖内置
     expect(builtin.execute).not.toHaveBeenCalled();
     expect(runtime.run).toHaveBeenCalled();

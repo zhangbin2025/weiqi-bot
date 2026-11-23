@@ -195,7 +195,7 @@ describe('在线插件列表：标签条 + 筛选', () => {
     const browse = vi.fn(async () => ({
       entries: [
         catalogEntry('ranking.total-score', 'ranking', '排名'),
-        catalogEntry('workflow-operator.lunar', 'workflow-operator', '算子'),
+        catalogEntry('workflow-operator.calc', 'workflow-operator', '算子'),
       ],
       failures: [],
     }));

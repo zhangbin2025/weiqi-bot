@@ -87,7 +87,6 @@ describe('routeSkills', () => {
     expect(userText).toContain('查一下 weiqi-dev/weiqi-bot 的最后一个提交');
     // prompt 是启用后才拼进对话 system 的指令，不该进路由目录
     expect(userText).not.toContain('使用提示');
-    expect(userText).not.toContain('生成月历表格');
   });
 
   it('上下文信号写明有附件 / 上一轮技能，供承接语判断', async () => {

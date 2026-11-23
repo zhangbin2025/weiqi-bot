@@ -91,7 +91,7 @@ function artifactSlug(artifact: PluginArtifact): string {
   const prefix = `${WORKFLOW_OPERATOR_POINT_ID}.`;
   let slug: string;
   if (resourceId !== undefined && resourceId.startsWith(prefix))
-    slug = resourceId.slice(prefix.length);          // 'workflow-operator.lunar' → 'lunar'
+    slug = resourceId.slice(prefix.length);          // 'workflow-operator.calc' → 'calc'
   else if (resourceId !== undefined)
     slug = resourceId;                               // ranking 等情况：资源 id 本身即命名空间
   else
@@ -146,7 +146,7 @@ function pluginArtifactToOperatorSpecs(
         idempotent: true,
         run: async (args: Record<string, unknown>): Promise<StepResult> => {
           // 插件 call(input) 契约：input.args 是「含一个参数对象的数组」
-          // （见 plugin.json 的 smoke[].args 与 lunar/index.js 的 call() 校验）。
+          // （见资源 plugin.json 的 smoke[].args 与插件源码的 call() 校验）。
           // OperatorRegistry.run 收到的是单个参数对象，这里按既有契约包一层。
           const result: PluginRunResult = await runtime.run(
             artifact.code,

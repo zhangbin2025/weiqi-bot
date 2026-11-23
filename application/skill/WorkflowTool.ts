@@ -3,7 +3,8 @@
  * @module application/skill/WorkflowTool
  *
  * 触发形态（契约「触发接线」/ 条款 10）：路由命中 → 模型 `run_workflow({skillId, inputs})`
- * 填 inputs → 宿主跑完 DAG → 结果回灌 → 模型写最终话。确定性步骤 0 次模型调用。
+ * 填 inputs → 宿主跑完 DAG → 结果走 effects 旁路直接交付用户 → 模型只收「完成 + 句柄」。
+ * 业务数据不进模型上下文（successObservation 不序列化任何 value）；确定性步骤 0 次模型调用。
  *
  * 与散文路径**并列**（B 决策）：`buildSkillToolParts` 原样保留，本文件只是在
  * 同一 `ToolKit` 追加一个新工具；两类配方走同一个 ToolLoop、同一批基础能力，
@@ -46,8 +47,10 @@ export const RUN_WORKFLOW_TOOL: ModelToolDefinition = {
   description:
     '按技能的 workflow 声明由宿主一次跑完确定性 DAG（取数 / 提取 / 渲染 / 历法计算等），'
     + '调用前先在本轮可用技能里找带 workflow 的 skillId，并按该技能 inputs 契约填 inputs。'
-    + '宿主按声明顺序执行、失败即短路并把「哪个节点 / 什么错 / 已完成节点」结构化回灌；'
-    + '不要自己逐步调用底层工具，也不要凭空补写未取到的数据。',
+    + '宿主按声明顺序执行：结果由宿主旁路（展示块 / 动作链接）直接交付用户，'
+    + '你只会收到「完成 + 结果位置（句柄）」，不会拿到结果内容；'
+    + '失败即短路并把「哪个节点 / 什么错 / 已完成节点」结构化回灌；'
+    + '不要自己逐步调用底层工具，也不要复述、归纳或凭空补写结果内容。',
   parameters: {
     type: 'object',
     properties: {
@@ -104,16 +107,26 @@ function buildWorkflowTool(active: readonly SkillRecipe[]): ModelToolDefinition 
   };
 }
 
-/** 仅 yield 节点 value 的 JSON 串 + 一句状态（成功观察）。 */
-function successObservation(result: WorkflowRunResult): string {
-  let serialized: string;
-  try {
-    serialized = JSON.stringify(result.values);
-  } catch {
-    serialized = '{}'; // value 理论上是可 JSON 序列化值；不可序列化时如实给空对象
-  }
-  return `workflow 执行成功，已完成 ${result.completedStepIds.length} 个节点。\n`
-    + `仅 yield 节点的 value（进模型上下文）：${serialized}`;
+/**
+ * 成功观察只回「完成 + 句柄」，绝不把任何业务 value 回灌模型上下文。
+ * 句柄 = skillId（哪次任务）+ 结果落在哪条宿主旁路（展示块 / 动作链接 / 仅宿主内部）。
+ * 结果内容本身走 effects 旁路、由 ChatUseCase 直接交给渲染层并落历史，
+ * 与 ToolOutcome.displayMarkdown / actionLink 同口径，不进 role:'tool'。
+ */
+function successObservation(result: WorkflowRunResult, skillId: string): string {
+  const hasMarkdown = result.effects.some(
+    (e) => typeof e.displayMarkdown === 'string' && e.displayMarkdown.length > 0,
+  );
+  const hasLink = result.effects.some(
+    (e) => typeof e.actionLink === 'string' && e.actionLink.length > 0,
+  );
+  const handles: string[] = [];
+  if (hasMarkdown) handles.push('宿主展示块');
+  if (hasLink) handles.push('宿主动作链接');
+  const place = handles.length > 0 ? handles.join(' + ') : '宿主内部（无可见旁路产物）';
+  return `workflow「${skillId}」执行完成：已完成 ${result.completedStepIds.length} 个节点。\n`
+    + `结果位置（句柄）：${place}；结果内容由宿主旁路交付，未进入本轮模型上下文。\n`
+    + '请如实告知用户任务已完成、结果见宿主呈现；不要复述、归纳、翻译或补写结果内容，也不要编造未取到的数据。';
 }
 
 /** 结构化失败文本：哪个节点 / 什么错 / 已完成节点列表，供模型兜底表达。 */
@@ -121,11 +134,11 @@ function failureObservation(result: WorkflowRunResult): string {
   const f = result.failure;
   if (!f) return 'workflow 执行失败（无结构化错误信息），请如实说明未完成，不要编造。';
   const done = f.completedStepIds.length > 0 ? f.completedStepIds.join('、') : '（无）';
-  // 未注册算子（常见于插件算子未安装，如 lunar.monthCalendar）：给模型一条可执行的
-  // 兜底话术，让它如实告诉用户「需装某某算子」，而不是含糊其辞。error 字段本身
+  // 未注册算子（常见于插件算子未安装）：给模型一条可执行的兜底话术，
+  // 让它如实告诉用户「需装某某算子」，而不是含糊其辞。error 字段本身
   // 仍逐字是「未注册算子:<name>」，结构化信息不被文案污染。
   const installHint = f.error.startsWith('未注册算子:')
-    ? `\n- 提示：算子「${f.error.slice('未注册算子:'.length)}」尚未在本机启用/安装，请如实告诉用户需先安装对应算子（如农历算子），不要伪造结果。`
+    ? `\n- 提示：算子「${f.error.slice('未注册算子:'.length)}」尚未在本机启用/安装，请如实告诉用户需先安装对应算子插件，不要伪造结果。`
     : '';
   return `workflow 执行失败：\n`
     + `- 出错节点：${f.stepId}\n`
@@ -222,7 +235,7 @@ export function buildWorkflowToolParts(
       skill.workflow, inputs, registry, onTrace, skill.inputs,
     );
     const outcome: ToolOutcome = {
-      observation: result.ok ? successObservation(result) : failureObservation(result),
+      observation: result.ok ? successObservation(result, skillId) : failureObservation(result),
       ok: result.ok,
       detail: result.ok
         ? `workflow ${skill.id} 完成 ${result.completedStepIds.length} 步`
