@@ -36,6 +36,11 @@ function makePage(): ChatPage & Record<string, unknown> {
   page['skillPanelFlash'] = undefined;
   page['refreshPluginPanel'] = vi.fn(async () => {});
   page['refreshSkillPanel'] = vi.fn(async () => {});
+  // 阶段二：插件安装/更新成功路径会 await this.refreshOperatorRegistry() 重建算子表快照。
+  // 本文件用 Object.create(prototype) 绕过构造函数，实例字段不会自动初始化；
+  // 不补这个 noop，成功路径会抛错被 catch 吞掉、refreshPluginPanel 永远不被调用。
+  // 安装失败用例走失败分支、不碰它，因此仍保持通过。
+  page['refreshOperatorRegistry'] = vi.fn(async () => {});
   page['showPluginError'] = vi.fn();
   page['showSkillError'] = vi.fn();
   return page;

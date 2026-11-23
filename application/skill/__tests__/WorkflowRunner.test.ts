@@ -241,7 +241,9 @@ describe('runWorkflow — 占位符规则①（完整等于 → 原始类型值�
         },
       })],
     };
-    const result = await runWorkflow(spec, {}, reg, undefined, decls);
+    // decls 里 year/month 是 required 且无 default，必须补齐才能过 inputs 校验；
+    // 二者没写进 args 占位符，不注入节点、不影响下面的 got 断言。
+    const result = await runWorkflow(spec, { year: 2026, month: 11 }, reg, undefined, decls);
     expect(result.ok).toBe(true);
     expect(got).toEqual({
       format: 'list', // enum default 字符串
@@ -312,7 +314,9 @@ describe('runWorkflow — 占位符规则②（内嵌 → 逐字 String 替换�
     };
     const result = await runWorkflow(spec, { tag: 'T', page: 9 }, reg, undefined, decls);
     expect(result.ok).toBe(true);
-    expect((got as Record<string, unknown>)['list']).toEqual(['T', '固定', { deep: '9' }]);
+    // 完整等于一个占位符的字符串按规则①注入原始类型（page 是 integer=9），
+    // 与下面 got2 的 toEqual([9]) 同口径；原来的 '9' 是笔误。
+    expect((got as Record<string, unknown>)['list']).toEqual(['T', '固定', { deep: 9 }]);
     // 规则① 在数组叶子上注入原始 integer：单独一个完整等于占位符的元素
     let got2: unknown[] = [];
     const reg2 = fakeRegistry({ op2: (args) => { got2 = args['list'] as unknown[]; return { value: null }; } });

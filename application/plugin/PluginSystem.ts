@@ -58,6 +58,8 @@ export interface PluginSystemOptions {
   localStorage?: LocalStorageAdapter;
   /** wasm 二进制提供者；不传则按 public 目录路径 fetch */
   wasmBinary?: ArrayBuffer | (() => Promise<ArrayBuffer>);
+  /** 工件集合 / enabled 状态成功变更后刷新算子表快照；透传给 createPluginToolKit */
+  onArtifactChange?: () => void | Promise<void>;
 }
 
 export interface PluginArtifactStoreLike {
@@ -138,6 +140,9 @@ export async function createPluginSystem(options: PluginSystemOptions = {}): Pro
     else await localStore.delete(RANKING_PLUGIN_KEY);
   };
 
+  // 先取一次再窄化：exactOptionalPropertyTypes 下可选字段要么整个键省略、要么给确定值，
+  // 绝不塞 undefined。
+  const onArtifactChange = options.onArtifactChange;
   const toolKit = createPluginToolKit({
     artifacts,
     runtime,
@@ -146,6 +151,7 @@ export async function createPluginSystem(options: PluginSystemOptions = {}): Pro
     applySelection,
     behaviors,
     maxAttempts,
+    ...(onArtifactChange !== undefined ? { onArtifactChange } : {}),
   });
 
   return {

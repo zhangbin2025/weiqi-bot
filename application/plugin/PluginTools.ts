@@ -75,6 +75,8 @@ export interface PluginToolDeps {
   behaviors?: ExtensionPointBehaviorRegistry;
   /** 可选：/llm repairs 配置的自动修复轮数；工具集换算成 loop 的总决策轮数上限 */
   maxAttempts?: number;
+  /** 工件集合 / enabled 状态发生成功变更后刷新算子表快照（模型侧启停/新建/删除/修订） */
+  onArtifactChange?: () => void | Promise<void>;
 }
 
 export interface PluginToolKit {
@@ -590,6 +592,7 @@ export function createPluginToolKit(deps: PluginToolDeps): PluginToolKit {
           ...(result.artifactContract !== undefined
             ? { operatorContract: result.artifactContract as OperatorArtifactContract } : {}),
         });
+        await deps.onArtifactChange?.();
         const behavior = behaviorOf(spec);
         const label = behavior?.resultLabel ?? '试算结果';
         return ok(
@@ -616,6 +619,7 @@ export function createPluginToolKit(deps: PluginToolDeps): PluginToolKit {
           id, result.artifactContract as OperatorArtifactContract | undefined,
         );
       }
+      await deps.onArtifactChange?.();
       const behavior = behaviorOf(spec);
       const label = behavior?.revisionResultLabel ?? '本版试算结果';
       return ok(
@@ -696,6 +700,7 @@ export function createPluginToolKit(deps: PluginToolDeps): PluginToolKit {
     }
     try {
       await deps.artifacts.setEnabled(id, next);
+      await deps.onArtifactChange?.();
     } catch (e) {
       return fail(`启停失败：${e instanceof Error ? e.message : String(e)}`);
     }
@@ -714,6 +719,7 @@ export function createPluginToolKit(deps: PluginToolDeps): PluginToolKit {
     if (!artifact) return fail(`找不到插件 ${id}，请先 plugin_list`);
     try {
       await deps.artifacts.remove(id);
+      await deps.onArtifactChange?.();
     } catch (e) {
       return fail(`删除失败：${e instanceof Error ? e.message : String(e)}`);
     }
@@ -781,6 +787,7 @@ export function createPluginToolKit(deps: PluginToolDeps): PluginToolKit {
         trigger: 'manual',
         feedback: `回滚到 v${version}`,
       });
+      await deps.onArtifactChange?.();
       return ok(
         `已把插件 ${revised.name}（${id}）回滚到 v${version} 的源码，产生新版本 v${revised.version}（旧快照全部保留）。\n`
         + `自动试算通过，${behavior?.resultLabel ?? '试算结果'}：\n${result.text}`,

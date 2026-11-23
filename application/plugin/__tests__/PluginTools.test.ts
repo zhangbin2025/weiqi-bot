@@ -418,3 +418,38 @@ describe('只读工具标记 preparatory（准备动作不占决策预算）', (
     expect(out.preparatory).toBeUndefined();
   });
 });
+
+
+describe('plugin_toggle 刷新算子表快照（阶段三整改）', () => {
+  it('⑤ 状态成功变更后调用 onArtifactChange；状态未变 / 找不到插件不调', async () => {
+    const onArtifactChange = vi.fn(async () => {});
+    const h = harness();
+    h.deps.onArtifactChange = onArtifactChange;
+    const created = await h.artifacts.create({
+      name: '规则', intent: 'x', code: CODE_V1,
+      pointId: RANKING_POINT_ID, origin: 'llm', spec: RANKING_SPEC,
+    });
+    const id = created.id;
+
+    // 状态未变（默认停用，再显式停用）：不改 enabled，不刷新
+    const unchanged = await call(h, PLUGIN_TOOL_NAMES.toggle, { artifactId: id, enabled: false });
+    expect(unchanged.observation).toContain('原本就停用');
+    expect(onArtifactChange).not.toHaveBeenCalled();
+
+    // 找不到插件（失败路径）：不刷新
+    const missing = await call(h, PLUGIN_TOOL_NAMES.toggle, { artifactId: 'plugin:不存在:xxx' });
+    expect(missing.ok).toBe(false);
+    expect(onArtifactChange).not.toHaveBeenCalled();
+
+    // 停用 → 启用：成功变更，刷新一次
+    const enabled = await call(h, PLUGIN_TOOL_NAMES.toggle, { artifactId: id, enabled: true });
+    expect(enabled.ok).toBe(true);
+    expect((await h.artifacts.get(id))!.enabled).toBe(true);
+    expect(onArtifactChange).toHaveBeenCalledTimes(1);
+
+    // 启用 → 停用：成功变更，再刷新一次
+    const disabled = await call(h, PLUGIN_TOOL_NAMES.toggle, { artifactId: id });
+    expect(disabled.observation).toContain('已停用');
+    expect(onArtifactChange).toHaveBeenCalledTimes(2);
+  });
+});

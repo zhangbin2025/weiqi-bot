@@ -660,7 +660,9 @@ describe('ChatUseCase.send — compact 集成', () => {
     };
     const uc = new ChatUseCase(
       gateway, history, renderer, undefined, role('chat'), undefined,
-      undefined, undefined, undefined,
+      undefined, undefined,
+      // 第 9 参是 compactor；阶段二新增的第 10 参 operatorRegistry 本用例不挂（省略）。
+      // 之前误把 compactor 放到第 10 位，导致 compact 整条链根本没接线。
       compactor as unknown as import('../ConversationCompactor').ConversationCompactor,
     );
     return { history, gateway, renderer, compactor, uc, store };

@@ -214,7 +214,7 @@ export class ChatPage {
     // 插件系统作为「可选能力」装配：装上了也只在 plugin 角色下启用。
     // 任何装配异常都不阻塞对话页：降级为纯聊天是设计内的兜底，不是错误吞掉。
     try {
-      this.plugin = await createPluginSystem();
+      this.plugin = await createPluginSystem({ onArtifactChange: () => this.refreshOperatorRegistry() });
       // 在线平台与本地插件共用同一个工件服务 + 沙箱运行时：
       // 安装 = create（写前先 QuickJS 试跑）、更新 = revise，
       // 绝不绕过「默认停用」的人工闸门与 QuickJS 隔离。

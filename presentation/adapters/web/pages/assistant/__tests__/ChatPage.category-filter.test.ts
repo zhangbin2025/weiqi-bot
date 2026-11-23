@@ -44,6 +44,10 @@ function makePage(): Page {
   page['skillPrimitives'] = new Set<string>();
   page['showPluginError'] = vi.fn();
   page['showSkillError'] = vi.fn();
+  // 阶段二/三：插件安装/更新成功路径会 await this.refreshOperatorRegistry() 重建算子表快照。
+  // 本文件同样用 Object.create(prototype) 绕过构造函数，实例字段不会自动初始化；
+  // 不补这个 noop，成功路径会抛错被 catch 吞掉、refreshPluginPanel 永远不被调用。
+  page['refreshOperatorRegistry'] = vi.fn(async () => {});
   return page;
 }
 
