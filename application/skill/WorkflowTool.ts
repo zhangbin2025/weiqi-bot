@@ -70,17 +70,22 @@ export const RUN_WORKFLOW_TOOL: ModelToolDefinition = {
  * workflow 路径需要的全部信息；buildSkillSystemPrompt 已不再为 workflow 配方注入
  * summary + prompt + 尾句（2026-11-23 收窄）。这属于数据披露、不是新策略；
  * 没有配方时逐字退回静态定义。
+ *
+ * 2026-11-23 再收窄：default 的**值**是配方业务数据（字段数组 / 免责长文案等），
+ * 由宿主 WorkflowRunner.resolveInputs 在模型省略该键时自行补齐（见该函数的注释与
+ * 「模型给了就用模型值；没给且有 default 用 default」实现）。模型只需知道「有缺省、
+ * 可省略」，不需要也不该在工具说明里读到值本身 —— 省 token，且与「业务数据不进
+ * 模型上下文」一致。required / type / enum 仍逐字保留：它们是填参约束，不是缺省值。
  */
 function describeInputs(decls: readonly WorkflowInput[] | undefined): string {
   if (!decls || decls.length === 0) return '（该技能无需填空参数）';
   return decls.map((d) => {
     const bits = [`${d.name}: ${d.type}`];
     if (d.required === true) bits.push('必填');
-    if (d.default !== undefined) {
-      try { bits.push(`缺省 ${JSON.stringify(d.default)}`); } catch { /* 不可序列化的 default 略过 */ }
-    }
+    // 只标「有缺省、可省略」，不复述 default 的值；值由宿主 runner 补齐。
+    if (d.default !== undefined) bits.push('可省略(有缺省)');
     if (d.enum !== undefined) {
-      try { bits.push(`枚举 ${JSON.stringify(d.enum)}`); } catch { /* 同上 */ }
+      try { bits.push(`枚举 ${JSON.stringify(d.enum)}`); } catch { /* 不可序列化的 enum 略过 */ }
     }
     return bits.join('，');
   }).join('；');

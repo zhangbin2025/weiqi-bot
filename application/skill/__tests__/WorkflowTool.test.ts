@@ -191,4 +191,31 @@ describe('buildWorkflowToolParts — 成功观察只回「完成 + 句柄」', (
     expect(parts.tools).toEqual([]);
     expect(parts.executors).toEqual({});
   });
+
+  it('inputs 契约只给填参约束，不把 default 的值拼进工具说明', () => {
+    const SECRET_DEFAULT = '缺省正文-不该进工具说明-5b4a3c2d';
+    const skill = recipe({
+      id: 'demo.contract',
+      workflow: { steps: [{ id: 'only', call: 'noop' }] as WorkflowStep[] },
+      inputs: [
+        { name: 'year', type: 'integer', required: true },
+        { name: 'note', type: 'string', default: SECRET_DEFAULT },
+        { name: 'format', type: 'string', default: 'list', enum: ['list', 'table'] },
+      ],
+    });
+    const parts = buildWorkflowToolParts([skill], fakeRegistry({
+      noop: () => ({ value: null }),
+    }));
+    const tool = parts.tools.find((t) => t.name === RUN_WORKFLOW_TOOL_NAME)!;
+    const desc = tool.description;
+    // 填参约束仍在
+    expect(desc).toContain('year: integer，必填');
+    expect(desc).toContain('note: string，可省略(有缺省)');
+    expect(desc).toContain('format: string，可省略(有缺省)');
+    expect(desc).toContain('枚举 ["list","table"]');
+    // default 的值一个字都不能披露
+    expect(desc).not.toContain(SECRET_DEFAULT);
+    expect(desc).not.toContain('缺省 "list"');
+    expect(desc).not.toContain('缺省 ');
+  });
 });
