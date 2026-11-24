@@ -59,7 +59,7 @@ import type { KvKit } from '../skill/kv/KvKit';
 export const SLASH_COMMAND_HINT = '对话页不支持命令，模型配置请回到功能助手操作。';
 export const NOT_READY_HINT = '尚未配置 LLM，请回到功能助手执行 /llm 配置后再来对话。';
 
-/** 选了插件角色但插件系统装配失败时的提示（页面始终可用，不抛错） */
+/** 非 dev 的 agent 角色缺插件工具集时的提示（页面始终可用，不抛错） */
 export const AGENT_UNAVAILABLE_HINT =
   '插件系统未能加载，当前无法使用「开发」角色的插件能力。请刷新重试，或切回「闲聊」角色继续对话。';
 
@@ -235,10 +235,18 @@ export class ChatUseCase {
       : text;
 
     // 角色在发送这一刻确定，整条消息只走这一条路径。
-    // skill-dev 是闲聊超集：usePlugin=false，但多挂一套开发工具与开发 system。
+    // dev「开发」= chat 超集 ∪ 插件工具集：插件集是可选增量，不是说话前提；
+    // 装配失败由 buildDevToolKit 降级为 chat 超集，不在 send() 这里整轮拦死。
     const role = getRole(this.roleProvider?.() ?? 'chat');
     const usePlugin = role.agent;
     const devMode = role.skillDev;
+    console.info('[wf-diag] send()', {
+      role: role.id, usePlugin, devMode,
+      pluginToolKit: this.pluginToolKit !== undefined,
+      webTools: this.webTools !== undefined,
+      skills: this.skills !== undefined,
+      operatorRegistry: this.operatorRegistry !== undefined,
+    });
 
     // 本地附件：宿主在发送瞬间预处理，不劳模型「决定」读取。
     const local = options?.files?.length
@@ -264,8 +272,10 @@ export class ChatUseCase {
       await this.history.setCurrentSessionTitle(clampTitle(userText));
     }
 
-    // 选了插件角色但插件系统没装上：给明确提示，不静默降级成闲聊
-    if (usePlugin && !this.pluginToolKit) {
+    // 非 dev 的 agent 角色缺插件工具集：给明确提示（当前角色表里已无此类角色，
+    // 保留以防未来新增）。dev 是 chat 超集 ∪ 插件集，插件集缺失时由
+    // buildDevToolKit 降级，仍要进 tool loop 才能拿到 run_workflow 等工具。
+    if (usePlugin && !devMode && !this.pluginToolKit) {
       this.renderer.hideTyping();
       await this.renderHint(AGENT_UNAVAILABLE_HINT);
       return;
@@ -457,6 +467,13 @@ export class ChatUseCase {
       kit = createWebToolKit(this.webTools!);
     }
     const source: PluginTraceStep['source'] = usePlugin ? 'plugin' : 'web';
+    console.info('[wf-diag] runTurn() final kit -> ToolLoop', {
+      source, usePlugin, devMode,
+      toolCount: kit.tools.length,
+      tools: kit.tools.map((t) => t.name),
+      hasRunWorkflow: kit.tools.some((t) => t.name === 'run_workflow'),
+      systemPromptType: typeof kit.systemPrompt,
+    });
 
     return runToolLoop(
       {
@@ -570,9 +587,37 @@ export class ChatUseCase {
     // 挂了 kv 就必须走拼装路径，让它的 system 说明进入本轮（ToolLoop 是替换制）。
     // 例外：有带 workflow 的配方时即使散文路径没命中也要挂 run_workflow（活性由 workflow 字段判）。
     const kvSuffix = kv?.systemSuffix ?? '';
-    const workflowActive = this.operatorRegistry
+    const hitWorkflow = this.operatorRegistry
       ? active.filter((s) => s.workflow !== undefined)
       : [];
+    console.info('[wf-diag] buildChatToolKit() before mount', {
+      devMode, devKit: dev !== undefined,
+      operatorRegistry: this.operatorRegistry !== undefined,
+      recipes: recipes.length,
+      recipesWithWorkflow: recipes.filter((s) => s.workflow !== undefined).length,
+      recipeIds: recipes.map((s) => s.id),
+      routedIds, active: active.map((s) => s.id),
+      hitWorkflow: hitWorkflow.map((s) => s.id),
+    });
+    // 「开发」角色：验收刚 skill_write 出来的技能时，本轮路由还没命中
+    // （用户没说触发词），若只挂命中集合，模型工具清单里就没有 run_workflow 入口。
+    // recipes = loadSkills()（已只返回 enabled、且含刚保存的自建技能），dev 下
+    // 全部列出（**含散文配方**）：run_workflow 恒定挂，模型若把多步流程误写成散文
+    // 配方也能点名拿到「没有 workflow 声明」的结构化回执，而不是工具整个消失。
+    // 零配方时 workflowActive 为空，但 dev 仍恒定挂 run_workflow（见下方挂载条件）。
+    // chat 角色逐字沿用 hitWorkflow，零变化。不改路由、不改散文路径 active。
+    const workflowActive: readonly SkillRecipe[] = (dev && this.operatorRegistry)
+      ? [
+        ...hitWorkflow,
+        ...recipes.filter((s) => !hitWorkflow.some((h) => h.id === s.id)),
+      ]
+      : hitWorkflow;
+    console.info('[wf-diag] buildChatToolKit() mount decision', {
+      workflowActive: workflowActive.map((s) => s.id),
+      withWorkflow: workflowActive.filter((s) => s.workflow !== undefined).map((s) => s.id),
+      willReturnBase: active.length === 0 && !dev && !kvSuffix && workflowActive.length === 0,
+      willMountWf: Boolean(this.operatorRegistry) && (Boolean(dev) || workflowActive.length > 0),
+    });
     if (active.length === 0 && !dev && !kvSuffix && workflowActive.length === 0) return base;
 
     const parts = this.skills
@@ -588,11 +633,21 @@ export class ChatUseCase {
     };
     for (const t of parts.tools) appendTool(t, parts.executors[t.name]);
 
-    // 阶段二：有 operatorRegistry 且本轮有带 workflow 的配方时，并列挂一个 run_workflow。
+    // 阶段二：有 operatorRegistry 时并列挂一个 run_workflow；dev 恒定挂，
+    // chat 仅在本轮有带 workflow 的配方时挂。
     // 去重按 name、沿用既有顺序（appendTool 已保证同名不覆盖基础工具）。
     // 散文路径（buildSkillToolParts）原样保留，不删、不写兼容桥（B 决策）。
-    if (this.operatorRegistry && workflowActive.length > 0) {
-      const wf = buildWorkflowToolParts(workflowActive, this.operatorRegistry, onTrace);
+    if (this.operatorRegistry && (dev || workflowActive.length > 0)) {
+      // dev「开发」恒定挂：新建会话零配方时也要给模型 run_workflow 入口，
+      // 否则第一轮写技能就看不到它，无法按要求 debug 验收。空 active 下
+      // executor 返回「未找到技能」结构化回执、tool 定义用兜底文案且不加 enum。
+      // chat 角色逐字沿用 workflowActive.length > 0（零额外 token）。
+      const wf = buildWorkflowToolParts(workflowActive, this.operatorRegistry, onTrace, devMode);
+      console.info('[wf-diag] buildChatToolKit() wf parts', {
+        returnedTools: wf.tools.map((t) => t.name),
+        returnedExecutors: Object.keys(wf.executors),
+        chatToolsAfterAppend: [...tools, ...wf.tools.map((t) => t.name)],
+      });
       for (const t of wf.tools) appendTool(t, wf.executors[t.name]);
     }
 
@@ -628,6 +683,12 @@ export class ChatUseCase {
   ): Promise<ToolKit> {
     const plugin = this.pluginToolKit;
     const chat = await this.buildChatToolKit(messages, hasNewParts, true, onTrace);
+    console.info('[wf-diag] buildDevToolKit() before merge', {
+      pluginPresent: plugin !== undefined,
+      pluginTools: plugin?.tools.map((t) => t.name) ?? [],
+      chatTools: chat.tools.map((t) => t.name),
+      chatHasRunWorkflow: chat.tools.some((t) => t.name === 'run_workflow'),
+    });
     if (!plugin) return chat; // 插件系统装配失败：降级为 chat 超集，开发能力不整条塌掉
     const tools = [...chat.tools];
     const executors: Record<string, ToolExecutor> = { ...chat.executors };
@@ -649,6 +710,13 @@ export class ChatUseCase {
         : (typeof chatSystem === 'function' ? await chatSystem() : chatSystem);
       return extra ? `${base}\n\n${extra}` : base;
     };
+    console.info('[wf-diag] buildDevToolKit() after merge', {
+      finalTools: tools.map((t) => t.name),
+      hasRunWorkflow: tools.some((t) => t.name === 'run_workflow'),
+      hasSkillWrite: tools.some((t) => t.name === 'skill_write'),
+      hasDebug: typeof (tools.find((t) => t.name === 'run_workflow')?.parameters as
+        { properties?: Record<string, unknown> } | undefined)?.properties?.['debug'] !== 'undefined',
+    });
     return {
       tools, executors, systemPrompt,
       ...(plugin.maxTurns !== undefined ? { maxTurns: plugin.maxTurns } : {}),

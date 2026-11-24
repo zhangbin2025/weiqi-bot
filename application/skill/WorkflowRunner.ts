@@ -58,6 +58,12 @@ export interface WorkflowRunResult {
   values: Record<string, unknown>;
   /** 全部节点累积的 effects（不覆盖、不取最后一个）。 */
   effects: WorkflowEffect[];
+  /**
+   * 调试模式专用：每一步的实际入参 / 输出 value / 本步 effects / 成功或失败。
+   * 只有调用方传 captureTrace:true 时才填充；正常模式不产生（零额外开销）。
+   * 不进宿主旁路、不落历史，仅供 ToolOutcome.observation 结构化回灌模型。
+   */
+  stepTrace?: WorkflowStepTrace[];
   /** 已完成的 step id 列表（成功 = 全部；失败 = 出错前已完成部分）。 */
   completedStepIds: string[];
   /** 失败时的结构化信息；成功时省略。 */
@@ -309,6 +315,7 @@ export async function runWorkflow(
   registry: OperatorRegistry,
   onTrace?: (s: PluginTraceStep) => void,
   inputDecls?: readonly WorkflowInput[],
+  captureTrace = false,
 ): Promise<WorkflowRunResult> {
   const steps: readonly WorkflowStep[] = spec.steps ?? [];
   const N = steps.length; // 步骤数 = 静态声明长度，零新常数
@@ -320,6 +327,8 @@ export async function runWorkflow(
   const completedStepIds: string[] = [];
   const effects: WorkflowEffect[] = [];
   const values: Record<string, unknown> = {};
+  /** 调试模式逐步记录；captureTrace=false 时保持 undefined，正常结果对象零变化。 */
+  const stepTrace: WorkflowStepTrace[] | undefined = captureTrace ? [] : undefined;
 
   const fail = (stepId: string, error: string, detail: string): WorkflowRunResult => {
     pushTrace(onTrace, false, detail);
@@ -328,6 +337,7 @@ export async function runWorkflow(
       values,
       effects,
       completedStepIds: [...completedStepIds],
+      ...(stepTrace !== undefined ? { stepTrace } : {}),
       failure: { stepId, error, completedStepIds: [...completedStepIds] },
     };
   };
@@ -336,7 +346,12 @@ export async function runWorkflow(
   // 未命中即拒跑，不执行任何节点（避免跑了一半才发现白名单没命中）。
   for (const step of steps) {
     if (registry.get(step.call) === undefined) {
-      return fail(step.id, `未注册算子:${step.call}`,
+      const reason = `未注册算子:${step.call}`;
+      stepTrace?.push({
+        stepId: step.id, call: step.call, args: step.args ?? {},
+        ok: false, error: reason, effects: [],
+      });
+      return fail(step.id, reason,
         `workflow 运行前校验失败：节点 ${step.id} 引用了未注册算子 ${step.call}`);
     }
   }
@@ -344,6 +359,10 @@ export async function runWorkflow(
   // inputs 契约校验 / 缺省填充。失败发生在任何节点之前，stepId 用哨兵。
   const resolved = resolveInputs(inputDecls, inputs);
   if (!resolved.ok) {
+    stepTrace?.push({
+      stepId: INPUTS_STEP_ID, call: '<inputs>', args: inputs,
+      ok: false, error: resolved.error, effects: [],
+    });
     return fail(INPUTS_STEP_ID, resolved.error, `workflow 参数校验失败：${resolved.error}`);
   }
   const resolvedInputs = resolved.values;
@@ -360,6 +379,10 @@ export async function runWorkflow(
     // 不 blanket 塞进每个节点（G 的 web_fetch 不该收到 year/page 等无关键）。
     const literal = substituteInputs(step.args ?? {}, resolvedInputs);
     if (!literal.ok) {
+      stepTrace?.push({
+        stepId: step.id, call: step.call, args: step.args ?? {},
+        ok: false, error: literal.error, effects: [],
+      });
       return fail(step.id, literal.error, `第 ${kth}/${N} 步 ${step.call} 参数失败：${literal.error}`);
     }
     const mergedArgs: Record<string, unknown> = {
@@ -368,12 +391,20 @@ export async function runWorkflow(
     for (const binding of step.bindings ?? []) {
       const source = upstream.get(binding.from);
       if (!upstream.has(binding.from)) {
-        return fail(step.id,
-          `节点 ${binding.from} 尚无 value（bindings.from 必须指向更靠前的已完成节点）`,
+        const reason = `节点 ${binding.from} 尚无 value（bindings.from 必须指向更靠前的已完成节点）`;
+        stepTrace?.push({
+          stepId: step.id, call: step.call, args: mergedArgs,
+          ok: false, error: reason, effects: [],
+        });
+        return fail(step.id, reason,
           `第 ${kth}/${N} 步 ${step.call} 引用失败：上游 ${binding.from} 无 value`);
       }
       const got = readBindingValue(source, binding.path);
       if (!got.ok) {
+        stepTrace?.push({
+          stepId: step.id, call: step.call, args: mergedArgs,
+          ok: false, error: got.error, effects: [],
+        });
         return fail(step.id, got.error,
           `第 ${kth}/${N} 步 ${step.call} 引用失败：${got.error}`);
       }
@@ -386,18 +417,52 @@ export async function runWorkflow(
       result = await registry.run(step.call, mergedArgs);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
+      stepTrace?.push({
+        stepId: step.id, call: step.call, args: mergedArgs,
+        ok: false, error: reason, effects: [],
+      });
       return fail(step.id, reason, `第 ${kth}/${N} 步 ${step.call} 失败：${reason}`);
     }
 
     // effects 全量累积（不覆盖、不取最后一个；插件节点天然无 effects）。
-    for (const e of result.effects ?? []) effects.push(e);
+    const stepEffects: WorkflowEffect[] = [];
+    for (const e of result.effects ?? []) {
+      effects.push(e);
+      stepEffects.push(e);
+    }
     // 记录 value 供下游 binding；仅显式 yield:true 的节点进模型上下文汇总。
     upstream.set(step.id, result.value);
     if (step.yield === true) values[step.id] = result.value;
     completedStepIds.push(step.id);
+    // 调试模式：连同实际入参（占位符已替换 + bindings 已注入）一起留痕，
+    // 让模型能对照「输入 → 输出」判断是哪一步算错，而不是只看最终交付。
+    stepTrace?.push({
+      stepId: step.id, call: step.call, args: mergedArgs,
+      value: result.value, effects: stepEffects, ok: true,
+    });
 
     pushTrace(onTrace, true, `第 ${kth}/${N} 步 ${step.call} 完成`);
   }
 
-  return { ok: true, values, effects, completedStepIds };
+  return {
+    ok: true, values, effects, completedStepIds,
+    ...(stepTrace !== undefined ? { stepTrace } : {}),
+  };
+}
+
+/**
+ * 调试模式单步留痕。字段全部来自 runner 已有的真实数据，不新增业务计算：
+ * - args：占位符替换 + bindings 注入后的**实际入参**（不是配方字面量）；
+ * - value：本步算子的 .value（连线只认它）；yield:false 的节点也留；
+ * - effects：本步产生的展示/动作旁路（与 WorkflowEffect 同形）；
+ * - error：本步失败原因（成功时省略）。
+ */
+export interface WorkflowStepTrace {
+  stepId: string;
+  call: string;
+  args: Record<string, unknown>;
+  value?: unknown;
+  effects: WorkflowEffect[];
+  ok: boolean;
+  error?: string;
 }

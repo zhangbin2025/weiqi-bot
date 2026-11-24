@@ -204,7 +204,7 @@ describe('ChatUseCase.send — 角色决定工具集（核心回归）', () => {
     // 让 loop 第一轮就收敛（不给 tool_calls），这样能检查发出的 system/tools
     gw.execute.mockResolvedValue({ text: '已就绪', truncated: false } as ModelResult);
     const kit = makePluginKit();
-    const h = make({ roleId: 'plugin', kit, gateway: gw });
+    const h = make({ roleId: 'dev', kit, gateway: gw });
     await h.useCase.send('你好');
     const req = gw.execute.mock.calls[0]![0];
     expect(req.messages[0]).toEqual({ role: 'system', content: '你是插件开发智能体' });
@@ -220,9 +220,9 @@ describe('ChatUseCase.send — 角色决定工具集（核心回归）', () => {
         toolCalls: [{ id: 'c1', name: 'plugin_list', arguments: '{}' }],
       } as ModelResult)
       .mockResolvedValueOnce({ text: '列好了', truncated: false } as ModelResult);
-    const h = make({ roleId: 'plugin', kit: makePluginKit(), gateway: gw });
+    const h = make({ roleId: 'dev', kit: makePluginKit(), gateway: gw });
     await h.useCase.send('看看有哪些插件');
-    expect(h.renderer.beginPluginTrace).toHaveBeenCalledWith(expect.stringContaining('插件开发过程'));
+    expect(h.renderer.beginPluginTrace).toHaveBeenCalledWith(expect.stringContaining('开发过程'));
     const appended = h.renderer.appendPluginTraceStep.mock.calls.map((c) => c[0]);
     expect(appended.some((s: { source: string; phase: string }) =>
       s.source === 'plugin' && s.phase === 'observe')).toBe(true);
@@ -230,9 +230,9 @@ describe('ChatUseCase.send — 角色决定工具集（核心回归）', () => {
   });
 
   it('两个角色复用同一 loop：无工具调用时都不建过程块（懒建）', async () => {
-    for (const roleId of ['chat', 'plugin'] as const) {
+    for (const roleId of ['chat', 'dev'] as const) {
       const gw = makeGateway(true, '纯文本回复');
-      const h = make({ roleId, ...(roleId === 'plugin' ? { kit: makePluginKit() } : {}), gateway: gw });
+      const h = make({ roleId, ...(roleId === 'dev' ? { kit: makePluginKit() } : {}), gateway: gw });
       await h.useCase.send('你好');
       expect(h.renderer.beginPluginTrace, roleId).not.toHaveBeenCalled();
       expect(h.renderer.renderPluginTrace, roleId).not.toHaveBeenCalled();
@@ -255,20 +255,21 @@ describe('ChatUseCase.send — 角色决定工具集（核心回归）', () => {
     );
     await useCase.send('你好'); // 闲聊：纯文本降级，一次网关
     expect(gateway.execute).toHaveBeenCalledTimes(1);
-    current = 'plugin';
+    current = 'dev';
     await useCase.send('你好'); // 插件角色：动态 system
     const req = gateway.execute.mock.calls[1]![0];
     expect(req.messages[0]).toEqual({ role: 'system', content: '你是插件开发智能体' });
   });
 
-  it('选了插件角色但插件系统没装配 → 明确提示，不静默降级成闲聊', async () => {
-    const h = make({ roleId: 'plugin', kit: undefined });
-    await h.useCase.send('启用');
-    expect(h.gateway.execute).not.toHaveBeenCalled();
-    expect(h.renderer.renderMessage).toHaveBeenLastCalledWith(
+  it('开发角色 + 插件系统没装配：不再整轮拦死，降级成 chat 超集仍能进 tool loop', async () => {
+    const gw = makeGateway();
+    const h = make({ roleId: 'dev', kit: undefined, gateway: gw, webTools: true });
+    await h.useCase.send('验收刚写的 workflow 技能');
+    expect(h.gateway.execute).toHaveBeenCalled(); // 关键回归：网关零调用曾是真 bug
+    expect(h.renderer.renderMessage).not.toHaveBeenCalledWith(
       AGENT_UNAVAILABLE_HINT, false, null, null, undefined, undefined, false,
     );
-    expect(h.history.addMessage).toHaveBeenCalledTimes(1); // 用户消息仍落盘
+    expect(h.history.addMessage).toHaveBeenCalled(); // 用户消息 + 助手回复都落盘
   });
 
   it('回复无条件经 safeReply 转义（唯一 HTML 防线不被绕过）', async () => {
@@ -287,7 +288,7 @@ describe('ChatUseCase.send — 角色决定工具集（核心回归）', () => {
         toolCalls: [{ id: 'c1', name: 'plugin_list', arguments: '{}' }],
       } as ModelResult)
       .mockResolvedValueOnce({ text: '列好了', truncated: false } as ModelResult);
-    const h = make({ roleId: 'plugin', kit: makePluginKit(), gateway: gw });
+    const h = make({ roleId: 'dev', kit: makePluginKit(), gateway: gw });
     await h.useCase.send('看看有哪些插件');
     expect(h.history.addMessage).toHaveBeenCalledTimes(2);
     expect(JSON.stringify(h.history.addMessage.mock.calls)).not.toContain('当前没有任何插件');
@@ -302,7 +303,7 @@ describe('ChatUseCase.send — 角色决定工具集（核心回归）', () => {
       toolCalls: [{ id: 'c', name: 'plugin_list', arguments: '{}' }],
     } as ModelResult);
     const kit = makePluginKit({ maxTurns: 2 });
-    const h = make({ roleId: 'plugin', kit, gateway: gw });
+    const h = make({ roleId: 'dev', kit, gateway: gw });
     await h.useCase.send('循环');
     expect(gw.execute).toHaveBeenCalledTimes(2);
   });
@@ -319,14 +320,14 @@ describe('ChatUseCase.send — 过程块懒建与兜底（统一 loop 版）', (
         toolCalls: [{ id: 'c1', name: 'plugin_list', arguments: '{}' }],
       } as ModelResult)
       .mockResolvedValueOnce({ text: '好', truncated: false } as ModelResult);
-    const h = make({ roleId: 'plugin', kit: makePluginKit(), gateway: gw, renderer });
+    const h = make({ roleId: 'dev', kit: makePluginKit(), gateway: gw, renderer });
     await h.useCase.send('列插件');
     expect(renderer.beginPluginTrace).toHaveBeenCalledTimes(1);
     expect(renderer.appendPluginTraceStep).not.toHaveBeenCalled();
     expect(renderer.finishPluginTrace).not.toHaveBeenCalled();
     expect(renderer.renderPluginTrace).toHaveBeenCalledTimes(1);
     const [trace, title] = renderer.renderPluginTrace.mock.calls[0];
-    expect(title).toContain('插件开发过程');
+    expect(title).toContain('开发过程');
     expect((trace as { phase: string }[]).some((s) => s.phase === 'observe')).toBe(true);
   });
 
@@ -344,7 +345,7 @@ describe('ChatUseCase.send — 过程块懒建与兜底（统一 loop 版）', (
       } as ModelResult)
       .mockResolvedValueOnce({ text: '好', truncated: false } as ModelResult);
     await new ChatUseCase(
-      gw, makeHistory(), bare, makePluginKit(), role('plugin'),
+      gw, makeHistory(), bare, makePluginKit(), role('dev'),
     ).send('列插件');
     expect(bare.renderPluginTrace).toHaveBeenCalledTimes(1);
   });
@@ -360,7 +361,7 @@ describe('ChatUseCase.send — 过程块懒建与兜底（统一 loop 版）', (
         toolCalls: [{ id: 'c1', name: 'plugin_list', arguments: '{}' }],
       } as ModelResult)
       .mockResolvedValueOnce({ text: '仍给出回复', truncated: false } as ModelResult);
-    const h = make({ roleId: 'plugin', kit, gateway: gw });
+    const h = make({ roleId: 'dev', kit, gateway: gw });
     await h.useCase.send('列插件');
     expect(h.history.addMessage).toHaveBeenNthCalledWith(2, { role: 'assistant', content: '仍给出回复' });
     expect(h.renderer.finishPluginTrace).toHaveBeenCalledWith(false);
@@ -598,7 +599,7 @@ describe('ChatUseCase.send — 技能开发角色（闲聊超集）', () => {
 
   it('技能开发角色：闲聊 3 个 web 工具仍在，且多出 skill_list / skill_write', async () => {
     const gw = makeGateway();
-    const { uc } = makeWithRole(gw, 'skill-dev');
+    const { uc } = makeWithRole(gw, 'dev');
     await uc.send('帮我造个技能');
     const req = firstRequest(gw);
     const names = (req.tools ?? []).map((t) => t.name);
@@ -611,7 +612,7 @@ describe('ChatUseCase.send — 技能开发角色（闲聊超集）', () => {
 
   it('技能开发角色：system 拼接了闲聊 system + 开发片段（替换制，不丢闲聊上下文）', async () => {
     const gw = makeGateway();
-    const { uc } = makeWithRole(gw, 'skill-dev');
+    const { uc } = makeWithRole(gw, 'dev');
     await uc.send('帮我造个技能');
     const sys = firstRequest(gw).messages[0]!.content;
     expect(sys.startsWith(CONVERSATION_SYSTEM_PROMPT)).toBe(true);
@@ -620,7 +621,7 @@ describe('ChatUseCase.send — 技能开发角色（闲聊超集）', () => {
 
   it('技能开发角色命中配方时：原语 + 开发工具都挂上，system 三段齐全', async () => {
     const gw = makeGateway();
-    const { uc } = makeWithRole(gw, 'skill-dev');
+    const { uc } = makeWithRole(gw, 'dev');
     await uc.send('做3K官子题'); // 命中本地已安装的做题配方
     const req = firstRequest(gw);
     const names = (req.tools ?? []).map((t) => t.name);

@@ -1,0 +1,179 @@
+{
+  "_说明": "两份成品 = 两次工具调用的入参。在「开发」角色里按顺序调用即可；plugin_write 的值粘给 plugin_write，skill_write 的值粘给 skill_write。",
+  "_真卡点": "plugin_write 落库恒 enabled:false（人工闸门），必须显式 plugin_toggle 启用，否则 regex.extractAll 不进 OperatorRegistry；配方保存期只验 call 非空、不查算子表，所以「都存好了」但 run_workflow 才报未注册算子。",
+  "_验收步骤": [
+    "1. 开发角色调用 plugin_write（贴 plugin_write 的值），记下返回的工件 id",
+    "2. 【关键】调用 plugin_toggle：{\"artifactId\":\"<上一步 id>\",\"enabled\":true}",
+    "3. plugin_list 确认 slug=regex 且已启用（此时算子表才有 regex.extractAll）",
+    "4. 调用 skill_write（贴 skill_write 的值），记下返回的技能 id",
+    "5. 调用 run_workflow：{\"skillId\":\"<技能 id>\",\"inputs\":{},\"debug\":true} → 看每步入参/输出/effects 与最终列表；或直接说「百度热搜」按 routeHint 触发"
+  ],
+  "plugin_write": {
+    "name": "正则提取算子",
+    "intent": "通用正则匹配/提取工作流算子，供百度热搜等技能按 pattern 抽取文本并列表展示",
+    "pointId": "workflow-operator",
+    "slug": "regex",
+    "code": "\n/**\n * 通用正则提取算子：对文本做全局匹配，取指定捕获组或整体命中，\n * 输出 [{ [key]: 命中文本 }] 数组，可直接交给列表展示算子。\n */\nfunction extractAll(spec) {\n  if (!spec || typeof spec.text !== 'string' || typeof spec.pattern !== 'string') {\n    throw new Error('缺少 text 或 pattern');\n  }\n  var flags = typeof spec.flags === 'string' ? spec.flags : 'g';\n  if (flags.indexOf('g') === -1) flags = flags + 'g';\n  var group = typeof spec.group === 'number' ? spec.group : 0;\n  var key = typeof spec.key === 'string' && spec.key ? spec.key : 'value';\n  var dedupe = spec.dedupe === true;\n  var re = new RegExp(spec.pattern, flags);\n  var out = [];\n  var seen = [];\n  var m;\n  while ((m = re.exec(spec.text)) !== null) {\n    if (m[0] === '') { re.lastIndex = re.lastIndex + 1; continue; }\n    var v = m[group];\n    if (v === undefined) v = '';\n    if (dedupe && seen.indexOf(v) !== -1) continue;\n    seen.push(v);\n    var row = {};\n    row[key] = v;\n    out.push(row);\n  }\n  return out;\n}\n\nfunction call(input) {\n  if (!input || typeof input.method !== 'string') throw new Error('缺少 method');\n  if (!Array.isArray(input.args) || input.args.length !== 1) throw new Error('args 必须是含一个参数对象的数组');\n  if (input.method === 'extractAll') return extractAll(input.args[0]);\n  throw new Error('不支持的方法：' + input.method);\n}\n",
+    "exposes": [
+      {
+        "name": "extractAll",
+        "description": "对文本做正则全局匹配，按捕获组或整体命中提取，输出对象数组",
+        "params": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "description": "源文本"
+            },
+            "pattern": {
+              "type": "string",
+              "description": "正则源字符串（JSON 字符串里反斜杠按 JSON 规则转义）"
+            },
+            "flags": {
+              "type": "string",
+              "description": "正则标志；缺省 g，不含 g 时自动补"
+            },
+            "group": {
+              "type": "integer",
+              "description": "取第几个捕获组；缺省 0 = 整体匹配"
+            },
+            "key": {
+              "type": "string",
+              "description": "输出对象的字段名；缺省 value"
+            },
+            "dedupe": {
+              "type": "boolean",
+              "description": "是否按出现顺序去重；缺省 false"
+            }
+          },
+          "required": [
+            "text",
+            "pattern"
+          ]
+        }
+      }
+    ],
+    "smoke": [
+      {
+        "method": "extractAll",
+        "args": [
+          {
+            "text": "a {\"word\":\"甲\"} b {\"word\":\"乙\"}",
+            "pattern": "\"word\"\\s*:\\s*\"([^\"]+)\"",
+            "group": 1,
+            "key": "word"
+          }
+        ],
+        "expect": [
+          {
+            "word": "甲"
+          },
+          {
+            "word": "乙"
+          }
+        ]
+      },
+      {
+        "method": "extractAll",
+        "args": [
+          {
+            "text": "\"word\":\"甲\",\"word\":\"甲\",\"word\":\"乙\"",
+            "pattern": "\"word\"\\s*:\\s*\"([^\"]+)\"",
+            "group": 1,
+            "key": "word",
+            "dedupe": true
+          }
+        ],
+        "expect": [
+          {
+            "word": "甲"
+          },
+          {
+            "word": "乙"
+          }
+        ]
+      },
+      {
+        "method": "extractAll",
+        "args": [
+          {
+            "text": "ab12 cd34",
+            "pattern": "[a-z]+\\d+",
+            "group": 0,
+            "key": "raw"
+          }
+        ],
+        "expect": [
+          {
+            "raw": "ab12"
+          },
+          {
+            "raw": "cd34"
+          }
+        ]
+      }
+    ]
+  },
+  "skill_write": {
+    "name": "百度热搜",
+    "summary": "抓取百度实时热搜榜页面，用正则插件提取热搜关键字，并由宿主以列表直接展示",
+    "routeHint": [
+      "百度热搜",
+      "热搜榜",
+      "实时热搜"
+    ],
+    "primitives": [],
+    "prompt": "已把百度实时热搜关键字以列表展示给用户；如实告知任务已完成、结果见宿主呈现，不要复述或补写数据内容。",
+    "workflow": {
+      "steps": [
+        {
+          "id": "fetch",
+          "call": "web_fetch",
+          "yield": true,
+          "args": {
+            "url": "https://top.baidu.com/board?tab=realtime",
+            "storeOnly": true
+          }
+        },
+        {
+          "id": "extract",
+          "call": "regex.extractAll",
+          "yield": true,
+          "args": {
+            "pattern": "\"word\"\\s*:\\s*\"([^\"]+)\"",
+            "group": 1,
+            "key": "word",
+            "dedupe": true
+          },
+          "bindings": [
+            {
+              "from": "fetch",
+              "path": "$",
+              "as": "text"
+            }
+          ]
+        },
+        {
+          "id": "render",
+          "call": "display_json_list",
+          "args": {
+            "format": "list",
+            "fields": [
+              {
+                "key": "word"
+              }
+            ],
+            "note": "数据来源：百度热搜榜（实时）"
+          },
+          "bindings": [
+            {
+              "from": "extract",
+              "path": "$",
+              "as": "value"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

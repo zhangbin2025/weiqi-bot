@@ -219,3 +219,179 @@ describe('buildWorkflowToolParts — 成功观察只回「完成 + 句柄」', (
     expect(desc).not.toContain('缺省 ');
   });
 });
+
+describe('buildWorkflowToolParts — debug 调试开关', () => {
+  it('默认（不传 debug）：业务 value 仍不进 observation，逐字保持旧契约', async () => {
+    const skill = recipe({
+      id: 'demo.debug.off',
+      workflow: { steps: [{ id: 'only', call: 'op', yield: true }] as WorkflowStep[] },
+    });
+    const registry = fakeRegistry({ op: () => ({ value: SECRET_BUSINESS_VALUE }) });
+    const outcome = await run([skill], registry, { skillId: 'demo.debug.off' });
+    expect(outcome.observation).toContain('执行完成');
+    expect(outcome.observation).not.toContain(SECRET_BUSINESS_VALUE);
+    expect(outcome.observation).not.toContain('调试模式');
+  });
+
+  it('debug:true：每步入参/输出与最终交付结果都回灌，模型能判断对不对', async () => {
+    const spec: WorkflowSpec = {
+      steps: [
+        { id: 'fetch', call: 'fetch_data', yield: true },
+        {
+          id: 'render', call: 'render_list',
+          bindings: [{ from: 'fetch', path: '$', as: 'list' }],
+        },
+      ] as WorkflowStep[],
+    };
+    const skill = recipe({ id: 'demo.debug.on', workflow: spec });
+    const registry = fakeRegistry({
+      fetch_data: () => ({ value: { title: SECRET_BUSINESS_VALUE } }),
+      render_list: () => ({
+        value: null,
+        effects: [{ displayMarkdown: `- ${NEWS_TITLE}` }],
+      }),
+    });
+
+    const outcome = await run([skill], registry, {
+      skillId: 'demo.debug.on', inputs: { q: 'X' }, debug: true,
+    });
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome.observation).toContain('调试模式');
+    expect(outcome.observation).toContain('第 1/2 步 fetch');
+    expect(outcome.observation).toContain('第 2/2 步 render');
+    // 逐步输出：yield:true 与 yield:false 的节点 value 都可见
+    expect(outcome.observation).toContain(SECRET_BUSINESS_VALUE);
+    expect(outcome.observation).toContain('list');
+    // 最终交付结果（宿主旁路那份）也回灌
+    expect(outcome.observation).toContain('最终交付');
+    expect(outcome.observation).toContain(NEWS_TITLE);
+    // 旁路本身照旧交付，不受调试影响
+    expect(outcome.displayMarkdown).toBe(`- ${NEWS_TITLE}`);
+  });
+
+  it('debug:true 且失败：失败节点的错误与已完成步的输出都在，便于定位', async () => {
+    const skill = recipe({
+      id: 'demo.debug.fail',
+      workflow: {
+        steps: [
+          { id: 'first', call: 'first', yield: true },
+          { id: 'boom', call: 'boom' },
+        ] as WorkflowStep[],
+      },
+    });
+    const registry = fakeRegistry({
+      first: () => ({ value: SECRET_BUSINESS_VALUE }),
+      boom: () => { throw new Error('取数失败'); },
+    });
+    const outcome = await run([skill], registry, {
+      skillId: 'demo.debug.fail', debug: true,
+    });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.observation).toContain('调试模式');
+    expect(outcome.observation).toContain(SECRET_BUSINESS_VALUE); // 已完成步输出
+    expect(outcome.observation).toContain('取数失败');            // 失败点
+    expect(outcome.observation).toContain('第 2/2 步 boom');
+  });
+
+  it('chat 角色工具定义不暴露 debug；开发角色才列进 parameters', () => {
+    const skill = recipe({
+      id: 'demo.debug.schema',
+      workflow: { steps: [{ id: 'x', call: 'noop' }] as WorkflowStep[] },
+    });
+    const reg = fakeRegistry({ noop: () => ({ value: null }) });
+    const chat = buildWorkflowToolParts([skill], reg);
+    const dev = buildWorkflowToolParts([skill], reg, undefined, true);
+    const chatProps = (chat.tools[0]!.parameters as { properties?: Record<string, unknown> }).properties ?? {};
+    const devProps = (dev.tools[0]!.parameters as { properties?: Record<string, unknown> }).properties ?? {};
+    expect(chatProps['debug']).toBeUndefined();
+    expect(devProps['debug']).toBeDefined();
+    expect(dev.tools[0]!.description).toContain('调试');
+  });
+});
+
+
+/**
+ * 回归（18:25）：dev 角色验收时模型没传 debug:true，只回了「没法逐条核对」。
+ * 修法是 dev 正常模式观察里给指路，chat 逐字沿用旧「完成+句柄」结束句。
+ */
+describe('buildWorkflowToolParts — dev 正常模式观察指路（不阻断调试复跑）', () => {
+  const skill = recipe({
+    id: 'demo.debug.nudge',
+    workflow: { steps: [{ id: 'only', call: 'op', yield: true }] },
+  });
+  const registry = fakeRegistry({
+    op: () => ({ value: SECRET_BUSINESS_VALUE }),
+  });
+
+  function call(devMode: boolean) {
+    const parts = buildWorkflowToolParts([skill], registry, undefined, devMode);
+    return parts.executors[RUN_WORKFLOW_TOOL_NAME]!(
+      JSON.stringify({ skillId: skill.id, inputs: { text: '示例' } }),
+    );
+  }
+
+  it('devMode + 不传 debug：观察仍只回完成+句柄，但明确告知可再带 debug:true 复跑', async () => {
+    const outcome = await call(true);
+    expect(outcome.observation).toContain('执行完成');
+    expect(outcome.observation).toContain('结果位置（句柄）');
+    // 正常模式绝不回灌业务 value（零回归契约）
+    expect(outcome.observation).not.toContain(SECRET_BUSINESS_VALUE);
+    expect(outcome.observation).toContain('不要就此下结论');
+    expect(outcome.observation).toContain('debug:true');
+    expect(outcome.observation).toContain('demo.debug.nudge');
+    // 旧结束句不得再出现（它会让模型直接回复用户「没法核对」）
+    expect(outcome.observation).not.toContain('请如实告知用户任务已完成');
+  });
+
+  it('chat 模式（devMode=false）：观察逐字沿用旧结束句，零变化', async () => {
+    const outcome = await call(false);
+    expect(outcome.observation).toContain('请如实告知用户任务已完成');
+    expect(outcome.observation).not.toContain('不要就此下结论');
+    expect(outcome.observation).not.toContain(SECRET_BUSINESS_VALUE);
+  });
+});
+
+
+describe('dev 恒定挂载 run_workflow（19:08 散文配方导致工具消失的回归）', () => {
+  it('dev + 只有散文配方：仍挂 run_workflow，skillId enum 含该散文技能', () => {
+    const parts = buildWorkflowToolParts(
+      [recipe({ id: 'user.baidu.hot', name: '百度热搜' })],
+      fakeRegistry({}),
+      undefined,
+      true,
+    );
+    expect(parts.tools.map((t) => t.name)).toEqual([RUN_WORKFLOW_TOOL_NAME]);
+    const def = parts.tools[0]!;
+    const props = (def.parameters as { properties?: Record<string, unknown> }).properties ?? {};
+    expect(props['debug']).toBeDefined();
+    expect((props['skillId'] as { enum?: string[] }).enum).toContain('user.baidu.hot');
+    expect(def.description).toContain('当前没有带 workflow 声明的技能');
+  });
+
+  it('dev + 点名散文技能：结构化回执明确说要补 workflow.steps，不是「未找到技能」', async () => {
+    const parts = buildWorkflowToolParts(
+      [recipe({ id: 'user.baidu.hot', name: '百度热搜' })],
+      fakeRegistry({}),
+      undefined,
+      true,
+    );
+    const outcome = await parts.executors[RUN_WORKFLOW_TOOL_NAME]!(
+      JSON.stringify({ skillId: 'user.baidu.hot', inputs: {}, debug: true }),
+    );
+    expect(outcome.ok).toBe(false);
+    expect(outcome.observation).toContain('是散文配方');
+    expect(outcome.observation).toContain('workflow.steps');
+    expect(outcome.observation).toContain('skill_write');
+    expect(outcome.observation).not.toContain('未找到技能');
+  });
+
+  it('chat（devMode=false）+ 只有散文配方：逐字不挂工具（零额外 token 契约不变）', () => {
+    const parts = buildWorkflowToolParts(
+      [recipe({ id: 'plain.chat' })],
+      fakeRegistry({}),
+    );
+    expect(parts.tools).toEqual([]);
+    expect(parts.executors).toEqual({});
+  });
+});

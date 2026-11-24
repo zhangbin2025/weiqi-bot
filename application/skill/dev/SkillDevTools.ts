@@ -204,7 +204,14 @@ function buildSystemSuffix(primitives: ReadonlyMap<string, SkillPrimitive>): str
     '- args：字面量参数对象；可用 {{input.xxx}} 引用 inputs 里声明的入参；',
     '- bindings：从更靠前节点的 .value 取值注入本步参数，形如 {from:"上游id", path:"$", as:"参数名"}；'
       + 'from 只能指向位置更靠前的真实 step id，天然无环，不许自引用；',
-    '- yield:true 的节点结果进宿主汇总；成功观察只回「完成 + 句柄」，正文不回灌模型。',
+    '- yield:true 的节点结果进宿主汇总；正常调用的成功观察只回「完成 + 句柄」，正文不回灌模型。',
+    '【调试带 workflow 的技能】验收或排查时，调用 run_workflow 带上 debug:true：',
+    '- 宿主会把每一步的实际入参（占位符替换 + bindings 注入后）、输出 value、本步 effects、失败点，'
+      + '以及最终交付给用户的展示块 / 动作链接 / yield 汇总一起回灌给你；',
+    '- 据此判断哪一步输出不对、最终结果对不对；定位后按同一 id 用 skill_write 给完整配方修订，'
+      + '再传 debug:true 复跑对照。调试信息只在本轮观察里，不落会话历史；',
+    '- 正常调用（不传 debug）保持「完成 + 句柄」，业务数据不进上下文；'
+      + '调试字段按既有单条消息上限均分裁剪，超长会标注截断，不要凭被截断的片段下结论。',
     'inputs 是 run_workflow 入口的填参契约：{name, type, required?, default?, enum?}，type 取 string/number/integer/boolean/object/array。',
     'workflow 配方仍要写 name / summary / prompt（prompt 只是展示说明，不进 model system）。',
     'call 不校验静态白名单：运行时由宿主 OperatorRegistry 按名精确查表，未注册会结构化报「未注册算子」。'
@@ -335,7 +342,17 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
           ? [`声明凭据：${entry.recipe.secrets.map((s) => s.key).join('、')}`
             + `（仅允许发往 ${entry.recipe.secrets.map((s) => s.allowedHosts.join('/')).join('、')}）。`]
           : []),
-        '技能已即时生效。请让用户直接说一句触发词，就可以在同一会话里验收效果；',
+        '技能已即时生效。你可以自己验收，不必等用户再说一句触发词；',
+        ...(entry.recipe.workflow !== undefined
+          ? ['带 workflow 的技能：直接调用 run_workflow，'
+            + `skillId 填「${entry.recipe.id}」、按 inputs 契约给 inputs；`
+            + '验收 / 排查时加 debug:true，宿主会回灌每步入参/输出与最终交付结果，'
+            + '方便定位是哪一步不对。「开发」角色下该工具恒定挂在本轮工具清单里，'
+            + '即使本轮没有用户触发词也能跑；']
+          : ['散文技能：让用户说一句触发词，或按 routeHint 触发即可验收；'
+            + '注意：只在 summary / prompt 里描述「抓取 → 提取 → 展示」这类多步流程不会生成可执行 DAG，'
+            + '也不会被 run_workflow 验收；若要做成固定工作流，请按同一 id 补 skill_write 的 workflow.steps'
+            + '（primitives 填 []），再用 run_workflow + debug:true 逐步核对。']),
         '若不满意，按同一 id 再次 skill_write 给出完整配方即可修订。',
       ].join('\n');
       return { observation, ok: true, detail: `已保存技能「${entry.recipe.name}」` };
