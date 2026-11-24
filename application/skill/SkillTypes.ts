@@ -137,7 +137,7 @@ export interface SkillRecipe {
   secrets?: SecretSpec[];
   /**
    * 可选：面板筛选用的分类标签（纯展示，不进 LLM 提示词、不参与激活判定）。
-   * 由发布方在 skills/registry.json 标注；缺省时宿主按 id 命名空间兜底推导。
+   * 由发布方在 skills/<id>/skill.json 标注，索引里同步一份；缺省时宿主按 id 命名空间兜底推导。
    */
   category?: string;
   /** 命中后追加到 system 的自然语言指令（纯文本，无代码、无 URL 模板注入） */
@@ -152,10 +152,26 @@ export interface SkillRecipe {
   inputs?: WorkflowInput[];
 }
 
-/** 在线清单 */
-export interface SkillRegistryFile {
-  schemaVersion: 1;
+/** 瘦索引里的一条技能摘要（完整配方在 skills/<id>/skill.json） */
+export interface SkillIndexEntry {
+  id: string;
+  version: number;
+  name: string;
+  summary: string;
+  routeHint?: string[];
+  /** 允许空数组：workflow 配方不挂散文原语工具，只看得到索引条目时无从区分 */
+  primitives: string[];
+  category?: string;
+  /** 相对 skills/ 目录的配方文件路径 */
+  path: string;
+}
+
+/** 在线技能清单（瘦索引；单条 skill.json 里的 schemaVersion 仍是 1，语义不同） */
+export interface SkillRegistryIndex {
+  schemaVersion: 2;
   name: string;
   description: string;
-  skills: SkillRecipe[];
+  /** 指向 skills/ 目录；缺省由宿主按清单 URL 所在目录兜底 */
+  baseUrl?: string;
+  skills: SkillIndexEntry[];
 }

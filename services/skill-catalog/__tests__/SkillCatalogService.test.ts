@@ -1,14 +1,15 @@
 /**
- * SkillCatalogService / parseSkillRegistry 契约测试（安装制）
+ * SkillCatalogService / parseSkillRegistryIndex 契约测试（安装制，瘦索引）
  *
  * 原则：fetchImpl 打桩、localStorage 内存桩，绝不触碰真实网络 / 存储。
- * 覆盖：本地库是唯一生效来源、在线只浏览/安装、安装状态判据、缺原语拒绝、解析器边界。
+ * 覆盖：本地库是唯一生效来源、在线只浏览/安装、安装状态判据、缺原语拒绝、解析器边界、
+ *       两段式取数（索引 + 逐条 skill.json）下「单条失败标 unavailable」的降级语义。
  */
 
 import { describe, it, expect } from 'vitest';
 import {
   parseSkillRecipe,
-  parseSkillRegistry,
+  parseSkillRegistryIndex,
 } from '@application/skill/SkillRecipe';
 import type { SkillPrimitive, SkillRecipe } from '@application/skill/SkillTypes';
 import { SkillCatalogService } from '../SkillCatalogService';
@@ -53,13 +54,63 @@ function recipe(overrides: Record<string, unknown> = {}): Record<string, unknown
   };
 }
 
-function registryOf(skills: unknown[]): Record<string, unknown> {
+/** 由完整配方生成 v2 瘦索引：重叠字段原样抄（两处解析器各自 trim/宽松处理后天然一致） */
+function indexOf(recipes: Record<string, unknown>[]): Record<string, unknown> {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     name: 'weiqi-bot skills',
     description: '测试在线源',
-    skills,
+    // baseUrl 故意省略：让 client 的 resolveBaseUrl 用清单 URL 所在目录兜底
+    skills: recipes.map((r) => {
+      const entry: Record<string, unknown> = {
+        id: r['id'],
+        version: r['version'],
+        name: r['name'],
+        summary: r['summary'],
+        primitives: r['primitives'],
+        path: `${String(r['id'])}/skill.json`,
+      };
+      if (r['routeHint'] !== undefined) entry['routeHint'] = r['routeHint'];
+      if (r['category'] !== undefined) entry['category'] = r['category'];
+      return entry;
+    }),
   };
+}
+
+/**
+ * 按 URL 路由的在线源桩：registry.json → 索引；<id>/skill.json → 对应配方；其余 404。
+ * override(id) 可返回自定义 Response（404 / 结构不合法 / 版本不一致等），undefined 走默认配方。
+ * calls 可选，用于断言 noStore 是否透传到两段每个请求。
+ */
+function fetchSource(
+  index: Record<string, unknown>,
+  recipes: Record<string, unknown>[],
+  override: (id: string) => Response | undefined = () => undefined,
+  calls?: Array<{ init?: RequestInit }>,
+): typeof fetch {
+  const byId = new Map(recipes.map((r) => [String(r['id']), r]));
+  return (async (url: string, init?: RequestInit) => {
+    if (calls) calls.push(init !== undefined ? { init } : {});
+    if (url.endsWith('/skills/registry.json')) return jsonResponse(index);
+    const match = /\/([^/]+)\/skill\.json$/.exec(url);
+    if (match) {
+      const id = match[1]!;
+      const overridden = override(id);
+      if (overridden !== undefined) return overridden;
+      const body = byId.get(id);
+      if (body !== undefined) return jsonResponse(body);
+    }
+    return jsonResponse({}, false, 404);
+  }) as unknown as typeof fetch;
+}
+
+/** 常规两段式在线源：索引与配方都由同一组 recipe 生成 */
+function fetchSkills(
+  recipes: Record<string, unknown>[],
+  override: (id: string) => Response | undefined = () => undefined,
+  calls?: Array<{ init?: RequestInit }>,
+): typeof fetch {
+  return fetchSource(indexOf(recipes), recipes, override, calls);
 }
 
 function fetchReturning(body: unknown): typeof fetch {
@@ -107,7 +158,7 @@ describe('SkillCatalogService.loadSkills — 本地库是唯一生效来源', ()
   const offline = (async () => { throw new Error('offline'); }) as unknown as typeof fetch;
 
   it('本地库为空 → 不返回任何技能（在线源可达也不自动叠加）', async () => {
-    const online = fetchReturning(registryOf([recipe()]));
+    const online = fetchReturning(indexOf([recipe()]));
     const skills = await catalogWith(online).loadSkills();
     expect(skills).toEqual([]);
   });
@@ -154,11 +205,11 @@ describe('SkillCatalogService.browse — 在线清单 + 安装状态', () => {
   it('未安装 / 已安装 / 有更新：按同 id 与本地 version 对照', async () => {
     const users = usersWithMem();
     await users.install(asRecipe(recipe({ id: 'same', version: 4 })));
-    const online = fetchReturning(registryOf([
+    const online = fetchSkills([
       recipe({ id: 'fresh', version: 1 }),
       recipe({ id: 'same', version: 4 }),
       recipe({ id: 'old', version: 2 }),
-    ]));
+    ]);
     // 本地 old 装的是 v3，远端给 v2 → version 不等即「有更新」
     // （口径同插件：内容不等就是更新，不做版本号大小比较）
     await users.install(asRecipe(recipe({ id: 'old', version: 3 })));
@@ -174,22 +225,41 @@ describe('SkillCatalogService.browse — 在线清单 + 安装状态', () => {
   });
 
   it('引用了宿主没有的原语 → unavailable，带中文原因，不给安装', async () => {
-    const online = fetchReturning(registryOf([
+    const online = fetchSkills([
       recipe({ id: 'bad', primitives: ['not_exist'] }),
-    ]));
+    ]);
     const { items } = await catalogWith(online).browse();
     expect(items[0]?.state).toBe('unavailable');
     expect(items[0]?.reason).toContain('not_exist');
   });
 
-  it('整份清单含结构不合法配方 → 校验层拒绝，browse 给中文 error 而非空白屏', async () => {
-    const online = fetchReturning(registryOf([
-      recipe({ id: 'bad', primitives: [] }),
-      recipe({ id: 'good' }),
-    ]));
+  it('某条 skill.json 结构不合法 → 该条 unavailable，其余正常显示', async () => {
+    const online = fetchSkills(
+      [recipe({ id: 'bad' }), recipe({ id: 'good' })],
+      (id) => id === 'bad' ? jsonResponse(recipe({ id: 'bad', primitives: [] })) : undefined,
+    );
     const { items, error } = await catalogWith(online).browse();
-    expect(items).toEqual([]);
-    expect(error).toContain('格式不合法');
+    expect(error).toBeUndefined();
+    expect(items).toHaveLength(2);
+    expect(items[0]?.state).toBe('unavailable');
+    expect(items[0]?.reason).toContain('配方读取失败');
+    expect(items[0]?.reason).toContain('格式不合法');
+    // 占位卡片仍带索引里的展示字段
+    expect(items[0]?.recipe.id).toBe('bad');
+    expect(items[1]?.state).toBe('new');
+  });
+
+  it('索引顶层结构不合法（schemaVersion≠2 / skills 非数组）→ browse 给中文 error、items:[]', async () => {
+    const badIndexes = [
+      { schemaVersion: 1, name: 'x', description: 'd', skills: [] },
+      { schemaVersion: 3, name: 'x', description: 'd', skills: [] },
+      { schemaVersion: 2, name: 'x', description: 'd', skills: 'nope' },
+    ];
+    for (const badIndex of badIndexes) {
+      const { items, error } = await catalogWith(fetchReturning(badIndex)).browse();
+      expect(items).toEqual([]);
+      expect(error).toContain('格式不合法');
+    }
   });
 
   it('源不可达 → 空列表 + 中文 reason', async () => {
@@ -198,12 +268,49 @@ describe('SkillCatalogService.browse — 在线清单 + 安装状态', () => {
     expect(bad.items).toEqual([]);
     expect(bad.error).toContain('DNS 挂了');
   });
+
+  it('索引与 skill.json 的 version 不一致 → 该条 unavailable 且 reason 含「不一致」', async () => {
+    const online = fetchSkills(
+      [recipe({ id: 'bad', version: 1 }), recipe({ id: 'good' })],
+      (id) => id === 'bad' ? jsonResponse(recipe({ id: 'bad', version: 7 })) : undefined,
+    );
+    const { items, error } = await catalogWith(online).browse();
+    expect(error).toBeUndefined();
+    expect(items).toHaveLength(2);
+    expect(items[0]?.state).toBe('unavailable');
+    expect(items[0]?.reason).toContain('不一致');
+    expect(items[0]?.recipe.version).toBe(1); // 占位用索引版本
+    expect(items[1]?.state).toBe('new');
+  });
+
+  it('某个 skill.json 返回 404 → 该条 unavailable 且其余正常', async () => {
+    const online = fetchSkills(
+      [recipe({ id: 'bad' }), recipe({ id: 'good' })],
+      (id) => id === 'bad' ? jsonResponse({}, false, 404) : undefined,
+    );
+    const { items, error } = await catalogWith(online).browse();
+    expect(error).toBeUndefined();
+    expect(items).toHaveLength(2);
+    expect(items[0]?.state).toBe('unavailable');
+    expect(items[0]?.reason).toContain('HTTP 404');
+    expect(items[1]?.state).toBe('new');
+  });
+
+  it('path 含 .. 越界 → 该条被跳过（不出现在 items 里，也不报错）', async () => {
+    const recipes = [recipe({ id: 'bad' }), recipe({ id: 'good' })];
+    const index = indexOf(recipes);
+    (index['skills'] as Record<string, unknown>[])[0]!['path'] = '../secret.json';
+    const online = fetchSource(index, recipes);
+    const { items, error } = await catalogWith(online).browse();
+    expect(error).toBeUndefined();
+    expect(items.map((i) => i.recipe.id)).toEqual(['good']);
+  });
 });
 
 describe('SkillCatalogService.install — 安装 / 更新 / 拒绝', () => {
   it('安装：写进本地库、即刻出现在 loadSkills、id/version 原样', async () => {
     const users = usersWithMem();
-    const service = catalogWith(fetchReturning(registryOf([])), users);
+    const service = catalogWith(fetchReturning(indexOf([])), users);
     const out = await service.install(asRecipe(recipe({ id: 'puzzle.tsumego', version: 4 })));
     expect(out).toMatchObject({ ok: true, action: 'installed' });
 
@@ -219,7 +326,7 @@ describe('SkillCatalogService.install — 安装 / 更新 / 拒绝', () => {
     const users = usersWithMem();
     await users.install(asRecipe(recipe({ id: 'a', version: 1, summary: '旧' })));
     await users.setEnabled('a', false);
-    const service = catalogWith(fetchReturning(registryOf([])), users);
+    const service = catalogWith(fetchReturning(indexOf([])), users);
     const out = await service.install(asRecipe(recipe({ id: 'a', version: 2, summary: '新' })));
     expect(out.action).toBe('updated');
     const stored = (await users.list())[0]!;
@@ -230,7 +337,7 @@ describe('SkillCatalogService.install — 安装 / 更新 / 拒绝', () => {
 
   it('缺原语 / 结构不合法 → rejected，不写本地库', async () => {
     const users = usersWithMem();
-    const service = catalogWith(fetchReturning(registryOf([])), users);
+    const service = catalogWith(fetchReturning(indexOf([])), users);
     const badPrim = await service.install(
       asRecipe(recipe({ id: 'bad', primitives: ['not_exist'] })),
     );
@@ -244,17 +351,7 @@ describe('SkillCatalogService.install — 安装 / 更新 / 拒绝', () => {
   });
 });
 
-describe('parseSkillRegistry / parseSkillRecipe 拒绝非法配方', () => {
-  it('接受契约 §7.6 形状的完整清单', () => {
-    const valid = registryOf([
-      recipe({ id: 'a' }),
-      recipe({ id: 'b', primitives: ['web_fetch', 'navigate_to'] }),
-    ]);
-    const parsed = parseSkillRegistry(valid);
-    expect(parsed.ok).toBe(true);
-    if (parsed.ok) expect(parsed.registry.skills).toHaveLength(2);
-  });
-
+describe('parseSkillRecipe 拒绝非法配方（本地库 / skill.json 契约，保持不变）', () => {
   it('拒绝版本号非正整数 / schemaVersion 不等于 1', () => {
     expect(parseSkillRecipe(recipe({ version: 0 })).ok).toBe(false);
     expect(parseSkillRecipe(recipe({ version: 1.5 })).ok).toBe(false);
@@ -267,33 +364,95 @@ describe('parseSkillRegistry / parseSkillRecipe 拒绝非法配方', () => {
     expect(parseSkillRecipe(recipe({ primitives: ['9bad'] })).ok).toBe(false);
   });
 
-  it('拒绝缺少必填字段 / skills 非数组 / 顶层字段缺失', () => {
+  it('拒绝缺少必填字段 / 非对象', () => {
     expect(parseSkillRecipe(recipe({ summary: '' })).ok).toBe(false);
-    expect(parseSkillRegistry({ schemaVersion: 1, name: 'x', description: 'd', skills: 'nope' }).ok).toBe(false);
-    expect(parseSkillRegistry({ schemaVersion: 1, name: 'x', skills: [] }).ok).toBe(false);
-    expect(parseSkillRegistry(registryOf([recipe({ prompt: 42 })])).ok).toBe(false);
+    expect(parseSkillRecipe(recipe({ prompt: 42 })).ok).toBe(false);
     expect(parseSkillRecipe(null).ok).toBe(false);
   });
 });
 
+describe('parseSkillRegistryIndex — v2 瘦索引解析', () => {
+  it('接受 v2 形状（path 相对 skills/、可选字段照抄）', () => {
+    const parsed = parseSkillRegistryIndex(indexOf([
+      recipe({ id: 'a' }),
+      recipe({
+        id: 'b', primitives: ['web_fetch', 'navigate_to'],
+        routeHint: ['查天气'], category: '生活',
+      }),
+    ]));
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.registry.schemaVersion).toBe(2);
+      expect(parsed.registry.skills).toHaveLength(2);
+      expect(parsed.registry.skills[0]?.path).toBe('a/skill.json');
+      expect(parsed.registry.skills[1]?.routeHint).toEqual(['查天气']);
+      expect(parsed.registry.skills[1]?.category).toBe('生活');
+      expect(parsed.registry.baseUrl).toBeUndefined();
+    }
+  });
+
+  it('拒绝 schemaVersion=1 / 3，且原因点明宿主只支持 2', () => {
+    for (const version of [1, 3]) {
+      const parsed = parseSkillRegistryIndex({ ...indexOf([recipe()]), schemaVersion: version });
+      expect(parsed.ok).toBe(false);
+      if (!parsed.ok) expect(parsed.reason).toContain('宿主只支持 2');
+    }
+  });
+
+  it('拒绝 skills 非数组 / 顶层字段缺失', () => {
+    expect(parseSkillRegistryIndex({ schemaVersion: 2, name: 'x', description: 'd', skills: 'nope' }).ok).toBe(false);
+    expect(parseSkillRegistryIndex({ schemaVersion: 2, name: 'x', skills: [] }).ok).toBe(false);
+    expect(parseSkillRegistryIndex({ schemaVersion: 2, description: 'd', skills: [] }).ok).toBe(false);
+  });
+
+  it('拒绝缺 path / path 为空串 / 非法 primitives 名', () => {
+    const missingPath = indexOf([recipe({ id: 'a' })]);
+    delete (missingPath['skills'] as Record<string, unknown>[])[0]!['path'];
+    expect(parseSkillRegistryIndex(missingPath).ok).toBe(false);
+    expect(parseSkillRegistryIndex(indexOf([recipe({ path: '' })])).ok).toBe(false);
+    expect(parseSkillRegistryIndex(indexOf([recipe({ primitives: ['Web_Fetch'] })])).ok).toBe(false);
+  });
+
+  it('接受 primitives:[]（workflow 配方，索引层看不到 workflow 声明）', () => {
+    const parsed = parseSkillRegistryIndex(indexOf([recipe({ primitives: [] })]));
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) expect(parsed.registry.skills[0]?.primitives).toEqual([]);
+  });
+
+  it('接受可选 routeHint / category / baseUrl 缺省', () => {
+    const parsed = parseSkillRegistryIndex(indexOf([recipe({ id: 'a' })]));
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.registry.skills[0]?.routeHint).toBeUndefined();
+      expect(parsed.registry.skills[0]?.category).toBeUndefined();
+      expect(parsed.registry.baseUrl).toBeUndefined();
+    }
+    // 显式 baseUrl 也接受（指向 skills/ 目录）
+    expect(parseSkillRegistryIndex({
+      ...indexOf([]), baseUrl: 'https://assets.example.com/skills/',
+    }).ok).toBe(true);
+    // baseUrl 非字符串则拒绝
+    expect(parseSkillRegistryIndex({ ...indexOf([]), baseUrl: 42 }).ok).toBe(false);
+  });
+});
+
 describe('SkillCatalogService.browse — 手动刷新绕过 HTTP 缓存', () => {
-  it('默认 browse() 不带 cache 选项；browse(true) 给请求带 cache:no-store', async () => {
+  it('默认 browse() 两段所有请求都不带 cache 选项；browse(true) 每个都带 cache:no-store', async () => {
     const calls: Array<{ init?: RequestInit }> = [];
-    const fetchImpl = (async (_url: string, init?: RequestInit) => {
-      calls.push(init !== undefined ? { init } : {});
-      return jsonResponse(registryOf([recipe({ id: 'fresh', version: 1 })]));
-    }) as unknown as typeof fetch;
-    const catalog = catalogWith(fetchImpl);
+    const recipes = [recipe({ id: 'fresh', version: 1 })];
+    const catalog = catalogWith(fetchSkills(recipes, undefined, calls));
+    // 索引 1 次 + 每条配方 1 次
+    const expectedCalls = 1 + recipes.length;
 
     await catalog.browse();
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.init).toBeUndefined();
+    expect(calls).toHaveLength(expectedCalls);
+    expect(calls.every((c) => c.init === undefined)).toBe(true);
 
     calls.length = 0;
     const { items } = await catalog.browse(true);
     expect(items).toHaveLength(1);
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.init?.cache).toBe('no-store');
+    expect(calls).toHaveLength(expectedCalls);
+    expect(calls.every((c) => c.init?.cache === 'no-store')).toBe(true);
   });
 });
 
@@ -314,22 +473,22 @@ describe('分类标签 category（可选、纯展示）', () => {
     }
   });
 
-  it('未知 category 值不拒配方（交给 UI 兜底推导），整份 registry 照样解析', () => {
-    const parsed = parseSkillRegistry(registryOf([
+  it('未知 category 值不拒配方（交给 UI 兜底推导），索引层宽松解析', () => {
+    const parsed = parseSkillRegistryIndex(indexOf([
       recipe({ id: 'a', category: '火星' }),
       recipe({ id: 'b', category: '财经' }),
     ]));
     expect(parsed.ok).toBe(true);
     if (parsed.ok) {
-      expect(parsed.registry.skills[0]!.category).toBe('火星');
-      expect(parsed.registry.skills[1]!.category).toBe('财经');
+      expect(parsed.registry.skills[0]?.category).toBe('火星');
+      expect(parsed.registry.skills[1]?.category).toBe('财经');
     }
   });
 
   it('在线安装把 category 写进本地库；老配方没写也不影响安装', async () => {
     const withCat = recipe({ id: 'stock.quote', category: '财经', version: 2 });
     const withoutCat = recipe({ id: 'puzzle.tsumego', version: 2 });
-    const catalog = catalogWith(fetchReturning(registryOf([withCat, withoutCat])));
+    const catalog = catalogWith(fetchSkills([withCat, withoutCat]));
     const { items } = await catalog.browse();
     expect(items.map((i) => i.recipe.category)).toEqual(['财经', undefined]);
     const out1 = await catalog.install(items[0]!.recipe);

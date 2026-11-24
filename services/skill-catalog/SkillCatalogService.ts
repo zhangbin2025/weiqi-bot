@@ -9,15 +9,17 @@
  * - 「有更新」判据 = 远端与本地同 id 的 version 不等（沿用插件「内容不等即更新」口径，
  *   不是阈值 / 打分）；更新按同 id 覆盖、保留用户已设的启停状态；
  * - 引用了宿主注册表里没有的原语的配方只展示、不可安装；
+ * - 在线取数两段式：先取瘦索引，再由索引并发取每条 skill.json；单条取不到只把该条
+ *   标 unavailable（索引条目构造占位卡片），不影响其它条目；
  * - 不自建缓存、不重试、不设超时；默认沿用浏览器 fetch 缓存语义，
  *   手动刷新（noStore）才用 cache:'no-store' 绕过 HTTP 缓存；不执行任何远程代码；
  * - browse() / install() 失败都转成中文结果，绝不把异常抛到对话 / 面板炸弹框。
  */
 
-import type { SkillPrimitive, SkillRecipe } from '@application/skill/SkillTypes';
+import type { SkillIndexEntry, SkillPrimitive, SkillRecipe } from '@application/skill/SkillTypes';
 import { UserSkillStore } from '@application/skill/dev/UserSkillStore';
 import { parseSkillRecipe } from '@application/skill/SkillRecipe';
-import { SkillCatalogClient } from './SkillCatalogClient';
+import { SkillCatalogClient, type ParsedSkillRegistry } from './SkillCatalogClient';
 import {
   SkillCatalogSources, DEFAULT_SKILL_REGISTRY_URL, type SkillSource,
 } from './SkillCatalogSources';
@@ -44,6 +46,26 @@ export interface SkillBrowseItem {
   state: SkillInstallState;
   /** unavailable 时给出原因（缺原语 / 单条配方不合法）；整份清单结构不合法由 browse 的 error 承载 */
   reason?: string;
+}
+
+/**
+ * 单条配方取不到时的占位卡片：只抄索引条目的展示字段，让 UI 能渲染名称/id/版本/分类。
+ * 不走 stateOf（否则二次 parse 会用「配方不合法」盖掉真实原因）；prompt 只写不可读说明，
+ * 不伪造可执行指令。unavailable 条目在 ChatPage 没有安装按钮，不会传给 install。
+ */
+function unavailableItem(entry: SkillIndexEntry, reason: string): SkillBrowseItem {
+  const recipe: SkillRecipe = {
+    schemaVersion: 1,
+    id: entry.id,
+    version: entry.version,
+    name: entry.name,
+    summary: entry.summary,
+    ...(entry.routeHint !== undefined ? { routeHint: entry.routeHint } : {}),
+    primitives: entry.primitives,
+    ...(entry.category !== undefined ? { category: entry.category } : {}),
+    prompt: `该配方暂时无法读取：${reason}`,
+  };
+  return { recipe, state: 'unavailable', reason: `配方读取失败：${reason}` };
 }
 
 /** 「在线技能」标签的只读浏览结果 */
@@ -117,16 +139,25 @@ export class SkillCatalogService {
   async browse(noStore = false): Promise<SkillCatalogBrowseResult> {
     const source = await this.sources.current();
     const url = this.onlineUrlOverride ?? source.url;
-    let remote: SkillRecipe[];
+    let parsed: ParsedSkillRegistry;
     try {
-      remote = await this.client.fetchRegistry(url, noStore);
+      parsed = await this.client.fetchRegistry(url, noStore);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       return { source, items: [], ...(reason ? { error: reason } : {}) };
     }
     const locals = await this.localEntries();
     const byId = new Map(locals.map((e) => [e.recipe.id, e]));
-    const items = remote.map((recipe) => this.stateOf(recipe, byId));
+    // noStore 必须透传给每个 fetchSkill：否则索引新、配方旧会静默漂移。
+    const items = await Promise.all(parsed.entries.map(async (item) => {
+      try {
+        const recipe = await this.client.fetchSkill(item, noStore);
+        return this.stateOf(recipe, byId);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        return unavailableItem(item.entry, reason);
+      }
+    }));
     return { source, items };
   }
 

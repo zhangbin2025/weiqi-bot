@@ -15,7 +15,7 @@ import { LocalStorageAdapter } from '@infrastructure/storage/adapters/web/LocalS
 import { validateRegistryUrl } from '@services/plugin-catalog/PluginCatalogUrl';
 import { WEIQI_ASSETS_BASE_URL } from '@services/share/WeiqiAssetsUrls';
 
-/** 官方默认技能源：站点根 + skills/registry.json */
+/** 官方默认技能源：站点根 + skills/registry.json（该文件现在是瘦索引） */
 export const DEFAULT_SKILL_REGISTRY_URL = `${WEIQI_ASSETS_BASE_URL}skills/registry.json`;
 export const SKILL_SOURCE_STORAGE_KEY = 'skill-catalog:current-source';
 

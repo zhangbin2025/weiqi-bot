@@ -9,7 +9,7 @@
  * - 失败时 reason 是中文可读原因，供上层静默回退内置技能。
  */
 
-import type { SkillRecipe, SkillRegistryFile } from './SkillTypes';
+import type { SkillIndexEntry, SkillRecipe, SkillRegistryIndex } from './SkillTypes';
 import { parseSecretSpecs } from './SecretSpec';
 
 /** 原语名即宿主注册表的固定 id：小写字母开头，只允许小写字母 / 数字 / 下划线。 */
@@ -394,14 +394,81 @@ export function parseSkillRecipe(
   return { ok: true, skill };
 }
 
-export function parseSkillRegistry(
+/**
+ * 索引条目的 primitives：与 readPrimitives 的差别只在「允许空数组」。
+ * 索引里看不到 workflow 声明，无法套用「无 workflow 时必须 >=1」判据；
+ * 两条 workflow 配方的 primitives 本来就是 []，不能在这里误拒。
+ * 名字格式仍沿用同一正则，未知字段一律忽略。
+ */
+function readIndexPrimitives(raw: Record<string, unknown>): FieldResult<string[]> {
+  const value = raw['primitives'];
+  if (!Array.isArray(value)) {
+    return { ok: false, reason: '字段「primitives」必须是字符串数组' };
+  }
+  const items: readonly unknown[] = value;
+  const out: string[] = [];
+  for (let i = 0; i < items.length; i += 1) {
+    const item: unknown = items[i];
+    if (typeof item !== 'string' || !PRIMITIVE_NAME_RE.test(item)) {
+      return { ok: false, reason: `字段「primitives」第 ${i + 1} 项必须匹配 /^[a-z][a-z0-9_]*$/` };
+    }
+    out.push(item);
+  }
+  return { ok: true, value: out };
+}
+
+/** 逐条索引校验：只取已知字段，不做 URL 解析（路径安全性交给 client） */
+function parseSkillIndexEntry(raw: unknown): FieldResult<SkillIndexEntry> {
+  if (!isRecord(raw)) {
+    return { ok: false, reason: '索引条目必须是一个对象' };
+  }
+  const id = readString(raw, 'id', 'id');
+  if (!id.ok) return id;
+  const version = readVersion(raw);
+  if (!version.ok) return version;
+  const name = readString(raw, 'name', 'name');
+  if (!name.ok) return name;
+  const summary = readString(raw, 'summary', 'summary');
+  if (!summary.ok) return summary;
+  const routeHint = readRouteWords(raw);
+  if (!routeHint.ok) return routeHint;
+  const primitives = readIndexPrimitives(raw);
+  if (!primitives.ok) return primitives;
+  const category = readCategory(raw);
+  if (!category.ok) return category;
+  const path = readString(raw, 'path', 'path');
+  if (!path.ok) return path;
+
+  // exactOptionalPropertyTypes：可选字段条件展开，不直塞 undefined；只构造已知字段。
+  const entry: SkillIndexEntry = {
+    id: id.value,
+    version: version.value,
+    name: name.value,
+    summary: summary.value,
+    ...(routeHint.value !== undefined ? { routeHint: routeHint.value } : {}),
+    primitives: primitives.value,
+    ...(category.value !== undefined ? { category: category.value } : {}),
+    path: path.value,
+  };
+  return { ok: true, value: entry };
+}
+
+/**
+ * 瘦索引（schemaVersion:2）解析：顶层只验清单骨架，逐条验索引条目。
+ * 与 parseSkillRecipe 的 schemaVersion:1 语义不同：那份是单条完整配方
+ * （本地库 / 安装 / skills/<id>/skill.json）的契约，两者互不替代。
+ */
+export function parseSkillRegistryIndex(
   raw: unknown,
-): { ok: true; registry: SkillRegistryFile } | { ok: false; reason: string } {
+): { ok: true; registry: SkillRegistryIndex } | { ok: false; reason: string } {
   if (!isRecord(raw)) {
     return { ok: false, reason: '技能清单必须是一个对象' };
   }
-  if (raw['schemaVersion'] !== 1) {
-    return { ok: false, reason: '技能清单字段「schemaVersion」必须等于 1' };
+  if (raw['schemaVersion'] !== 2) {
+    return {
+      ok: false,
+      reason: `不认识的技能清单 schemaVersion：${String(raw['schemaVersion'])}（宿主只支持 2）`,
+    };
   }
 
   const name = readString(raw, 'name', 'name');
@@ -413,20 +480,34 @@ export function parseSkillRegistry(
   if (!Array.isArray(value)) {
     return { ok: false, reason: '技能清单字段「skills」必须是数组' };
   }
+
+  // 可选 baseUrl：缺省 / 空串都当「没给」，交给 client 的 resolveBaseUrl 兜底；
+  // 显式给值时必须是字符串（非字符串直接拒，不静默吞掉）。
+  let baseUrl: string | undefined;
+  const baseRaw = raw['baseUrl'];
+  if (baseRaw !== undefined) {
+    if (typeof baseRaw !== 'string') {
+      return { ok: false, reason: '字段「baseUrl」若给必须是字符串' };
+    }
+    if (baseRaw.trim()) baseUrl = baseRaw;
+  }
+
   const items: readonly unknown[] = value;
-  const skills: SkillRecipe[] = [];
+  const skills: SkillIndexEntry[] = [];
   for (let i = 0; i < items.length; i += 1) {
-    const parsed = parseSkillRecipe(items[i]);
+    const parsed = parseSkillIndexEntry(items[i]);
     if (!parsed.ok) {
       return { ok: false, reason: `技能清单「skills」第 ${i + 1} 项无效：${parsed.reason}` };
     }
-    skills.push(parsed.skill);
+    skills.push(parsed.value);
   }
 
-  const registry: SkillRegistryFile = {
-    schemaVersion: 1,
+  // exactOptionalPropertyTypes：可选字段条件展开，不直塞 undefined。
+  const registry: SkillRegistryIndex = {
+    schemaVersion: 2,
     name: name.value,
     description: description.value,
+    ...(baseUrl !== undefined ? { baseUrl } : {}),
     skills,
   };
   return { ok: true, registry };
