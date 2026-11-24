@@ -26,6 +26,8 @@ export interface CreatePluginArtifactInput {
   conversationRef?: string;
   /** 在线插件安装时写入来源标记，供后续比对更新；LLM/手工新建时为 undefined */
   catalogRef?: PluginCatalogRef;
+  /** LLM/手工新建 workflow-operator 时的稳定算子短名（见 PluginArtifact.slug） */
+  slug?: string;
   /** workflow-operator 安装时写入算子契约（exposes[]/smoke[]），随工件持久化 */
   operatorContract?: PluginArtifact['operatorContract'];
   /** 在线插件清单声明的分类标签，随工件持久化，供本地面板筛选 */
@@ -39,6 +41,8 @@ export interface RevisePluginArtifactInput {
   feedback?: string;
   /** 省略表示这版代码被采纳为当前生效版本 */
   outcome?: PluginRevision['outcome'];
+  /** 可选：补正/更新稳定算子短名（首建时漏给可在这里补，不改则沿用现工件） */
+  slug?: string;
 }
 
 /** 可注入时钟，便于测试精确断言时间戳 */
@@ -110,6 +114,7 @@ export class PluginArtifactService {
         resourceId: input.catalogRef.resourceId,
       };
     }
+    if (input.slug !== undefined) artifact.slug = input.slug;
     if (input.operatorContract !== undefined) {
       artifact.operatorContract = JSON.parse(JSON.stringify(input.operatorContract)) as NonNullable<PluginArtifact['operatorContract']>;
     }
@@ -144,6 +149,7 @@ export class PluginArtifactService {
       version,
       updatedAt: at,
       history,
+      ...(input.slug !== undefined ? { slug: input.slug } : {}),
     };
     // 只提交变化字段，依赖 store 的 merge 语义保留 intent/spec/scope 等。
     await this.store.update(id, {
@@ -151,6 +157,7 @@ export class PluginArtifactService {
       version: updated.version,
       updatedAt: updated.updatedAt,
       history: updated.history,
+      ...(input.slug !== undefined ? { slug: updated.slug } : {}),
     });
     return updated;
   }

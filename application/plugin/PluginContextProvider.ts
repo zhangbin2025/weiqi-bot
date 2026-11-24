@@ -75,6 +75,7 @@ export class PluginContextProvider implements IPluginContextProvider {
       version: artifact.version,
       intent: truncateForPrompt(artifact.intent, this.limits.maxIntentLength),
     };
+    if (artifact.slug !== undefined) entry.slug = artifact.slug;
     // exactOptionalPropertyTypes：不能写 code: undefined，只在需要时赋值
     if (includeCode) {
       entry.code = artifact.code;

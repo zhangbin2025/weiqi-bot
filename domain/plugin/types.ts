@@ -198,6 +198,14 @@ export interface PluginArtifact {
   conversationRef?: string;
   /** 从在线插件源安装的工件才带；LLM/手工新建的工件没有此字段 */
   catalogRef?: PluginCatalogRef;
+  /**
+   * 可选：自建插件算子的稳定命名空间（短名）。LLM/手工新建 workflow-operator 时
+   * 由 plugin_write 的 slug 参数给一次，随后注册进算子表为 <slug>.<exposes[].name>，
+   * 技能配方的 workflow.steps[].call 才能稳定引用它（不依赖生成式 artifact.id）。
+   * 发布到 weiqi-assets 时由宿主映射成 registry 的 `workflow-operator.<slug>` resourceId；
+   * 在线安装件不需要此字段（它们的命名空间来自 catalogRef.resourceId）。
+   */
+  slug?: string;
   /** 可选：面板筛选用的分类标签（纯展示）。在线安装时取 registry 的 category；
    *  缺省由宿主按 pointId 兜底推导，见 presentation/adapters/web/pages/assistant/ChatPage.ts 的 pluginCategory() */
   category?: string;
@@ -214,6 +222,8 @@ export interface PluginContextEntry {
   version: number;
   intent: string;
   code?: string;
+  /** 自建算子的稳定短名；无则省略（在线安装件走 catalogRef.resourceId） */
+  slug?: string;
 }
 
 /** 回喂 LLM 的反馈包 */

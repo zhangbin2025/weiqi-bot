@@ -114,13 +114,13 @@ describe('分类推导：来源清楚、可复算', () => {
     expect(skillCategory('stock.quote')).toBe('财经');
     expect(skillCategory('tavily.search')).toBe('搜索');
     expect(skillCategory('weather.wttr')).toBe('生活');
-    expect(skillCategory('github.rest')).toBe('开发');
+    expect(skillCategory('admin.publish')).toBe('开发');
     expect(skillCategory('mine.custom')).toBe('未分类');
   });
 
   it('清单显式 category 优先；不认识的值当没写，走兜底', () => {
     expect(pluginCategory('ranking', '财经')).toBe('财经');
-    expect(skillCategory('github.rest', '围棋')).toBe('围棋');
+    expect(skillCategory('admin.publish', '围棋')).toBe('围棋');
     expect(pluginCategory('ranking', '火星')).toBe('排名');
     expect(skillCategory('puzzle.tsumego', '火星')).toBe('围棋');
   });
@@ -245,7 +245,7 @@ describe('本地技能 / 在线技能列表：标签条 + 筛选', () => {
   it('在线技能：data-category 来自 recipe，点标签不重新 browse', async () => {
     const page = makePage();
     const r1 = recipe('weather.wttr', '生活');
-    const r2 = recipe('github.rest', '开发');
+    const r2 = recipe('admin.publish', '开发');
     const items: SkillBrowseItem[] = [
       { recipe: r1, state: 'new' }, { recipe: r2, state: 'new' },
     ];

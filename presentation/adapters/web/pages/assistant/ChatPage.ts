@@ -5,16 +5,17 @@
  * 独立页面 assistant/chat.html 的控制器：
  * 复用功能助手的渲染器、会话存储、凭据与共享 CSS，不引入旧意图/命令体系。
  *
- * 页面由「模型角色」驱动（见 ChatRole）：默认闲聊，可切到插件开发 / 技能开发。
- * 三个角色共用同一个标准 tool-calling agent loop：闲聊挂网页/PDF/图片工具，
- * 插件角色挂插件工具集，技能开发是闲聊超集（额外挂 skill_list / skill_write）。
+ * 页面由「模型角色」驱动（见 ChatRole）：默认闲聊，可切到「开发」。
+ * 两个角色共用同一个标准 tool-calling agent loop：闲聊挂网页/PDF/图片工具，
+ * 「开发」是闲聊超集，叠加插件工具集 + 技能开发工具集（skill_list / skill_write），
+ * 既能写算子，也能写引用算子的 workflow 配方。
  * 角色只决定挂哪套工具与 system，不再按每句话猜意图，也没有两套循环。
  *
  * 角色固化在会话数据里（ChatSessionData.role），历史会话列表显示角色标识，
  * 打开历史会话会恢复它自己的角色。**已有聊天记录的会话角色锁定，不能切换**
  * —— 中途换角色会让同一段历史被两套知识体系解释，上下文会乱套。
  * 插件数据来自独立工件存储，不来自会话历史 —— 新会话、老会话、会话清空后
- * LLM 都能看到并修改插件。装配失败时降级为「闲聊可用、插件角色给提示」。
+ * LLM 都能看到并修改插件。装配失败时降级为「闲聊可用、开发角色给提示」。
  *
  * 右上角菜单六项：新建会话 / 历史会话 / 导出会话 / 清空会话 / 插件 / 技能。
  * 「插件」是人工确认闸门：查看完整源码、复制、启停、删除都由用户显式操作。
@@ -38,7 +39,7 @@ import { ConversationCompactor } from '../../../../../application/chat/Conversat
 import type { KvKit } from '../../../../../application/skill/kv/KvKit';
 import { collectSecretSpecs } from '../../../../../application/skill/SecretSpec';
 import {
-  createAuthFetchPrimitives, createSecretSpecRegistry,
+  createAuthFetchPrimitives, createSecretSpecRegistry, createPublishPrimitives,
   SECRET_PROMPT_SCHEME,
 } from '../../../../../application/skill/primitives/AuthFetchPrimitives';
 import { openSecretPromptDialog } from './SecretPromptDialog';
@@ -106,7 +107,7 @@ const SKILL_NS_CATEGORY: Readonly<Record<string, ExtensionCategory>> = {
   stock: '财经',
   weather: '生活', user: '生活', calendar: '生活',
   tavily: '搜索', search: '搜索',
-  github: '开发',
+  admin: '开发',
 };
 
 /** 显式 category 归一：去空白、必须落在白名单，否则当没写（走兜底） */
@@ -264,6 +265,15 @@ export class ChatPage {
         specs: secretSpecs,
         timeoutMs: webTools.timeoutMs,
       }),
+      // 发布是独立管理者技能的两个宿主原子接口：读本地资源 / 写 GitHub。
+      // 不命中 admin.publish 时这两个原语只是注册表里多两项，零污染。
+      ...createPublishPrimitives({
+        kv: kvKit.service,
+        specs: secretSpecs,
+        userSkills,
+        ...(this.plugin?.artifacts !== undefined ? { artifacts: this.plugin.artifacts } : {}),
+        timeoutMs: webTools.timeoutMs,
+      }),
     ]);
     this.skillPrimitives = skillPrimitives;
     this.skillCatalog = createDefaultSkillCatalog({
@@ -282,8 +292,13 @@ export class ChatPage {
         return recipes;
       },
       primitives: skillPrimitives,
-      // 只有「技能开发」角色会挂这俩工具；闲聊角色完全不接触
-      devKit: createSkillDevKit({ users: userSkills, primitives: skillPrimitives }),
+      // 只有「开发」角色会挂这俩工具；闲聊角色完全不接触。
+      // operatorNames 是惰性 getter：算子表在本段之后才装配/刷新，闭包每轮再取值。
+      devKit: createSkillDevKit({
+        users: userSkills,
+        primitives: skillPrimitives,
+        operatorNames: () => [...(this.operatorRegistryHolder.item?.specs.keys() ?? [])],
+      }),
     };
 
     // 阶段二装配：宿主统一算子表。deps 三件都复用装配根现成实例/工厂：

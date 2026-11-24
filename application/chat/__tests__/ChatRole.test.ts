@@ -1,8 +1,7 @@
 /**
  * ChatRole 测试：角色表是唯一的扩展点，配置驱动而非措辞驱动。
- * 早先那套「按每句话猜意图」的白名单判定与其测试已整体移除。
+ * 2026-11-24：plugin / skill-dev 合并为单一「开发」角色。
  */
-
 import { describe, it, expect } from 'vitest';
 import {
   CHAT_ROLES, DEFAULT_ROLE_ID, ROLE_STORAGE_KEY, ROLE_META_KEY,
@@ -14,25 +13,21 @@ describe('CHAT_ROLES 角色表', () => {
     expect(DEFAULT_ROLE_ID).toBe('chat');
     const chat = getRole('chat');
     expect(chat.agent).toBe(false);
+    expect(chat.skillDev).toBe(false);
     expect(chat.trace).toBe(false);
     expect(chat.label).toBe('闲聊');
   });
 
-  it('插件开发角色启用智能体与过程日志', () => {
-    const plugin = getRole('plugin');
-    expect(plugin.agent).toBe(true);
-    expect(plugin.trace).toBe(true);
-    expect(plugin.label).toBe('插件开发');
+  it('「开发」角色同时启用插件工具集与技能开发工具集', () => {
+    const dev = getRole('dev');
+    expect(dev.agent).toBe(true);
+    expect(dev.skillDev).toBe(true);
+    expect(dev.trace).toBe(true);
+    expect(dev.label).toBe('开发');
   });
 
-  it('技能开发角色是闲聊超集：不挂插件工具、开启开发能力', () => {
-    const dev = getRole('skill-dev');
-    expect(dev.agent).toBe(false);      // 不误走 plugin ToolKit
-    expect(dev.skillDev).toBe(true);   // 挂 skill_list / skill_write
-    expect(dev.trace).toBe(false);     // 沿用闲聊，不改过程块语义
-    expect(dev.label).toBe('技能开发');
-    expect(getRole('chat').skillDev).toBe(false);
-    expect(getRole('plugin').skillDev).toBe(false);
+  it('只有两个角色：闲聊 + 开发', () => {
+    expect(CHAT_ROLES.map((r) => r.id)).toEqual(['chat', 'dev']);
   });
 
   it('每个角色都有完整的展示信息（选择器直接用，不散落硬编码）', () => {
@@ -49,13 +44,6 @@ describe('CHAT_ROLES 角色表', () => {
     const ids = CHAT_ROLES.map((r) => r.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
-
-  it('扩展性：加一个角色只需在表里加一项，配置自洽即可（本用例示范结构约束）', () => {
-    // 这里不改表，只验证「配置对象」的形状能被 getRole / parseRoleId 消费：
-    // 任何新增项只要有 id 且 id 唯一，就会被自动纳入选择器与解析。
-    const hypothetical: ChatRoleId = 'chat';
-    expect(parseRoleId(hypothetical)).toBe('chat');
-  });
 });
 
 describe('getRole / parseRoleId', () => {
@@ -63,10 +51,11 @@ describe('getRole / parseRoleId', () => {
     expect(getRole('nope' as ChatRoleId).id).toBe(DEFAULT_ROLE_ID);
   });
 
-  it('parseRoleId 只接受表里的合法 id', () => {
+  it('parseRoleId 只接受当前合法 id，并把历史角色映射到 dev', () => {
     expect(parseRoleId('chat')).toBe('chat');
-    expect(parseRoleId('plugin')).toBe('plugin');
-    expect(parseRoleId('skill-dev')).toBe('skill-dev');
+    expect(parseRoleId('dev')).toBe('dev');
+    expect(parseRoleId('plugin')).toBe('dev');     // 历史：插件开发
+    expect(parseRoleId('skill-dev')).toBe('dev');  // 历史：技能开发
     expect(parseRoleId('CHAT')).toBeUndefined();
     expect(parseRoleId('')).toBeUndefined();
     expect(parseRoleId(undefined)).toBeUndefined();

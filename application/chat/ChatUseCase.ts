@@ -8,8 +8,9 @@
  * 两个角色共用**同一个**标准 tool-calling agent loop（ToolLoop.ts）：
  * - chat 角色：挂网页 / PDF / 图片工具，system 用 CONVERSATION_SYSTEM_PROMPT，source='web'；
  *   命中技能时按配方引用的原语追加工具与技能说明。
- * - plugin 角色：挂插件开发工具集（列/查/写/试算/启停/删除/应用/回滚），
- *   system 由工具集动态生成（实时插件清单 + 沙箱契约），source='plugin'。
+ * - dev「开发」角色：chat 超集与插件工具集（列/查/写/试算/启停/删除/应用/回滚）
+ *   取并集，外加技能开发工具集；system 以插件工具集的动态清单为主，
+ *   再追加技能说明 / 技能开发说明 / 本地数据层说明，source='plugin'。
  *
  * 角色只决定「挂哪套 tools + 注入哪段 system + 过程块标题」，不再有两套循环、
  * 不再有自造 JSON 动作协议，也不再有「调试步骤白名单」。新增能力 = 往工具集登记，
@@ -60,7 +61,7 @@ export const NOT_READY_HINT = '尚未配置 LLM，请回到功能助手执行 /l
 
 /** 选了插件角色但插件系统装配失败时的提示（页面始终可用，不抛错） */
 export const AGENT_UNAVAILABLE_HINT =
-  '插件系统未能加载，当前无法使用「插件开发」角色。请刷新重试，或切回「闲聊」角色继续对话。';
+  '插件系统未能加载，当前无法使用「开发」角色的插件能力。请刷新重试，或切回「闲聊」角色继续对话。';
 
 export function isSlashCommand(text: string): boolean {
   return text.trim().startsWith('/');
@@ -154,7 +155,7 @@ function hasImagePart(messages: readonly ModelMessage[]): boolean {
 
 /** 过程块标题：两个角色各一个，展示层按 source 再区分步骤标签 */
 const WEB_TRACE_TITLE = '🌐 访问过程';
-const PLUGIN_TRACE_TITLE = '🔧 插件开发过程';
+const PLUGIN_TRACE_TITLE = '🔧 开发过程';
 
 export class ChatUseCase {
   /** 上一轮激活的技能 id：供「好的 / 确认」这类承接语的路由信号，纯内存不落盘 */
@@ -443,11 +444,18 @@ export class ChatUseCase {
     // 路由失败 / 无需技能时返回空激活，正常对话继续，零额外工具。
     // chat 角色：技能系统与本地数据层只要装了任一个，就走拼装路径。
     // 两者都没装才逐字返回基础 web kit（保持旧行为、零额外 token）。
-    const kit: ToolKit = usePlugin
-      ? this.pluginToolKit!
-      : (this.skills || this.kvKit)
-        ? await this.buildChatToolKit(messages, localParts.length > 0, devMode, onTrace)
-        : createWebToolKit(this.webTools!);
+    // dev「开发」角色 = chat 超集 ∪ 插件工具集：两条开发链在同一会话里完成。
+    // 其余分支沿用旧行为（chat 走 chat 超集，精简装配走基础 web kit）。
+    let kit: ToolKit;
+    if (usePlugin && devMode) {
+      kit = await this.buildDevToolKit(messages, localParts.length > 0, onTrace);
+    } else if (usePlugin) {
+      kit = this.pluginToolKit!;
+    } else if (this.skills || this.kvKit) {
+      kit = await this.buildChatToolKit(messages, localParts.length > 0, devMode, onTrace);
+    } else {
+      kit = createWebToolKit(this.webTools!);
+    }
     const source: PluginTraceStep['source'] = usePlugin ? 'plugin' : 'web';
 
     return runToolLoop(
@@ -593,11 +601,58 @@ export class ChatUseCase {
     if (dev) {
       for (const t of dev.tools) appendTool(t, dev.executors[t.name]);
       systemPrompt = `${systemPrompt}\n\n${dev.systemSuffix}`;
+      // 算子清单是动态片段（插件启停会刷新），每轮重新求值后追加，不进静态 systemSuffix。
+      if (dev.operatorSuffix) {
+        const ops = dev.operatorSuffix();
+        if (ops) systemPrompt = `${systemPrompt}\n\n${ops}`;
+      }
     }
     // ToolLoop.systemPrompt 是替换制，因此域清单与边界说明必须追加到已拼好的
     // 完整 system 尾部，不冲掉闲聊 / 技能 / 技能开发说明。
     if (kvSuffix) systemPrompt = `${systemPrompt}\n\n${kvSuffix}`;
     return { tools, executors, systemPrompt };
+  }
+
+  /**
+   * 「开发」角色的合并工具集：chat 超集（web + kv + 命中技能原语 +
+   * skill_list/skill_write + 开发说明 + run_workflow）与插件工具集取并集。
+   * 去重按工具名、chat 侧优先（基础 web / 命中原语 / 开发工具先挂）。
+   * system 仍是插件工具集的**动态**清单函数（每轮读取实时工件），在其后
+   * 追加 chat 侧拼好的技能说明 / 开发说明 / kv 说明；maxTurns 沿用插件集
+   * （含 codegen 修复预算），source 仍标 plugin。不引入第二套循环。
+   */
+  private async buildDevToolKit(
+    messages: ModelMessage[],
+    hasNewParts: boolean,
+    onTrace?: (step: PluginTraceStep) => void,
+  ): Promise<ToolKit> {
+    const plugin = this.pluginToolKit;
+    const chat = await this.buildChatToolKit(messages, hasNewParts, true, onTrace);
+    if (!plugin) return chat; // 插件系统装配失败：降级为 chat 超集，开发能力不整条塌掉
+    const tools = [...chat.tools];
+    const executors: Record<string, ToolExecutor> = { ...chat.executors };
+    for (const t of plugin.tools) {
+      const exec = plugin.executors[t.name];
+      if (exec && !executors[t.name]) {
+        tools.push(t);
+        executors[t.name] = exec;
+      }
+    }
+    const pluginSystem = plugin.systemPrompt;
+    const chatSystem = chat.systemPrompt;
+    const systemPrompt = async (): Promise<string> => {
+      const base = pluginSystem === undefined
+        ? ''
+        : (typeof pluginSystem === 'function' ? await pluginSystem() : pluginSystem);
+      const extra = chatSystem === undefined
+        ? ''
+        : (typeof chatSystem === 'function' ? await chatSystem() : chatSystem);
+      return extra ? `${base}\n\n${extra}` : base;
+    };
+    return {
+      tools, executors, systemPrompt,
+      ...(plugin.maxTurns !== undefined ? { maxTurns: plugin.maxTurns } : {}),
+    };
   }
 
   /** 提示类消息：只渲染，绝不写历史 */

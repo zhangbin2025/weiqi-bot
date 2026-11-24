@@ -93,6 +93,9 @@ export function clonePluginArtifact(artifact: PluginArtifact): PluginArtifact {
   if (artifact.catalogRef !== undefined) {
     copy.catalogRef = cloneCatalogRef(artifact.catalogRef);
   }
+  if (artifact.slug !== undefined) {
+    copy.slug = artifact.slug;
+  }
   if (artifact.category !== undefined) {
     copy.category = artifact.category;
   }
@@ -130,6 +133,7 @@ export function mergePluginArtifact(
   if (patch.scope !== undefined) merged.scope = cloneScope(patch.scope);
   if (patch.conversationRef !== undefined) merged.conversationRef = patch.conversationRef;
   if (patch.catalogRef !== undefined) merged.catalogRef = cloneCatalogRef(patch.catalogRef);
+  if (patch.slug !== undefined) merged.slug = patch.slug;
   // category 与 operatorContract 同款：用 `in` 判定支持显式清空（在线清单撤掉标注时）。
   if ('category' in patch) {
     if (patch.category !== undefined) merged.category = patch.category;

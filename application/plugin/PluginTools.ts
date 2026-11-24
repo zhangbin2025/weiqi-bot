@@ -148,7 +148,9 @@ async function buildSystemPrompt(
     const entries: PluginContextEntry[] = await snapshot.snapshot();
     if (entries.length > 0) {
       list = entries.map((p) =>
-        `- ${p.id} | ${p.name} | 扩展点 ${p.pointId} | ${p.enabled ? '已启用' : '停用'} | v${p.version} | 需求：${p.intent}`,
+        `- ${p.id} | ${p.name} | 扩展点 ${p.pointId} | ${p.enabled ? '已启用' : '停用'} | v${p.version}`
+        + (p.slug !== undefined ? ` | slug=${p.slug}` : '')
+        + ` | 需求：${p.intent}`,
       ).join('\n');
     }
   } catch (error) {
@@ -181,6 +183,9 @@ async function buildSystemPrompt(
     '说「停用」就 enabled:false；不知道指哪个插件时先 plugin_list，不要凭记忆编 id。',
     '新建/修订产生的候选默认停用，用户确认后才启用。',
     '【命名】只有用户明确给规则起了名字时才传 name；否则省略，系统自动排号，不要自己编花哨名字。',
+    '写 workflow-operator 算子时给一个稳定 slug（小写字母/数字/下划线、不带点）：'
+    + '启用后算子名是 <slug>.<exposes[].name>，技能配方的 workflow.steps[].call 就引用它；'
+    + '新建漏给可以在修订时用 plugin_write 补 slug。',
     '',
     '【最终回复】用自然中文说明做了什么、试算结果如何、下一步建议；不要输出 JSON、不要贴整段源码。',
   ].join('\n');
@@ -360,6 +365,12 @@ async function requireArtifact(deps: PluginToolDeps, id: string): Promise<Plugin
 
 const ID_PARAM: Record<string, unknown> = { type: 'string', description: '插件 id（来自 plugin_list / 工具观察）' };
 const VERSION_PARAM: Record<string, unknown> = { type: 'number', description: '版本号（整数）；省略表示当前生效版本' };
+/**
+ * 算子短名形状：逐字复用 SkillRecipe.PRIMITIVE_NAME_RE（宿主原语/算子共享同一命名口径），
+ * 不带点是明说的约束 —— `<slug>.<method>` 用第一个点分隔命名空间与方法名。
+ * 不是拟合常数：来自既有宿主命名规则。
+ */
+const OPERATOR_SLUG_RE = /^[a-z][a-z0-9_]*$/;
 
 function buildTools(behaviors: ExtensionPointBehaviorRegistry): ModelToolDefinition[] {
   const pointIdEnum = Object.keys(PLUGIN_SPECS);
@@ -400,6 +411,13 @@ function buildTools(behaviors: ExtensionPointBehaviorRegistry): ModelToolDefinit
         artifactId: { type: 'string', description: '要修订的插件 id；省略则新建' },
         intent: { type: 'string', description: '原始需求描述（新建时必填；修订时可省略，沿用原需求）' },
         name: { type: 'string', description: '插件名；仅当用户明确起了名字时给，否则省略' },
+        slug: {
+          type: 'string',
+          description: '可选但写 workflow 算子时强烈建议给：稳定的算子命名空间短名（小写字母开头，'
+            + '只允许小写字母/数字/下划线，与宿主原语名同一形状、不带点）。'
+            + 'exposes[] 的每个方法会注册成 <slug>.<method>，技能配方的 workflow.steps[].call 就引用这个名字；'
+            + '不给则用生成式工件 id，配方无法稳定引用。新建时定，修订时可补正；发布到 weiqi-assets 时映射为 workflow-operator.<slug>。',
+        },
         feedback: { type: 'string', description: '本轮修改说明，会记进版本历史' },
         pointId: { type: 'string', enum: pointIdEnum, description: pointIdDesc },
         ...extraParamsOf(behaviors),
@@ -490,7 +508,9 @@ export function createPluginToolKit(deps: PluginToolDeps): PluginToolKit {
       return ok('当前没有任何插件。', '清单为空');
     }
     const lines = artifacts.map((a) =>
-      `- ${a.id} | ${a.name} | v${a.version} | ${a.enabled ? '已启用' : '停用'} | ${a.pointId} | 需求：${a.intent}`,
+      `- ${a.id} | ${a.name} | v${a.version} | ${a.enabled ? '已启用' : '停用'} | ${a.pointId}`
+      + (a.slug !== undefined ? ` | slug=${a.slug}` : '')
+      + ` | 需求：${a.intent}`,
     );
     return ok(`当前共 ${artifacts.length} 个插件：\n${lines.join('\n')}`, `列出 ${artifacts.length} 个插件`);
   };
@@ -508,6 +528,7 @@ export function createPluginToolKit(deps: PluginToolDeps): PluginToolKit {
       `id=${artifact.id}`, `name=${artifact.name}`, `pointId=${artifact.pointId}`,
       `version=${artifact.version}`, `enabled=${artifact.enabled}`, `源码版本=${picked.label}`,
       `intent=${artifact.intent}`,
+      ...(artifact.slug !== undefined ? [`slug=${artifact.slug}`] : []),
     ].join(' | ');
     return ok(
       `${head}\n\n【完整源码】\n${picked.code}`,
@@ -540,6 +561,14 @@ export function createPluginToolKit(deps: PluginToolDeps): PluginToolKit {
     if (!rawCode) return fail('plugin_write 缺少 code（必须给完整 JS 源码字符串，不是 diff/片段）');
     const code = normalizeCode(rawCode);
     const id = str(a.value, 'artifactId');
+    const slug = str(a.value, 'slug');
+    if (slug !== undefined && !OPERATOR_SLUG_RE.test(slug)) {
+      return fail(
+        `slug「${slug}」不合法：必须小写字母开头、只允许小写字母/数字/下划线（与宿主原语名同形状、不带点）。`
+        + '它要拼成 <slug>.<method> 供技能配方引用，点号会破坏分隔。',
+        '算子短名不合法',
+      );
+    }
 
     // 修订已有工件时，扩展点与契约以工件自身为准：模型不必、也不该在改代码时
     // 换掉 pointId（换扩展点等于换一种插件，应新建）。新建才允许选 pointId。
@@ -589,15 +618,23 @@ export function createPluginToolKit(deps: PluginToolDeps): PluginToolKit {
         const name = resolvePluginName(str(a.value, 'name'), entries);
         const created = await deps.artifacts.create({
           name, intent, code, pointId: spec.pointId, origin: 'llm', spec,
+          ...(slug !== undefined ? { slug } : {}),
           ...(result.artifactContract !== undefined
             ? { operatorContract: result.artifactContract as OperatorArtifactContract } : {}),
         });
         await deps.onArtifactChange?.();
         const behavior = behaviorOf(spec);
         const label = behavior?.resultLabel ?? '试算结果';
+        const opNames = (created.operatorContract?.exposes ?? []).map(
+          (e) => `${created.slug ?? created.id}.${e.name}`,
+        );
         return ok(
           `已新建插件候选：id=${created.id}，name=${created.name}，扩展点 ${spec.pointId}，`
           + `v${created.version}（默认停用，需用户确认后启用）。\n`
+          + (slug !== undefined
+            ? `算子命名空间 slug=${slug}；启用后算子名：${opNames.length > 0 ? opNames.join('、') : '<slug>.<method>'}`
+              + '（技能配方 workflow.steps[].call 引用这些名字）。\n'
+            : '未给 slug：算子名会用生成式工件 id，技能配方无法稳定引用；下次 plugin_write 可补一个 slug。\n')
           + `自动试算通过，${label}：\n${result.text}`,
           `新建 ${created.name} v${created.version}`,
           code,
@@ -612,6 +649,7 @@ export function createPluginToolKit(deps: PluginToolDeps): PluginToolKit {
         code,
         trigger: 'user-feedback',
         ...(feedback ? { feedback } : {}),
+        ...(slug !== undefined ? { slug } : {}),
       });
       // 资源契约随源码版本一起更新；不带契约的扩展点不碰，避免无意义的清空写。
       if (result.artifactContract !== undefined) {

@@ -1,5 +1,5 @@
 /**
- * 「技能开发」角色的增量工具集
+ * 「开发」角色的技能开发增量工具集
  * @module application/skill/dev/SkillDevTools
  *
  * 技能开发 = 闲聊的超集：基础 web 工具 + 本轮命中技能的原语（沿用）
@@ -11,6 +11,9 @@
  * 边界：
  * - 模型只写声明，绝不生成可执行代码；
  * - primitives 只能引用宿主注册表里已有的原语名，未知原语直接拒绝并回执可选清单；
+ * - workflow 配方是纯声明 DAG（steps[].call 引用算子名），同样零代码；
+ *   call 可引用当前已启用算子表里的名字（含自建插件算子 <slug>.<method>），
+ *   由宿主 WorkflowRunner 按名精确查表，未注册时结构化报「未注册算子」；
  * - 只能创建 / 修订 `user.` 前缀的自建技能；在线安装的配方只读，
  *   更新 / 删除由用户在「🧠 技能」面板操作，模型不得改写；
  * - 修订 = 对同一 id 再 write 一次（整份配方，不是 diff）；
@@ -34,6 +37,12 @@ export interface SkillDevDeps {
   users: UserSkillStore;
   /** 宿主原语注册表（与 selectSkills / buildSkillToolParts 同一份） */
   primitives: ReadonlyMap<string, SkillPrimitive>;
+  /**
+   * 可选：当前已启用算子表的名字清单（惰性 getter）。装配根在算子表建好之前
+   * 就会构造 devKit，故传函数、每轮写 system 时再求值；插件启停刷新后自动跟上。
+   * 不传则 system 不列算子清单（测试 / 精简装配保持旧行为）。
+   */
+  operatorNames?: () => readonly string[];
 }
 
 /** 挂进闲聊工具集的增量片段 */
@@ -42,6 +51,8 @@ export interface SkillDevKit {
   executors: Record<string, ToolExecutor>;
   /** 开发说明 system 片段，追加到本轮 system 尾部 */
   systemSuffix: string;
+  /** 可选：每轮动态追加的说明（当前已启用算子清单，供 workflow.call 引用） */
+  operatorSuffix?: () => string;
 }
 
 const SKILL_LIST_TOOL: ModelToolDefinition = {
@@ -57,7 +68,8 @@ const SKILL_WRITE_TOOL: ModelToolDefinition = {
   description:
     '创建或修订一条本机自建技能配方（纯声明 JSON，不含任何代码）。保存后立即生效。'
     + '新建时不填 id（宿主生成 user. 前缀的稳定 id）；修订时填 skill_list 查到的同一 id，'
-    + '并给出整份配方。在线安装的技能是只读的，不能改写；primitives 只能引用系统提示里「可用原语」列出的名字。',
+    + '并给出整份配方。在线安装的技能是只读的，不能改写；primitives 只能引用系统提示里「可用原语」列出的名字。'
+    + '带 workflow 的配方是纯声明 DAG：primitives 可为空数组，能力声明在 workflow.steps[].call（引用当前算子表里的名字）。',
   parameters: {
     type: 'object',
     properties: {
@@ -76,7 +88,8 @@ const SKILL_WRITE_TOOL: ModelToolDefinition = {
       },
       primitives: {
         type: 'array', items: { type: 'string' },
-        description: '引用的宿主原语名数组，至少 1 条，必须来自「可用原语」清单',
+        description: '引用的宿主原语名数组，必须来自「可用原语」清单；'
+          + '无 workflow 的散文配方至少 1 条，带 workflow 的配方允许空数组 []（能力由 workflow.steps 声明）',
       },
       secrets: {
         type: 'array',
@@ -95,6 +108,20 @@ const SKILL_WRITE_TOOL: ModelToolDefinition = {
       prompt: {
         type: 'string',
         description: '命中后追加给对话的自然语言指令（纯文本，不写代码、不写网址模板）',
+      },
+      workflow: {
+        type: 'object',
+        description: '可选。纯声明 DAG：{"steps":[{"id":"唯一节点id","call":"算子名","args":{...},'
+          + '"bindings":[{"from":"更靠前的节点id","path":"$ 或取值路径","as":"注入的参数名"}],"yield":true|false}]}。'
+          + 'steps 顺序即拓扑序；bindings.from 只能指向更靠前的真实节点（天然无环）；'
+          + 'call 引用「当前已启用算子」清单里的名字，含自建插件算子 <slug>.<method>；'
+          + '{{input.xxx}} 可在 args 里引用 inputs 声明的入参。零代码、无表达式/条件/循环。',
+      },
+      inputs: {
+        type: 'array',
+        items: { type: 'object' },
+        description: '可选。run_workflow 入口的填参契约：每项 {name, type: string|number|integer|boolean|object|array,'
+          + ' required?: boolean, default?: 任意, enum?: 数组}；与 workflow 配套，name 在数组内唯一。',
       },
     },
     required: ['name', 'summary', 'primitives', 'prompt'],
@@ -170,6 +197,19 @@ function buildSystemSuffix(primitives: ReadonlyMap<string, SkillPrimitive>): str
       + '模型调用时只给 url 和 secretKey，绝不传密钥、请求头或 body 字段，'
       + '首次缺失时贴 secret-prompt 链接让用户在弹框录入并自动保存。',
     '',
+    '【workflow 配方（纯声明 DAG，零代码）】',
+    '需要把多个算子串成固定流程时，用 skill_write 的 workflow 字段；此时 primitives 填 []，能力全部声明在 workflow.steps。',
+    '每个 step 形如 {id, call, args?, bindings?, yield?}：',
+    '- id：steps 内唯一；call：下面「当前已启用算子」清单里的名字（内置 snake_case 或自建插件算子 <slug>.<method>）；',
+    '- args：字面量参数对象；可用 {{input.xxx}} 引用 inputs 里声明的入参；',
+    '- bindings：从更靠前节点的 .value 取值注入本步参数，形如 {from:"上游id", path:"$", as:"参数名"}；'
+      + 'from 只能指向位置更靠前的真实 step id，天然无环，不许自引用；',
+    '- yield:true 的节点结果进宿主汇总；成功观察只回「完成 + 句柄」，正文不回灌模型。',
+    'inputs 是 run_workflow 入口的填参契约：{name, type, required?, default?, enum?}，type 取 string/number/integer/boolean/object/array。',
+    'workflow 配方仍要写 name / summary / prompt（prompt 只是展示说明，不进 model system）。',
+    'call 不校验静态白名单：运行时由宿主 OperatorRegistry 按名精确查表，未注册会结构化报「未注册算子」。'
+      + '写之前先看下面清单，别编造算子名。',
+    '',
     '硬性规则：',
     '- 只写声明 JSON，绝不生成代码；primitives 出现上表以外的名字会被宿主拒绝；'
       + 'secrets 写错形状同样会被 parseSkillRecipe 拒绝。',
@@ -184,7 +224,7 @@ function buildSystemSuffix(primitives: ReadonlyMap<string, SkillPrimitive>): str
 
 /** 构造挂到闲聊工具集上的增量片段（工具声明 + 执行器 + system 说明） */
 export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
-  const { users, primitives } = deps;
+  const { users, primitives, operatorNames } = deps;
   const validPrimitiveNames = [...primitives.keys()];
 
   const listExecutor: ToolExecutor = async (): Promise<ToolOutcome> => {
@@ -200,7 +240,11 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
         id: e.recipe.id, name: e.recipe.name, version: e.recipe.version,
         source: e.source, enabled: e.enabled,
         primitives: e.recipe.primitives,
+        ...(e.recipe.routeHint !== undefined ? { routeHint: e.recipe.routeHint } : {}),
         ...(e.recipe.secrets !== undefined ? { secrets: e.recipe.secrets } : {}),
+        ...(e.recipe.category !== undefined ? { category: e.recipe.category } : {}),
+        ...(e.recipe.workflow !== undefined ? { workflow: e.recipe.workflow } : {}),
+        ...(e.recipe.inputs !== undefined ? { inputs: e.recipe.inputs } : {}),
         summary: e.recipe.summary,
         prompt: e.recipe.prompt,
       }));
@@ -271,6 +315,8 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
       primitives: args['primitives'],
       ...(args['secrets'] !== undefined ? { secrets: args['secrets'] } : {}),
       ...(args['category'] !== undefined ? { category: args['category'] } : {}),
+      ...(args['workflow'] !== undefined ? { workflow: args['workflow'] } : {}),
+      ...(args['inputs'] !== undefined ? { inputs: args['inputs'] } : {}),
       prompt: args['prompt'],
     });
     if (!parsed.ok) {
@@ -299,6 +345,22 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
     }
   };
 
+  // 每轮 system 拼装时再求值：算子表会随插件启停刷新，闭包不捕获旧快照。
+  // 未注入 getter 时不产生该片段（测试 / 精简装配零回归）。
+  const operatorSuffix: (() => string) | undefined = operatorNames === undefined
+    ? undefined
+    : () => {
+      const names = [...operatorNames()].sort();
+      const list = names.length > 0
+        ? names.map((n) => `- ${n}`).join('\n')
+        : '- （当前无已启用算子；内置原语仍可作为 call 使用）';
+      return [
+        '【当前已启用算子（workflow.steps[].call 只能引用这里 / 内置原语名）】',
+        list,
+        '插件算子形如 <slug>.<method>；未注册的名字运行时会结构化报「未注册算子」。',
+      ].join('\n');
+    };
+
   return {
     tools: [SKILL_LIST_TOOL, SKILL_WRITE_TOOL],
     executors: {
@@ -306,5 +368,6 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
       [SKILL_WRITE_TOOL.name]: writeExecutor,
     },
     systemSuffix: buildSystemSuffix(primitives),
+    ...(operatorSuffix !== undefined ? { operatorSuffix } : {}),
   };
 }

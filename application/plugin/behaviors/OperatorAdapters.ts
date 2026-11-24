@@ -39,20 +39,24 @@ export interface OperatorAdapter {
 export type OperatorAdapterRegistry = Readonly<Record<string, OperatorAdapter>>;
 
 /**
- * 工件算子命名空间（slug）的唯一权威来源是 `artifact.catalogRef?.resourceId`
- * ——远端资源声明、发布后稳定不变的 id。`artifact.id` 只是本地工件主键
- * （在线安装件是 `plugin:<ts>:<random>` 生成式），绝不拿来当算子命名空间。
- * 有 `workflow-operator.` 前缀则去掉，否则用整串；无 catalogRef 用完整 artifact.id，不猜名字。
- * 这段逻辑从 OperatorRegistry.artifactSlug 原样搬来，两个 adapter 共用。
+ * 工件算子命名空间（slug）的权威来源，按优先级：
+ * 1. `artifact.slug` —— LLM/手工自建件由 plugin_write 显式给的稳定短名（发布时
+ *    映射成 `workflow-operator.<slug>` resourceId）；有它就能让技能配方的
+ *    workflow.steps[].call 稳定引用自己开发的算子，不依赖生成式 artifact.id。
+ * 2. `artifact.catalogRef?.resourceId` —— 在线安装件的远端资源 id（发布后稳定不变），
+ *    有 `workflow-operator.` 前缀则去掉，否则用整串。
+ * 3. 都没有时才回退完整 `artifact.id`（生成式，仅展示/兜底，不该被配方引用）。
+ * 两个 adapter 共用，框架不认识具体扩展点。
  */
 function artifactSlug(artifact: PluginArtifact): string {
+  if (artifact.slug !== undefined && artifact.slug.trim() !== '') return artifact.slug;
   const resourceId = artifact.catalogRef?.resourceId;
   const prefix = `${WORKFLOW_OPERATOR_POINT_ID}.`;
   if (resourceId !== undefined && resourceId.startsWith(prefix)) {
     return resourceId.slice(prefix.length); // 'workflow-operator.calc' → 'calc'
   }
   if (resourceId !== undefined) return resourceId; // 资源 id 本身即命名空间
-  return artifact.id; // LLM / 手工自建件：完整生成式 id
+  return artifact.id; // LLM / 手工自建件（未给 slug）：完整生成式 id
 }
 
 /** 单入口适配：算子名取资源 id 全名（不带 `ranking.` 前缀才补），沙箱 input 直接是算子 args。 */
