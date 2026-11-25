@@ -13,7 +13,13 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ChatPage } from '../ChatPage';
-import { CHAT_ROLES } from '@application/chat/ChatRole';
+import { CHAT_ROLES, getRole } from '@application/chat/ChatRole';
+
+// 2026-11-24：plugin / skill-dev 合并为 dev「开发」。
+// 旧会话持久化的 'plugin' 由 parseRoleId 映射到 dev（历史兼容，单独有用例覆盖）；
+// 但传给 getRole / switchRole 的必须是当前合法 id，旧 id 会静默回落 chat。
+const DEV = 'dev';
+const DEV_BADGE = `${getRole(DEV).icon} ${getRole(DEV).label}`;
 
 interface Harness {
   page: ChatPage & Record<string, unknown>;
@@ -88,7 +94,7 @@ beforeEach(() => {
 describe('角色锁定：已有聊天记录不能切换', () => {
   it('有记录时拒绝切换，角色不变、不新建会话、不改写会话数据，并给出提示', async () => {
     const { page, calls } = makeHarness([{ role: 'user', content: '写个规则', timestamp: 1 }]);
-    await (page.switchRole as (r: string) => Promise<void>)('plugin');
+    await (page.switchRole as (r: string) => Promise<void>)(DEV);
     expect(page['currentRole']).toBe('chat');
     expect(calls.createSession).toBe(0);
     expect(calls.setRole).toHaveLength(0);
@@ -105,34 +111,36 @@ describe('角色锁定：已有聊天记录不能切换', () => {
 
   it('空会话允许直接切换：改写本会话角色，不新建会话（不留空会话垃圾）', async () => {
     const { page, calls } = makeHarness([]);
-    await (page.switchRole as (r: string) => Promise<void>)('plugin');
-    expect(page['currentRole']).toBe('plugin');
-    expect(calls.setRole).toContain('plugin');
+    await (page.switchRole as (r: string) => Promise<void>)(DEV);
+    expect(page['currentRole']).toBe(DEV);
+    expect(calls.setRole).toContain(DEV);
     expect(calls.createSession).toBe(0);
     expect(calls.render.some((t) => t.includes('已切换到'))).toBe(true);
   });
 
   it('清空后（无消息）同一会话可再切角色', async () => {
     const { page, calls } = makeHarness([]);
-    await (page.switchRole as (r: string) => Promise<void>)('plugin');
+    await (page.switchRole as (r: string) => Promise<void>)(DEV);
     await (page.switchRole as (r: string) => Promise<void>)('chat');
     expect(page['currentRole']).toBe('chat');
-    expect(calls.setRole).toEqual(['plugin', 'chat']);
+    expect(calls.setRole).toEqual([DEV, 'chat']);
   });
 });
 
 describe('readSessionRole：角色来自会话数据，不是页面侧映射', () => {
-  it('plugin / chat 正确读取；缺失、脏数据、找不到会话都回退默认闲聊', async () => {
+  it('dev / chat 正确读取；旧 plugin 映射 dev；缺失、脏数据、找不到会话回退默认闲聊', async () => {
     const { page } = makeHarness();
     page['_sessions'] = [
-      { sessionId: 'a', data: { role: 'plugin', messages: [] } },
+      { sessionId: 'a', data: { role: DEV, messages: [] } },
+      { sessionId: 'a-legacy', data: { role: 'plugin', messages: [] } },
       { sessionId: 'b', data: { role: 'chat', messages: [] } },
       { sessionId: 'old', data: { messages: [] } },
       { sessionId: 'dirty', data: { role: 'garbage', messages: [] } },
     ];
     const read = (id: string): Promise<string> =>
       (page.readSessionRole as (id: string) => Promise<string>).call(page, id);
-    expect(await read('a')).toBe('plugin');
+    expect(await read('a')).toBe(DEV);
+    expect(await read('a-legacy')).toBe(DEV); // 历史兼容：parseRoleId 旧 id → dev
     expect(await read('b')).toBe('chat');
     expect(await read('old')).toBe('chat');
     expect(await read('dirty')).toBe('chat');
@@ -146,6 +154,7 @@ describe('打开历史会话：恢复它自己的角色', () => {
     page['_sessions'] = [{
       sessionId: 'hist1',
       data: { role: 'plugin', messages: [{ role: 'user', content: '启用', timestamp: 1 }] },
+      // 旧会话里持久化的 plugin 由 readSessionRole/parseRoleId 映射成 dev
     }];
     page['_msgs'] = [{ role: 'user', content: '启用', timestamp: 1 }];
     document.body.innerHTML = '<div class="session-card" data-session-id="hist1"></div>';
@@ -154,7 +163,7 @@ describe('打开历史会话：恢复它自己的角色', () => {
     document.querySelector('.session-card')!.dispatchEvent(new Event('click'));
     await new Promise((r) => setTimeout(r, 20)); // 等 async click handler
 
-    expect(page['currentRole']).toBe('plugin');
+    expect(page['currentRole']).toBe(DEV);
     expect(calls.syncUI).toBeGreaterThan(0);
   });
 });
@@ -162,7 +171,7 @@ describe('打开历史会话：恢复它自己的角色', () => {
 describe('角色 UI：锁定态与历史列表徽标', () => {
   it('有记录时按钮带 🔒、下拉有说明、非当前角色禁用', () => {
     const { page, doc } = makeHarness([{ role: 'user', content: '启用', timestamp: 1 }], { realRoleUI: true });
-    page['currentRole'] = 'plugin';
+    page['currentRole'] = DEV;
     (ChatPage.prototype as unknown as { syncRoleUI: () => void }).syncRoleUI.call(page);
 
     const btn = doc.getElementById('roleBtn')!;
@@ -190,11 +199,11 @@ describe('角色 UI：锁定态与历史列表徽标', () => {
   it('历史列表卡片显示角色徽标；老会话标「（旧）」', async () => {
     const { page, calls, doc } = makeHarness([]);
     page['_sessions'] = [
-      { sessionId: 'a', data: { role: 'plugin', updatedAt: 3, messages: [] } },
+      { sessionId: 'a', data: { role: DEV, updatedAt: 3, messages: [] } },
       { sessionId: 'old', data: { updatedAt: 2, messages: [] } },
     ];
     await (page.showHistory as () => Promise<void>)();
-    expect(calls.dialogContent).toContain('🧩 插件开发');
+    expect(calls.dialogContent).toContain(DEV_BADGE);
     expect(calls.dialogContent).toContain('💬 闲聊（旧）');
     expect(calls.dialogContent).toContain('session-card__role');
   });

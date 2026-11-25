@@ -85,7 +85,7 @@ describe('ChatUseCase: chat 角色的网络智能体接线', () => {
     expect(r.finishPluginTrace).toHaveBeenCalled();
   });
 
-  it('plugin 角色挂插件工具集，即使装配了 webTools 也不碰网络工具', async () => {
+  it('dev 角色挂插件工具集，即使装配了 webTools 也不碰网络工具', async () => {
     const r = renderer();
     const kit: ToolKit = {
       tools: [{ name: 'plugin_list', description: '列出插件', parameters: { type: 'object' } }],
@@ -93,11 +93,17 @@ describe('ChatUseCase: chat 角色的网络智能体接线', () => {
       systemPrompt: () => Promise.resolve('你是插件开发智能体'),
     };
     const gw = gateway([{ text: '已就绪' }]);
-    const uc = new ChatUseCase(gw, history(), r, kit, () => 'plugin', webTools);
+    // 2026-11-24：plugin / skill-dev 合并为 dev；传旧 id 会回落 chat 并挂 web 工具
+    const uc = new ChatUseCase(gw, history(), r, kit, () => 'dev', webTools);
     await uc.send('写个规则');
     expect(webTools.fetchImpl).not.toHaveBeenCalled();
     const req = (gw.execute as ReturnType<typeof vi.fn>).mock.calls[0]![0];
-    expect(req.tools.map((t: { name: string }) => t.name)).toEqual(['plugin_list']);
+    // 2026-11-24 角色合并：dev = chat 超集 ∪ 插件集，web 工具仍会挂在 tools 里，
+    // 但本轮模型没调用它们（fetchImpl 零调用），且 system 用插件集的动态清单。
+    // 旧断言 toEqual(['plugin_list']) 是「plugin 角色独占工具集」时期的口径。
+    const names: string[] = req.tools.map((t: { name: string }) => t.name);
+    expect(names).toContain('plugin_list');
+    expect(names.filter((n) => n.startsWith('plugin_'))).toEqual(['plugin_list']);
     expect(req.messages[0]).toEqual({ role: 'system', content: '你是插件开发智能体' });
   });
 });

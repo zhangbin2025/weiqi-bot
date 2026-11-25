@@ -205,12 +205,12 @@ describe('parseSkillRecipe 与 routeHint（可选路由词，短语数组）', (
   it('数组含换行项 → 拒绝整条配方（目录一技能一行）', () => {
     const r = parseSkillRecipe({ ...base, routeHint: ['正常短语', '第一行\n第二行'] });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toContain('单行非空短语');
+    if (!r.ok) expect(r.reason).toContain('单行非空字符串短语');
   });
 
   it('数组含非字符串项 → 拒绝整条配方', () => {
     const r = parseSkillRecipe({ ...base, routeHint: ['用户说「查一下…」时', 42] });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toContain('单行非空短语');
+    if (!r.ok) expect(r.reason).toContain('单行非空字符串短语');
   });
 });

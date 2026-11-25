@@ -48,15 +48,19 @@ function index(
 }
 
 function indexEntry(r: Record<string, unknown>, overrides: Record<string, unknown> = {}) {
-  return {
+  // 与 SkillCatalogService.test.ts 的 indexOf 同口径：索引条目要把所有
+  // fetchSkill 会比对的重叠字段原样抄过来（routeHint / category 缺省则不出现）。
+  const entry: Record<string, unknown> = {
     id: r['id'],
     version: r['version'],
     name: r['name'],
     summary: r['summary'],
     primitives: r['primitives'],
     path: `${String(r['id'])}/skill.json`,
-    ...overrides,
   };
+  if (r['routeHint'] !== undefined) entry['routeHint'] = r['routeHint'];
+  if (r['category'] !== undefined) entry['category'] = r['category'];
+  return { ...entry, ...overrides };
 }
 
 /** 按 URL 路由：registry.json → 索引；<id>/skill.json → 配方；其余 404 */

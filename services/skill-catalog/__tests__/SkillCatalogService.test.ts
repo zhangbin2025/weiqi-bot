@@ -409,7 +409,11 @@ describe('parseSkillRegistryIndex — v2 瘦索引解析', () => {
     const missingPath = indexOf([recipe({ id: 'a' })]);
     delete (missingPath['skills'] as Record<string, unknown>[])[0]!['path'];
     expect(parseSkillRegistryIndex(missingPath).ok).toBe(false);
-    expect(parseSkillRegistryIndex(indexOf([recipe({ path: '' })])).ok).toBe(false);
+    // path 是索引条目字段，不是配方字段：直接改 helper 生成的条目，
+    // 不能塞进 recipe()（indexOf 会自己用 `${id}/skill.json` 覆盖）。
+    const emptyPath = indexOf([recipe()]);
+    (emptyPath['skills'] as Record<string, unknown>[])[0]!['path'] = '';
+    expect(parseSkillRegistryIndex(emptyPath).ok).toBe(false);
     expect(parseSkillRegistryIndex(indexOf([recipe({ primitives: ['Web_Fetch'] })])).ok).toBe(false);
   });
 
