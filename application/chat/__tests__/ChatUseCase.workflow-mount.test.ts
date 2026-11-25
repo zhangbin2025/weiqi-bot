@@ -120,7 +120,7 @@ function firstSystem(gw: ReturnType<typeof gateway>): string {
 }
 
 describe('run_workflow 挂载（开发角色验收刚写的 workflow 技能）', () => {
-  it('dev 角色 + 路由未命中：run_workflow 仍挂载，且 skillId enum 含刚写的配方', async () => {
+  it('dev 角色 + 路由未命中：run_workflow 仍挂载，skillId 指路 skill_list（不写死 enum）', async () => {
     const gw = gateway();
     await make('dev', gw).send('帮我验收一下这个技能');
     const names = firstTools(gw);
@@ -132,8 +132,10 @@ describe('run_workflow 挂载（开发角色验收刚写的 workflow 技能）',
     expect(wfTool).toBeDefined();
     const props = (wfTool!.parameters as { properties?: Record<string, unknown> }).properties ?? {};
     expect(props['debug']).toBeDefined(); // dev 侧暴露调试开关
-    const skillId = props['skillId'] as { enum?: string[] } | undefined;
-    expect(skillId?.enum).toContain('user.demo.workflow');
+    const skillId = props['skillId'] as { enum?: string[]; description?: string } | undefined;
+    // dev 同轮会 skill_write：装配期 enum 会冻结旧 id，故不写死，指路实时 skill_list
+    expect(skillId?.enum).toBeUndefined();
+    expect(skillId?.description).toContain('skill_list');
     expect(wfTool!.description).toContain('user.demo.workflow');
     expect(firstSystem(gw)).toContain('【技能开发能力】测试片段');
   });

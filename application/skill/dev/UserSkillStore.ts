@@ -13,8 +13,11 @@
  * - custom：技能开发角色 skill_write 造的，id 一律 `user.` 前缀，version 由宿主递增；
  * - online：面板「在线技能」点安装落下来的，id / version 原样取远端，只读（模型不可改写）。
  *
- * 安装即启用、自建也即时生效：技能是纯声明、不执行代码，不需要插件那道
- * 「默认停用 → 人工启用」闸门；安装本身与写完当场验收都是明确的用户动作。
+ * 启停口径（2026-11-25）：
+ * - 散文技能 / 在线安装：纯声明、不执行代码，保存即启用（既有行为不变）；
+ * - 带 workflow 声明的自建技能：**保存/修订一律未启用**，只有 dev 角色
+ *   `run_workflow(debug:true)` 整条 DAG 跑通后由宿主翻转启用。
+ *   修订会重置这道闸门，避免「旧版验收过、新版没验就自动生效」。
  */
 
 import { LocalStorageAdapter } from '@infrastructure/storage/adapters/web/LocalStorageAdapter';
@@ -91,7 +94,9 @@ export class UserSkillStore {
     }
     const next: UserSkillEntry = {
       recipe: { ...recipe, version: (existing?.recipe.version ?? 0) + 1 },
-      enabled: existing?.enabled ?? true,
+      // workflow 配方走「调试通过才启用」闸门：新建默认停用、修订重置停用
+      // （不沿用旧 enabled，否则改一版没验收就自动生效）。散文技能仍即时启用。
+      enabled: recipe.workflow !== undefined ? false : (existing?.enabled ?? true),
       source: 'custom',
       updatedAt: Date.now(),
     };

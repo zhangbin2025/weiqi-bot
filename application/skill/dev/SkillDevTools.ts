@@ -17,8 +17,9 @@
  * - 只能创建 / 修订 `user.` 前缀的自建技能；在线安装的配方只读，
  *   更新 / 删除由用户在「🧠 技能」面板操作，模型不得改写；
  * - 修订 = 对同一 id 再 write 一次（整份配方，不是 diff）；
- * - 保存即时生效（纯声明零代码，不需要插件那道人工启用闸门），
- *   用户可在同一会话里说一句触发词当场验收。
+ * - 散文技能保存即时生效（纯声明零代码，不需要人工启用闸门）；
+ * - 带 workflow 的配方保存后**未启用**，必须 dev 角色 run_workflow(debug:true)
+ *   整条 DAG 跑通才由宿主翻转启用（「调试通过才启用」）；修订会重置闸门。
  *
  * id 生成：新建时由宿主按 name 确定性地生成 `user.` 前缀 id。用 FNV-1a 32bit
  * （标准具名算法：offset basis 2166136261 / prime 16777619，转 base36）做短哈希，
@@ -31,6 +32,7 @@ import type { SkillPrimitive } from '@application/skill/SkillTypes';
 import { parseSkillRecipe } from '@application/skill/SkillRecipe';
 import { NAVIGATE_TO_TOOL_NAME, NAVIGATE_TO_TOOL } from '@application/skill/primitives/BasicPrimitives';
 import type { UserSkillStore } from './UserSkillStore';
+import type { WorkflowDevHooks } from '../WorkflowTool';
 
 export interface SkillDevDeps {
   /** 用户自建技能库（与面板 / SkillCatalogService 共用同一实例） */
@@ -53,6 +55,11 @@ export interface SkillDevKit {
   systemSuffix: string;
   /** 可选：每轮动态追加的说明（当前已启用算子清单，供 workflow.call 引用） */
   operatorSuffix?: () => string;
+  /**
+   * 宿主内部接线（**不是模型工具**）：run_workflow 每次调用动态读候选配方 +
+   * debug 跑通后翻转启用。模型无法直接调用，也就绕不过「调试通过才启用」闸门。
+   */
+  workflowHooks?: WorkflowDevHooks;
 }
 
 const SKILL_LIST_TOOL: ModelToolDefinition = {
@@ -66,7 +73,9 @@ const SKILL_LIST_TOOL: ModelToolDefinition = {
 const SKILL_WRITE_TOOL: ModelToolDefinition = {
   name: 'skill_write',
   description:
-    '创建或修订一条本机自建技能配方（纯声明 JSON，不含任何代码）。保存后立即生效。'
+    '创建或修订一条本机自建技能配方（纯声明 JSON，不含任何代码）。散文技能保存即启用；'
+    + '带 workflow 的技能保存后处于「未启用（待验收）」，必须 run_workflow 传 debug:true '
+    + '整条 DAG 跑通后才由宿主启用，修订会重置这道闸门。'
     + '新建时不填 id（宿主生成 user. 前缀的稳定 id）；修订时填 skill_list 查到的同一 id，'
     + '并给出整份配方。在线安装的技能是只读的，不能改写；primitives 只能引用系统提示里「可用原语」列出的名字。'
     + '带 workflow 的配方是纯声明 DAG：primitives 可为空数组，能力声明在 workflow.steps[].call（引用当前算子表里的名字）。',
@@ -221,7 +230,10 @@ function buildSystemSuffix(primitives: ReadonlyMap<string, SkillPrimitive>): str
     '- 只写声明 JSON，绝不生成代码；primitives 出现上表以外的名字会被宿主拒绝；'
       + 'secrets 写错形状同样会被 parseSkillRecipe 拒绝。',
     '- 每次提交都是整份配方（不是 diff）；修订时把全部字段重新给全。',
-    '- 保存后可让用户直接说一句触发词，在同一会话里当场验收；不满意就按同一 id 再写一次修订。',
+    '- 散文技能保存即启用，可让用户说一句触发词当场验收；不满意就按同一 id 再写一次修订。',
+    '- 带 workflow 的技能保存后**未启用（待验收）**：用 run_workflow 传 debug:true 真跑一遍，'
+      + '只有整条 DAG 成功才由宿主自动启用；失败就按同一 id 修订后再复跑，'
+      + '每次修订都会重置为未启用，避免没验收的新版本直接生效。',
     '- 技能只保存在当前浏览器；在线技能要在 ⋮ →「🧠 技能」→「在线技能」里点安装，装进本地库后才会生效，模型不负责安装。',
     '- skill_list 里来源为「在线安装」的条目只读，不要拿它当自建技能去 skill_write 修订；更新 / 删除由用户在面板操作。',
     '- 自建技能可在同一面板里启停 / 删除 / 配置在线技能源。',
@@ -342,18 +354,20 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
           ? [`声明凭据：${entry.recipe.secrets.map((s) => s.key).join('、')}`
             + `（仅允许发往 ${entry.recipe.secrets.map((s) => s.allowedHosts.join('/')).join('、')}）。`]
           : []),
-        '技能已即时生效。你可以自己验收，不必等用户再说一句触发词；',
         ...(entry.recipe.workflow !== undefined
-          ? ['带 workflow 的技能：直接调用 run_workflow，'
-            + `skillId 填「${entry.recipe.id}」、按 inputs 契约给 inputs；`
-            + '验收 / 排查时加 debug:true，宿主会回灌每步入参/输出与最终交付结果，'
-            + '方便定位是哪一步不对。「开发」角色下该工具恒定挂在本轮工具清单里，'
-            + '即使本轮没有用户触发词也能跑；']
-          : ['散文技能：让用户说一句触发词，或按 routeHint 触发即可验收；'
+          ? ['带 workflow 的技能：当前状态「未启用（待验收）」。直接调用 run_workflow，'
+            + `skillId 填「${entry.recipe.id}」、按 inputs 契约给 inputs，并传 debug:true；`
+            + '只有整条 DAG 跑通，宿主才会自动启用（调试通过才启用）；'
+            + '此次修订已重置闸门，之前验收通过不代表这一版生效。'
+            + '宿主会回灌每步入参/输出与最终交付结果，方便定位是哪一步不对。'
+            + '「开发」角色下该工具恒定挂在本轮工具清单里，即使本轮没有用户触发词也能跑；']
+          : ['散文技能已即时生效，你可以自己验收，不必等用户再说一句触发词；'
+            + '让用户说一句触发词，或按 routeHint 触发即可验收；'
             + '注意：只在 summary / prompt 里描述「抓取 → 提取 → 展示」这类多步流程不会生成可执行 DAG，'
             + '也不会被 run_workflow 验收；若要做成固定工作流，请按同一 id 补 skill_write 的 workflow.steps'
             + '（primitives 填 []），再用 run_workflow + debug:true 逐步核对。']),
-        '若不满意，按同一 id 再次 skill_write 给出完整配方即可修订。',
+        '若不满意，按同一 id 再次 skill_write 给出完整配方即可修订'
+          + '（workflow 配方的修订会重新变成「待验收」，需再跑一次 debug:true）。',
       ].join('\n');
       return { observation, ok: true, detail: `已保存技能「${entry.recipe.name}」` };
     } catch (error) {
@@ -386,5 +400,13 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
     },
     systemSuffix: buildSystemSuffix(primitives),
     ...(operatorSuffix !== undefined ? { operatorSuffix } : {}),
+    workflowHooks: {
+      // 含未启用条目：刚 skill_write 出来的 workflow 配方才能被同轮 debug 跑到。
+      // chat/路由仍只吃 enabled 配方（SkillCatalogService.loadSkills 口径不变）。
+      listCandidates: async () => (await users.list()).map((e) => ({
+        recipe: e.recipe, enabled: e.enabled,
+      })),
+      accept: (skillId: string) => users.setEnabled(skillId, true),
+    },
   };
 }

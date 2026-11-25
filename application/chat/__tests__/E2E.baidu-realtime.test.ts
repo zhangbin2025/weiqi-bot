@@ -216,6 +216,7 @@ interface Assembled {
   runtime: IPluginRuntime;
   pluginId: string;
   users: UserSkillStore;
+  devKit: ReturnType<typeof createSkillDevKit>;
   primitives: ReturnType<typeof createSkillRegistry>;
   savedId: string;
   recipes: readonly { id: string; workflow?: unknown; inputs?: unknown }[];
@@ -266,7 +267,7 @@ async function assemble(body: string): Promise<Assembled> {
   const savedId = recipe.id;
 
   return {
-    pluginKit, artifacts, runtime, pluginId, users, primitives, savedId,
+    pluginKit, artifacts, runtime, pluginId, users, primitives, savedId, devKit,
     recipes: [recipe] as unknown as Assembled['recipes'],
   };
 }
@@ -281,7 +282,10 @@ function registryFor(a: Assembled, body: string) {
 
 async function debugRun(a: Assembled, body: string) {
   const registry = await registryFor(a, body);
-  const parts = buildWorkflowToolParts(a.recipes as never, registry, undefined, true);
+  // 接宿主内部 hooks：动态读候选 + debug 全绿后翻转启用（与 ChatUseCase 同口径）
+  const parts = buildWorkflowToolParts(
+    a.recipes as never, registry, undefined, true, a.devKit.workflowHooks,
+  );
   return parts.executors[RUN_WORKFLOW_TOOL_NAME]!(
     JSON.stringify({ skillId: a.savedId, inputs: {}, debug: true }),
   );

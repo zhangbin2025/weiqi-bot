@@ -642,7 +642,12 @@ export class ChatUseCase {
       // 否则第一轮写技能就看不到它，无法按要求 debug 验收。空 active 下
       // executor 返回「未找到技能」结构化回执、tool 定义用兜底文案且不加 enum。
       // chat 角色逐字沿用 workflowActive.length > 0（零额外 token）。
-      const wf = buildWorkflowToolParts(workflowActive, this.operatorRegistry, onTrace, devMode);
+      // dev 传宿主内部 hooks：每次 run_workflow 动态读库（含未验收停用候选），
+      // debug 全绿才由宿主翻转启用。chat 不传，逐字沿用装配期快照（零回归）。
+      const wf = buildWorkflowToolParts(
+        workflowActive, this.operatorRegistry, onTrace, devMode,
+        dev?.workflowHooks,
+      );
       console.info('[wf-diag] buildChatToolKit() wf parts', {
         returnedTools: wf.tools.map((t) => t.name),
         returnedExecutors: Object.keys(wf.executors),

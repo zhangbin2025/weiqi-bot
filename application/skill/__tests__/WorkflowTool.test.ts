@@ -354,7 +354,7 @@ describe('buildWorkflowToolParts — dev 正常模式观察指路（不阻断调
 
 
 describe('dev 恒定挂载 run_workflow（19:08 散文配方导致工具消失的回归）', () => {
-  it('dev + 只有散文配方：仍挂 run_workflow，skillId enum 含该散文技能', () => {
+  it('dev + 只有散文配方：仍挂 run_workflow，skillId 不写死 enum（指路 skill_list）', () => {
     const parts = buildWorkflowToolParts(
       [recipe({ id: 'user.baidu.hot', name: '百度热搜' })],
       fakeRegistry({}),
@@ -365,8 +365,11 @@ describe('dev 恒定挂载 run_workflow（19:08 散文配方导致工具消失�
     const def = parts.tools[0]!;
     const props = (def.parameters as { properties?: Record<string, unknown> }).properties ?? {};
     expect(props['debug']).toBeDefined();
-    expect((props['skillId'] as { enum?: string[] }).enum).toContain('user.baidu.hot');
-    expect(def.description).toContain('当前没有带 workflow 声明的技能');
+    const skillId = props['skillId'] as { enum?: string[]; description?: string };
+    // 装配期 enum 会冻结旧 id；同轮 skill_write 出来的技能要靠 skill_list 实时拿
+    expect(skillId.enum).toBeUndefined();
+    expect(skillId.description).toContain('skill_list');
+    expect(def.description).toContain('装配时还没有带 workflow 声明的技能');
   });
 
   it('dev + 点名散文技能：结构化回执明确说要补 workflow.steps，不是「未找到技能」', async () => {
@@ -393,5 +396,75 @@ describe('dev 恒定挂载 run_workflow（19:08 散文配方导致工具消失�
     );
     expect(parts.tools).toEqual([]);
     expect(parts.executors).toEqual({});
+  });
+});
+
+
+/**
+ * 2026-11-25 回归：skill_write 修订在同一轮里必须反映到 run_workflow，
+ * 且 workflow 配方只有 debug:true 全绿才由宿主启用（失败不启用）。
+ */
+describe('buildWorkflowToolParts — dev 动态候选 + 调试通过才启用', () => {
+  const v1 = recipe({
+    id: 'user.dynamic', version: 1,
+    workflow: { steps: [{ id: 'only', call: 'echo', yield: true }] },
+  });
+  const v2 = recipe({
+    id: 'user.dynamic', version: 2,
+    workflow: {
+      steps: [
+        { id: 'first', call: 'echo', yield: true },
+        { id: 'second', call: 'echo', yield: true },
+      ],
+    },
+  });
+
+  it('每次调用重新读候选：装配期是 v1，库里改成 v2 后同一次 executor 跑的是 v2', async () => {
+    let current: SkillRecipe[] = [v1];
+    const hooks = {
+      listCandidates: async () => current.map((r) => ({ recipe: r, enabled: false })),
+      accept: async () => {},
+    };
+    const registry = fakeRegistry({ echo: (args) => ({ value: args }) });
+    // 装配期 active 只有 v1；executor 不依赖它
+    const parts = buildWorkflowToolParts([v1], registry, undefined, true, hooks);
+    current = [v2]; // 模拟同一轮 skill_write 把配方改成 v2（两步 DAG）
+    const outcome = await parts.executors[RUN_WORKFLOW_TOOL_NAME]!(
+      JSON.stringify({ skillId: 'user.dynamic', inputs: {}, debug: true }),
+    );
+    expect(outcome.ok).toBe(true);
+    expect(outcome.observation).toContain('第 1/2 步 first');
+    expect(outcome.observation).toContain('第 2/2 步 second');
+  });
+
+  it('debug:true 成功才调用 accept；失败 / 不带 debug 都不启用', async () => {
+    const accepted: string[] = [];
+    const hooks = {
+      listCandidates: async () => [{ recipe: v1, enabled: false }],
+      accept: async (id: string) => { accepted.push(id); },
+    };
+    const good = fakeRegistry({ echo: () => ({ value: 'OK' }) });
+    const goodParts = buildWorkflowToolParts([v1], good, undefined, true, hooks);
+    const normal = await goodParts.executors[RUN_WORKFLOW_TOOL_NAME]!(
+      JSON.stringify({ skillId: 'user.dynamic', inputs: {} }),
+    );
+    expect(normal.ok).toBe(true);
+    expect(accepted).toEqual([]); // 正常调用不翻闸门
+
+    const passed = await goodParts.executors[RUN_WORKFLOW_TOOL_NAME]!(
+      JSON.stringify({ skillId: 'user.dynamic', inputs: {}, debug: true }),
+    );
+    expect(passed.ok).toBe(true);
+    expect(passed.observation).toContain('技能已启用');
+    expect(accepted).toEqual(['user.dynamic']);
+
+    const bad = fakeRegistry({ echo: () => { throw new Error('算子炸了'); } });
+    const badParts = buildWorkflowToolParts([v1], bad, undefined, true, hooks);
+    const failed = await badParts.executors[RUN_WORKFLOW_TOOL_NAME]!(
+      JSON.stringify({ skillId: 'user.dynamic', inputs: {}, debug: true }),
+    );
+    expect(failed.ok).toBe(false);
+    expect(failed.observation).not.toContain('技能已启用');
+    expect(accepted).toEqual(['user.dynamic']); // 失败没有二次 accept
   });
 });

@@ -5,8 +5,8 @@
     "1. 开发角色调用 plugin_write（贴 plugin_write 的值），记下返回的工件 id",
     "2. 【关键】调用 plugin_toggle：{\"artifactId\":\"<上一步 id>\",\"enabled\":true}",
     "3. plugin_list 确认 slug=regex 且已启用（此时算子表才有 regex.extractAll）",
-    "4. 调用 skill_write（贴 skill_write 的值），记下返回的技能 id",
-    "5. 调用 run_workflow：{\"skillId\":\"<技能 id>\",\"inputs\":{},\"debug\":true} → 看每步入参/输出/effects 与最终列表；或直接说「百度热搜」按 routeHint 触发"
+    "4. 调用 skill_write（贴 skill_write 的值），记下返回的技能 id；此时技能是「未启用（待验收）」",
+    "5. 调用 run_workflow：{\"skillId\":\"<技能 id>\",\"inputs\":{},\"debug:true\"} → 看每步入参/输出/effects 与最终列表；只有这一步全绿，宿主才自动启用该技能；之后说「百度热搜」按 routeHint 触发"
   ],
   "plugin_write": {
     "name": "正则提取算子",
@@ -175,5 +175,6 @@
         }
       ]
     }
-  }
+  },
+  "_技能闸门": "skill_write 保存带 workflow 的配方后恒 enabled:false（待验收）；只有 run_workflow 传 debug:true 且整条 DAG 跑通，宿主才自动启用该技能。修订同一 id 会重置为待验收，需重新 debug 复跑。注意这与 _真卡点 里 plugin_write 的人工 plugin_toggle 闸门是两套独立机制。"
 }

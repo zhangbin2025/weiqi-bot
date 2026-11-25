@@ -13,6 +13,12 @@
  * 同一 `ToolKit` 追加一个新工具；两类配方走同一个 ToolLoop、同一批基础能力，
  * 但不共享执行语义。没有 workflow 配方的轮次不挂（零额外 token）。
  *
+ * 2026-11-25 修复「skill_write 修订不反映到 run_workflow」：executor 不再吃
+ * 装配期 `active` 快照，dev 角色每次调用经 `devHooks.listCandidates()` 重新读本地库
+ * （含未验收停用的候选，否则刚写的配方连调试都跑不了）。只有 `debug:true`
+ * 且 DAG 全绿时由 `devHooks.accept()` 翻转启用——调试通过才启用。
+ * chat 角色沿用装配期快照（chat 无同轮写技能能力，零回归）。
+ *
  * effects 落地选**方案②（合并单值）**，理由（最小改动、零回归）：
  * - 契约允许 ① 给 `ToolOutcome`/`ToolLoopResult` 加 effects[] 并改所有落地点 + 测试，
  *   或 ② runner 合并成单值；明确「方案②（合并单值）优先」。
@@ -96,21 +102,39 @@ function describeInputs(decls: readonly WorkflowInput[] | undefined): string {
   }).join('；');
 }
 
+export interface WorkflowDevCandidate {
+  recipe: SkillRecipe;
+  /** 本地库启停状态；workflow 配方保存/修订后为 false，debug 跑通才转 true */
+  enabled: boolean;
+}
+
+/** 开发角色宿主内部接线（不暴露给模型）：动态候选 + 验收闸门 */
+export interface WorkflowDevHooks {
+  /** 每次 run_workflow 调用重新读本地库；含未启用候选，供 dev 调试 */
+  listCandidates(): Promise<readonly WorkflowDevCandidate[]>;
+  /** debug:true 且 DAG 全绿后由宿主翻转该技能为已验收启用 */
+  accept(skillId: string): Promise<void>;
+}
+
 function buildWorkflowTool(
   active: readonly SkillRecipe[], devMode: boolean,
 ): ModelToolDefinition {
   const wfSkills = active.filter((s) => s.workflow !== undefined);
-  // dev 模式下 active 含全部本地技能（含散文配方）：清单里如实标出哪些能跑 DAG，
-  // 散文配方也列进 enum，让模型能点名拿到「这是散文技能」的结构化回执，
-  // 而不是面对一个空 enum 猜为什么 run_workflow 不认它刚写的技能。
+  // dev 模式下 active 是装配期快照，只用于「当前有哪些技能」的**提示性**清单：
+  // 同轮 skill_write 出来的新技能/新版本不在其中，故 dev 不写死 skillId enum，
+  // 改由下面的 description 指路 skill_list（实时读库）。chat 沿用静态 enum。
   const lines = wfSkills.length > 0
     ? wfSkills.map((s) => `- ${s.id}（${s.name}）：${describeInputs(s.inputs)}`)
-    : ['- （当前没有带 workflow 声明的技能；若刚写的是散文配方，见下）'];
+    : ['- （装配时还没有带 workflow 声明的技能；若刚写的是散文配方，见下）'];
   const skillIdProperty: Record<string, unknown> = {
     type: 'string',
-    description: '本地技能 id。带 workflow 声明的可直接跑 DAG；散文配方会收到明确提示。',
+    description: devMode
+      ? '本地技能 id（带 workflow 声明的可跑 DAG；散文配方会收到明确提示）。'
+        + '本轮可能刚用 skill_write 写过/改过技能，清单会变：调用 skill_list 拿最新 id 原样填入，'
+        + '不要照抄上面装配时列出的旧 id，也不要凭空编造。'
+      : '带 workflow 声明的技能 id（见本轮可用技能）',
   };
-  if (active.length > 0) skillIdProperty['enum'] = active.map((s) => s.id);
+  if (!devMode && active.length > 0) skillIdProperty['enum'] = active.map((s) => s.id);
   const baseProps = (RUN_WORKFLOW_TOOL.parameters as { properties?: Record<string, unknown> }).properties ?? {};
   // 静态定义是 chat 口径（无 debug）；只有「开发」角色在这里显式加进 parameters，
   // 模型才知道可以开启调试。chat 侧 properties 与改动前逐字一致（零额外 token）。
@@ -138,7 +162,8 @@ function buildWorkflowTool(
     : '';
   return {
     ...RUN_WORKFLOW_TOOL,
-    description: `${RUN_WORKFLOW_TOOL.description}\n\n本轮可用的工作流技能与 inputs 契约：\n${lines.join('\n')}${debugHint}`,
+    description: `${RUN_WORKFLOW_TOOL.description}\n\n${devMode ? '装配时的工作流技能' : '本轮可用的工作流技能'}与 inputs 契约：\n${lines.join('\n')}${debugHint}`
+      + (devMode ? '\n（该清单是装配时刻快照；刚保存/修订的配方请用 skill_list 查最新 id 再调用。）' : ''),
     parameters: { ...RUN_WORKFLOW_TOOL.parameters, properties },
   };
 }
@@ -250,11 +275,14 @@ export function buildWorkflowToolParts(
   registry: OperatorRegistry,
   onTrace?: (s: PluginTraceStep) => void,
   devMode = false,
+  /** dev 宿主内部接线；不传则沿用装配期 active（chat / 精简测试） */
+  devHooks?: WorkflowDevHooks,
 ): WorkflowToolParts {
   const wfCount = active.filter((s) => s.workflow !== undefined).length;
   console.info('[wf-diag] buildWorkflowToolParts()', {
     devMode, active: active.length, withWorkflow: wfCount,
     activeIds: active.map((s) => s.id),
+    dynamicLookup: devHooks !== undefined,
     earlyReturn: !devMode && wfCount === 0,
   });
   if (!devMode && !active.some((s) => s.workflow !== undefined)) {
@@ -283,11 +311,41 @@ export function buildWorkflowToolParts(
       (rawInputs !== null && typeof rawInputs === 'object' && !Array.isArray(rawInputs))
         ? rawInputs as Record<string, unknown>
         : {};
-    const skill = findWorkflowSkill(active, skillId);
+    // dev：每次调用重新读库（skill_write 修订当场生效，不再吃装配期快照）。
+    // 候选含未验收停用的条目，否则刚写的 workflow 配方连 debug 都跑不了。
+    // 读失败如实回执，不静默回落到旧快照——旧快照正是本次 bug 的来源。
+    let effActive: readonly SkillRecipe[] = active;
+    let candidates: readonly WorkflowDevCandidate[] = [];
+    if (devHooks !== undefined) {
+      try {
+        candidates = await devHooks.listCandidates();
+        effActive = candidates.map((c) => c.recipe);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        return {
+          observation: `run_workflow：读取当前技能库失败（${reason}），未执行任何节点。`,
+          ok: false, detail: `技能库读取失败 ${skillId}`,
+        };
+      }
+    }
+    const picked = candidates.find((c) => c.recipe.id === skillId);
+    console.info('[wf-diag] run_workflow() executor', {
+      skillId, debug, dynamicLookup: devHooks !== undefined,
+      activeIds: effActive.map((s) => s.id),
+      activeVersions: effActive.map((s) => `${s.id}@v${s.version}`),
+      enabledMap: candidates.map((c) => `${c.recipe.id}=${c.enabled}`),
+      picked: picked === undefined ? null : {
+        id: picked.recipe.id, version: picked.recipe.version, enabled: picked.enabled,
+        steps: picked.recipe.workflow?.steps.map((st) => st.id) ?? [],
+      },
+      withWorkflow: effActive.filter((s) => s.workflow !== undefined).map((s) => s.id),
+    });
+    const skill = findWorkflowSkill(effActive, skillId);
     if (!skill) {
       return {
         observation: `run_workflow：未找到技能「${skillId}」。`
-          + `本轮可用技能：${active.map((s) => s.id).join('、') || '（无）'}。`,
+          + `当前技能库：${effActive.map((s) => s.id).join('、') || '（无）'}。`
+          + (devMode ? ' 刚写过技能的话先用 skill_list 核对 id 原样填入。' : ''),
         ok: false,
         detail: `未知技能 ${skillId}`,
       };
@@ -299,7 +357,7 @@ export function buildWorkflowToolParts(
           + '请用 skill_write 按同一 id 给整份配方补上 workflow.steps（primitives 填 []），'
           + '再调用 run_workflow 并带 debug:true 验收；'
           + '只写在 summary / prompt 里的流程描述不会被执行，也不会出现在工作流清单里。'
-          + `当前带 workflow 的技能：${active.filter((s) => s.workflow !== undefined).map((s) => s.id).join('、') || '（无）'}。`,
+          + `当前带 workflow 的技能：${effActive.filter((s) => s.workflow !== undefined).map((s) => s.id).join('、') || '（无）'}。`,
         ok: false,
         detail: `散文配方无 workflow ${skillId}`,
       };
@@ -308,14 +366,28 @@ export function buildWorkflowToolParts(
     const result = await runWorkflow(
       skill.workflow, inputs, registry, onTrace, skill.inputs, debug,
     );
+    // 验收闸门：debug:true 且 DAG 全绿才把该技能置为已验收启用。
+    // 失败不翻转、非调试调用不翻转；翻转失败如实追加一行观察，不谎报已启用。
+    // 验收回执放观察**开头**：ToolLoop 会按单条消息上限裁剪尾部，
+    // 拼在末尾会被逐步数据/交付块挤掉，模型就看不到「已启用」这个状态。
+    let acceptanceNote = '';
+    if (debug && result.ok && devHooks !== undefined) {
+      try {
+        await devHooks.accept(skillId);
+        acceptanceNote = '【验收】本次 debug 全步成功，技能已启用（调试通过才启用）。\n';
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        acceptanceNote = `【验收】debug 已跑通，但宿主启用技能失败：${reason}；技能仍处于未启用状态。\n`;
+      }
+    }
     const merged = mergeEffects(result, inputs, skill);
     const outcome: ToolOutcome = {
       // debug:true 时把逐步 trace + 最终交付结果回灌；否则逐字沿用旧观察。
-      observation: debug
+      observation: acceptanceNote + (debug
         ? debugObservation(result, skillId, merged, skill.workflow.steps.length)
         : (result.ok
           ? successObservation(result, skillId, devMode)
-          : failureObservation(result)),
+          : failureObservation(result))),
       ok: result.ok,
       detail: result.ok
         ? `workflow ${skill.id} 完成 ${result.completedStepIds.length} 步${debug ? '（调试）' : ''}`

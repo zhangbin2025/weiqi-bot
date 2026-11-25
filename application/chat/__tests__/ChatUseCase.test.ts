@@ -552,6 +552,10 @@ describe('ChatUseCase.send — 技能开发角色（闲聊超集）', () => {
         skill_write: async () => ({ observation: '已保存', ok: true, detail: '保存' }),
       },
       systemSuffix: '【技能开发能力】测试片段',
+      workflowHooks: {
+        listCandidates: async () => [],
+        accept: async () => {},
+      },
     };
   }
 

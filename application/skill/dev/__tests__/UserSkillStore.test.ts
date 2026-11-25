@@ -70,8 +70,22 @@ describe('UserSkillStore — 自建技能', () => {
     const second = await s.save(recipe({ name: '改名', }));
     expect(second.recipe.version).toBe(2);
     expect(second.recipe.name).toBe('改名');
-    expect(second.enabled).toBe(false); // 修订不擅自重新启用
+    expect(second.enabled).toBe(false); // 散文技能修订不擅自重新启用
     expect(await s.list()).toHaveLength(1);
+  });
+
+  it('workflow 配方：新建默认未启用（待 debug 验收），修订也重置闸门', async () => {
+    const { store: s } = store();
+    const wf = { steps: [{ id: 'only', call: 'echo' }] } as never;
+    const first = await s.save(recipe({ workflow: wf }));
+    expect(first.enabled).toBe(false);
+    expect(first.recipe.version).toBe(1);
+    await s.setEnabled('user.demo', true); // 宿主：debug 跑通后翻转启用
+    expect((await s.list())[0]?.enabled).toBe(true);
+    const second = await s.save(recipe({ name: '第二版', workflow: wf }));
+    expect(second.recipe.version).toBe(2);
+    expect(second.enabled).toBe(false); // 新版本没验收，闸门重置
+    expect((await s.list())[0]?.enabled).toBe(false);
   });
 
   it('setEnabled / remove 生效', async () => {

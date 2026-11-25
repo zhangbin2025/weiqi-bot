@@ -97,7 +97,7 @@ describe('createSkillDevKit', () => {
     expect(stored[0]?.source).toBe('online');
   });
 
-  it('skill_write 新建：宿主补 id/version，保存即时启用', async () => {
+  it('skill_write 新建散文技能：宿主补 id/version，保存即时启用', async () => {
     const { exec, users } = kit();
     const out = await exec('skill_write', {
       name: '查定式资料',
@@ -111,6 +111,36 @@ describe('createSkillDevKit', () => {
     expect(list[0]?.recipe.id.startsWith('user.')).toBe(true);
     expect(list[0]?.recipe.version).toBe(1);
     expect(list[0]?.enabled).toBe(true);
+  });
+
+  it('skill_write 新建 workflow 技能：保存后未启用，hooks 能读到候选且 debug 跑通才启用', async () => {
+    const { exec, users, dev } = kit();
+    const out = await exec('skill_write', {
+      name: '热搜列表', summary: '抓热搜', primitives: [],
+      prompt: '展示说明',
+      workflow: { steps: [{ id: 'only', call: 'web_fetch' }] },
+    });
+    expect(out.ok).toBe(true);
+    expect(out.observation).toContain('未启用');
+    expect(out.observation).toContain('debug:true');
+    const saved = await users.list();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]?.enabled).toBe(false);
+    // 宿主内部 hooks（非模型工具）：候选含未启用条目，accept 才翻转
+    const hooks = dev.workflowHooks!;
+    const candidates = await hooks.listCandidates();
+    expect(candidates.map((c) => c.recipe.id)).toEqual([saved[0]!.recipe.id]);
+    expect(candidates[0]?.enabled).toBe(false);
+    await hooks.accept(saved[0]!.recipe.id);
+    expect((await users.list())[0]?.enabled).toBe(true);
+    // 修订重置闸门
+    const revised = await exec('skill_write', {
+      id: saved[0]!.recipe.id, name: '热搜列表（改）', summary: '抓热搜',
+      primitives: [], prompt: '展示说明',
+      workflow: { steps: [{ id: 'only2', call: 'web_fetch' }] },
+    });
+    expect(revised.ok).toBe(true);
+    expect((await users.list())[0]?.enabled).toBe(false);
   });
 
   it('skill_write 修订：显式 user. id 命中同一条，版本 +1', async () => {
