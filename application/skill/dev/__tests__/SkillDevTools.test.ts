@@ -42,12 +42,15 @@ function kit() {
 describe('createSkillDevKit', () => {
   it('挂 2 个工具，system 片段列出可用原语名与开发规则', () => {
     const { dev } = kit();
-    expect(dev.tools.map((t) => t.name).sort()).toEqual(['skill_list', 'skill_write']);
+    expect(dev.tools.map((t) => t.name).sort()).toEqual(['skill_list', 'skill_rename', 'skill_write']);
     expect(dev.systemSuffix).toContain('web_fetch');
     expect(dev.systemSuffix).toContain('navigate_to');
     expect(dev.systemSuffix).toContain('技能开发');
     expect(dev.systemSuffix).toContain('在线技能');
     expect(dev.systemSuffix).toContain('只读');
+    // 改名工具与发布用 id 规则要写进开发 system，否则模型不知道能把随机 id 改干净
+    expect(dev.systemSuffix).toContain('skill_rename');
+    expect(dev.systemSuffix).toContain('发布用 id');
   });
 
   it('回归：引用 navigate_to 时，写配方指引把「宿主注入链接 / 绝不写网址」契约前移到开发 system', () => {
@@ -89,9 +92,9 @@ describe('createSkillDevKit', () => {
       id: 'puzzle.tsumego', name: '想改', summary: 's', 
       primitives: ['web_fetch'], prompt: 'p',
     });
-    // 非 user. 前缀在 id 校验阶段就被挡住；即便绕过，store 里也有第二道只读保护
+    // 发布用 id 现在合法（不再强制 user. 前缀）；在线条目只读由 UserSkillStore.save 第二道保护兜底
     expect(writeOut.ok).toBe(false);
-    expect(writeOut.observation).toContain('user.');
+    expect(writeOut.observation).toContain('只读');
     const stored = await users.list();
     expect(stored[0]?.recipe.name).toBe('做题');
     expect(stored[0]?.source).toBe('online');
@@ -173,15 +176,21 @@ describe('createSkillDevKit', () => {
     expect(await users.list()).toEqual([]);
   });
 
-  it('拒绝非 user. 前缀 id（防止覆盖内置/在线技能）', async () => {
+  it('新建可指定发布用 id（不再强制 user. 前缀），非法 id 仍拒绝', async () => {
     const { exec, users } = kit();
-    const out = await exec('skill_write', {
-      id: 'puzzle.tsumego', name: 'x', summary: 's', 
+    const ok = await exec('skill_write', {
+      id: 'admin.publish', name: 'x', summary: 's',
       primitives: ['web_fetch'], prompt: 'p',
     });
-    expect(out.ok).toBe(false);
-    expect(out.observation).toContain('user.');
-    expect(await users.list()).toEqual([]);
+    expect(ok.ok).toBe(true);
+    expect(ok.observation).toContain('admin.publish');
+    const bad = await exec('skill_write', {
+      id: 'Bad:中文 空格', name: 'y', summary: 's',
+      primitives: ['web_fetch'], prompt: 'p',
+    });
+    expect(bad.ok).toBe(false);
+    expect(bad.observation).toContain('不合法');
+    expect((await users.list()).length).toBe(1);
   });
 
   it('结构不合法（空 primitives / 缺字段 / 非法 JSON）一律失败且回中文原因', async () => {
@@ -336,7 +345,66 @@ describe('skill_write 可选 routeHint', () => {
       primitives: ['web_fetch'], prompt: 'p',
     });
     expect(r.ok).toBe(false);
-    expect(r.observation).toContain('单行非空短语');
+    expect(r.observation).toContain('单行非空字符串短语');
     expect(await users.list()).toEqual([]);
   });
+  it('skill_rename 改名：只换 id，配方 / 版本 / 启用状态全不变', async () => {
+    const { exec, users } = kit();
+    const saved = await exec('skill_write', {
+      name: '发布助手', summary: 's', primitives: ['web_fetch'], prompt: 'p',
+    });
+    expect(saved.ok).toBe(true);
+    const before = (await users.list())[0]!;
+    const oldId = before.recipe.id;
+    const r = await exec('skill_rename', { fromId: oldId, newId: 'admin.publish' });
+    expect(r.ok).toBe(true);
+    expect(r.observation).toContain('只换了发布用 id');
+    const after = (await users.list())[0]!;
+    expect(after.recipe.id).toBe('admin.publish');
+    expect(after.recipe.version).toBe(before.recipe.version);
+    expect(after.recipe.name).toBe(before.recipe.name);
+    expect(after.enabled).toBe(before.enabled);
+    expect((await users.list()).some((e) => e.recipe.id === oldId)).toBe(false);
+  });
+
+  it('skill_rename 拒绝：在线条目只读 / 目标占用 / 非法新 id / 原 id 不存在 / 新旧相同', async () => {
+    const { exec, users } = kit();
+    await users.install({
+      schemaVersion: 1, id: 'online.readonly', version: 3, name: '在线',
+      summary: 's', primitives: ['navigate_to'], prompt: 'p',
+    } as never);
+    await exec('skill_write', {
+      name: '自建', summary: 's', primitives: ['web_fetch'], prompt: 'p',
+    });
+    const custom = (await users.list()).find((e) => e.source === 'custom')!;
+
+    const ro = await exec('skill_rename', { fromId: 'online.readonly', newId: 'admin.publish' });
+    expect(ro.ok).toBe(false);
+    expect(ro.observation).toContain('只读');
+
+    const dup = await exec('skill_rename', { fromId: custom.recipe.id, newId: 'online.readonly' });
+    expect(dup.ok).toBe(false);
+    expect(dup.observation).toContain('占用');
+
+    const bad = await exec('skill_rename', { fromId: custom.recipe.id, newId: 'Bad:中文' });
+    expect(bad.ok).toBe(false);
+    expect(bad.observation).toContain('不合法');
+
+    const missing = await exec('skill_rename', { fromId: 'nope', newId: 'admin.publish' });
+    expect(missing.ok).toBe(false);
+    const same = await exec('skill_rename', { fromId: custom.recipe.id, newId: custom.recipe.id });
+    expect(same.ok).toBe(true);
+    expect(same.observation).toContain('无需操作');
+    expect((await users.list()).find((e) => e.source === 'custom')?.recipe.id).toBe(custom.recipe.id);
+  });
+
+  it('skill_write 不再带 fromId；改名走独立 skill_rename（工具声明各自干净）', () => {
+    const { dev } = kit();
+    const write = dev.tools.find((t) => t.name === 'skill_write')!;
+    const rename = dev.tools.find((t) => t.name === 'skill_rename')!;
+    expect(JSON.stringify(write.parameters)).not.toContain('fromId');
+    expect(JSON.stringify(rename.parameters)).toContain('fromId');
+    expect(JSON.stringify(rename.parameters)).toContain('newId');
+  });
+
 });

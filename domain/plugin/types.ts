@@ -268,6 +268,12 @@ export interface IPluginArtifactStore {
   create(artifact: PluginArtifact): Promise<void>;
   update(id: string, patch: Partial<PluginArtifact>): Promise<void>;
   remove(id: string): Promise<void>;
+  /**
+   * 换 keyPath：把 oldId 的文档原样搬到 newId（文档内 .id 同步改写）。
+   * 实现须保证「先写新、后删旧」，中途失败宁可留下新副本也不丢原工件；
+   * newId 已存在 / oldId 不存在一律抛错，由 service 统一回执。
+   */
+  replaceId(oldId: string, newId: string): Promise<void>;
 }
 
 export interface IPluginContextProvider {

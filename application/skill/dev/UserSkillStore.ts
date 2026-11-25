@@ -134,6 +134,36 @@ export class UserSkillStore {
     if (!ok) throw new Error('浏览器本地存储不可用，操作未生效');
   }
 
+  /**
+   * 改一条**自建**技能的 id（纯声明配方，无外部引用，改 id 即换键值）。
+   * - 在线安装条目只读：远端配方 id 是资源仓的事实，改名会破坏「有更新」判据；
+   * - 目标 id 已被占用（含另一条在线条目）一律拒绝，不静默覆盖；
+   * - enabled / source / updatedAt 原样保留，version 不重置（配方内容没变，
+   *   发布方只关心 id 变干净了；版本号单调性由 save/install 各自维护）。
+   */
+  async renameId(oldId: string, newId: string): Promise<UserSkillEntry> {
+    const entries = await this.list();
+    const existing = entries.find((e) => e.recipe.id === oldId);
+    if (existing === undefined) throw new Error(`本地技能 ${oldId} 不存在；先用 skill_list 确认 id`);
+    if (existing.source === 'online') {
+      throw new Error('这条是在线安装的技能，属于只读配方；id 由发布方维护，不能改名。');
+    }
+    if (oldId === newId) return existing;
+    if (entries.some((e) => e.recipe.id === newId)) {
+      throw new Error(`目标 id ${newId} 已被另一条本地技能占用；换一个不重名的 id`);
+    }
+    const next: UserSkillEntry = {
+      ...existing,
+      recipe: { ...existing.recipe, id: newId },
+      // 面板排序只认这个时刻；来源是 Date.now()，不是任何阈值。
+      updatedAt: Date.now(),
+    };
+    const merged = entries.map((e) => (e.recipe.id === oldId ? next : e));
+    const ok = await this.write(merged);
+    if (!ok) throw new Error('浏览器本地存储不可用，改名未生效');
+    return next;
+  }
+
   async remove(id: string): Promise<void> {
     const entries = await this.list();
     const ok = await this.write(entries.filter((e) => e.recipe.id !== id));

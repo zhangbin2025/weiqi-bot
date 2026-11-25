@@ -90,6 +90,19 @@ export class PluginArtifactStore implements IPluginArtifactStore {
     await this.initialize();
     await this.adapter.delete(id);
   }
+
+  /** keyPath = id，改 id 必须 insert(new) + delete(old)（adapter.update 做不到） */
+  async replaceId(oldId: string, newId: string): Promise<void> {
+    await this.initialize();
+    const existing = await this.adapter.findById(oldId);
+    if (existing === null) throw new Error(`Plugin artifact "${oldId}" not found`);
+    if (oldId === newId) return;
+    const fresh = await this.adapter.findById(newId);
+    if (fresh !== null) throw new Error(`Plugin artifact "${newId}" already exists`);
+    // insert 用 add：newId 已存在时抛错（并发窗口的兜底）；先写后删，不丢工件。
+    await this.adapter.insert({ ...clonePluginArtifact(existing), id: newId });
+    await this.adapter.delete(oldId);
+  }
 }
 
 /** 便捷工厂：构造并初始化，供组合根直接注入 */

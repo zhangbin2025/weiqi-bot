@@ -260,4 +260,31 @@ describe('可配置轮数持久化', () => {
       resetPluginMaxAttemptsForTest();
     }
   });
+  it('renameArtifact：改 id 并同步赛事页选中键（只改旧 id 被选中时）', async () => {
+    const data = new Map<string, unknown>();
+    const localStorage = {
+      initialize: async () => {},
+      read: async (key: string) => data.get(key) ?? null,
+      readSync: (key: string) => data.get(key) ?? null,
+      write: async (key: string, value: unknown) => { data.set(key, value); },
+      delete: async (key: string) => { data.delete(key); },
+    };
+    const s = await sys({ localStorage: localStorage as never });
+    const a = await s.artifacts.create({
+      name: '规则1', intent: '按积分', code: 'function rank(i){return i}',
+      pointId: RANKING_SPEC.pointId, origin: 'llm', spec: RANKING_SPEC,
+    });
+    await localStorage.write('event-ranking-plugin', a.id);
+    const moved = await s.renameArtifact(a.id, 'ranking.readable');
+    expect(moved.id).toBe('ranking.readable');
+    expect(moved.version).toBe(a.version);
+    expect(data.get('event-ranking-plugin')).toBe('ranking.readable');
+
+    // 选中键指向别的插件时不动
+    await localStorage.write('event-ranking-plugin', 'some.other.plugin');
+    await s.renameArtifact('ranking.readable', 'ranking.final');
+    expect(data.get('event-ranking-plugin')).toBe('some.other.plugin');
+    expect(await s.artifacts.get('ranking.final')).not.toBeNull();
+  });
+
 });

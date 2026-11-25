@@ -48,6 +48,7 @@ import {
   parsePrefAddHref, prefAddUserMessage,
 } from './PrefLink';
 import { UserSkillStore, type UserSkillEntry } from '../../../../../application/skill/dev/UserSkillStore';
+import { isValidResourceId, normalizeResourceId, RESOURCE_ID_HINT } from '../../../../../application/skill/ResourceId';
 import { createSkillDevKit } from '../../../../../application/skill/dev/SkillDevTools';
 import {
   createDefaultSkillCatalog, type SkillCatalogService,
@@ -1641,6 +1642,23 @@ export class ChatPage {
     const copyBtn = this.pluginAction('复制源码', () => void this.copyPluginText(artifact.code, copyBtn));
     actions.appendChild(copyBtn);
 
+    // 在线安装件的本地 id 由资源仓事实决定，只读、不能改名；只给自建件显示入口。
+    if (artifact.catalogRef === undefined) {
+      actions.appendChild(this.pluginAction('改 ID', () => {
+        this.inlineRenameRow(
+          actions, artifact.id,
+          async (newId) => {
+            await plugin.renameArtifact(artifact.id, newId);
+            await this.refreshOperatorRegistry();
+            this.pluginPanelFocus = { key: `local:${newId}` };
+            await this.refreshPluginPanel();
+          },
+          (message) => this.showPluginError(`改 ID 失败：${message}`),
+          () => void this.refreshPluginPanel(),
+        );
+      }));
+    }
+
     const toggleBtn = this.pluginAction(artifact.enabled ? '停用' : '启用', () => {
       void (async () => {
         try {
@@ -1704,6 +1722,51 @@ export class ChatPage {
       textarea.remove();
       done();
     }
+  }
+
+  /**
+   * 内联「改 ID」输入行：与删除二次确认同款（actions.replaceChildren()），
+   * 不嵌套单例 WebDialog、不依赖 window.confirm。
+   * onSave 只负责落库；调用方各自处理刷新 / focus / 错误展示。
+   */
+  private inlineRenameRow(
+    actions: HTMLElement, currentId: string,
+    onSave: (newId: string) => Promise<void>,
+    onError: (message: string) => void,
+    onCancel: () => void,
+  ): void {
+    actions.replaceChildren();
+    const tip = document.createElement('span');
+    tip.textContent = '新 ID：';
+    tip.style.cssText = 'font-size:12px;align-self:center;';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = currentId;
+    input.className = 'plugin-panel__source-input';
+    input.setAttribute('aria-label', '新的发布用 id');
+    const save = this.pluginAction('保存', () => {
+      void (async () => {
+        const raw = input.value.trim();
+        if (!isValidResourceId(raw)) {
+          onError(`id 不合法：${RESOURCE_ID_HINT}。这条规则与 weiqi-assets 资源仓一致。`);
+          return;
+        }
+        const newId = normalizeResourceId(raw);
+        if (newId === currentId) {
+          onError('新 id 与当前相同，无需改动。');
+          return;
+        }
+        try {
+          await onSave(newId);
+        } catch (error) {
+          onError(error instanceof Error ? error.message : String(error));
+        }
+      })();
+    }, 'plugin-panel__primary');
+    const cancel = this.pluginAction('取消', onCancel);
+    actions.append(tip, input, save, cancel);
+    input.focus();
+    input.select();
   }
 
   private showPluginError(message: string): void {
@@ -2014,6 +2077,22 @@ export class ChatPage {
         }
       })();
     }));
+
+    // 在线安装技能的 id 由发布方维护，只读、不能改名；只给自建条目显示入口。
+    if (entry.source !== 'online') {
+      actions.appendChild(this.pluginAction('改 ID', () => {
+        this.inlineRenameRow(
+          actions, recipe.id,
+          async (newId) => {
+            await catalog.userStore().renameId(recipe.id, newId);
+            this.skillPanelFocus = { key: `local:${newId}` };
+            await this.refreshSkillPanel();
+          },
+          (message) => this.showSkillError(`改 ID 失败：${message}`),
+          () => void this.refreshSkillPanel(),
+        );
+      }));
+    }
 
     actions.appendChild(this.pluginAction('删除', () => {
       actions.replaceChildren();

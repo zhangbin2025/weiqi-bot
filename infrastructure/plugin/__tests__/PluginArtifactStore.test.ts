@@ -233,4 +233,39 @@ describe('会话清空后工件仍可读可改', () => {
     await expect(store.get('plugin:1000:aaa')).rejects.toThrow(/Corrupted plugin artifact/);
     await expect(store.list()).rejects.toThrow(/Corrupted plugin artifact/);
   });
+  describe('replaceId（改 keyPath）', () => {
+    it('把整份工件搬到新 id，字段原样，旧 id 读不到', async () => {
+      const store = new InMemoryPluginArtifactStore();
+      const a = makeArtifact({ id: 'plugin:1:aaa', slug: 'wins', enabled: true, version: 3 });
+      await store.create(a);
+      await store.replaceId('plugin:1:aaa', 'ranking.readable');
+      expect(await store.get('plugin:1:aaa')).toBeNull();
+      const moved = await store.get('ranking.readable');
+      expect(moved).not.toBeNull();
+      expect(moved?.id).toBe('ranking.readable');
+      expect(moved?.slug).toBe('wins');
+      expect(moved?.enabled).toBe(true);
+      expect(moved?.version).toBe(3);
+      expect(moved?.code).toBe(a.code);
+      expect(moved?.history).toEqual(a.history);
+      expect((await store.list()).length).toBe(1);
+    });
+
+    it('目标 id 已存在 / 原 id 不存在一律抛错，不改数据', async () => {
+      const store = new InMemoryPluginArtifactStore();
+      await store.create(makeArtifact({ id: 'a' }));
+      await store.create(makeArtifact({ id: 'b' }));
+      await expect(store.replaceId('a', 'b')).rejects.toThrow('already exists');
+      await expect(store.replaceId('nope', 'c')).rejects.toThrow('not found');
+      expect((await store.list()).map((x) => x.id).sort()).toEqual(['a', 'b']);
+    });
+
+    it('oldId === newId 是无操作（不删工件）', async () => {
+      const store = new InMemoryPluginArtifactStore();
+      await store.create(makeArtifact({ id: 'same' }));
+      await store.replaceId('same', 'same');
+      expect(await store.get('same')).not.toBeNull();
+    });
+  });
+
 });

@@ -68,6 +68,8 @@ export interface PluginArtifactStoreLike {
   create(a: PluginArtifact): Promise<void>;
   update(id: string, patch: Partial<PluginArtifact>): Promise<void>;
   remove(id: string): Promise<void>;
+  /** keyPath 换 id：与 IPluginArtifactStore.replaceId 同形（见 domain/plugin/types.ts） */
+  replaceId(oldId: string, newId: string): Promise<void>;
 }
 
 /** wasm 默认加载：public/plugin/quickjs-release-sync.wasm，绝对路径避开子页面相对路径坑 */
@@ -104,6 +106,11 @@ export interface PluginSystem {
    * - 插件执行/校验失败一律回落内置（标准口径）结果，保证页面不白屏
    */
   applyRanking(matches: MatchData[], selectedArtifactId?: string): Promise<RankingTable>;
+  /**
+   * 改一件插件的 id 并同步「赛事页当前选中的排名插件」持久化键。
+   * 工具集（plugin_rename）与面板「改 ID」按钮共用这一份，避免两边口径漂移。
+   */
+  renameArtifact(oldId: string, newId: string): Promise<PluginArtifact>;
   /** 装配根持有的扩展点行为注册表；在线平台与工具集共用同一份 */
   behaviors: ReturnType<typeof createExtensionPointBehaviors>;
   /** 渲染前安全处理 LLM 文本 */
@@ -139,6 +146,21 @@ export async function createPluginSystem(options: PluginSystemOptions = {}): Pro
     if (id) await localStore.write(RANKING_PLUGIN_KEY, id);
     else await localStore.delete(RANKING_PLUGIN_KEY);
   };
+  /**
+   * 改插件 id 后同步赛事页「当前选中的排名插件」：
+   * 只有键里存的正是旧 id 才改写成新 id；存的是别的插件 / 没选中则一律不动。
+   * 与 EventDetailPage 用同一个 namespace / key / read 口径（见其 RANKING_PLUGIN_KEY）。
+   */
+  const onArtifactRenamed = async (oldId: string, newId: string): Promise<void> => {
+    const selected = localStore.readSync<string | null>(RANKING_PLUGIN_KEY);
+    if (selected === oldId) await localStore.write(RANKING_PLUGIN_KEY, newId);
+  };
+  const renameArtifact = async (oldId: string, newId: string): Promise<PluginArtifact> => {
+    const moved = await artifacts.renameId(oldId, newId);
+    await onArtifactRenamed(oldId, newId);
+    await options.onArtifactChange?.();
+    return moved;
+  };
 
   // 先取一次再窄化：exactOptionalPropertyTypes 下可选字段要么整个键省略、要么给确定值，
   // 绝不塞 undefined。
@@ -149,6 +171,7 @@ export async function createPluginSystem(options: PluginSystemOptions = {}): Pro
     validator,
     snapshot,
     applySelection,
+    onArtifactRenamed,
     behaviors,
     maxAttempts,
     ...(onArtifactChange !== undefined ? { onArtifactChange } : {}),
@@ -161,6 +184,7 @@ export async function createPluginSystem(options: PluginSystemOptions = {}): Pro
     snapshot,
     toolKit,
     behaviors,
+    renameArtifact,
     maxAttempts,
     applyRanking: async (matches: MatchData[], selectedArtifactId?: string) => {
       const builtin = (): Promise<RankingTable> => computeRanking(matches, new BuiltinRanking());

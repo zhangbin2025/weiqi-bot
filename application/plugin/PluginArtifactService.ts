@@ -16,6 +16,8 @@ import type {
 } from '../../domain/plugin/types';
 
 export interface CreatePluginArtifactInput {
+  /** 可选：新建时指定发布用 id（与 weiqi-assets 命名规则同形）；不给则生成 */
+  id?: string;
   name: string;
   intent: string;
   code: string;
@@ -85,7 +87,7 @@ export class PluginArtifactService {
       outcome: 'accepted',
     };
     const artifact: PluginArtifact = {
-      id: generateArtifactId(at),
+      id: input.id ?? generateArtifactId(at),
       name: input.name,
       pointId: input.pointId,
       version: 1,
@@ -200,6 +202,23 @@ export class PluginArtifactService {
 
   async remove(id: string): Promise<void> {
     await this.store.remove(id);
+  }
+
+  /**
+   * 改一件插件工件的 id（keyPath）。只换标识，code / version / history /
+   * enabled / slug / catalogRef 全部原样，不产生新版本、不触发试算。
+   * 调用方（PluginTools / 面板）负责校验新 id 合法与重名，并同步赛事页选中键。
+   */
+  async renameId(oldId: string, newId: string): Promise<PluginArtifact> {
+    const existing = await this.requireArtifact(oldId);
+    if (oldId === newId) return existing;
+    if ((await this.store.get(newId)) !== null) {
+      throw new Error(`目标 id ${newId} 已被另一件插件占用；换一个不重名的 id`);
+    }
+    await this.store.replaceId(oldId, newId);
+    const moved = await this.store.get(newId);
+    if (moved === null) throw new Error(`改名后读不到插件 ${newId}，存储可能不可用`);
+    return moved;
   }
 
   async get(id: string): Promise<PluginArtifact | null> {

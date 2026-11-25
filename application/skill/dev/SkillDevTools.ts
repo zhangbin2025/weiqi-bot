@@ -21,15 +21,18 @@
  * - 带 workflow 的配方保存后**未启用**，必须 dev 角色 run_workflow(debug:true)
  *   整条 DAG 跑通才由宿主翻转启用（「调试通过才启用」）；修订会重置闸门。
  *
- * id 生成：新建时由宿主按 name 确定性地生成 `user.` 前缀 id。用 FNV-1a 32bit
- * （标准具名算法：offset basis 2166136261 / prime 16777619，转 base36）做短哈希，
- * 再拼一段可读 ASCII slug；它只是稳定标识符，不是阈值 / 打分 /  tunable 数值。
+ * id 生成：新建时可由模型给一个合法的发布用 id（如 `admin.publish`）；不给时
+ * 由宿主按 name 确定性地生成 `user.` 前缀 id。FNV-1a 32bit（标准具名算法：
+ * offset basis 2166136261 / prime 16777619，转 base36）+ 一段可读 ASCII slug；
+ * 它只是稳定标识符，不是阈值 / 打分 / tunable 数值。
+ * 已存自建技能可用 `newId` 改名（在线安装条目只读，不许改）。
  */
 
 import type { ModelToolDefinition } from '@application/model/IModelGateway';
 import type { ToolExecutor, ToolOutcome } from '@application/chat/ToolLoop';
 import type { SkillPrimitive } from '@application/skill/SkillTypes';
 import { parseSkillRecipe } from '@application/skill/SkillRecipe';
+import { isValidResourceId, RESOURCE_ID_HINT } from '@application/skill/ResourceId';
 import { NAVIGATE_TO_TOOL_NAME, NAVIGATE_TO_TOOL } from '@application/skill/primitives/BasicPrimitives';
 import type { UserSkillStore } from './UserSkillStore';
 import type { WorkflowDevHooks } from '../WorkflowTool';
@@ -66,8 +69,23 @@ const SKILL_LIST_TOOL: ModelToolDefinition = {
   name: 'skill_list',
   description:
     '列出本地已保存的所有技能（自建 + 在线安装），返回每条的 id、名称、版本、来源、启用状态与完整配方 JSON。'
-    + '修订前先用它拿到目标 id 和当前内容；只有来源为自建（user. 开头 id）的条目可修订。',
+    + '修订前先用它拿到目标 id 和当前内容；只有来源为自建（source=custom）的条目可修订或改名。',
   parameters: { type: 'object', properties: {}, additionalProperties: false },
+};
+
+const SKILL_RENAME_TOOL: ModelToolDefinition = {
+  name: 'skill_rename',
+  description: '修改一条**自建**技能的 id（只换标识，不改配方 / 版本 / 启用状态）。'
+    + '用于把生成式 user. 前缀 id 换成发布用的可读 id；新 id 与 weiqi-assets 命名规则同形（'
+    + RESOURCE_ID_HINT + '），且不能与现有条目重名。在线安装条目只读，不能改名。',
+  parameters: {
+    type: 'object',
+    properties: {
+      fromId: { type: 'string', description: '当前技能 id（来自 skill_list）' },
+      newId: { type: 'string', description: '新的发布用 id（' + RESOURCE_ID_HINT + '）' },
+    },
+    required: ['fromId', 'newId'], additionalProperties: false,
+  },
 };
 
 const SKILL_WRITE_TOOL: ModelToolDefinition = {
@@ -76,15 +94,19 @@ const SKILL_WRITE_TOOL: ModelToolDefinition = {
     '创建或修订一条本机自建技能配方（纯声明 JSON，不含任何代码）。散文技能保存即启用；'
     + '带 workflow 的技能保存后处于「未启用（待验收）」，必须 run_workflow 传 debug:true '
     + '整条 DAG 跑通后才由宿主启用，修订会重置这道闸门。'
-    + '新建时不填 id（宿主生成 user. 前缀的稳定 id）；修订时填 skill_list 查到的同一 id，'
-    + '并给出整份配方。在线安装的技能是只读的，不能改写；primitives 只能引用系统提示里「可用原语」列出的名字。'
+    + '新建时建议给一个发布用 id（与 weiqi-assets 命名规则同形，如 admin.publish）；'
+    + '不给则宿主按 name 生成 user. 前缀的稳定 id。修订时填 skill_list 查到的同一 id，并给出整份配方；'
+    + '改已有技能的 id 请用 skill_rename（只需两个 id）。'
+    + '在线安装的技能是只读的，不能改写或改名；primitives 只能引用系统提示里「可用原语」列出的名字。'
     + '带 workflow 的配方是纯声明 DAG：primitives 可为空数组，能力声明在 workflow.steps[].call（引用当前算子表里的名字）。',
   parameters: {
     type: 'object',
     properties: {
       id: {
         type: 'string',
-        description: '可选。修订已有技能时填它的 id（user. 开头，来自 skill_list）；新建时省略。',
+        description: '技能 id。新建时给一个发布用 id（' + RESOURCE_ID_HINT
+          + '）；不给则宿主按 name 生成 user. 前缀稳定 id。'
+          + '修订已有技能时填 skill_list 查到的同一 id。',
       },
       name: { type: 'string', description: '展示名称' },
       summary: { type: 'string', description: '一句话说明该技能做什么（命中后注入系统提示的执行说明）' },
@@ -197,7 +219,9 @@ function buildSystemSuffix(primitives: ReadonlyMap<string, SkillPrimitive>): str
       + '/ routeHint（可选路由词，短语数组：每项声明「用户说什么话时选这条」，只供路由目录；不填则目录只给 id|name）'
       + '/ primitives（原语名数组，至少 1 条，必须来自上表）'
       + '/ prompt（启用后追加的自然语言指令，纯文本）；'
-      + 'id 可选，修订时填 skill_list 查到的同一 id（user. 开头），新建时省略。',
+      + 'id 建议显式给（发布用 id，' + RESOURCE_ID_HINT + '）；不给则按 name 生成 user. 前缀稳定 id。'
+      + '修订时填 skill_list 查到的同一 id；改已有技能的 id 用 skill_rename（只需两个 id），'
+      + '在线安装条目只读、不能改名。',
     'secrets 可选：引用 http_fetch_auth / secret_prompt 的配方要声明凭据规格数组，'
       + '每项 key / label / allowedHosts（纯域名）/ header:{name,prefix}，可选 setupUrl / hint。'
       + '接口只支持 POST 时再声明 method:"POST"、bodyStatic（固定 JSON 字段）、'
@@ -279,6 +303,48 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
     }
   };
 
+  const renameExecutor: ToolExecutor = async (argsJson: string): Promise<ToolOutcome> => {
+    let args: unknown;
+    try { args = JSON.parse(argsJson) as unknown; } catch {
+      return { observation: '入参不是合法 JSON，未能改名', ok: false, detail: '技能改名失败' };
+    }
+    if (!isRecord(args)) {
+      return { observation: '入参必须是一个对象，未能改名', ok: false, detail: '技能改名失败' };
+    }
+    const oldId = typeof args['fromId'] === 'string' ? args['fromId'].trim() : '';
+    const rawNewId = args['newId'];
+    if (oldId === '' || typeof rawNewId !== 'string') {
+      return { observation: 'skill_rename 需要 fromId（当前 id）和 newId（新 id）',
+        ok: false, detail: '技能改名失败' };
+    }
+    if (!isValidResourceId(rawNewId)) {
+      return { observation: `新 id「${rawNewId}」不合法：${RESOURCE_ID_HINT}。`
+        + '这条规则与 weiqi-assets 资源仓一致，发布时不会被校验拒收。',
+        ok: false, detail: '技能 id 不合法' };
+    }
+    const newId = rawNewId.trim();
+    if (oldId === newId) {
+      return { observation: `技能 ${oldId} 的 id 没变（新旧相同），无需操作。`,
+        ok: true, detail: 'id 未变化' };
+    }
+    try {
+      // 与面板「改 ID」按钮共用同一处原子操作：只换 id，配方 / 版本 / 启停全不变。
+      const renamed = await users.renameId(oldId, newId);
+      return {
+        observation:
+          `已把自建技能 id 从 ${oldId} 改为 ${newId}：${renamed.recipe.name}，`
+          + `v${renamed.recipe.version}，${renamed.enabled ? '已启用' : '停用'}。\n`
+          + '配方内容、版本号与启用状态都没变；只换了发布用 id。'
+          + (renamed.recipe.workflow !== undefined
+            ? '已验收的 workflow 配方仍保持原状态，不需要重跑 debug:true。' : ''),
+        ok: true, detail: `技能改名 ${oldId} → ${newId}`,
+      };
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      return { observation: `技能改名失败：${reason}`, ok: false, detail: '技能改名失败' };
+    }
+  };
+
   const writeExecutor: ToolExecutor = async (argsJson: string): Promise<ToolOutcome> => {
     let args: unknown;
     try {
@@ -290,13 +356,14 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
       return { observation: '入参必须是一个对象，未能保存技能', ok: false, detail: '技能保存失败' };
     }
 
-    // id：修订走显式 id（必须 user. 前缀，禁止模型覆盖内置/在线技能）；新建由宿主按 name 生成
-    let id: string;
+    // id：显式给发布用 id 优先；不给则按 name 生成 user. 前缀稳定 id。
     const rawId = args['id'];
+    let id: string;
     if (typeof rawId === 'string' && rawId.trim() !== '') {
-      if (!rawId.startsWith('user.')) {
+      if (!isValidResourceId(rawId)) {
         return {
-          observation: 'id 必须以 user. 开头（本机自建技能专用前缀），不能用它覆盖在线安装的技能。',
+          observation: `技能 id「${rawId}」不合法：${RESOURCE_ID_HINT}。`
+            + '这条规则与 weiqi-assets 资源仓一致，发布时不会被校验拒收。',
           ok: false, detail: '技能 id 不合法',
         };
       }
@@ -393,10 +460,11 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
     };
 
   return {
-    tools: [SKILL_LIST_TOOL, SKILL_WRITE_TOOL],
+    tools: [SKILL_LIST_TOOL, SKILL_WRITE_TOOL, SKILL_RENAME_TOOL],
     executors: {
       [SKILL_LIST_TOOL.name]: listExecutor,
       [SKILL_WRITE_TOOL.name]: writeExecutor,
+      [SKILL_RENAME_TOOL.name]: renameExecutor,
     },
     systemSuffix: buildSystemSuffix(primitives),
     ...(operatorSuffix !== undefined ? { operatorSuffix } : {}),

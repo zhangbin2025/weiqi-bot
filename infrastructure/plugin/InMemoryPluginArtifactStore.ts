@@ -243,4 +243,17 @@ export class InMemoryPluginArtifactStore implements IPluginArtifactStore {
   async remove(id: string): Promise<void> {
     this.persistence.delete(id);
   }
+
+  /** 与 mergePluginArtifact「id 不接受 patch」的约束配套：换 key 走显式方法 */
+  async replaceId(oldId: string, newId: string): Promise<void> {
+    const existing = this.read(oldId);
+    if (existing === null) throw new Error(`Plugin artifact "${oldId}" not found`);
+    if (oldId === newId) return;
+    if (this.persistence.has(newId)) {
+      throw new Error(`Plugin artifact "${newId}" already exists`);
+    }
+    // 先写新键、再删旧键：中途异常留下的是「两份都在」而不是「一份都没了」。
+    this.persistence.set(newId, JSON.stringify({ ...clonePluginArtifact(existing), id: newId }));
+    this.persistence.delete(oldId);
+  }
 }

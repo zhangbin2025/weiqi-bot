@@ -43,6 +43,7 @@ import { PluginArtifactService } from './PluginArtifactService';
 import { PluginContextProvider } from './PluginContextProvider';
 import { PluginValidator } from '@domain/plugin/PluginValidator';
 import { resolvePluginName } from './PluginNaming';
+import { isValidResourceId, normalizeResourceId, RESOURCE_ID_HINT } from '@application/skill/ResourceId';
 import { DEFAULT_PLUGIN_MAX_ATTEMPTS } from './PluginConfig';
 
 // ---------- 工具名 ----------
@@ -57,6 +58,7 @@ export const PLUGIN_TOOL_NAMES = {
   delete: 'plugin_delete',
   apply: 'plugin_apply',
   rollback: 'plugin_rollback',
+  rename: 'plugin_rename',
 } as const;
 
 // ---------- 依赖端口 ----------
@@ -77,6 +79,12 @@ export interface PluginToolDeps {
   maxAttempts?: number;
   /** 工件集合 / enabled 状态发生成功变更后刷新算子表快照（模型侧启停/新建/删除/修订） */
   onArtifactChange?: () => void | Promise<void>;
+  /**
+   * 改 id 成功后同步「赛事页当前选中的排名插件」持久化键：
+   * 旧 id 仍被选中就写成新 id，否则不动。窄函数由装配根注入，
+   * 工具集不依赖具体存储实现；不传则跳过（测试 / 精简装配零回归）。
+   */
+  onArtifactRenamed?: (oldId: string, newId: string) => void | Promise<void>;
 }
 
 export interface PluginToolKit {
@@ -402,6 +410,7 @@ function buildTools(behaviors: ExtensionPointBehaviorRegistry): ModelToolDefinit
     name: PLUGIN_TOOL_NAMES.write,
     description:
       '写入一份完整插件源码，自动试算并落库。不带 artifactId = 新建；带 artifactId = 修订该插件并产生新版本。' +
+      '新建时可用 newId 指定一个发布用的可读 id（不给则宿主生成）；改已有插件的 id 用 plugin_rename。' +
       '这是「创建」和「迭代修改」共用的唯一入口，可反复调用直到结果满意。code 必须是完整 JS 源码字符串。'
       + `入口函数与附加参数由扩展点决定：${pointIdDescriptionOf(behaviors)}`,
     parameters: {
@@ -409,6 +418,12 @@ function buildTools(behaviors: ExtensionPointBehaviorRegistry): ModelToolDefinit
       properties: {
         code: { type: 'string', description: '完整 JS 源码（入口函数按所选扩展点的沙箱契约），不是 diff/片段' },
         artifactId: { type: 'string', description: '要修订的插件 id；省略则新建' },
+        newId: {
+          type: 'string',
+          description: '仅新建时有效：指定发布用 id（' + RESOURCE_ID_HINT + '）；'
+            + '不给则宿主生成。这条规则与 weiqi-assets 资源仓一致，发布时不会被校验拒收。'
+            + '与 artifactId 同时给出会被忽略（那是修订，id 不能改）。改已有插件的 id 请用 plugin_rename。',
+        },
         intent: { type: 'string', description: '原始需求描述（新建时必填；修订时可省略，沿用原需求）' },
         name: { type: 'string', description: '插件名；仅当用户明确起了名字时给，否则省略' },
         slug: {
@@ -476,6 +491,20 @@ function buildTools(behaviors: ExtensionPointBehaviorRegistry): ModelToolDefinit
       type: 'object',
       properties: { artifactId: ID_PARAM, version: { type: 'number', description: '要回到的历史版本号（整数）' } },
       required: ['artifactId', 'version'], additionalProperties: false,
+    },
+  },
+  {
+    name: PLUGIN_TOOL_NAMES.rename,
+    description: '修改一件插件的 id（只换标识，不改源码 / 版本 / 启停 / 算子 slug）。'
+      + '用于把生成式随机 id 换成发布用的可读 id；新 id 必须 ' + RESOURCE_ID_HINT
+      + '，且不能与现有工件重名。在线安装件的 id 由资源仓维护，只读、不能改名。',
+    parameters: {
+      type: 'object',
+      properties: {
+        artifactId: { type: 'string', description: '当前插件 id（来自 plugin_list）' },
+        newId: { type: 'string', description: '新的发布用 id（' + RESOURCE_ID_HINT + '）' },
+      },
+      required: ['artifactId', 'newId'], additionalProperties: false,
     },
   },
   ];
@@ -616,8 +645,22 @@ export function createPluginToolKit(deps: PluginToolDeps): PluginToolKit {
         if (!intent) return fail('新建插件必须给 intent（原始需求描述），请连同 code 一起重新调用', '新建缺 intent');
         const entries = await deps.snapshot.snapshot();
         const name = resolvePluginName(str(a.value, 'name'), entries);
+        // 新建时可显式指定发布用 id：合法且不重名才用；不给仍走宿主生成。
+        let chosenId: string | undefined;
+        const rawNewId = str(a.value, 'newId');
+        if (rawNewId !== undefined) {
+          if (!isValidResourceId(rawNewId)) {
+            return fail(`新建插件 id「${rawNewId}」不合法：${RESOURCE_ID_HINT}。`
+              + '这条规则与 weiqi-assets 资源仓一致，发布时不会被校验拒收。', '插件 id 不合法');
+          }
+          chosenId = normalizeResourceId(rawNewId);
+          if ((await deps.artifacts.get(chosenId)) !== null) {
+            return fail(`目标 id ${chosenId} 已被另一件插件占用；换一个不重名的 id`, '插件 id 重名');
+          }
+        }
         const created = await deps.artifacts.create({
           name, intent, code, pointId: spec.pointId, origin: 'llm', spec,
+          ...(chosenId !== undefined ? { id: chosenId } : {}),
           ...(slug !== undefined ? { slug } : {}),
           ...(result.artifactContract !== undefined
             ? { operatorContract: result.artifactContract as OperatorArtifactContract } : {}),
@@ -834,6 +877,49 @@ export function createPluginToolKit(deps: PluginToolDeps): PluginToolKit {
       );
     } catch (e) {
       return fail(`回滚落库失败：${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  // 改 id 只换标识：不碰源码 / 版本 / 启停 / slug / 算子注册表。
+  // 在线安装件（带 catalogRef）的本地 id 由资源仓事实决定，改名会破坏更新匹配，拒绝。
+  executors[PLUGIN_TOOL_NAMES.rename] = async (argsJson) => {
+    const a = readArgs<Record<string, unknown>>(argsJson, PLUGIN_TOOL_NAMES.rename);
+    if (!a.ok) return a.failure;
+    const oldId = str(a.value, 'artifactId');
+    const rawNewId = str(a.value, 'newId');
+    if (!oldId || !rawNewId) {
+      return fail('plugin_rename 需要 artifactId（当前 id）和 newId（新 id）', '改名缺参数');
+    }
+    if (!isValidResourceId(rawNewId)) {
+      return fail(`新 id「${rawNewId}」不合法：${RESOURCE_ID_HINT}。`
+        + '这条规则与 weiqi-assets 资源仓一致，发布时不会被校验拒收。', '插件 id 不合法');
+    }
+    const newId = normalizeResourceId(rawNewId);
+    const target = await requireArtifact(deps, oldId);
+    if (!target) return fail(`找不到插件 ${oldId}；先用 plugin_list 确认 id`, '插件不存在');
+    if (target.catalogRef !== undefined) {
+      return fail('这是在线安装的插件，本地 id 由资源仓维护，只读、不能改名。'
+        + '要换标识请在资源仓改 resourceId 后重新安装。', '在线插件只读');
+    }
+    if (oldId === newId) {
+      return ok(`插件 ${oldId} 的 id 没变（新旧相同），无需操作。`, 'id 未变化');
+    }
+    if ((await requireArtifact(deps, newId)) !== null) {
+      return fail(`目标 id ${newId} 已被另一件插件占用；换一个不重名的 id`, '插件 id 重名');
+    }
+    try {
+      const moved = await deps.artifacts.renameId(oldId, newId);
+      await deps.onArtifactRenamed?.(oldId, newId);
+      await deps.onArtifactChange?.();
+      return ok(
+        `已把插件 id 从 ${oldId} 改为 ${newId}：${moved.name}，`
+        + `v${moved.version}，${moved.enabled ? '已启用' : '停用'}。\n`
+        + '源码、版本、启停状态、slug 与算子名全部不变；只换了发布用 id。'
+        + '赛事页若原本选中这件插件，选中键已同步到新 id。',
+        `改名 ${oldId} → ${newId}`,
+      );
+    } catch (e) {
+      return fail(`插件改名失败：${e instanceof Error ? e.message : String(e)}`, '改名失败');
     }
   };
 

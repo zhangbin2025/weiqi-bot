@@ -83,7 +83,7 @@ describe('createPluginToolKit', () => {
     const kit = createPluginToolKit(h.deps);
     expect(kit.tools.map((t) => t.name)).toEqual([
       'plugin_list', 'plugin_show', 'plugin_history', 'plugin_write', 'plugin_debug',
-      'plugin_toggle', 'plugin_delete', 'plugin_apply', 'plugin_rollback',
+      'plugin_toggle', 'plugin_delete', 'plugin_apply', 'plugin_rollback', 'plugin_rename',
     ]);
     expect(kit.maxTurns).toBeGreaterThan(1);
     const sys = await kit.systemPrompt();
@@ -452,4 +452,98 @@ describe('plugin_toggle 刷新算子表快照（阶段三整改）', () => {
     expect(disabled.observation).toContain('已停用');
     expect(onArtifactChange).toHaveBeenCalledTimes(2);
   });
+  it('plugin_write 新建可用 newId 指定发布用 id（合法即用，不给仍生成）', async () => {
+    const h = harness();
+    const kit = createPluginToolKit(h.deps);
+    const r = await call(h, PLUGIN_TOOL_NAMES.write, {
+      intent: '按积分排名', code: CODE_V1, newId: 'ranking.by-wins', slug: 'wins',
+    });
+    expect(r.ok).toBe(true);
+    const a = await h.artifacts.get('ranking.by-wins');
+    expect(a).not.toBeNull();
+    expect(a?.slug).toBe('wins');
+    expect(a?.version).toBe(1);
+    // 不给 newId 仍走宿主生成（随机式），两条不冲突
+    const r2 = await call(h, PLUGIN_TOOL_NAMES.write, { intent: '另一个', code: CODE_V1 });
+    expect(r2.ok).toBe(true);
+    expect((await h.artifacts.list()).length).toBe(2);
+    expect(kit.tools.map((t) => t.name)).toContain('plugin_rename');
+  });
+
+  it('plugin_write 新建拒绝非法 / 重名的 newId，且不落库', async () => {
+    const h = harness();
+    const bad = await call(h, PLUGIN_TOOL_NAMES.write, {
+      intent: '按积分排名', code: CODE_V1, newId: 'plugin:中文:1',
+    });
+    expect(bad.ok).toBe(false);
+    expect(bad.observation).toContain('不合法');
+    expect(await h.artifacts.list()).toEqual([]);
+
+    const first = await call(h, PLUGIN_TOOL_NAMES.write, {
+      intent: '按积分排名', code: CODE_V1, newId: 'ranking.first',
+    });
+    expect(first.ok).toBe(true);
+    const dup = await call(h, PLUGIN_TOOL_NAMES.write, {
+      intent: '第二个', code: CODE_V1, newId: 'ranking.first',
+    });
+    expect(dup.ok).toBe(false);
+    expect(dup.observation).toContain('占用');
+    expect((await h.artifacts.list()).length).toBe(1);
+  });
+
+  it('plugin_rename：只换 id，版本 / 启停 / slug / 源码不变，并同步选中键', async () => {
+    const h = harness();
+    const created = await call(h, PLUGIN_TOOL_NAMES.write, {
+      intent: '按积分排名', code: CODE_V1, slug: 'wins',
+    });
+    expect(created.ok).toBe(true);
+    const oldId = (await h.artifacts.list())[0]!.id;
+    await h.artifacts.setEnabled(oldId, true);
+    // 让装配根语义里的「选中键」回调可观测：直接注入一个 spy
+    h.deps.onArtifactRenamed = vi.fn(async () => undefined);
+    const r = await call(h, PLUGIN_TOOL_NAMES.rename, {
+      artifactId: oldId, newId: 'ranking.readable',
+    });
+    expect(r.ok).toBe(true);
+    expect(r.observation).toContain('只换了发布用 id');
+    expect(h.deps.onArtifactRenamed).toHaveBeenCalledWith(oldId, 'ranking.readable');
+    expect(await h.artifacts.get(oldId)).toBeNull();
+    const moved = await h.artifacts.get('ranking.readable');
+    expect(moved?.version).toBe(1);
+    expect(moved?.enabled).toBe(true);
+    expect(moved?.slug).toBe('wins');
+    expect(moved?.code).toBe(CODE_V1);
+    expect(moved?.history.length).toBe(1);
+  });
+
+  it('plugin_rename 拒绝非法 id / 重名 / 在线安装件 / 不存在的工件', async () => {
+    const h = harness();
+    const a = await h.artifacts.create({
+      name: '规则1', intent: '同分比胜局', code: CODE_V1,
+      pointId: RANKING_POINT_ID, origin: 'llm', spec: RANKING_SPEC,
+    });
+    const b = await h.artifacts.create({
+      name: '规则2', intent: '另一种', code: CODE_V1,
+      pointId: RANKING_POINT_ID, origin: 'llm', spec: RANKING_SPEC,
+      id: 'ranking.taken',
+    });
+    const bad = await call(h, PLUGIN_TOOL_NAMES.rename, { artifactId: a.id, newId: 'Bad:中文' });
+    expect(bad.ok).toBe(false);
+    expect(bad.observation).toContain('不合法');
+    const dup = await call(h, PLUGIN_TOOL_NAMES.rename, { artifactId: a.id, newId: b.id });
+    expect(dup.ok).toBe(false);
+    expect(dup.observation).toContain('占用');
+    const missing = await call(h, PLUGIN_TOOL_NAMES.rename, { artifactId: 'nope', newId: 'ranking.ok' });
+    expect(missing.ok).toBe(false);
+    // 在线安装件：create 时带 catalogRef → 只读（PluginCatalogService 安装路径同款）
+    const online = await h.artifacts.create({
+      name: '在线件', intent: '在线', code: CODE_V1,
+      pointId: RANKING_POINT_ID, origin: 'manual', spec: RANKING_SPEC,
+      catalogRef: { registryUrl: 'https://x', resourceId: 'workflow-operator.x' },
+    });
+    const ro = await call(h, PLUGIN_TOOL_NAMES.rename, { artifactId: online.id, newId: 'ranking.online' });
+    expect(ro.ok).toBe(false);
+    expect(ro.observation).toContain('在线安装的插件');
+  });
+
 });
