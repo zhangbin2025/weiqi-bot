@@ -35,6 +35,7 @@ import {
 } from './NavigateToPath';
 import { createDisplayJsonListPrimitive } from './DisplayJsonListPrimitive';
 import { jsonExtractPrimitive } from './JsonExtractPrimitive';
+import { createRegexPrimitives } from './RegexPrimitives';
 
 /** navigate_to 工具名（与 definition.name 一致） */
 export const NAVIGATE_TO_TOOL_NAME = 'navigate_to';
@@ -87,9 +88,11 @@ function toPrimitiveResult(r: {
 }
 
 /**
- * 构造 7 个通用原语：web_fetch / web_cache_read / web_read_pdf / web_read_image /
- * navigate_to / json_extract（纯提取）/ display_json_list（纯渲染，数据旁路）。
+ * 构造通用原语：4 个 web 工具 + web_cache_read + navigate_to +
+ * json_extract（纯提取）/ 3 个正则算子（匹配 / 提取 / 替换，纯计算）/
+ * display_json_list（纯渲染，数据旁路）。
  * webDeps 由上层（接线方）注入，与 createWebToolKit 用的是同一份依赖。
+ * 正则算子由 createRegexPrimitives() 一次给出，新增即自动注册进 OperatorRegistry。
  */
 export function createBasicPrimitives(webDeps: WebFetchToolDeps): SkillPrimitive[] {
   return [
@@ -151,6 +154,10 @@ export function createBasicPrimitives(webDeps: WebFetchToolDeps): SkillPrimitive
     // 内置提取算子：纯 value→value，零网络 / 零时钟，承接已删 json-query 插件的
     // path/where/pick 语义；阶段二 workflow 把它的 value 注入下游算子。
     jsonExtractPrimitive,
+    // 内置正则算子（承接已下架的 workflow-operator.regex_extract 插件）：
+    // regex_match / regex_extract / regex_replace，纯计算、零网络 / 零时钟，
+    // 各自产出纯 value，供阶段二 workflow 连线或直接交给下游展示算子。
+    ...createRegexPrimitives(),
     // 通用展示原语：纯渲染，吃已是数组的 value，按 fields/format/note 生成
     // markdown 列表或表格 → displayMarkdown。不读缓存、不解析 JSON、不提取字段；
     // 宿主不认识任何业务字段；正文全程不进模型上下文。
