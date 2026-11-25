@@ -25,6 +25,7 @@
 import { buildChatCompletionsUrl } from './LLMCredentialStore';
 import { resolveLLMRequestUrl } from './LLMProxyUrl';
 import { emitTokenUsage } from '../../application/token/TokenUsageSink';
+import { normalizeTokenValue } from '../../application/token/TokenUsageStats';
 
 /** OpenAI content part（多模态）。形状由 MultimodalTranslator 统一构造。 */
 export type WireContentPart =
@@ -273,33 +274,6 @@ export class OpenAICompatibleClient {
         : (typeof message?.content === 'string' ? message.content : '');
       const truncated = choice?.finish_reason === 'length';
 
-      // token 用量埋点：唯一发射点，放在「HTTP 2xx + 响应解析完成」之后。
-      // 语义 = 一次真实发生的请求消耗，与上层 chat() 是否判「空内容」失败无关；
-      // 400 降级是递归 return this.request(...)，只会记最终成功那次。
-      // provider 取构造时解析的原始 host，不取 resolveLLMRequestUrl 后的代理地址。
-      const rawPrompt = data.usage?.prompt_tokens;
-      const rawCompletion = data.usage?.completion_tokens;
-      const rawTotal = data.usage?.total_tokens;
-      const reported = data.usage !== undefined && (
-        typeof rawPrompt === 'number' || typeof rawCompletion === 'number' || typeof rawTotal === 'number'
-      );
-      const promptTokens = typeof rawPrompt === 'number' ? rawPrompt : 0;
-      const completionTokens = typeof rawCompletion === 'number' ? rawCompletion : 0;
-      const totalTokens = typeof rawTotal === 'number'
-        ? rawTotal
-        : promptTokens + completionTokens;
-      emitTokenUsage({
-        ts: Date.now(),
-        provider: this.provider,
-        endpoint: this.endpoint,
-        model: this.model,
-        task: this.task,
-        promptTokens,
-        completionTokens,
-        totalTokens,
-        reported,
-      });
-
       // 规范化 tool_calls：缺 id / 非法 function 的条目直接丢弃，避免 loop 里
       // 拿着坏 id 回填 role:'tool' 被端点拒绝。
       const toolCalls: ToolCall[] | undefined = message?.tool_calls
@@ -314,12 +288,47 @@ export class OpenAICompatibleClient {
           },
         }));
 
-      return {
+      const result: RawCompletion = {
         content,
         ...(toolCalls && toolCalls.length > 0 ? { toolCalls } : {}),
         ...(message?.reasoning_content ? { reasoningContent: message.reasoning_content } : {}),
         truncated,
       };
+
+      // token 用量埋点：唯一发射点，放在「确认本次请求将成功返回」的最后一刻。
+      // 超时 / 网络错误 / 非 2xx / response.json() 抛错 / 上面任何投影逻辑抛错，
+      // 都会经 catch 冒泡、绝不会走到这里 —— 失败请求一律不记（2026-11-25 修正，
+      // 回应「超时后统计疑似多算」）。400 降级是递归 return this.request(...)，
+      // 只会记最终成功那次；chat() 对空内容抛错发生在 request() 已返回之后，
+      // 那次请求确实消耗了 token，仍记一条。
+      // provider 取构造时解析的原始 host，不取 resolveLLMRequestUrl 后的代理地址。
+      // 数值一律 normalizeTokenValue：token 计数按定义是非负整数，端点给负数 /
+      // NaN / 字符串 / Infinity 一律记 0（拒绝非法值，不是估算、不是补齐），
+      // 避免脏值把「总消耗」与「按用途分项」搅乱。
+      const usage = data.usage;
+      const promptTokens = normalizeTokenValue(usage?.prompt_tokens);
+      const completionTokens = normalizeTokenValue(usage?.completion_tokens);
+      const rawTotal = usage?.total_tokens;
+      const hasValidTotal = typeof rawTotal === 'number' && Number.isFinite(rawTotal) && rawTotal >= 0;
+      const totalTokens = hasValidTotal ? Math.round(rawTotal) : promptTokens + completionTokens;
+      const reported = usage !== undefined && (
+        typeof usage.prompt_tokens === 'number'
+        || typeof usage.completion_tokens === 'number'
+        || typeof usage.total_tokens === 'number'
+      );
+      emitTokenUsage({
+        ts: Date.now(),
+        provider: this.provider,
+        endpoint: this.endpoint,
+        model: this.model,
+        task: this.task,
+        promptTokens,
+        completionTokens,
+        totalTokens,
+        reported,
+      });
+
+      return result;
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         throw new Error(

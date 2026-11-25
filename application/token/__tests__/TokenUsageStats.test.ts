@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   localDateKey, shiftDate, rangeBounds, computeTokenStats, MODEL_KEY_SEP,
+  formatTokenCount, exactTokenCount, normalizeTokenValue, isHourlyRange,
 } from '../TokenUsageStats';
 import { normalizeRetentionDays } from '../TokenUsageTypes';
 import type { TokenUsageRecord } from '../TokenUsageTypes';
@@ -42,6 +43,13 @@ describe('日期口径', () => {
     expect(rangeBounds('last7', NOW)).toEqual({ fromDate: '2026-11-19', toDate: '2026-11-25' });
     expect(rangeBounds('last30', NOW)).toEqual({ fromDate: '2026-10-27', toDate: '2026-11-25' });
   });
+
+  it('今日/昨日按小时，最近 7/30 天按天', () => {
+    expect(isHourlyRange('today')).toBe(true);
+    expect(isHourlyRange('yesterday')).toBe(true);
+    expect(isHourlyRange('last7')).toBe(false);
+    expect(isHourlyRange('last30')).toBe(false);
+  });
 });
 
 describe('computeTokenStats', () => {
@@ -62,7 +70,7 @@ describe('computeTokenStats', () => {
     expect(s.total.promptTokens).toBe(120);
     expect(s.total.completionTokens).toBe(60);
     expect(s.total.totalTokens).toBe(180);
-    expect(s.trend).toHaveLength(1);
+    expect(s.hourly).toBe(true);
   });
 
   it('byProvider / byModel 分维度统计正确', () => {
@@ -74,17 +82,42 @@ describe('computeTokenStats', () => {
     expect(modelKeys).toContain(`api.b.com${MODEL_KEY_SEP}model-2`);
   });
 
-  it('byTask 分组保留用途标签', () => {
+  it('byTask 分组保留用途标签，且 Σ 分用途 === 总消耗（consistent）', () => {
     const withTask = [...records, rec(at(25, 13), { task: 'chat.compact', totalTokens: 7, promptTokens: 5, completionTokens: 2 })];
     const s = computeTokenStats(withTask, 'today', NOW);
     expect(s.byTask.map((r) => r.key)).toContain('chat.compact');
+    expect(s.consistent).toBe(true);
+    const sum = s.byTask.reduce((n, r) => n + r.totalTokens, 0);
+    expect(sum).toBe(s.total.totalTokens);
   });
 
-  it('last7 趋势固定 7 根柱，缺天补 0', () => {
+  it('今日/昨日趋势固定 24 根小时柱，缺桶补 0，按本地小时归桶', () => {
+    const s = computeTokenStats(records, 'today', NOW);
+    expect(s.trend).toHaveLength(24);
+    expect(s.trend[0]!.label).toBe('00');
+    expect(s.trend[0]!.bucketHour).toBe(0);
+    expect(s.trend[9]!.totalTokens).toBe(150);   // 09 时那条
+    expect(s.trend[9]!.requests).toBe(1);
+    expect(s.trend[11]!.totalTokens).toBe(30);   // 11 时那条
+    expect(s.trend[12]!.requests).toBe(1);       // 12 时未上报，token 0
+    expect(s.trend[12]!.totalTokens).toBe(0);
+    expect(s.trend[15]!.totalTokens).toBe(0);   // 无请求的小时补 0
+  });
+
+  it('昨日趋势也是 24 根柱，且不会因为「当前时刻 15:00」截断', () => {
+    const s = computeTokenStats(records, 'yesterday', NOW);
+    expect(s.trend).toHaveLength(24);
+    expect(s.trend[23]!.label).toBe('23');
+    expect(s.trend[9]!.totalTokens).toBe(150);
+  });
+
+  it('last7 趋势固定 7 根天柱，缺天补 0，label 为 DD', () => {
     const s = computeTokenStats(records, 'last7', NOW);
+    expect(s.hourly).toBe(false);
     expect(s.trend).toHaveLength(7);
     expect(s.trend[0]!.date).toBe('2026-11-19');
-    expect(s.trend[0]!.totalTokens).toBe(0);
+    expect(s.trend[0]!.label).toBe('19');
+    expect(s.trend[0]!.bucketHour).toBe(null);
     expect(s.trend.find((d) => d.date === '2026-11-25')!.requests).toBe(3);
   });
 
@@ -94,6 +127,32 @@ describe('computeTokenStats', () => {
     // 共 7 条，10-20 一条在窗口外 → 6 条计入
     expect(s.total.requests).toBe(6);
     expect(s.trend[0]!.date).toBe('2026-10-27');
+  });
+});
+
+describe('单位换算与数值归一化', () => {
+  it('formatTokenCount：<1000 原值，K=10^3，M=10^6，去掉尾随 0', () => {
+    expect(formatTokenCount(0)).toBe('0');
+    expect(formatTokenCount(999)).toBe('999');
+    expect(formatTokenCount(1000)).toBe('1K');
+    expect(formatTokenCount(1500)).toBe('1.5K');
+    expect(formatTokenCount(12345)).toBe('12.35K');
+    expect(formatTokenCount(1_000_000)).toBe('1M');
+    expect(formatTokenCount(2_500_000)).toBe('2.5M');
+  });
+
+  it('exactTokenCount 千分位精确值（tooltip 用）', () => {
+    expect(exactTokenCount(1234567)).toBe('1,234,567');
+  });
+
+  it('normalizeTokenValue：负数 / NaN / Infinity / 字符串一律记 0', () => {
+    expect(normalizeTokenValue(123)).toBe(123);
+    expect(normalizeTokenValue(-5)).toBe(0);
+    expect(normalizeTokenValue(NaN)).toBe(0);
+    expect(normalizeTokenValue(Infinity)).toBe(0);
+    expect(normalizeTokenValue('100')).toBe(0);
+    expect(normalizeTokenValue(undefined)).toBe(0);
+    expect(normalizeTokenValue(12.6)).toBe(13);
   });
 });
 

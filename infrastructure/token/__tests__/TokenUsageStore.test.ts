@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import pako from 'pako';
 import {
   encodeDaily, decodeDaily, TokenUsageStore,
 } from '../TokenUsageStore';
@@ -43,6 +44,23 @@ describe('encodeDaily / decodeDaily', () => {
 
   it('坏 blob 解码抛错，由 store 层降级处理', () => {
     expect(() => decodeDaily(new Uint8Array([1, 2, 3]), '2026-11-25')).toThrow();
+  });
+
+  it('解码时把非法 token 数值归一成 0（旧分片/半写入分片不污染聚合）', () => {
+    // 手工构造一个带脏值的紧凑分片（绕过 encodeDaily 的类型约束）
+    const date = '2026-11-25';
+    const dirty = {
+      v: 1,
+      d: { p: ['api.a.com'], e: ['https://api.a.com/v1'], m: ['m'], t: ['chat.reply'] },
+      r: [[0, 0, 0, 0, 0, -5, NaN as unknown as number, 'oops' as unknown as number, 1]],
+    };
+    // JSON.stringify 会把 NaN 变 null、字符串保留；两种都要被归一化吃掉
+    const blob = pako.deflate(JSON.stringify(dirty));
+    const out = decodeDaily(blob, date);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.promptTokens).toBe(0);
+    expect(out[0]!.completionTokens).toBe(0);
+    expect(out[0]!.totalTokens).toBe(0);
   });
 });
 

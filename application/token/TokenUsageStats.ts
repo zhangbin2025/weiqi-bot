@@ -6,14 +6,17 @@
  * - 自然日按**设备本地时间**（与聊天时间戳同一口径），日期串 YYYY-MM-DD 字典序
  *   即时间序，无需时区换算。
  * - 「最近 7 天」= 今日 + 前 6 天；「最近 30 天」= 今日 + 前 29 天，含今日。
- * - 趋势缺天补 0，保证柱数固定、可比对。
+ * - 今日 / 昨日趋势按**小时**分桶（一天 24 桶，24 是自然日小时数）；
+ *   最近 7 / 30 天按天分桶。缺桶补 0，保证柱数固定、可比对。
  * - 分组按 totalTokens 降序（业务展示口径：谁烧得多谁在前），同值按 key 稳定排序。
  * - 不做任何估算 / 插值 / 平滑；未上报用量的请求计入 requests 与 unreported，
  *   token 贡献 0，面板单列说明。
+ * - consistent：Σ byTask.totalTokens === total.totalTokens 的恒等式自检。两者在
+ *   同一循环累加，正常恒为 true；false 只可能是坏分片/旧数据，供面板提示「以总消耗为准」。
  */
 
 import type {
-  TokenDayPoint, TokenGroupRow, TokenRangeId, TokenStats, TokenUsageRecord,
+  TokenTrendPoint, TokenGroupRow, TokenRangeId, TokenStats, TokenUsageRecord,
 } from './TokenUsageTypes';
 
 /** 本地自然日串（YYYY-MM-DD）。独立于 toISOString，避免 UTC 偏移错一天。 */
@@ -60,6 +63,11 @@ export function rangeBounds(range: TokenRangeId, now: number): { fromDate: strin
   }
 }
 
+/** 今日 / 昨日按小时，其余按天 */
+export function isHourlyRange(range: TokenRangeId): boolean {
+  return range === 'today' || range === 'yesterday';
+}
+
 function emptyRow(key: string): TokenGroupRow {
   return {
     key, requests: 0, unreported: 0,
@@ -83,12 +91,38 @@ function sortedRows(map: Map<string, TokenGroupRow>): TokenGroupRow[] {
 /** 模型分组 key：provider 与 model 用 \u0000 分隔，避免字符串拼接歧义 */
 export const MODEL_KEY_SEP = '\u0000';
 
+/** 生成空趋势桶（含补零）。hourly 时单日 24 桶；否则 fromDate..toDate 每天一桶。 */
+function emptyTrend(fromDate: string, toDate: string, hourly: boolean): TokenTrendPoint[] {
+  const points: TokenTrendPoint[] = [];
+  if (hourly) {
+    // 今日 / 昨日都只涉及一个自然日，整整 24 小时全画出来（昨日不截断到当前时刻）。
+    const pad2 = (n: number) => String(n).padStart(2, '0');
+    for (let h = 0; h < 24; h += 1) {
+      points.push({
+        key: `${fromDate}T${pad2(h)}`, date: fromDate, label: pad2(h), bucketHour: h,
+        requests: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0,
+      });
+    }
+  } else {
+    for (let date = fromDate; date <= toDate; date = shiftDate(date, 1)) {
+      points.push({
+        // 固定宽度弹窗里 30 根柱并排，柱下只标「日」（DD）；完整日期在
+        // 趋势标题的起止范围与各柱 tooltip 里给全，避免 label 互相挤压。
+        key: date, date, label: date.slice(8), bucketHour: null,
+        requests: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0,
+      });
+    }
+  }
+  return points;
+}
+
 export function computeTokenStats(
   records: readonly TokenUsageRecord[],
   range: TokenRangeId,
   now: number,
 ): TokenStats {
   const { fromDate, toDate } = rangeBounds(range, now);
+  const hourly = isHourlyRange(range);
   const filtered = records.filter((r) => {
     const date = localDateKey(r.ts);
     return date >= fromDate && date <= toDate;
@@ -98,14 +132,8 @@ export function computeTokenStats(
   const providers = new Map<string, TokenGroupRow>();
   const models = new Map<string, TokenGroupRow>();
   const tasks = new Map<string, TokenGroupRow>();
-  const days = new Map<string, TokenDayPoint>();
-
-  // 先把窗口内每一天补成 0 柱，再累加，保证趋势连续
-  for (let date = fromDate; date <= toDate; date = shiftDate(date, 1)) {
-    days.set(date, {
-      date, requests: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0,
-    });
-  }
+  const trend = emptyTrend(fromDate, toDate, hourly);
+  const trendIndex = new Map(trend.map((p, i) => [p.key, i]));
 
   for (const r of filtered) {
     addRecord(total, r);
@@ -122,26 +150,66 @@ export function computeTokenStats(
     addRecord(tasks.get(tKey)!, r);
 
     const date = localDateKey(r.ts);
-    const point = days.get(date)!;
-    point.requests += 1;
-    point.promptTokens += r.promptTokens;
-    point.completionTokens += r.completionTokens;
-    point.totalTokens += r.totalTokens;
+    const key = hourly
+      ? `${date}T${String(new Date(r.ts).getHours()).padStart(2, '0')}`
+      : date;
+    const idx = trendIndex.get(key);
+    const point = idx === undefined ? undefined : trend[idx];
+    if (point) {
+      point.requests += 1;
+      point.promptTokens += r.promptTokens;
+      point.completionTokens += r.completionTokens;
+      point.totalTokens += r.totalTokens;
+    }
   }
 
+  const byTask = sortedRows(tasks);
+  // 同一批记录、同一循环累加，理论上恒等；显式校验坏分片/旧数据。
+  const taskSum = byTask.reduce((s, r) => s + r.totalTokens, 0);
   return {
-    range, fromDate, toDate,
+    range, fromDate, toDate, hourly,
     total,
     byProvider: sortedRows(providers),
     byModel: sortedRows(models),
-    byTask: sortedRows(tasks),
-    trend: [...days.values()],
+    byTask,
+    trend,
+    consistent: taskSum === total.totalTokens,
   };
 }
 
-/** 数字千分位（纯展示，不参与计算；避免面板里引入格式化库） */
+/**
+ * 精确值（千分位）：用于 tooltip / 副行，避免 K/M 缩写舍入造成「分项相加 ≠ 总数」的错觉。
+ * 不参与任何计算。
+ */
+export function exactTokenCount(n: number): string {
+  return Math.round(n).toLocaleString('zh-CN');
+}
+
+/**
+ * 紧凑单位展示：K=10^3、M=10^6（SI 词头，token 是十进制计数，不是 1024 字节）。
+ * <1000 显示原整数；≥1000 保留最多 2 位小数并去掉尾随 0。
+ * 单位换算只为易读；精确值一律由 exactTokenCount 提供，别拿缩写值做加法比较。
+ */
 export function formatTokenCount(n: number): string {
-  return n.toLocaleString('zh-CN');
+  const abs = Math.abs(n);
+  if (abs < 1_000) return exactTokenCount(n);
+  const compact = (v: number, suffix: string): string => {
+    const s = v.toFixed(2).replace(/\.?0+$/, '');
+    return `${s}${suffix}`;
+  };
+  if (abs < 1_000_000) return compact(n / 1_000, 'K');
+  return compact(n / 1_000_000, 'M');
+}
+
+/**
+ * 把「端点上报的任意值」归一成有限非负整数 token 计数。
+ * 出处：token 计数按定义是非负整数；端点若给负数 / NaN / 字符串 / Infinity，
+ * 一律记为 0（不是估算、不是补齐，只是拒绝非法值），避免脏值把合计与分项搅乱。
+ */
+export function normalizeTokenValue(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? Math.round(value)
+    : 0;
 }
 
 /** 字节数展示：1024 进制，保留一位小数（仅用于「存储占用」实测值） */

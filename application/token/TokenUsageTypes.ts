@@ -3,8 +3,10 @@
  * @module application/token/TokenUsageTypes
  *
  * 口径原则（项目铁律：每个数值都有清楚出处，不抄来路不明的经验值）：
- * - 每条记录 = 一次**成功返回 HTTP 2xx** 的 LLM 请求；token 数逐字来自端点
- *   响应体 usage，绝不本地按字符估算、绝不把估算值当消耗。
+ * - 每条记录 = 一次**成功返回 HTTP 2xx 且客户端确认能正常投影结果**的 LLM 请求；
+ *   token 数逐字来自端点响应体 usage，绝不本地按字符估算、绝不把估算值当消耗。
+ *   超时 / 网络错误 / 非 2xx / 响应解析完成后又抛错的请求一律不记（2026-11-25 修正：
+ *   埋点从「解析出 usage 后」后移到「确认要成功返回前」，杜绝失败请求被计入）。
  * - 端点没返回 usage 时 token 记 0、reported=false，单独统计「未上报请求数」，
  *   不静默少算，也不拿别的值补。
  * - provider = new URL(baseUrl).host（标准 URL 解析）；完整端点另存字典供展开，
@@ -63,7 +65,7 @@ export interface TokenUsageRecord {
   reported: boolean;
 }
 
-/** 聚合后的一个分组行（provider / model / task / day 通用） */
+/** 聚合后的一个分组行（provider / model / task / 桶 通用） */
 export interface TokenGroupRow {
   key: string;
   requests: number;
@@ -74,10 +76,18 @@ export interface TokenGroupRow {
   totalTokens: number;
 }
 
-/** 趋势里的一天 */
-export interface TokenDayPoint {
-  /** 本地自然日 YYYY-MM-DD */
+/**
+ * 趋势里的一个桶。
+ * - 按天（最近 7 / 30 天）：一桶 = 一个自然日，bucketHour=null，label='MM-DD'
+ * - 按小时（今日 / 昨日）：一桶 = 该日的一个小时，bucketHour=0..23，label='HH'
+ *   —— 24 是自然日小时数，不是调出来的展示参数。
+ * date 恒为该桶所属本地自然日 YYYY-MM-DD，tooltip 与兼容性都用它。
+ */
+export interface TokenTrendPoint {
+  key: string;
   date: string;
+  label: string;
+  bucketHour: number | null;
   requests: number;
   promptTokens: number;
   completionTokens: number;
@@ -90,10 +100,18 @@ export interface TokenStats {
   /** 查询涉及的起止自然日（含），用于文案与趋势补零 */
   fromDate: string;
   toDate: string;
+  /** 趋势是否按小时分桶（今日 / 昨日） */
+  hourly: boolean;
   total: TokenGroupRow;
   byProvider: TokenGroupRow[];
   /** key = `${provider}\u0000${model}`；provider 前缀与 byProvider 对齐 */
   byModel: TokenGroupRow[];
   byTask: TokenGroupRow[];
-  trend: TokenDayPoint[];
+  trend: TokenTrendPoint[];
+  /**
+   * 一致性自检：Σ byTask.totalTokens === total.totalTokens。
+   * 两者由同一批记录累加，正常恒为 true；false 只可能来自坏分片/旧版本数据，
+   * 面板据此提示「以总消耗为准」，避免用户把异常分组数当真。
+   */
+  consistent: boolean;
 }

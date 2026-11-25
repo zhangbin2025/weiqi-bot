@@ -6,9 +6,11 @@
  * - 总览：合计 / 上行 / 下行 / 请求数（未上报用量单列提示）
  * - 「按提供商 / 模型」一张表（provider › model 二级展开为一行一个模型）
  * - 「按用途」一行简要（task 维度用得上但不占版面）
- * - 趋势：按天堆叠柱，高度线性归一化到窗口内最大值，无平滑无估算
+ * - 趋势：今日 / 昨日按小时 24 桶，最近 7 / 30 天按天；堆叠柱高度线性归一化
  * - 底部：保留天数、实测存储占用、清空（内联二次确认，不嵌套单例 WebDialog）
  *
+ * 数字一律走 formatTokenCount（K/M 紧凑单位）展示；tooltip 里给精确值
+ * exactTokenCount，避免缩写舍入让「分项相加 ≠ 总数」看起来像统计错误。
  * 所有动态文本（provider host / 模型名 / task）一律 escapeHtml 后再进 innerHTML。
  */
 
@@ -16,10 +18,10 @@ import type { WebDialog } from '../../components/Dialog';
 import type { TokenUsageStore } from '../../../../../infrastructure/token/TokenUsageStore';
 import {
   TOKEN_RANGE_LABELS, MIN_TOKEN_RETENTION_DAYS, MAX_TOKEN_RETENTION_DAYS,
-  type TokenRangeId, type TokenStats,
+  type TokenRangeId, type TokenStats, type TokenTrendPoint,
 } from '../../../../../application/token/TokenUsageTypes';
 import {
-  computeTokenStats, formatTokenCount, formatBytes, rangeBounds,
+  computeTokenStats, formatTokenCount, exactTokenCount, formatBytes, rangeBounds,
   MODEL_KEY_SEP,
 } from '../../../../../application/token/TokenUsageStats';
 import { loadTokenRetentionDays } from '../../../../../application/token/TokenUsageConfig';
@@ -41,6 +43,11 @@ function escapeHtml(raw: string): string {
   return raw
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/** 数字单元：K/M 显示 + 精确值 tooltip */
+function tokenCell(n: number, extraClass = ''): string {
+  return `<span class="${extraClass}" title="${exactTokenCount(n)} tokens">${formatTokenCount(n)}</span>`;
 }
 
 export class TokenUsagePanel {
@@ -120,20 +127,26 @@ export class TokenUsagePanel {
 
   private renderStats(s: TokenStats): string {
     const t = s.total;
-    const unreported = t.unreported > 0
-      ? `<div class="tk-note">⚠️ ${t.unreported} 次请求端点未上报 usage，token 记为 0，未计入下方合计。</div>`
-      : '';
+    const notes: string[] = [];
+    if (t.unreported > 0) {
+      notes.push(`<div class="tk-note">⚠️ ${t.unreported} 次请求端点未上报 usage，token 记为 0，未计入下方合计。</div>`);
+    }
+    // 恒等式自检：Σ 分用途 应恰好等于总消耗。false 只可能来自坏分片/旧数据，
+    // 明确告诉用户「以总消耗为准」，避免把异常分项当真（可清空统计重建）。
+    if (!s.consistent) {
+      notes.push('<div class="tk-note">⚠️ 分用途合计与总消耗不一致（可能是旧版本残留数据）。请以「总消耗」为准；可执行「清空全部统计」后重新累计。</div>');
+    }
     return [
       `<div class="tk-summary">`,
-      `<div class="tk-summary__main"><span>总消耗</span><strong>${formatTokenCount(t.totalTokens)}</strong><span>tokens</span></div>`,
-      `<div class="tk-summary__sub">上行 ${formatTokenCount(t.promptTokens)} · 下行 ${formatTokenCount(t.completionTokens)} · ${t.requests} 次请求</div>`,
+      `<div class="tk-summary__main"><span>总消耗</span><strong title="${exactTokenCount(t.totalTokens)} tokens">${formatTokenCount(t.totalTokens)}</strong><span>tokens</span></div>`,
+      `<div class="tk-summary__sub">上行 ${tokenCell(t.promptTokens)} · 下行 ${tokenCell(t.completionTokens)} · ${t.requests} 次请求</div>`,
       `</div>`,
-      unreported,
+      ...notes,
       `<div class="tk-section-title">按提供商 / 模型</div>`,
       this.renderModelTable(s),
       `<div class="tk-section-title">按用途</div>`,
       this.renderTaskLine(s),
-      `<div class="tk-section-title">消耗趋势（${escapeHtml(s.fromDate)} ~ ${escapeHtml(s.toDate)}）</div>`,
+      `<div class="tk-section-title">消耗趋势（${escapeHtml(s.fromDate)} ~ ${escapeHtml(s.toDate)}，${s.hourly ? '按小时' : '按天'}）</div>`,
       this.renderTrend(s),
     ].join('');
   }
@@ -146,9 +159,9 @@ export class TokenUsagePanel {
         + `<td>${escapeHtml(provider ?? '')}</td>`
         + `<td>${escapeHtml(model ?? '')}</td>`
         + `<td class="tk-num">${r.requests}</td>`
-        + `<td class="tk-num">${formatTokenCount(r.promptTokens)}</td>`
-        + `<td class="tk-num">${formatTokenCount(r.completionTokens)}</td>`
-        + `<td class="tk-num tk-num--strong">${formatTokenCount(r.totalTokens)}</td>`
+        + `<td class="tk-num">${tokenCell(r.promptTokens)}</td>`
+        + `<td class="tk-num">${tokenCell(r.completionTokens)}</td>`
+        + `<td class="tk-num tk-num--strong">${tokenCell(r.totalTokens)}</td>`
         + `</tr>`;
     }).join('');
     return `<table class="tk-table"><thead><tr>`
@@ -159,26 +172,31 @@ export class TokenUsagePanel {
   private renderTaskLine(s: TokenStats): string {
     if (s.byTask.length === 0) return '<div class="tk-empty">—</div>';
     return `<div class="tk-tasks">${s.byTask.map((r) =>
-      `<span class="tk-task">${escapeHtml(TASK_LABELS[r.key] ?? r.key)} ${formatTokenCount(r.totalTokens)}</span>`,
+      `<span class="tk-task" title="${exactTokenCount(r.totalTokens)} tokens">${escapeHtml(TASK_LABELS[r.key] ?? r.key)} ${formatTokenCount(r.totalTokens)}</span>`,
     ).join('')}</div>`;
   }
 
   private renderTrend(s: TokenStats): string {
-    // 高度按窗口内最大单日合计线性归一化；max=0 时全为 0 高，不做任何估算。
+    // 高度按窗口内最大单桶合计线性归一化；max=0 时全为 0 高，不做任何估算。
     const max = s.trend.reduce((m, d) => Math.max(m, d.totalTokens), 0);
     const cols = s.trend.map((d) => {
       const pHeight = max > 0 ? (d.promptTokens / max) * 100 : 0;
       const cHeight = max > 0 ? (d.completionTokens / max) * 100 : 0;
-      const label = d.date.slice(5); // MM-DD
-      return `<div class="tk-col" title="${escapeHtml(d.date)}：合计 ${formatTokenCount(d.totalTokens)}（上行 ${formatTokenCount(d.promptTokens)} / 下行 ${formatTokenCount(d.completionTokens)}）">`
+      return `<div class="tk-col" title="${escapeHtml(this.trendTooltip(d, s.hourly))}">`
         + `<div class="tk-bar-wrap">`
         + `<div class="tk-bar tk-bar--completion" style="height:${cHeight.toFixed(2)}%"></div>`
         + `<div class="tk-bar tk-bar--prompt" style="height:${pHeight.toFixed(2)}%"></div>`
-        + `</div><div class="tk-col__label">${escapeHtml(label)}</div></div>`;
+        + `</div><div class="tk-col__label">${escapeHtml(d.label)}</div></div>`;
     }).join('');
-    return `<div class="tk-trend">${cols}</div>`
+    const peakUnit = s.hourly ? '小时' : '日';
+    return `<div class="tk-trend${s.hourly ? ' tk-trend--hourly' : ''}">${cols}</div>`
       + '<div class="tk-legend"><span class="tk-legend__in">■ 上行</span><span class="tk-legend__out">■ 下行</span>'
-      + (max > 0 ? `<span>峰值 ${formatTokenCount(max)} / 日</span>` : '') + '</div>';
+      + (max > 0 ? `<span>峰值 ${formatTokenCount(max)} / ${peakUnit}</span>` : '') + '</div>';
+  }
+
+  private trendTooltip(d: TokenTrendPoint, hourly: boolean): string {
+    const when = hourly ? `${d.date} ${d.label}:00` : d.date;
+    return `${when}：合计 ${exactTokenCount(d.totalTokens)}（上行 ${exactTokenCount(d.promptTokens)} / 下行 ${exactTokenCount(d.completionTokens)}），${d.requests} 次请求`;
   }
 
   private renderFooter(retention: number, bytes: number): string {

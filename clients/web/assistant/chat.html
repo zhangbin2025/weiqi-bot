@@ -357,7 +357,13 @@
         }
 
         /* Token 消耗面板：单弹窗，主要展示数字，样式沿用插件面板的紫色体系 */
-        .tk-panel { display: flex; flex-direction: column; max-height: 62vh; font-size: 13px; }
+        /* 固定宽度：.web-dialog 宽度由内容撑开（max-width:500px，自带 20px padding）。
+           面板固定 440px + dialog padding 40px = 480px，各时间段切换时宽度不再随内容变；
+           内部左右各留 8px padding（border-box 计入 440px）。 */
+        .tk-panel {
+            display: flex; flex-direction: column; max-height: 62vh; font-size: 13px;
+            width: 440px; max-width: 440px; box-sizing: border-box; padding: 0 8px;
+        }
         .tk-ranges { display: flex; gap: 4px; border-bottom: 1px solid #e8e8ee; margin-bottom: 10px; flex: 0 0 auto; }
         .tk-range {
             flex: 1; border: none; background: transparent; color: #777; padding: 8px 2px;
@@ -381,8 +387,9 @@
         .tk-num--strong { color: #4b43a8; font-weight: 600; }
         .tk-tasks { display: flex; flex-wrap: wrap; gap: 6px; }
         .tk-task { background: #f0eefc; color: #5546a8; border-radius: 12px; padding: 3px 9px; font-size: 11px; }
-        .tk-trend { display: flex; align-items: flex-end; gap: 2px; height: 92px; padding: 4px 0; overflow-x: auto; }
-        .tk-col { flex: 1 0 12px; min-width: 12px; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; }
+        .tk-trend { display: flex; align-items: flex-end; gap: 2px; height: 92px; padding: 4px 0; }
+        /* 小时 24 桶 / 天 30 桶都在固定宽度内均分，不横向滚动 */
+        .tk-col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; }
         .tk-bar-wrap { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: flex-end; min-height: 0; }
         .tk-bar { width: 100%; }
         .tk-bar--prompt { background: #667eea; border-radius: 2px 2px 0 0; }

@@ -103,6 +103,42 @@ describe('OpenAICompatibleClient token 用量埋点', () => {
     expect(seen).toHaveLength(1);
   });
 
+  it('超时 / 网络错误（fetch 抛错）不记任何 token', async () => {
+    const seen: TokenUsageRecord[] = [];
+    onTokenUsage((r) => seen.push(r));
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new Error('network down');
+    }));
+    await expect(client().chat([{ role: 'user', content: 'hi' }])).rejects.toThrow();
+    expect(seen).toHaveLength(0);
+  });
+
+  it('response.json() 解析抛错不记（请求无法确认成功）', async () => {
+    const seen: TokenUsageRecord[] = [];
+    onTokenUsage((r) => seen.push(r));
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true, status: 200,
+      text: async () => '',
+      json: async () => { throw new Error('bad json'); },
+    })));
+    await expect(client().chat([{ role: 'user', content: 'hi' }])).rejects.toThrow();
+    expect(seen).toHaveLength(0);
+  });
+
+  it('usage 脏值（负数 / NaN / 字符串）归一成 0，不污染合计', async () => {
+    const seen: TokenUsageRecord[] = [];
+    onTokenUsage((r) => seen.push(r));
+    mockFetchOnce({
+      choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: -5, completion_tokens: 'oops', total_tokens: NaN },
+    });
+    await client().chat([{ role: 'user', content: 'hi' }]);
+    expect(seen[0]!.promptTokens).toBe(0);
+    expect(seen[0]!.completionTokens).toBe(0);
+    expect(seen[0]!.totalTokens).toBe(0);
+    expect(seen[0]!.reported).toBe(true);
+  });
+
   it('未注册观察者时 emit 是空操作，不改变请求行为', async () => {
     mockFetchOnce({ choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] });
     const r = await client().chat([{ role: 'user', content: 'hi' }]);

@@ -25,7 +25,7 @@ import { IndexedDBAdapter } from '../storage/adapters/web/IndexedDBAdapter';
 import {
   DEFAULT_TOKEN_RETENTION_DAYS, type TokenUsageRecord,
 } from '../../application/token/TokenUsageTypes';
-import { localDateKey, dayStartTs, shiftDate } from '../../application/token/TokenUsageStats';
+import { localDateKey, dayStartTs, shiftDate, normalizeTokenValue } from '../../application/token/TokenUsageStats';
 
 export const TOKEN_USAGE_DB = 'weiqi-token-usage';
 export const TOKEN_USAGE_STORE = 'daily';
@@ -95,15 +95,18 @@ export function decodeDaily(blob: Uint8Array, date: string): TokenUsageRecord[] 
   for (const row of parsed.r) {
     if (!Array.isArray(row) || row.length < 9) continue;
     const [offset, p, e, m, t, prompt, completion, total, reported] = row;
+    // 旧分片 / 半写入分片可能带非法数值（NaN、负数、字符串）。统一归一成有限
+    // 非负整数，保证「总消耗」与「按用途」等所有分组看到的是同一份干净数值，
+    // 不让脏数据把分项合计抬到总数之上（2026-11-25 修正）。
     out.push({
-      ts: start + (offset ?? 0),
+      ts: start + (typeof offset === 'number' && Number.isFinite(offset) ? offset : 0),
       provider: parsed.d.p[p ?? -1] ?? 'unknown',
       endpoint: parsed.d.e[e ?? -1] ?? '',
       model: parsed.d.m[m ?? -1] ?? '',
       task: parsed.d.t[t ?? -1] ?? '',
-      promptTokens: prompt ?? 0,
-      completionTokens: completion ?? 0,
-      totalTokens: total ?? 0,
+      promptTokens: normalizeTokenValue(prompt),
+      completionTokens: normalizeTokenValue(completion),
+      totalTokens: normalizeTokenValue(total),
       reported: reported === 1,
     });
   }
