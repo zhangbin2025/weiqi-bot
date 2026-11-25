@@ -155,6 +155,13 @@ export interface SkillRecipe {
    * （供需要据数据做分析、给理由的技能；由 WorkflowTool.successObservation 消费）。
    */
   returnToLLM?: boolean;
+  /**
+   * 可选：returnToLLM:true 时，声明从 yield 汇总里保留哪些顶层段给 LLM（B3 关系摘要）。
+   * 出处：用户 2026-11-25 18:09「返回给 LLM 的内容实在太多了」+ 实测逐边明细 edges 占 68%
+   * 且圈层结论只依赖账号级可复算计数；声明式字段白名单，不写「前 N 条」类阈值。
+   * 缺省 / 无此字段 = B2 全量行为（零回归）。
+   */
+  llmProjection?: { keep: string[] };
 }
 
 /** 瘦索引里的一条技能摘要（完整配方在 skills/<id>/skill.json） */

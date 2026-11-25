@@ -14,6 +14,13 @@
  * `workflow_result_read` 分块读全后再分析。读取器薄转发既有 executeWebCacheRead 引擎
  * （resultId→url），零重复分页逻辑；preparatory:true 让分页读取不占自主决策轮数。
  *
+ * 2026-11-25 B3：B2 缓存里放的是全量 yield 汇总，浏览器实测 167,385 字符需约 22 片、
+ * 撞上 ToolLoop 的 maxModelCalls=16 硬约束。B3 在写缓存前按配方 `llmProjection.keep`
+ * 做声明式字段白名单投影 + 无损紧凑行（columns/rows，列名从对象键推导，零硬编码技能字段名），
+ * 缓存只放关系摘要；全量账号保留、不截断、不取前 N 条。无 llmProjection 声明 = B2 全量（零回归）。
+ * `workflow_result_read` 引擎、分页口径、CONTEXT_LIMITS 体积口径一律不动；成功观察只把
+ * 「全文共 N 字符」改为「视图共 N 字符」（N = 投影后缓存文本长度），其余指路文案逐字保留。
+ *
  * 例外：`run_workflow({debug:true})` 是「开发」角色验收/调试技能的显式开关——
  * 宿主把每步入参/输出/失败点 + 最终交付结果结构化回灌模型，供定位哪一步算错；
  * 不传 / false 逐字沿用上面的「完成 + 句柄」，chat 角色工具定义也不暴露该参数。
@@ -268,18 +275,73 @@ function buildWorkflowTool(
 }
 
 /**
+ * B3 无损紧凑重编码：对象数组 → { columns, rows }，列名从 Object.keys(v[0]) 推导。
+ * 元素键集合不一致 / 非对象数组一律原样返回（不丢信息）。零硬编码技能字段名、
+ * 零网络 / 零时钟 / 零随机数；确定性：columns 按首个元素键顺序、rows 按 columns 顺序取值。
+ * 这是「同一份数据的无损重编码」而非截断：columns/rows 能逐字还原成原对象数组。
+ */
+function compactLlmValue(v: unknown): unknown {
+  if (!Array.isArray(v) || v.length === 0) return v;
+  const first: unknown = v[0];
+  if (typeof first !== 'object' || first === null || Array.isArray(first)) return v;
+  const columns = Object.keys(first as Record<string, unknown>);
+  const signature = [...columns].sort().join('\u0000');
+  const items: readonly unknown[] = v;
+  for (let i = 1; i < items.length; i += 1) {
+    const item: unknown = items[i];
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) return v;
+    const keys = Object.keys(item as Record<string, unknown>);
+    if ([...keys].sort().join('\u0000') !== signature) return v; // 键集合不一致 → 原样返回
+  }
+  const rows: unknown[][] = [];
+  for (const item of items) {
+    const obj = item as Record<string, unknown>;
+    rows.push(columns.map((c) => obj[c]));
+  }
+  return { columns, rows };
+}
+
+/**
+ * B3 声明式投影：每个 yield 节点的 value 只保留 keep 列出的顶层段（按 keep 顺序插入），
+ * 保留下来的值再做 compactLlmValue。非对象节点原样。确定性：同输入逐字同输出。
+ * 这是字段白名单 + 无损重编码，不是「前 N 条」/ 截断 / 阈值判定；全量账号保留。
+ */
+function projectForLlm(
+  values: Record<string, unknown>, keep: string[],
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [nodeId, nodeValue] of Object.entries(values)) {
+    if (typeof nodeValue !== 'object' || nodeValue === null || Array.isArray(nodeValue)) {
+      out[nodeId] = nodeValue;
+    } else {
+      const src = nodeValue as Record<string, unknown>;
+      const picked: Record<string, unknown> = {};
+      for (const segment of keep) {
+        if (Object.prototype.hasOwnProperty.call(src, segment)) {
+          picked[segment] = compactLlmValue(src[segment]);
+        }
+      }
+      out[nodeId] = picked;
+    }
+  }
+  return out;
+}
+
+/**
  * 成功观察分两种：
  * - !returnToLLM（缺省 / false）：只回「完成 + 句柄」，绝不把任何业务 value 回灌模型上下文。
  *   句柄 = skillId（哪次任务）+ 结果落在哪条宿主旁路（展示块 / 动作链接 / 仅宿主内部）。
  *   结果内容本身走 effects 旁路、由 ChatUseCase 直接交给渲染层并落历史，
  *   与 ToolOutcome.displayMarkdown / actionLink 同口径，不进 role:'tool'。
- * - returnToLLM:true（B2）：yield 汇总全文由 run_workflow 写进宿主结果缓存，
- *   观察只回「完成 + 总字符数 + resultId + 指路」，模型用 workflow_result_read 分块读全后再分析。
+ * - returnToLLM:true（B2 / B3）：yield 汇总（B3 为按 llmProjection 投影后的关系摘要视图）
+ *   由 run_workflow 写进宿主结果缓存，观察只回「完成 + 视图字符数 + resultId + 指路」，
+ *   模型用 workflow_result_read 分块读全后再分析。
  *   观察本身不含任何数据本体，且整条不超过单条上限，消除 ToolLoop.clipObservation 二次裁剪。
+ *   llmTextLength（第 5 参）= 投影后缓存文本长度；不传时逐字沿用 B2 的全文长度（兼容性）。
  */
 function successObservation(
   result: WorkflowRunResult, skillId: string, devMode = false,
-  returnToLLM = false,
+  returnToLLM = false, llmTextLength?: number,
 ): string {
   // 两分支共用的第一行：只报告「完成 + 节点数」，不含任何交付口径措辞。
   const firstLine = `workflow「${skillId}」执行完成：已完成 ${result.completedStepIds.length} 个节点。\n`;
@@ -311,13 +373,15 @@ function successObservation(
     return head + defaultTail;
   }
 
-  // returnToLLM===true（B2）：yield 汇总全文由 executor 写进宿主结果缓存，
-  // 观察只回「完成 + 事实元信息（总字符数）+ 结果句柄 + 读取指路 + 读全后分析」。
-  // 不含任何数据本体（【yield 汇总 values】正文 / value 字段），整条控制在单条上限内，
-  // 避免 ToolLoop.clipObservation 把「不要编造」「读全后再分析」等指令截掉（双重裁剪缺陷）。
-  // 总字符数是事实、不是阈值；体积口径沿用既有 CONTEXT_LIMITS.maxCharsPerMessage。
+  // returnToLLM===true（B2 / B3）：yield 汇总（B3 为投影后的关系摘要视图）由 executor
+  // 写进宿主结果缓存，观察只回「完成 + 事实元信息（视图字符数）+ 结果句柄 + 读取指路
+  // + 读全后分析」。不含任何数据本体（【yield 汇总 values】正文 / value 字段），
+  // 整条控制在单条上限内，避免 ToolLoop.clipObservation 把「不要编造」「读全后再分析」
+  // 等指令截掉（双重裁剪缺陷）。字符数是事实元信息、不是阈值；体积口径沿用既有
+  // CONTEXT_LIMITS.maxCharsPerMessage。llmTextLength 不传时 = B2 全文长度（兼容直接调用）。
   const valuesText = `【yield 汇总 values】\n${debugValue(result.values)}`;
-  const readTail = `yield 汇总全文共 ${valuesText.length} 字符，已存入宿主结果缓存。\n`
+  const total = llmTextLength ?? valuesText.length;
+  const readTail = `yield 汇总视图共 ${total} 字符，已存入宿主结果缓存。\n`
     + `结果句柄 resultId：${skillId}；数据本体不在这条观察里，请用 ${WORKFLOW_RESULT_READ_TOOL_NAME} 分段读全。\n`
     + `先调 {\"resultId\":\"${skillId}\",\"mode\":\"info\"} 看总量；`
     + `主推 {\"resultId\":\"${skillId}\",\"mode\":\"slice\",\"offset\":0}，即 mode:\"slice\" 从 offset:0 起读，`
@@ -504,12 +568,18 @@ export function buildWorkflowToolParts(
     );
     // A3：只有成功 + 正常模式 + returnToLLM:true 才写缓存；失败 / debug / false 都不写。
     // 键 = skillId（与观察里的 resultId 逐字一致）；同 id 再跑覆盖，与 web_fetch 同口径。
+    // B3：写缓存前按配方 llmProjection.keep 做声明式投影（无损紧凑行）；无声明 = B2 全量。
+    // llmTextLength 是本轮局部变量，传给 successObservation 作为「视图字符数」。
+    let llmTextLength: number | undefined;
     if (result.ok && !debug && skill.returnToLLM === true) {
-      const text = `【yield 汇总 values】\n${debugValue(result.values)}`;
+      const keep = skill.llmProjection?.keep;
+      const values = keep ? projectForLlm(result.values, keep) : result.values;
+      const text = `【yield 汇总 values】\n${debugValue(values)}`;
       wfResultCache.put(skillId, {
         url: skillId, status: 200, statusText: 'workflow yield',
         contentType: 'application/json', text, ok: true,
       });
+      llmTextLength = text.length;
     }
     // 验收闸门：debug:true 且 DAG 全绿才把该技能置为已验收启用。
     // 失败不翻转、非调试调用不翻转；翻转失败如实追加一行观察，不谎报已启用。
@@ -531,7 +601,7 @@ export function buildWorkflowToolParts(
       observation: acceptanceNote + (debug
         ? debugObservation(result, skillId, merged, skill.workflow.steps.length)
         : (result.ok
-          ? successObservation(result, skillId, devMode, skill.returnToLLM === true)
+          ? successObservation(result, skillId, devMode, skill.returnToLLM === true, llmTextLength)
           : failureObservation(result))),
       ok: result.ok,
       detail: result.ok

@@ -842,3 +842,300 @@ describe('buildWorkflowToolParts — returnToLLM 开关（B2 宿主缓存读全�
     console.info(`[workflow_result_read] 85KB 级读全 ${fullText.length} 字符：slice ${reads} 片，参考 model calls ${modelCalls}`);
   });
 });
+
+
+// ---------- B3 声明式投影（llmProjection） ----------
+/**
+ * B3：宿主在写结果缓存前按配方 llmProjection.keep 做「声明式字段白名单 + 无损紧凑行」，
+ * 缓存只放关系摘要；workflow_result_read 引擎 / 分页口径 / 静态工具定义一律不动。
+ * 无 llmProjection 声明 = B2 全量（零回归）；!returnToLLM / debug / fail 三条路径逐字不变。
+ */
+describe('B3 声明式投影（llmProjection）', () => {
+  const KEEP = ['stats', 'nodes', 'components', 'commonOpponents'];
+
+  /** 与真实 circle.normalize 同形：yield 节点 value = 五大段，edges 逐边明细占大头。 */
+  function circleValue(nodeCount: number) {
+    const nodes = Array.from({ length: nodeCount }, (_, i) => ({
+      uid: `u${i}`, name: `账号${i}`, degree: i + 1, gameCount: (i + 1) * 2,
+    }));
+    const components = Array.from({ length: nodeCount }, (_, i) => ({
+      uid: `u${i}`, component: 0, size: nodeCount,
+    }));
+    const commonOpponents = Array.from({ length: nodeCount }, (_, i) => ({
+      uid: `u${i}`, shared: (i + 1) * 3, opponents: [`o${i}`],
+    }));
+    const edges = Array.from({ length: nodeCount * 2 }, (_, i) => ({
+      a: `u${i % nodeCount}`, b: `u${(i + 1) % nodeCount}`, games: 5,
+    }));
+    return {
+      stats: { nodeCount, edgeCount: edges.length, componentCount: 1 },
+      nodes, components, edges, commonOpponents,
+    };
+  }
+
+  function circleSpec(): WorkflowSpec {
+    return {
+      steps: [
+        { id: 'normalize', call: 'normalize', yield: true },
+      ] as WorkflowStep[],
+    };
+  }
+
+  function circleRegistry(value: unknown): OperatorRegistry {
+    return fakeRegistry({ normalize: () => ({ value }) });
+  }
+
+  function projectionSkill(id: string, over: Partial<SkillRecipe> = {}): SkillRecipe {
+    return recipe({
+      id, workflow: circleSpec(), returnToLLM: true,
+      llmProjection: { keep: [...KEEP] }, ...over,
+    });
+  }
+
+  /** 与 WebFetchCache.test.ts / B2 既有断言同形：按 footer 的「范围 [start, end)」取真实 body。 */
+  async function readAll(
+    parts: ReturnType<typeof buildWorkflowToolParts>, skillId: string,
+  ): Promise<{ joined: string; slices: number; total: number }> {
+    const info = await parts.executors[WORKFLOW_RESULT_READ_TOOL_NAME]!(
+      JSON.stringify({ resultId: skillId, mode: 'info' }),
+    );
+    expect(info.ok).toBe(true);
+    expect(info.preparatory).toBe(true);
+    const totalMatch = /缓存正文 (\d+) 字符/.exec(info.observation);
+    expect(totalMatch).not.toBeNull();
+    const total = Number(totalMatch![1]);
+    let offset = 0;
+    let joined = '';
+    let slices = 0;
+    let ended = false;
+    // 与既有 ⑦/⑨ / WebFetchCache.test.ts 同形的循环保险（不是分片数上限）；片数只打印。
+    while (slices < 100) {
+      const r = await parts.executors[WORKFLOW_RESULT_READ_TOOL_NAME]!(
+        JSON.stringify({ resultId: skillId, mode: 'slice', offset }),
+      );
+      slices++;
+      expect(r.ok).toBe(true);
+      expect(r.preparatory).toBe(true);
+      expect(r.observation.length).toBeLessThanOrEqual(CONTEXT_LIMITS.maxCharsPerMessage);
+      const m = /本段起点 (\d+)，长度 (\d+)，范围 \[(\d+), (\d+)\)/.exec(r.observation);
+      expect(m).not.toBeNull();
+      const start = Number(m![1]);
+      const end = Number(m![4]);
+      const len = Number(m![2]);
+      const footStart = r.observation.lastIndexOf('\n[本段起点');
+      const headAndBody = r.observation.slice(0, footStart);
+      joined += headAndBody.slice(headAndBody.length - len);
+      offset = end;
+      if (r.observation.includes('已到正文末尾')) { ended = true; break; }
+      expect(r.observation).toContain('请把 offset 设为');
+    }
+    expect(ended).toBe(true);
+    return { joined, slices, total };
+  }
+
+  it('① 投影后 info 字符数 = 缓存文本长度（< 全量），slice 正文不含 edges、含四个保留段', async () => {
+    const value = circleValue(20);
+    const skill = projectionSkill('demo.b3.proj');
+    const parts = buildWorkflowToolParts([skill], circleRegistry(value));
+    const wf = await parts.executors[RUN_WORKFLOW_TOOL_NAME]!(
+      JSON.stringify({ skillId: skill.id }),
+    );
+    expect(wf.ok).toBe(true);
+
+    // 全量文本（B2 口径，逐字 = 既有实现）
+    const fullText = `【yield 汇总 values】\n${JSON.stringify({ normalize: value })}`;
+    // 观测里的「共 N 字符」不再等于全量长度（见 ②），info 的总量等于投影后缓存长度。
+    const { joined, total } = await readAll(parts, skill.id);
+    expect(total).toBeLessThan(fullText.length);
+    expect(total).toBe(joined.length);
+    // 逐字拼回 = 缓存正文；不含被 keep 排除的 edges 段，含四个保留段
+    expect(joined.startsWith('【yield 汇总 values】\n')).toBe(true);
+    const body = JSON.parse(joined.slice('【yield 汇总 values】\n'.length)) as Record<string, unknown>;
+    const projected = body['normalize'] as Record<string, unknown>;
+    expect(Object.keys(projected)).toEqual(KEEP); // 按 keep 顺序
+    expect(projected).not.toHaveProperty('edges');
+    for (const seg of KEEP) expect(projected).toHaveProperty(seg);
+    expect(joined).not.toContain('"edges"');
+    for (const seg of KEEP) expect(joined).toContain(`"${seg}"`);
+  });
+
+  it('② 观察里的「共 N 字符」= 缓存长度（不是全量 debugValue(result.values) 长度）', async () => {
+    const value = circleValue(20);
+    const skill = projectionSkill('demo.b3.len');
+    const parts = buildWorkflowToolParts([skill], circleRegistry(value));
+    const wf = await parts.executors[RUN_WORKFLOW_TOOL_NAME]!(
+      JSON.stringify({ skillId: skill.id }),
+    );
+    const fullText = `【yield 汇总 values】\n${JSON.stringify({ normalize: value })}`;
+    const { total } = await readAll(parts, skill.id);
+    // 措辞只改「全文」→「视图」，其余指路文案逐字保留
+    expect(wf.observation).toContain(`yield 汇总视图共 ${total} 字符`);
+    expect(wf.observation).not.toContain('yield 汇总全文共');
+    expect(wf.observation).not.toContain(`${fullText.length} 字符`);
+    expect(total).not.toBe(fullText.length);
+    expect(wf.observation).toContain('resultId');
+    expect(wf.observation).toContain('"mode":"info"');
+    expect(wf.observation).toContain('offset:0');
+    expect(wf.observation).toContain('请把 offset 设为 X 继续读');
+    expect(wf.observation).toContain('已到正文末尾');
+    expect(wf.observation).toContain('读全后再做关系分析');
+    expect(wf.observation).toContain('不要编造');
+    expect(wf.observation.length).toBeLessThanOrEqual(CONTEXT_LIMITS.maxCharsPerMessage);
+  });
+
+  it('③ 保留段无损：columns/rows 能逐字还原成原对象数组；keep 排除的段不出现', async () => {
+    const nodes = [
+      { uid: 'u1', name: '甲', degree: 2, gameCount: 3 },
+      { uid: 'u2', name: '乙', degree: 4, gameCount: 7 },
+      { uid: 'u3', name: '丙', degree: 1, gameCount: 1 },
+    ];
+    const edges = [{ a: 'u1', b: 'u2', games: 5 }];
+    // 元素键集合不一致的数组：compactLlmValue 必须原样返回，不丢信息。
+    const mixed = [{ x: 1 }, { y: 2 }];
+    const value = {
+      stats: { nodeCount: 3 },
+      nodes,
+      components: [{ uid: 'u1', component: 0, size: 3 }],
+      edges,
+      commonOpponents: [{ uid: 'u1', shared: 2, opponents: ['o1'] }],
+      mixed,
+    };
+    const skill = projectionSkill('demo.b3.lossless', {
+      llmProjection: { keep: ['stats', 'nodes', 'components', 'commonOpponents', 'mixed'] },
+    });
+    const parts = buildWorkflowToolParts([skill], circleRegistry(value));
+    await parts.executors[RUN_WORKFLOW_TOOL_NAME]!(JSON.stringify({ skillId: skill.id }));
+    const { joined } = await readAll(parts, skill.id);
+    const body = JSON.parse(joined.slice('【yield 汇总 values】\n'.length)) as Record<string, unknown>;
+    const p = body['normalize'] as Record<string, unknown>;
+
+    // 通用紧凑行：列名从 Object.keys(v[0]) 推导，不硬编码字段名
+    const compact = p['nodes'] as { columns: string[]; rows: unknown[][] };
+    expect(compact.columns).toEqual(Object.keys(nodes[0]!)); // ['uid','name','degree','gameCount']
+    expect(compact.rows).toHaveLength(nodes.length);
+    const restored = compact.rows.map((row) => Object.fromEntries(
+      compact.columns.map((c, i): [string, unknown] => [c, row[i]]),
+    ));
+    expect(restored).toEqual(nodes); // 逐字还原
+    // 被 keep 排除的段（含 edges 逐边明细）一个字都不出现
+    expect(p).not.toHaveProperty('edges');
+    expect(joined).not.toContain('"edges"');
+    expect(joined).not.toContain('"a"');
+    // 非同构对象数组（键集合不一致）一律原样返回（不丢信息、不重编码）
+    expect(p['mixed']).toEqual(mixed);
+    expect(Array.isArray(p['mixed'])).toBe(true);
+    expect(p['mixed']).not.toHaveProperty('columns');
+  });
+
+  it('④ 全量账号保留：nodes.rows.length = 原 nodes.length（无「前 N 条」截断）', async () => {
+    const nodeCount = 199; // 契约已实测事实：本地 circle.normalize 的 nodes 条数，不是阈值
+    const value = circleValue(nodeCount);
+    const skill = projectionSkill('demo.b3.allaccounts');
+    const parts = buildWorkflowToolParts([skill], circleRegistry(value));
+    await parts.executors[RUN_WORKFLOW_TOOL_NAME]!(JSON.stringify({ skillId: skill.id }));
+    const { joined } = await readAll(parts, skill.id);
+    const body = JSON.parse(joined.slice('【yield 汇总 values】\n'.length)) as Record<string, unknown>;
+    const p = body['normalize'] as Record<string, unknown>;
+    const nodesCompact = p['nodes'] as { columns: string[]; rows: unknown[][] };
+    expect(nodesCompact.rows.length).toBe(value.nodes.length);
+    expect(nodesCompact.rows.length).toBe(nodeCount);
+    const coCompact = p['commonOpponents'] as { columns: string[]; rows: unknown[][] };
+    expect(coCompact.rows.length).toBe(value.commonOpponents.length);
+    // 最后一个账号仍逐字在（没被「取前 N 条」砍掉）
+    expect(nodesCompact.rows[nodesCompact.rows.length - 1]).toEqual(
+      Object.values(value.nodes[value.nodes.length - 1]!),
+    );
+  });
+
+  it('⑤ 无 llmProjection 的 returnToLLM:true 技能 = B2 全量（缓存文本逐字相等，零回归）', async () => {
+    const value = circleValue(20);
+    const skill = recipe({
+      id: 'demo.b3.noproj', workflow: circleSpec(), returnToLLM: true,
+    });
+    expect(skill.llmProjection).toBeUndefined();
+    const parts = buildWorkflowToolParts([skill], circleRegistry(value));
+    const wf = await parts.executors[RUN_WORKFLOW_TOOL_NAME]!(JSON.stringify({ skillId: skill.id }));
+    const { joined, total } = await readAll(parts, skill.id);
+    const fullText = `【yield 汇总 values】\n${JSON.stringify({ normalize: value })}`;
+    expect(joined).toBe(fullText); // 逐字相等：无声明不投影
+    expect(total).toBe(fullText.length);
+    // 观察措辞仅为「全文」→「视图」这一处声明变更，N 仍是全量长度
+    expect(wf.observation).toContain(`yield 汇总视图共 ${fullText.length} 字符`);
+    expect(wf.observation).not.toContain('yield 汇总全文共');
+  });
+
+  it('⑥ 2x 规模分页性质：投影后文本反复 slice 拼回逐字相等、每片 ≤ 上限、preparatory===true', async () => {
+    // 2x 账号规模（契约实测投影约 19,708 字符级），长度由既有上限推导，不写死分片数。
+    const nodeCount = 398; // 数据规模 = 2 × 199，不是阈值 / 分片数
+    const value = circleValue(nodeCount);
+    const skill = projectionSkill('demo.b3.paging2x');
+    const parts = buildWorkflowToolParts([skill], circleRegistry(value));
+    const wf = await parts.executors[RUN_WORKFLOW_TOOL_NAME]!(JSON.stringify({ skillId: skill.id }));
+    expect(wf.ok).toBe(true);
+    const { joined, slices, total } = await readAll(parts, skill.id);
+    expect(joined.length).toBe(total);
+    expect(joined.startsWith('【yield 汇总 values】\n')).toBe(true);
+    // 拼回的就是缓存正文（逐字相等由 readAll 的 body 提取 + 上面长度一致保证）
+    const body = JSON.parse(joined.slice('【yield 汇总 values】\n'.length)) as Record<string, unknown>;
+    const p = body['normalize'] as Record<string, unknown>;
+    expect(Object.keys(p)).toEqual(KEEP);
+    expect(p).not.toHaveProperty('edges');
+    // 片数只打印、不作断言上限（数据规模的自然结果）
+    console.info(`[B3 投影] 2x 规模缓存 ${total} 字符，slice 读全用了 ${slices} 片`);
+  });
+
+  it('⑦ 加了 llmProjection 字段也不影响 !returnToLLM / debug / fail 三条默认路径', async () => {
+    const value = circleValue(8);
+    const registry = circleRegistry(value);
+    // !returnToLLM（缺省）+ 带 llmProjection：观察仍是「完成 + 句柄」，不写缓存
+    const off = recipe({
+      id: 'demo.b3.off', workflow: circleSpec(),
+      llmProjection: { keep: [...KEEP] },
+    });
+    const offParts = buildWorkflowToolParts([off], registry);
+    const offOutcome = await offParts.executors[RUN_WORKFLOW_TOOL_NAME]!(
+      JSON.stringify({ skillId: off.id }),
+    );
+    expect(offOutcome.ok).toBe(true);
+    expect(offOutcome.observation).toContain('结果位置（句柄）');
+    expect(offOutcome.observation).toContain('请如实告知用户任务已完成');
+    expect(offOutcome.observation).not.toContain('yield 汇总视图共');
+    expect(offOutcome.observation).not.toContain('【yield 汇总 values】');
+    const offRead = await offParts.executors[WORKFLOW_RESULT_READ_TOOL_NAME]!(
+      JSON.stringify({ resultId: off.id, mode: 'info' }),
+    );
+    expect(offRead.ok).toBe(false); // !returnToLLM 不写缓存
+
+    // debug:true 分支不写缓存，观察是「调试模式」而非成功观察
+    const dbgSkill = projectionSkill('demo.b3.dbg');
+    const dbgParts = buildWorkflowToolParts([dbgSkill], registry, undefined, true);
+    const dbgOutcome = await dbgParts.executors[RUN_WORKFLOW_TOOL_NAME]!(
+      JSON.stringify({ skillId: dbgSkill.id, debug: true }),
+    );
+    expect(dbgOutcome.observation).toContain('调试模式');
+    expect(dbgOutcome.observation).not.toContain('yield 汇总视图共');
+    const dbgRead = await dbgParts.executors[WORKFLOW_RESULT_READ_TOOL_NAME]!(
+      JSON.stringify({ resultId: dbgSkill.id, mode: 'info' }),
+    );
+    expect(dbgRead.ok).toBe(false);
+
+    // fail 分支：观察是结构化失败文本，不含业务 value、不写缓存
+    const failSkill = projectionSkill('demo.b3.fail');
+    const failReg = fakeRegistry({
+      normalize: () => { throw new Error('归一化失败'); },
+    });
+    const failParts = buildWorkflowToolParts([failSkill], failReg);
+    const failOutcome = await failParts.executors[RUN_WORKFLOW_TOOL_NAME]!(
+      JSON.stringify({ skillId: failSkill.id }),
+    );
+    expect(failOutcome.ok).toBe(false);
+    expect(failOutcome.observation).toContain('workflow 执行失败');
+    expect(failOutcome.observation).toContain('归一化失败');
+    expect(failOutcome.observation).not.toContain('yield 汇总视图共');
+    expect(failOutcome.observation).not.toContain('账号0');
+    const failRead = await failParts.executors[WORKFLOW_RESULT_READ_TOOL_NAME]!(
+      JSON.stringify({ resultId: failSkill.id, mode: 'info' }),
+    );
+    expect(failRead.ok).toBe(false);
+  });
+});

@@ -137,6 +137,34 @@ function readReturnToLLM(raw: Record<string, unknown>): FieldResult<boolean | un
   return { ok: true, value };
 }
 
+/**
+ * 可选 llmProjection（B3）：returnToLLM:true 时声明哪些 yield 顶层段进 LLM 视图。
+ * 对象 / 非数组 / keep 为非空字符串数组、每项 trim 后非空，逐字保留原顺序与值
+ * （不去重、不 trim 改写声明本身）；非法按既有字段风格抛中文错误。
+ * 缺省 / 字段缺失 = undefined（B2 全量，零回归）。「非空数组」是声明式白名单的
+ * 结构有效性（空列表＝等于没声明），不是数值阈值 / 不引入常量。
+ */
+function readLlmProjection(
+  raw: Record<string, unknown>,
+): FieldResult<NonNullable<SkillRecipe['llmProjection']> | undefined> {
+  const value = raw['llmProjection'];
+  if (value === undefined) return { ok: true, value: undefined };
+  if (!isRecord(value)) {
+    return { ok: false, reason: '技能配方字段「llmProjection」必须是 { keep: 非空字符串数组 }' };
+  }
+  const keep = value['keep'];
+  if (!Array.isArray(keep) || keep.length === 0) {
+    return { ok: false, reason: '技能配方字段「llmProjection」必须是 { keep: 非空字符串数组 }' };
+  }
+  const items: readonly unknown[] = keep;
+  for (const item of items) {
+    if (typeof item !== 'string' || item.trim().length === 0) {
+      return { ok: false, reason: '技能配方字段「llmProjection」必须是 { keep: 非空字符串数组 }' };
+    }
+  }
+  return { ok: true, value: { keep: keep as string[] } };
+}
+
 function readSecrets(raw: Record<string, unknown>): FieldResult<SkillRecipe['secrets']> {
   if (raw['secrets'] === undefined) return { ok: true, value: undefined };
   try {
@@ -391,6 +419,8 @@ export function parseSkillRecipe(
   if (!wf.ok) return wf;
   const returnToLLM = readReturnToLLM(raw);
   if (!returnToLLM.ok) return returnToLLM;
+  const llmProjection = readLlmProjection(raw);
+  if (!llmProjection.ok) return llmProjection;
 
   // exactOptionalPropertyTypes：可选字段条件展开，不直塞 undefined。
   const skill: SkillRecipe = {
@@ -406,6 +436,7 @@ export function parseSkillRecipe(
     ...(wf.value.workflow !== undefined ? { workflow: wf.value.workflow } : {}),
     ...(wf.value.inputs !== undefined ? { inputs: wf.value.inputs } : {}),
     ...(returnToLLM.value !== undefined ? { returnToLLM: returnToLLM.value } : {}),
+    ...(llmProjection.value !== undefined ? { llmProjection: llmProjection.value } : {}),
     prompt: prompt.value,
   };
   return { ok: true, skill };

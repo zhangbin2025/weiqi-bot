@@ -157,10 +157,26 @@ const SKILL_WRITE_TOOL: ModelToolDefinition = {
       returnToLLM: {
         type: 'boolean',
         description: '可选，默认 false。缺省 / false：正常调用只回「完成 + 句柄」，yield 汇总正文不进模型上下文；'
-          + 'true：正常模式也把 yield 汇总 values 回灌模型（按既有单条上限裁剪），'
+          + 'true：正常模式的成功观察只回结果句柄与元信息，宿主按配方 llmProjection 投影 yield 汇总后写入结果缓存，'
+          + '模型用宿主内置 workflow_result_read 分段读到「已到正文末尾」后再做关系分析；'
           + '用于需要据数据做关系分析、逐条给理由的技能；仅带 workflow 的配方有意义。'
-          + '与 workflow / inputs 配套：配方 returnToLLM:true 时，prompt 要授权模型据回灌数据做分析，'
-          + '不要复述原始 JSON、被截断时只据可见部分、不编造。',
+          + '与 workflow / inputs 配套：配方 returnToLLM:true 时，prompt 要授权模型据读全的数据做分析，'
+          + '不要复述原始 JSON、读全前不要下结论、不要编造。',
+      },
+      llmProjection: {
+        type: 'object',
+        properties: {
+          keep: {
+            type: 'array', items: { type: 'string' },
+            description: '声明式字段白名单：只保留这些 yield 顶层段进 LLM 视图（按给定顺序）；'
+              + '出处：宿主 SkillRecipe.llmProjection，B3 契约 A1。',
+          },
+        },
+        required: ['keep'],
+        additionalProperties: false,
+        description: '可选。声明式字段白名单：哪些 yield 顶层段进 LLM 视图；缺省 = B2 全量。'
+          + '出处：宿主 SkillRecipe.llmProjection（B3 契约 A1）。'
+          + '仅带 workflow 且 returnToLLM:true 有意义；宿主做无损紧凑行（columns/rows）后写入结果缓存。',
       },
     },
     required: ['name', 'summary', 'primitives', 'prompt'],
@@ -257,6 +273,8 @@ function buildSystemSuffix(primitives: ReadonlyMap<string, SkillPrimitive>): str
     'returnToLLM 可选（默认 false，仅带 workflow 的配方有意义）：缺省 / false 时正常调用只回「完成 + 句柄」；'
       + 'true 时正常模式也把 yield 汇总 values 回灌模型（按既有单条上限裁剪），'
       + '配方要同时在 prompt 里授权模型据数据做分析、别复述原始 JSON、截断时只据可见部分、不编造。',
+    'llmProjection 可选（{ keep: 非空字符串数组 }）：声明哪些 yield 顶层段进 LLM 视图，'
+      + '缺省 = B2 全量；仅带 workflow 且 returnToLLM:true 有意义，出处见该技能 README。',
     'workflow 配方仍要写 name / summary / prompt（prompt 只是展示说明，不进 model system）。',
     'call 不校验静态白名单：运行时由宿主 OperatorRegistry 按名精确查表，未注册会结构化报「未注册算子」。'
       + '写之前先看下面清单，别编造算子名。',
@@ -300,6 +318,7 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
         ...(e.recipe.workflow !== undefined ? { workflow: e.recipe.workflow } : {}),
         ...(e.recipe.inputs !== undefined ? { inputs: e.recipe.inputs } : {}),
         ...(e.recipe.returnToLLM !== undefined ? { returnToLLM: e.recipe.returnToLLM } : {}),
+        ...(e.recipe.llmProjection !== undefined ? { llmProjection: e.recipe.llmProjection } : {}),
         summary: e.recipe.summary,
         prompt: e.recipe.prompt,
       }));
@@ -416,6 +435,7 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
       ...(args['workflow'] !== undefined ? { workflow: args['workflow'] } : {}),
       ...(args['inputs'] !== undefined ? { inputs: args['inputs'] } : {}),
       ...(args['returnToLLM'] !== undefined ? { returnToLLM: args['returnToLLM'] } : {}),
+      ...(args['llmProjection'] !== undefined ? { llmProjection: args['llmProjection'] } : {}),
       prompt: args['prompt'],
     });
     if (!parsed.ok) {

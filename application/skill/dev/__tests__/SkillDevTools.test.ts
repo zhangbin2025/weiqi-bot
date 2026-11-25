@@ -462,3 +462,81 @@ describe('skill_write 可选 returnToLLM', () => {
     expect(await users.list()).toEqual([]);
   });
 });
+
+
+// ---------- B3：skill_write 可选 llmProjection（声明式字段白名单） ----------
+describe('skill_write 可选 llmProjection（B3 契约 A1 / A3b）', () => {
+  const base = {
+    name: '弈友圈 B3', summary: '圈层关系分析', primitives: [],
+    prompt: '据读数分析', returnToLLM: true,
+    workflow: { steps: [{ id: 'only', call: 'web_fetch', yield: true }] },
+  };
+
+  it('schema 放行 llmProjection（object / keep 字符串数组 / required / additionalProperties:false），systemSuffix 含字段名', () => {
+    const { dev } = kit();
+    const schema = dev.tools.find((t) => t.name === 'skill_write')!.parameters;
+    const props = schema.properties as Record<string, {
+      type?: string; properties?: Record<string, unknown>;
+      required?: string[]; additionalProperties?: boolean; description?: string;
+    }>;
+    const p = props['llmProjection']!;
+    expect(p).toMatchObject({ type: 'object', required: ['keep'], additionalProperties: false });
+    expect(p.properties).toHaveProperty('keep');
+    expect(p.properties!['keep']).toMatchObject({ type: 'array', items: { type: 'string' } });
+    expect(p.description).toContain('llmProjection');
+    expect(p.description).toContain('缺省 = B2 全量');
+    // 出处字样（宿主 SkillRecipe.llmProjection / B3 契约 A1）
+    expect(p.description).toContain('SkillRecipe.llmProjection');
+    // 既有 returnToLLM description 断言逐字保留的两个子串仍在
+    expect(props['returnToLLM']!.description).toContain('yield 汇总');
+    expect(props['returnToLLM']!.description).toContain('默认 false');
+    // dev.systemSuffix 含该字段名（指路）
+    expect(dev.systemSuffix).toContain('llmProjection');
+    expect(dev.systemSuffix).toContain('returnToLLM');
+  });
+
+  it('合法 llmProjection 透传落库，users.list()[0].recipe.llmProjection 逐字相等；skill_list 回显含该字段', async () => {
+    const { users, exec } = kit();
+    const projection = { keep: ['stats', 'nodes'] };
+    const r = await exec('skill_write', { ...base, llmProjection: projection });
+    expect(r.ok).toBe(true);
+    const saved = await users.list();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.recipe.llmProjection).toEqual({ keep: ['stats', 'nodes'] });
+    expect(saved[0]!.recipe.returnToLLM).toBe(true);
+    // 逐字相等（顺序 / 值都不改）
+    expect(saved[0]!.recipe.llmProjection!.keep).toEqual(projection.keep);
+    const list = await exec('skill_list', {});
+    expect(list.observation).toContain('llmProjection');
+    expect(list.observation).toContain('"stats"');
+    expect(list.observation).toContain('"nodes"');
+    // 缺省不塞进配方（B2 全量零回归）
+    const r2 = await exec('skill_write', { ...base, name: '另一个 B3' });
+    expect(r2.ok).toBe(true);
+    const all = await users.list();
+    expect(all.find((e) => e.recipe.name === '另一个 B3')!.recipe)
+      .not.toHaveProperty('llmProjection');
+  });
+
+  it('非法（keep 空数组 / 含非字符串 / 整个字段是字符串 / 缺 keep）在 parseSkillRecipe 阶段拒绝、不落库', async () => {
+    const { users, exec } = kit();
+    const bads: unknown[] = [
+      { keep: [] },
+      { keep: ['stats', 42] },
+      { keep: ['stats', '  '] },
+      'stats,nodes',
+      {},
+      { keep: 'stats' },
+      { keep: null },
+      null,
+      5,
+      [],
+    ];
+    for (const bad of bads) {
+      const r = await exec('skill_write', { ...base, llmProjection: bad });
+      expect(r.ok, JSON.stringify(bad)).toBe(false);
+      expect(r.observation, JSON.stringify(bad)).toContain('llmProjection');
+      expect(await users.list(), JSON.stringify(bad)).toEqual([]);
+    }
+  });
+});
