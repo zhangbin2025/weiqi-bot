@@ -25,6 +25,7 @@ import { UserSkillStore } from '../../skill/dev/UserSkillStore';
 import type { OperatorRegistry } from '../../plugin/OperatorRegistry';
 import type { OperatorSpec, StepResult } from '@domain/plugin/types';
 import type { ToolKit } from '../ToolLoop';
+import type { SkillRecipe } from '../../skill/SkillTypes';
 
 const WORDS = ['柯洁', '申真谞', '官子', '劫争'];
 const PAGE_TEXT = JSON.stringify(WORDS.map((word) => ({ word })));
@@ -163,12 +164,16 @@ interface Fixture {
   /** 所有 gateway 请求里的 role:'tool' 观察文本（按发生顺序） */
   observations(): string[];
   firstTools(): string[];
+  /** 渲染器收到的结构化展示块（第 11 参 displayMarkdown），证 DAG 的 effects 真交付了 */
+  displayBlocks(): string[];
 }
 
 /** 真实链路：轮初技能库为空；devKit / ChatUseCase 共用同一个 UserSkillStore */
 async function make(
   roleId: ChatRoleId,
   gw: ReturnType<typeof scriptedGateway>,
+  /** 仅 chat 用例：预置一个已启用、本轮路由命中的 workflow 配方 */
+  chatRecipe?: SkillRecipe,
 ): Promise<Fixture> {
   const users = new UserSkillStore({ localStorage: memAdapter() as never });
   const primitives = createSkillRegistry(createBasicPrimitives(webDeps));
@@ -177,18 +182,22 @@ async function make(
 
   // loadSkills 与 SkillCatalogService 同口径：只返回 enabled 条目。
   // 轮初为空（尚未 skill_write），正好复刻用户「本轮可用技能：（无）」的场景。
-  const loadSkills = () => users.list().then(
-    (es) => es.filter((e) => e.enabled).map((e) => e.recipe),
-  );
+  const loadSkills = () => chatRecipe
+    ? Promise.resolve([chatRecipe])
+    : users.list().then(
+      (es) => es.filter((e) => e.enabled).map((e) => e.recipe),
+    );
   const skills = {
     loadSkills,
     primitives,
     devKit,
-    // 本轮路由不命中（模型刚写完、用户没说触发词）
-    routeSkills: async () => [],
+    // 不传 chatRecipe：本轮路由不命中（模型刚写完、用户没说触发词）；
+    // 传了：让 chat 命中这条 workflow，好让 run_workflow 真的挂上来。
+    routeSkills: async () => (chatRecipe ? [chatRecipe.id] : []),
   };
+  const r = renderer() as unknown as { renderMessage: ReturnType<typeof vi.fn> };
   const uc = new ChatUseCase(
-    gw, history(), renderer(), pluginKit, () => roleId, webDeps, skills,
+    gw, history(), r as never, pluginKit, () => roleId, webDeps, skills,
     undefined, undefined, registry,
   );
   return {
@@ -205,6 +214,9 @@ async function make(
       const req = gw.execute.mock.calls[0]![0] as ModelRequest;
       return (req.tools ?? []).map((t) => t.name);
     },
+    displayBlocks: () => r.renderMessage.mock.calls
+      .map((c) => c[10] as unknown)
+      .filter((s): s is string => typeof s === 'string' && s.length > 0),
   };
 }
 
@@ -361,5 +373,56 @@ describe('端到端：同一轮 skill_write → run_workflow(debug:true)', () =>
     await f.uc.send('你好');
     expect(f.firstTools()).not.toContain('run_workflow');
     expect(f.firstTools()).not.toContain('skill_write');
+  });
+
+  it('chat 角色：模型即便传 debug:true，工具观察也零逐步回灌（上行 token 硬 gate）', async () => {
+    // 预置一条已启用 workflow 配方并让路由命中：chat 会真的挂上 run_workflow。
+    // 模型「自作主张」传 debug:true，宿主必须按角色强制关，只回完成+句柄。
+    const chatRecipe: SkillRecipe = {
+      schemaVersion: 1,
+      id: 'user.chat.workflow',
+      version: 1,
+      name: '闲聊工作流',
+      summary: '取页面 → 提取 → 渲染',
+      primitives: [],
+      prompt: '展示说明',
+      workflow: {
+        steps: [
+          { id: 'fetch', call: 'web_fetch', args: { storeOnly: true }, yield: true },
+          {
+            id: 'extract', call: 'json_extract', yield: true,
+            bindings: [{ from: 'fetch', path: '$', as: 'text' }],
+          },
+          {
+            id: 'render', call: 'display_json_list',
+            bindings: [{ from: 'extract', path: '$', as: 'value' }],
+          },
+        ],
+      },
+    };
+    const gw = scriptedGateway([
+      [call('c1', 'run_workflow', { skillId: chatRecipe.id, inputs: {}, debug: true })],
+    ]);
+    const f = await make('chat', gw, chatRecipe);
+    await f.uc.send('随便聊聊');
+
+    // 工具确实挂上了（否则「零回灌」只是因为工具没挂，验不到 gate）
+    expect(f.firstTools()).toContain('run_workflow');
+    const obs = f.observations();
+    expect(obs).toHaveLength(1);
+    // 闲聊强制关：只有完成+句柄，算子输出一个字都不进模型上下文
+    expect(obs[0]).toContain('执行完成');
+    expect(obs[0]).toContain('结果位置（句柄）');
+    expect(obs[0]).not.toContain('调试模式');
+    expect(obs[0]).not.toContain('第 1/3 步');
+    expect(obs[0]).not.toContain('输出 value');
+    expect(obs[0]).not.toContain('最终交付');
+    expect(obs[0]).not.toContain(String.raw`\"word\":\"柯洁\"`);
+    expect(obs[0]).not.toContain('柯洁');
+    // 正证据：DAG 确实跑完了 —— 业务数据由宿主 effects 旁路交付（displayMarkdown），
+    // 只是不进 tool 观察 / 模型上下文。否则「零回灌」可能只是「压根没跑」的假绿。
+    const displays = f.displayBlocks();
+    expect(displays.length).toBeGreaterThan(0);
+    expect(displays.join('\n')).toContain('柯洁');
   });
 });

@@ -24,6 +24,9 @@
  * 例外：`run_workflow({debug:true})` 是「开发」角色验收/调试技能的显式开关——
  * 宿主把每步入参/输出/失败点 + 最终交付结果结构化回灌模型，供定位哪一步算错；
  * 不传 / false 逐字沿用上面的「完成 + 句柄」，chat 角色工具定义也不暴露该参数。
+ * 逐步回灌把每个算子输出塞进模型上下文、上行 token 开销大，故 executor 按本轮
+ * 角色硬 gate：chat「闲聊」强制忽略 debug:true（默认关，零逐步 observe），
+ * dev「开发」才允许显式开启（详见 executor 内注释）。
  *
  * 与散文路径**并列**（B 决策）：`buildSkillToolParts` 原样保留，本文件只是在
  * 同一 `ToolKit` 追加一个新工具；两类配方走同一个 ToolLoop、同一批基础能力，
@@ -505,7 +508,14 @@ export function buildWorkflowToolParts(
       ? parsed as Record<string, unknown>
       : {};
     const skillId = typeof req['skillId'] === 'string' ? req['skillId'] : '';
-    const debug = req['debug'] === true;
+    // 逐步回灌（debug:true）会把每个算子的入参 / 输出 value / 最终交付整块塞进模型
+    // 上下文，上行 token 随 DAG 步数线性增长。按本轮角色硬 gate：
+    // - chat「闲聊」强制关：即便模型被历史或文案诱导传了 debug:true，也只回
+    //   「完成 + 句柄」，业务数据只由宿主 effects 旁路交付，绝不逐步 observe；
+    // - dev「开发」保留显式开关，验收 / 排查传 debug:true 才逐步回灌。
+    // devMode 来自 ChatRole.skillDev，经 ChatUseCase.runTurn → buildChatToolKit
+    // 透传到本函数，是本轮角色的权威标志；不新增开关、不改工具 schema 口径。
+    const debug = devMode && req['debug'] === true;
     const rawInputs = req['inputs'];
     const inputs: Record<string, unknown> =
       (rawInputs !== null && typeof rawInputs === 'object' && !Array.isArray(rawInputs))

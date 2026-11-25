@@ -61,8 +61,9 @@ function run(
   active: readonly SkillRecipe[],
   registry: OperatorRegistry,
   args: Record<string, unknown>,
+  devMode = false,
 ) {
-  const parts = buildWorkflowToolParts(active, registry, (_s: PluginTraceStep) => undefined);
+  const parts = buildWorkflowToolParts(active, registry, (_s: PluginTraceStep) => undefined, devMode);
   const executor = parts.executors[RUN_WORKFLOW_TOOL_NAME]!;
   return executor(JSON.stringify(args));
 }
@@ -261,7 +262,7 @@ describe('buildWorkflowToolParts — debug 调试开关', () => {
 
     const outcome = await run([skill], registry, {
       skillId: 'demo.debug.on', inputs: { q: 'X' }, debug: true,
-    });
+    }, true);
 
     expect(outcome.ok).toBe(true);
     expect(outcome.observation).toContain('调试模式');
@@ -293,7 +294,7 @@ describe('buildWorkflowToolParts — debug 调试开关', () => {
     });
     const outcome = await run([skill], registry, {
       skillId: 'demo.debug.fail', debug: true,
-    });
+    }, true);
     expect(outcome.ok).toBe(false);
     expect(outcome.observation).toContain('调试模式');
     expect(outcome.observation).toContain(SECRET_BUSINESS_VALUE); // 已完成步输出
@@ -317,6 +318,65 @@ describe('buildWorkflowToolParts — debug 调试开关', () => {
   });
 });
 
+
+/**
+ * 角色硬 gate（上行 token）：debug 逐步回灌把每个算子输出塞进模型上下文，
+ * 闲聊角色必须强制关 —— 即便模型传了 debug:true 也只回「完成 + 句柄」，
+ * 业务 value 一个字不进上下文，也绝不触发 dev 才有的「调试通过才启用」闸门。
+ * 开发角色仍保留显式 debug:true 逐步回灌（见上面 debug 组，已改在 devMode=true 下跑）。
+ */
+describe('buildWorkflowToolParts — debug 按角色硬 gate（闲聊零逐步回灌）', () => {
+  const skill = recipe({
+    id: 'demo.debug.gate',
+    workflow: {
+      steps: [
+        { id: 'fetch', call: 'fetch_data', yield: true },
+        { id: 'render', call: 'render_list' },
+      ] as WorkflowStep[],
+    },
+  });
+
+  it('chat（devMode=false）即便传 debug:true：也不回灌任何算子输出，走完成+句柄', async () => {
+    const registry = fakeRegistry({
+      fetch_data: () => ({ value: { title: SECRET_BUSINESS_VALUE } }),
+      render_list: () => ({ value: null, effects: [{ displayMarkdown: `- ${NEWS_TITLE}` }] }),
+    });
+    const outcome = await run([skill], registry, {
+      skillId: skill.id, debug: true,
+    }); // 不传 devMode = 闲聊角色
+    expect(outcome.ok).toBe(true);
+    expect(outcome.observation).toContain('执行完成');
+    expect(outcome.observation).toContain('结果位置（句柄）');
+    expect(outcome.observation).not.toContain('调试模式');
+    expect(outcome.observation).not.toContain('第 1/2 步');
+    expect(outcome.observation).not.toContain('输出 value');
+    expect(outcome.observation).not.toContain(SECRET_BUSINESS_VALUE);
+    expect(outcome.observation).not.toContain(NEWS_TITLE);
+    // 旁路产物仍照常交付给用户，只是不进模型上下文
+    expect(outcome.displayMarkdown).toBe(`- ${NEWS_TITLE}`);
+  });
+
+  it('chat + debug:true 不触发 accept 闸门（调试通过才启用只属于 dev）', async () => {
+    const accepted: string[] = [];
+    const hooks = {
+      listCandidates: async () => [{ recipe: skill, enabled: false }],
+      accept: async (id: string) => { accepted.push(id); },
+    };
+    const registry = fakeRegistry({
+      fetch_data: () => ({ value: { title: SECRET_BUSINESS_VALUE } }),
+      render_list: () => ({ value: null }),
+    });
+    // 故意给 chat 装配也塞 devHooks：gate 之后 debug 恒 false，accept 绝不会被调
+    const parts = buildWorkflowToolParts([skill], registry, undefined, false, hooks);
+    const outcome = await parts.executors[RUN_WORKFLOW_TOOL_NAME]!(
+      JSON.stringify({ skillId: skill.id, debug: true }),
+    );
+    expect(outcome.ok).toBe(true);
+    expect(outcome.observation).not.toContain('调试模式');
+    expect(outcome.observation).not.toContain('技能已启用');
+    expect(accepted).toEqual([]);
+  });
+});
 
 /**
  * 回归（18:25）：dev 角色验收时模型没传 debug:true，只回了「没法逐条核对」。
@@ -525,7 +585,7 @@ describe('buildWorkflowToolParts — returnToLLM 开关（B2 宿主缓存读全�
     const skill = recipe({ id: 'demo.r2l.debug', workflow: spec, returnToLLM: true });
     const debugOutcome = await run([skill], registry, {
       skillId: skill.id, debug: true,
-    });
+    }, true);
     expect(debugOutcome.observation).toContain('调试模式');
     expect(debugOutcome.observation).not.toContain('据以上数据做关系分析'); // debug 分支不动
 
