@@ -8,6 +8,9 @@
  * - 失败观察仍是「哪个节点 / 什么错 / 已完成节点」，不带任何业务 value；
  * - 无 active workflow 配方时零工具零额外 token。
  *
+ * 2026-11-25 B2：returnToLLM:true 配方改为「宿主缓存 + workflow_result_read 分页读全」，
+ * 成功观察只回元信息 + 结果句柄 + 指路，不含数据本体（消除双重裁剪）。
+ *
  * 纯内存假 registry，不依赖 QuickJS / 网络 / DOM。
  */
 
@@ -15,7 +18,11 @@ import { describe, it, expect } from 'vitest';
 import type { PluginTraceStep, StepResult, OperatorSpec } from '@domain/plugin/types';
 import type { OperatorRegistry } from '@application/plugin/OperatorRegistry';
 import type { SkillRecipe, WorkflowSpec, WorkflowStep } from '../SkillTypes';
-import { buildWorkflowToolParts, RUN_WORKFLOW_TOOL_NAME } from '../WorkflowTool';
+import { CONTEXT_LIMITS } from '@application/chat/ConversationPrompt';
+import {
+  buildWorkflowToolParts, RUN_WORKFLOW_TOOL, RUN_WORKFLOW_TOOL_NAME,
+  WORKFLOW_RESULT_READ_TOOL_NAME, WORKFLOW_RESULT_READ_TOOL,
+} from '../WorkflowTool';
 
 /** 与 WorkflowRunner.test.ts 同形的内存假算子表。 */
 function fakeRegistry(
@@ -361,7 +368,10 @@ describe('dev 恒定挂载 run_workflow（19:08 散文配方导致工具消失�
       undefined,
       true,
     );
-    expect(parts.tools.map((t) => t.name)).toEqual([RUN_WORKFLOW_TOOL_NAME]);
+    // B2：parts.tools 现在同时挂 run_workflow 与 workflow_result_read（A7）；
+    // 本断言的意图是「run_workflow 仍恒定挂载」，改用 toContain 保留该意图。
+    expect(parts.tools.map((t) => t.name)).toContain(RUN_WORKFLOW_TOOL_NAME);
+    expect(parts.tools.map((t) => t.name)).toContain(WORKFLOW_RESULT_READ_TOOL_NAME);
     const def = parts.tools[0]!;
     const props = (def.parameters as { properties?: Record<string, unknown> }).properties ?? {};
     expect(props['debug']).toBeDefined();
@@ -471,11 +481,11 @@ describe('buildWorkflowToolParts — dev 动态候选 + 调试通过才启用', 
 
 
 /**
- * returnToLLM 开关（契约 D）：缺省 / false 逐字保持「完成 + 句柄」观察；
- * true 才在正常模式把 yield 汇总 values 回灌模型，并附据数据做分析的授权语句。
- * 复用既有 debugValue / maxCharsPerMessage，不新造数值常量。
+ * B2 / returnToLLM 开关：缺省 / false 逐字保持「完成 + 句柄」观察（8 组 BYTE-IDENTICAL）；
+ * true 改为「宿主结果缓存 + workflow_result_read 分页读全」，观察只回完成 + 总字符数 +
+ * resultId + 指路 + 读全后分析，不含任何数据本体，整条 ≤ maxCharsPerMessage。
  */
-describe('buildWorkflowToolParts — returnToLLM 开关', () => {
+describe('buildWorkflowToolParts — returnToLLM 开关（B2 宿主缓存读全）', () => {
   const YIELD_VALUE = '弈友圈对阵数据-9f8e7d6c';
   const spec: WorkflowSpec = {
     steps: [
@@ -487,6 +497,8 @@ describe('buildWorkflowToolParts — returnToLLM 开关', () => {
     fetch_data: () => ({ value: { stats: YIELD_VALUE } }),
     normalize: () => ({ value: null }),
   });
+
+  // ---- 以下 !returnToLLM / debug / fail 断言逐字保持既有语义（零回归） ----
 
   it('缺省（不写 returnToLLM）：观察不含 yield 汇总 values，逐字保持旧「完成 + 句柄」', async () => {
     const skill = recipe({ id: 'demo.r2l.off', workflow: spec });
@@ -500,35 +512,6 @@ describe('buildWorkflowToolParts — returnToLLM 开关', () => {
     expect(outcome.observation).not.toContain('据以上数据做关系分析');
   });
 
-  it('returnToLLM:true：含 yield 汇总 values（debugValue 序列化）且含授权模型据数据分析的语句', async () => {
-    const skill = recipe({ id: 'demo.r2l.on', workflow: spec, returnToLLM: true });
-    const outcome = await run([skill], registry, { skillId: skill.id });
-    expect(outcome.ok).toBe(true);
-    expect(outcome.observation).toContain('执行完成');
-    expect(outcome.observation).toContain('【yield 汇总 values】');
-    expect(outcome.observation).toContain(YIELD_VALUE);       // 汇总确实回灌
-    expect(outcome.observation).toContain('据以上数据做关系分析'); // 授权语句
-    expect(outcome.observation).toContain('不要复述');
-    expect(outcome.observation).toContain('不要编造');
-    // true 分支不再用旧结束句（那是「只告知完成」的口径）
-    expect(outcome.observation).not.toContain('请如实告知用户任务已完成');
-  });
-
-  it('returnToLLM:true：观察不含「未进入本轮模型上下文」「结果位置（句柄）」，且自洽声明数据已回灌', async () => {
-    const skill = recipe({ id: 'demo.r2l.self', workflow: spec, returnToLLM: true });
-    const outcome = await run([skill], registry, { skillId: skill.id });
-    expect(outcome.ok).toBe(true);
-    // 旧 head 的三处措辞与「紧接着回灌 values」自相矛盾，true 分支必须全部去掉。
-    expect(outcome.observation).not.toContain('未进入本轮模型上下文');
-    expect(outcome.observation).not.toContain('结果位置（句柄）');
-    expect(outcome.observation).not.toContain('由宿主旁路交付');
-    // 第二行改为自洽口径，并确实含回灌 values 与授权分析语句。
-    expect(outcome.observation).toContain('已进入模型上下文');
-    expect(outcome.observation).toContain('【yield 汇总 values】');
-    expect(outcome.observation).toContain(YIELD_VALUE);        // 回灌 values
-    expect(outcome.observation).toContain('据以上数据做关系分析'); // 授权分析语句
-  });
-
   it('returnToLLM:false 与缺省逐字一致（observation 相等）', async () => {
     const off = recipe({ id: 'demo.r2l.cmp', workflow: spec });
     const explicitFalse = recipe({ id: 'demo.r2l.cmp', workflow: spec, returnToLLM: false });
@@ -536,26 +519,6 @@ describe('buildWorkflowToolParts — returnToLLM 开关', () => {
     const b = await run([explicitFalse], registry, { skillId: explicitFalse.id });
     expect(b.observation).toBe(a.observation);
     expect(b.observation).not.toContain(YIELD_VALUE);
-  });
-
-  it('returnToLLM:true 且超长：按既有单条上限做单块裁剪并附截断标记，且不新造数值', async () => {
-    // 造一个明显超过 CONTEXT_LIMITS.maxCharsPerMessage 的 value（长度由既有上限推导，
-    // 测试里不写死任何新阈值常量）。
-    const { CONTEXT_LIMITS } = await import('@application/chat/ConversationPrompt');
-    const big = '弈'.repeat(CONTEXT_LIMITS.maxCharsPerMessage + 100);
-    const bigReg = fakeRegistry({
-      fetch_data: () => ({ value: big }),
-      normalize: () => ({ value: null }),
-    });
-    const skill = recipe({ id: 'demo.r2l.big', workflow: spec, returnToLLM: true });
-    const outcome = await run([skill], bigReg, { skillId: skill.id });
-    expect(outcome.observation).toContain('【yield 汇总 values】');
-    expect(outcome.observation).toContain('…[已按单条上限截断]');
-    expect(outcome.observation).toContain('据以上数据做关系分析');
-    // 回灌块（head 之后、授权 tail 之前）不超过单条上限
-    const valuesPart = outcome.observation.split('【yield 汇总 values】')[1]!
-      .split('请据以上数据做关系分析')[0]!;
-    expect(valuesPart.length).toBeLessThanOrEqual(CONTEXT_LIMITS.maxCharsPerMessage);
   });
 
   it('returnToLLM:true 不影响 debug 分支与失败观察（两条既有路径零回归）', async () => {
@@ -575,5 +538,307 @@ describe('buildWorkflowToolParts — returnToLLM 开关', () => {
     expect(failOutcome.ok).toBe(false);
     expect(failOutcome.observation).toContain('workflow 执行失败');
     expect(failOutcome.observation).not.toContain(YIELD_VALUE);
+  });
+
+  // ---- 以下 6 条 returnToLLM:true 断言重写为 B2 新语义 ----
+
+  it('① true：观察不含任何数据本体，只回完成 + 总字符数 + resultId + 指路 + 读全后分析', async () => {
+    const skill = recipe({ id: 'demo.r2l.on', workflow: spec, returnToLLM: true });
+    const outcome = await run([skill], registry, { skillId: skill.id });
+    expect(outcome.ok).toBe(true);
+    expect(outcome.observation).toContain('执行完成');
+    // 完成 + 节点数（firstLine）
+    expect(outcome.observation).toContain('已完成 2 个节点');
+    // 事实元信息：总字符数
+    expect(outcome.observation).toContain('字符，已存入宿主结果缓存');
+    // 句柄 + 工具名
+    expect(outcome.observation).toContain('resultId');
+    expect(outcome.observation).toContain('demo.r2l.on');
+    expect(outcome.observation).toContain(WORKFLOW_RESULT_READ_TOOL_NAME);
+    // 可照抄示例 + 递增 offset
+    expect(outcome.observation).toContain('"mode":"slice"');
+    expect(outcome.observation).toContain('mode:"slice"');
+    expect(outcome.observation).toContain('offset:0');
+    expect(outcome.observation).toContain('递增 offset');
+    // 读全后分析 + 不要编造
+    expect(outcome.observation).toContain('读全后再做关系分析');
+    expect(outcome.observation).toContain('读全后再分析');
+    expect(outcome.observation).toContain('不要编造');
+    expect(outcome.observation).toContain('不要复述');
+    // 关键：数据本体一个字都不回灌（验收会 grep 【yield 汇总 values】 / value 字段）
+    expect(outcome.observation).not.toContain('【yield 汇总 values】');
+    expect(outcome.observation).not.toContain(YIELD_VALUE);
+    expect(outcome.observation).not.toContain('stats');
+    expect(outcome.observation).not.toContain('…[已按单条上限截断]');
+  });
+
+  it('② true：整条 observation ≤ maxCharsPerMessage（消除 ToolLoop 二次裁剪），不含旧矛盾措辞', async () => {
+    const skill = recipe({ id: 'demo.r2l.self', workflow: spec, returnToLLM: true });
+    const outcome = await run([skill], registry, { skillId: skill.id });
+    expect(outcome.ok).toBe(true);
+    expect(outcome.observation.length).toBeLessThanOrEqual(CONTEXT_LIMITS.maxCharsPerMessage);
+    // 旧自相矛盾措辞 / 旧结束句全部去掉
+    expect(outcome.observation).not.toContain('未进入本轮模型上下文');
+    expect(outcome.observation).not.toContain('结果位置（句柄）');
+    expect(outcome.observation).not.toContain('由宿主旁路交付');
+    expect(outcome.observation).not.toContain('请如实告知用户任务已完成');
+    expect(outcome.observation).not.toContain('已进入模型上下文');
+    // 消除双重裁剪：指令在观察尾部仍完整（等同 clipObservation 后仍在）
+    expect(outcome.observation).toContain('不要编造');
+    expect(outcome.observation).toContain('读全后再做关系分析');
+  });
+
+  it('③ true：观察里的 resultId = skillId，且与缓存键逐字一致（info 能命中）', async () => {
+    const skill = recipe({ id: 'demo.r2l.key', workflow: spec, returnToLLM: true });
+    const parts = buildWorkflowToolParts([skill], registry, undefined);
+    const wf = await parts.executors[RUN_WORKFLOW_TOOL_NAME]!(
+      JSON.stringify({ skillId: skill.id }),
+    );
+    expect(wf.observation).toContain(`resultId：${skill.id}`);
+    const info = await parts.executors[WORKFLOW_RESULT_READ_TOOL_NAME]!(
+      JSON.stringify({ resultId: skill.id, mode: 'info' }),
+    );
+    expect(info.ok).toBe(true);
+    expect(info.preparatory).toBe(true);
+    expect(info.observation).toContain(skill.id);
+    expect(info.detail).toContain('字符');
+  });
+
+  it('④ true：工具定义形状与 WEB_CACHE_READ_TOOL 一致（resultId 取代 url），description 不写 http/https', () => {
+    const p = WORKFLOW_RESULT_READ_TOOL.parameters as {
+      properties?: Record<string, unknown>; required?: string[]; additionalProperties?: boolean;
+    };
+    expect(WORKFLOW_RESULT_READ_TOOL.name).toBe('workflow_result_read');
+    expect(p.properties).toHaveProperty('resultId');
+    expect(p.properties).not.toHaveProperty('url');
+    for (const key of ['mode', 'offset', 'length', 'pattern', 'flags', 'before', 'after', 'skip', 'limit', 'count']) {
+      expect(p.properties).toHaveProperty(key);
+    }
+    expect(p.required).toEqual(['resultId', 'mode']);
+    expect(p.additionalProperties).toBe(false);
+    const mode = (p.properties!['mode'] as { enum?: string[] }).enum;
+    expect(mode).toEqual(['info', 'slice', 'grep']);
+    const d = WORKFLOW_RESULT_READ_TOOL.description;
+    expect(d).toContain('workflow_result_read');
+    expect(d).toContain('resultId');
+    expect(d).toContain('slice');
+    expect(d).toContain('读全');
+    expect(d).toContain('不消耗自主决策轮数');
+    expect(d).toContain('URL 字样即读取键');
+    expect(d).not.toContain('http://');
+    expect(d).not.toContain('https://');
+  });
+
+  it('⑤ true：buildWorkflowTool 条件追加 description；无 returnToLLM 配方逐字不加', () => {
+    const plain = recipe({ id: 'demo.plain', workflow: spec });
+    const withR2L = recipe({ id: 'demo.r2l.desc', workflow: spec, returnToLLM: true });
+    const plainParts = buildWorkflowToolParts([plain], registry);
+    const r2lParts = buildWorkflowToolParts([withR2L], registry);
+    const plainDesc = plainParts.tools.find((t) => t.name === RUN_WORKFLOW_TOOL_NAME)!.description;
+    const r2lDesc = r2lParts.tools.find((t) => t.name === RUN_WORKFLOW_TOOL_NAME)!.description;
+    // 静态常量逐字不动：两段拼装的 description 都以它原文开头
+    expect(plainDesc.startsWith(RUN_WORKFLOW_TOOL.description)).toBe(true);
+    expect(r2lDesc.startsWith(RUN_WORKFLOW_TOOL.description)).toBe(true);
+    expect(plainDesc).toContain('正常调用你只会收到「完成 + 结果位置（句柄）」');
+    expect(r2lDesc).toContain('结果句柄配方');
+    expect(r2lDesc).toContain(WORKFLOW_RESULT_READ_TOOL_NAME);
+    expect(r2lDesc).toContain('不受上面「不要复述/归纳结果内容」的约束');
+    // 无此类配方时逐字不加；有则只在尾部多出一段
+    expect(plainDesc).not.toContain('结果句柄配方');
+    const hintStart = r2lDesc.indexOf('【结果句柄配方');
+    expect(hintStart).toBeGreaterThan(0);
+    expect(r2lDesc.slice(hintStart - 2, hintStart)).toBe('\n\n');
+    // 追加段是尾部：去掉它之后，r2l 与 plain 只是技能清单 id 不同，都不含句柄提示
+    const sameShape = r2lDesc.slice(0, hintStart - 2).replace('demo.r2l.desc', 'demo.plain');
+    expect(sameShape).toBe(plainDesc);
+  });
+
+  it('⑥ true：debug:true 与 returnToLLM:false 都不写缓存（workflow_result_read 报空缓存）', async () => {
+    // debug:true 分支不写缓存
+    const dSkill = recipe({ id: 'demo.r2l.nocache.debug', workflow: spec, returnToLLM: true });
+    const dParts = buildWorkflowToolParts([dSkill], registry, undefined, true);
+    await dParts.executors[RUN_WORKFLOW_TOOL_NAME]!(
+      JSON.stringify({ skillId: dSkill.id, debug: true }),
+    );
+    const dRead = await dParts.executors[WORKFLOW_RESULT_READ_TOOL_NAME]!(
+      JSON.stringify({ resultId: dSkill.id, mode: 'info' }),
+    );
+    expect(dRead.ok).toBe(false);
+    expect(dRead.observation).toContain('还没有可读取的 yield 结果');
+    expect(dRead.observation).toContain('run_workflow');
+    expect(dRead.observation).not.toContain('web_fetch');
+
+    // returnToLLM:false（正常模式）不写缓存
+    const fSkill = recipe({ id: 'demo.r2l.nocache.false', workflow: spec, returnToLLM: false });
+    const fParts = buildWorkflowToolParts([fSkill], registry, undefined);
+    await fParts.executors[RUN_WORKFLOW_TOOL_NAME]!(
+      JSON.stringify({ skillId: fSkill.id }),
+    );
+    const fRead = await fParts.executors[WORKFLOW_RESULT_READ_TOOL_NAME]!(
+      JSON.stringify({ resultId: fSkill.id, mode: 'info' }),
+    );
+    expect(fRead.ok).toBe(false);
+    expect(fRead.observation).not.toContain('web_fetch');
+
+    // 失败不写缓存
+    const failSkill = recipe({ id: 'demo.r2l.nocache.fail', workflow: spec, returnToLLM: true });
+    const failReg = fakeRegistry({
+      fetch_data: () => ({ value: YIELD_VALUE }),
+      normalize: () => { throw new Error('归一化失败'); },
+    });
+    const failParts = buildWorkflowToolParts([failSkill], failReg, undefined);
+    const failWf = await failParts.executors[RUN_WORKFLOW_TOOL_NAME]!(
+      JSON.stringify({ skillId: failSkill.id }),
+    );
+    expect(failWf.ok).toBe(false);
+    const failRead = await failParts.executors[WORKFLOW_RESULT_READ_TOOL_NAME]!(
+      JSON.stringify({ resultId: failSkill.id, mode: 'info' }),
+    );
+    expect(failRead.ok).toBe(false);
+    expect(failRead.observation).not.toContain('web_fetch');
+  });
+
+  // ---- 分页读全集成断言（替换旧「单块裁剪」那条） ----
+
+  it('⑦ 大 value → run_workflow → info → 反复 slice 按 offset 递增 → 拼回全文与 debugValue 相等', async () => {
+    // 长度由既有上限推导，测试里不写死任何新阈值 / 分片数常量。
+    const big = '弈'.repeat(CONTEXT_LIMITS.maxCharsPerMessage * 3);
+    const bigReg = fakeRegistry({
+      fetch_data: () => ({ value: { stats: big, marker: 'END-OF-VALUES' } }),
+      normalize: () => ({ value: null }),
+    });
+    const skill = recipe({ id: 'demo.r2l.paging', workflow: spec, returnToLLM: true });
+    const parts = buildWorkflowToolParts([skill], bigReg, undefined);
+
+    const wf = await parts.executors[RUN_WORKFLOW_TOOL_NAME]!(
+      JSON.stringify({ skillId: skill.id }),
+    );
+    expect(wf.ok).toBe(true);
+    expect(wf.observation).not.toContain(big); // 观察不含数据本体
+    expect(wf.observation.length).toBeLessThanOrEqual(CONTEXT_LIMITS.maxCharsPerMessage);
+
+    // 原文 = 缓存文本：首行 + debugValue(values)
+    const values = { fetch: { stats: big, marker: 'END-OF-VALUES' } };
+    const fullText = `【yield 汇总 values】\n${JSON.stringify(values)}`;
+    const total = fullText.length;
+
+    const info = await parts.executors[WORKFLOW_RESULT_READ_TOOL_NAME]!(
+      JSON.stringify({ resultId: skill.id, mode: 'info' }),
+    );
+    expect(info.ok).toBe(true);
+    expect(info.preparatory).toBe(true);
+    expect(info.observation).toContain(`${total} 字符`);
+
+    // 反复 slice：按 footer 的「范围 [start, end)」取真实 body，按 end 递增 offset
+    let offset = 0;
+    let joined = '';
+    let rounds = 0;
+    let lastEnded = false;
+    // 与 WebFetchCache.test.ts 同形的循环保险（不是分片数上限）；片数只打印、不作断言。
+    while (rounds < 100) {
+      const r = await parts.executors[WORKFLOW_RESULT_READ_TOOL_NAME]!(
+        JSON.stringify({ resultId: skill.id, mode: 'slice', offset }),
+      );
+      rounds++;
+      expect(r.ok).toBe(true);
+      expect(r.preparatory).toBe(true);
+      expect(r.observation.length).toBeLessThanOrEqual(CONTEXT_LIMITS.maxCharsPerMessage);
+      const m = /本段起点 (\d+)，长度 (\d+)，范围 \[(\d+), (\d+)\)/.exec(r.observation);
+      expect(m).not.toBeNull();
+      const start = Number(m![1]);
+      const end = Number(m![4]);
+      const len = Number(m![2]);
+      const footStart = r.observation.lastIndexOf('\n[本段起点');
+      const headAndBody = r.observation.slice(0, footStart);
+      const body = headAndBody.slice(headAndBody.length - len);
+      expect(body).toBe(fullText.slice(start, end));
+      joined += body;
+      offset = end;
+      if (r.observation.includes('已到正文末尾')) { lastEnded = true; break; }
+      expect(r.observation).toContain('请把 offset 设为');
+    }
+    expect(lastEnded).toBe(true);
+    expect(joined).toBe(fullText); // 逐字相等：读全，无遗漏无补写
+    // 片数只作回执打印，不作断言上限（数据规模的自然结果）
+    console.info(`[workflow_result_read] 分页读全 ${total} 字符用了 ${rounds} 片`);
+  });
+
+  // ---- 参数校验 / 空缓存友好提示 ----
+
+  it('⑧ 空缓存友好提示（不含 web_fetch 字样）、非法 mode / 空 resultId 明确回执', async () => {
+    const skill = recipe({ id: 'demo.r2l.validate', workflow: spec, returnToLLM: true });
+    const parts = buildWorkflowToolParts([skill], registry, undefined);
+    // 未跑 run_workflow 之前读 → 空缓存友好提示
+    const empty = await parts.executors[WORKFLOW_RESULT_READ_TOOL_NAME]!(
+      JSON.stringify({ resultId: skill.id, mode: 'info' }),
+    );
+    expect(empty.ok).toBe(false);
+    expect(empty.preparatory).toBe(true);
+    expect(empty.observation).toContain('还没有可读取的 yield 结果');
+    expect(empty.observation).toContain('run_workflow');
+    expect(empty.observation).not.toContain('web_fetch');
+
+    const badModes: Array<[Record<string, unknown>, string]> = [
+      [{ resultId: skill.id, mode: 'wat' }, 'mode 必须是'],
+      [{ resultId: '', mode: 'info' }, '缺少 resultId'],
+      [{ mode: 'info' }, '缺少 resultId'],
+      [{ resultId: skill.id }, 'mode 必须是'],
+    ];
+    for (const [args, keyword] of badModes) {
+      const r = await parts.executors[WORKFLOW_RESULT_READ_TOOL_NAME]!(JSON.stringify(args));
+      expect(r.ok, JSON.stringify(args)).toBe(false);
+      expect(r.preparatory, JSON.stringify(args)).toBe(true);
+      expect(r.observation, JSON.stringify(args)).toContain(keyword);
+      expect(r.observation, JSON.stringify(args)).not.toContain('web_fetch');
+    }
+    const badJson = await parts.executors[WORKFLOW_RESULT_READ_TOOL_NAME]!('{not json');
+    expect(badJson.ok).toBe(false);
+    expect(badJson.observation).toContain('不是合法 JSON');
+    expect(badJson.preparatory).toBe(true);
+  });
+
+  it('⑨ 真实 85KB 级 value：能在 16 次 model call 预算内读全（片数只打印、不作断言上限）', async () => {
+    // 构造契约「已实测事实」里的真实规模（85,323 字符）离线数据，不联网、不改任何默认业务参数。
+    const targetChars = 85_323;
+    const body = '弈'.repeat(targetChars);
+    const realReg = fakeRegistry({
+      fetch_data: () => ({ value: { nodes: body } }),
+      normalize: () => ({ value: null }),
+    });
+    const skill = recipe({ id: 'demo.r2l.real85k', workflow: spec, returnToLLM: true });
+    const parts = buildWorkflowToolParts([skill], realReg, undefined);
+    const wf = await parts.executors[RUN_WORKFLOW_TOOL_NAME]!(
+      JSON.stringify({ skillId: skill.id }),
+    );
+    expect(wf.ok).toBe(true);
+    expect(wf.observation.length).toBeLessThanOrEqual(CONTEXT_LIMITS.maxCharsPerMessage);
+
+    const fullText = `【yield 汇总 values】\n${JSON.stringify({ fetch: { nodes: body } })}`;
+    let offset = 0;
+    let joined = '';
+    let reads = 0;
+    while (reads < 100) {
+      const r = await parts.executors[WORKFLOW_RESULT_READ_TOOL_NAME]!(
+        JSON.stringify({ resultId: skill.id, mode: 'slice', offset }),
+      );
+      reads++;
+      expect(r.preparatory).toBe(true);
+      expect(r.observation.length).toBeLessThanOrEqual(CONTEXT_LIMITS.maxCharsPerMessage);
+      const m = /本段起点 (\d+)，长度 (\d+)，范围 \[(\d+), (\d+)\)/.exec(r.observation);
+      expect(m).not.toBeNull();
+      const start = Number(m![1]);
+      const end = Number(m![4]);
+      const len = Number(m![2]);
+      const footStart = r.observation.lastIndexOf('\n[本段起点');
+      const headAndBody = r.observation.slice(0, footStart);
+      joined += headAndBody.slice(headAndBody.length - len);
+      offset = end;
+      if (r.observation.includes('已到正文末尾')) break;
+    }
+    expect(joined).toBe(fullText);
+    // ToolLoop 既有 guard：maxTurns=4、maxModelCalls=16；分页读取是同一轮内的
+    // preparatory 延续，片数是数据规模的自然结果，不作断言上限，只作回执打印。
+    const modelCalls = 1 + 1 + reads; // run_workflow + info + slice×N（含驱动分析的那轮由外层 loop 计）
+    console.info(`[workflow_result_read] 85KB 级读全 ${fullText.length} 字符：slice ${reads} 片，参考 model calls ${modelCalls}`);
   });
 });

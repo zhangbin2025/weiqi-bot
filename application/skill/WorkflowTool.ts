@@ -5,6 +5,15 @@
  * 触发形态（契约「触发接线」/ 条款 10）：路由命中 → 模型 `run_workflow({skillId, inputs})`
  * 填 inputs → 宿主跑完 DAG → 结果走 effects 旁路直接交付用户 → 模型只收「完成 + 句柄」。
  * 业务数据不进模型上下文（successObservation 不序列化任何 value）；确定性步骤 0 次模型调用。
+ *
+ * 2026-11-25 B2：`returnToLLM:true` 配方（如弈友圈圈层分析）需要模型据数据做关系分析。
+ * 实测 yield 汇总 debugValue 达 85,323 字符（单块上限 8000 的 10.7 倍），旧实现单块回灌
+ * 被 clipForReturnToLLM 裁到 8000、再被 ToolLoop.clipObservation 二次裁剪，连
+ * 「请据以上数据分析 / 不要编造」都被切掉。现改为：run_workflow 把全文写进宿主侧
+ * 进程内结果缓存，观察只回「完成 + 总字符数 + resultId + 指路」；模型用专用只读工具
+ * `workflow_result_read` 分块读全后再分析。读取器薄转发既有 executeWebCacheRead 引擎
+ * （resultId→url），零重复分页逻辑；preparatory:true 让分页读取不占自主决策轮数。
+ *
  * 例外：`run_workflow({debug:true})` 是「开发」角色验收/调试技能的显式开关——
  * 宿主把每步入参/输出/失败点 + 最终交付结果结构化回灌模型，供定位哪一步算错；
  * 不传 / false 逐字沿用上面的「完成 + 句柄」，chat 角色工具定义也不暴露该参数。
@@ -41,6 +50,9 @@ import type { OperatorRegistry } from '@application/plugin/OperatorRegistry';
 import type { ToolOutcome, ToolExecutor } from '@application/chat/ToolLoop';
 import type { SkillRecipe, WorkflowInput } from '@application/skill/SkillTypes';
 import { CONTEXT_LIMITS } from '@application/chat/ConversationPrompt';
+import {
+  createMemoryWebFetchCache, executeWebCacheRead,
+} from '@application/chat/WebFetchCache';
 import { runWorkflow, type WorkflowRunResult, type WorkflowStepTrace } from './WorkflowRunner';
 
 /** 形状对齐 SkillRegistry.ChatToolKitParts（同一 ToolKit 拼装口径）。 */
@@ -50,6 +62,82 @@ export interface WorkflowToolParts {
 }
 
 export const RUN_WORKFLOW_TOOL_NAME = 'run_workflow';
+
+/**
+ * 专用只读工具：读回 run_workflow（returnToLLM:true 配方）落在宿主结果缓存里的
+ * yield 汇总全文。B2 方案：不动 web_cache_read 的 URL 语义，另开一份进程内缓存 +
+ * 薄转发读取器，让 LLM 分块读全后再做关系分析。
+ */
+export const WORKFLOW_RESULT_READ_TOOL_NAME = 'workflow_result_read';
+
+export const WORKFLOW_RESULT_READ_TOOL: ModelToolDefinition = {
+  name: WORKFLOW_RESULT_READ_TOOL_NAME,
+  description:
+    `${WORKFLOW_RESULT_READ_TOOL_NAME}：`
+    + '读取 run_workflow（returnToLLM:true 配方）存入宿主结果缓存的 yield 汇总全文。'
+    + 'run_workflow 成功观察里给的是结果句柄（resultId），不是数据本体；'
+    + '必须用本工具把全文分段读全之后再做关系分析，不要凭第一段猜测或补写未读部分。'
+    + 'resultId 填观察里给的那个值（即刚跑的 skillId）。三种 mode：'
+    + 'info 看总字符数/行数；slice 按字符区间分页（不给 length 时自动按单条上限推导）；'
+    + 'grep 逐行正则查找。主推 slice：{\"resultId\":\"...\",\"mode\":\"slice\",\"offset\":0}，'
+    + '按每次返回的「请把 offset 设为 X 继续读」提示递增 offset，直到「已到正文末尾」。'
+    + '每次返回都控制在单条观察上限内，读不完就按提示继续翻页。'
+    + '本工具是只读准备动作，不消耗自主决策轮数；'
+    + '没读完全文前不要下结论，也不要只据第一片归纳。'
+    + '返回里的 URL 字样即读取键（resultId），由复用引擎带出，不是网络地址。',
+  parameters: {
+    type: 'object',
+    properties: {
+      resultId: {
+        type: 'string',
+        description: 'run_workflow 观察里给出的 resultId（即刚跑的 skillId）；缓存按此键索引',
+      },
+      mode: {
+        type: 'string',
+        enum: ['info', 'slice', 'grep'],
+        description: 'info=元信息 / slice=字符区间分页 / grep=逐行正则查找',
+      },
+      offset: {
+        type: 'integer', minimum: 0,
+        description: 'slice 的起始字符偏移（0 起，与 String.slice 同口径）；不传为 0',
+      },
+      length: {
+        type: 'integer', minimum: 1,
+        description: 'slice 要读多少字符；不传则由单条观察上限减去头部/尾部开销推导',
+      },
+      pattern: {
+        type: 'string',
+        description: 'grep 的正则字符串；语法受当前 JS 引擎 RegExp 限制',
+      },
+      flags: {
+        type: 'string',
+        description: 'grep 的正则标志，只允许 i/m/s/u；不允许 g/y',
+      },
+      before: {
+        type: 'integer', minimum: 0,
+        description: 'grep 命中行之前带几行上下文；不传为 0',
+      },
+      after: {
+        type: 'integer', minimum: 0,
+        description: 'grep 命中行之后带几行上下文；不传为 0',
+      },
+      skip: {
+        type: 'integer', minimum: 0,
+        description: 'grep 跳过前 N 条命中，用于翻页；不传为 0',
+      },
+      limit: {
+        type: 'integer', minimum: 1,
+        description: 'grep 最多回多少条命中；不传则按输出字符上限能装多少回多少',
+      },
+      count: {
+        type: 'boolean',
+        description: 'grep 为 true 时只回命中行数，不回行内容',
+      },
+    },
+    required: ['resultId', 'mode'],
+    additionalProperties: false,
+  },
+};
 
 /** 静态兜底定义（无 active workflow 配方时不会挂；保留导出供测试/静态引用）。 */
 export const RUN_WORKFLOW_TOOL: ModelToolDefinition = {
@@ -160,19 +248,34 @@ function buildWorkflowTool(
       + '不要因为上一轮只回了「完成+句柄」就回复用户「没法核对」。'
       + '调试观察只在本轮、不落会话历史。正常调用（不传 debug）仍严格只收「完成+句柄」。'
     : '';
+  // A5：静态常量里「正常调用你只会收到完成+句柄、不要归纳结果内容」只对默认配方准确；
+  // 有 returnToLLM:true 配方时条件追加一段，说明结果句柄 + workflow_result_read 读全路径，
+  // 且这类配方不受「不要复述/归纳结果内容」约束。无此类配方逐字不加（chat 零额外 token）。
+  const hasReturnToLLM = wfSkills.some((s) => s.returnToLLM === true);
+  const returnToLLMHint = hasReturnToLLM
+    ? '\n\n【结果句柄配方（returnToLLM:true）】这些配方的 run_workflow 成功观察返回的是'
+      + '结果句柄（resultId），不是数据本体：按观察里的 resultId 用 '
+      + `${WORKFLOW_RESULT_READ_TOOL_NAME} 分段把 yield 汇总读全之后，再据数据做关系分析；`
+      + '这类配方不受上面「不要复述/归纳结果内容」的约束，但读全前不要下结论、不要编造。'
+    : '';
   return {
     ...RUN_WORKFLOW_TOOL,
     description: `${RUN_WORKFLOW_TOOL.description}\n\n${devMode ? '装配时的工作流技能' : '本轮可用的工作流技能'}与 inputs 契约：\n${lines.join('\n')}${debugHint}`
-      + (devMode ? '\n（该清单是装配时刻快照；刚保存/修订的配方请用 skill_list 查最新 id 再调用。）' : ''),
+      + (devMode ? '\n（该清单是装配时刻快照；刚保存/修订的配方请用 skill_list 查最新 id 再调用。）' : '')
+      + returnToLLMHint,
     parameters: { ...RUN_WORKFLOW_TOOL.parameters, properties },
   };
 }
 
 /**
- * 成功观察只回「完成 + 句柄」，绝不把任何业务 value 回灌模型上下文。
- * 句柄 = skillId（哪次任务）+ 结果落在哪条宿主旁路（展示块 / 动作链接 / 仅宿主内部）。
- * 结果内容本身走 effects 旁路、由 ChatUseCase 直接交给渲染层并落历史，
- * 与 ToolOutcome.displayMarkdown / actionLink 同口径，不进 role:'tool'。
+ * 成功观察分两种：
+ * - !returnToLLM（缺省 / false）：只回「完成 + 句柄」，绝不把任何业务 value 回灌模型上下文。
+ *   句柄 = skillId（哪次任务）+ 结果落在哪条宿主旁路（展示块 / 动作链接 / 仅宿主内部）。
+ *   结果内容本身走 effects 旁路、由 ChatUseCase 直接交给渲染层并落历史，
+ *   与 ToolOutcome.displayMarkdown / actionLink 同口径，不进 role:'tool'。
+ * - returnToLLM:true（B2）：yield 汇总全文由 run_workflow 写进宿主结果缓存，
+ *   观察只回「完成 + 总字符数 + resultId + 指路」，模型用 workflow_result_read 分块读全后再分析。
+ *   观察本身不含任何数据本体，且整条不超过单条上限，消除 ToolLoop.clipObservation 二次裁剪。
  */
 function successObservation(
   result: WorkflowRunResult, skillId: string, devMode = false,
@@ -208,31 +311,26 @@ function successObservation(
     return head + defaultTail;
   }
 
-  // returnToLLM===true：正常模式也把 yield 汇总 values 回灌模型（本技能要据数据做分析）。
-  // 第二行改成自洽口径：数据已回灌、已进入本轮上下文，不再提「句柄 / 旁路 /
-  // 未进入上下文」，避免与紧随其后的回灌事实自相矛盾；句柄变量只属于上面的默认分支。
-  // 复用既有 debugValue 序列化 + CONTEXT_LIMITS.maxCharsPerMessage 做单块裁剪，
-  // 不新造任何数值常量（分母 / 上限一律来自同一个既有上限）。
-  const head = firstLine + '以下为本轮 yield 汇总数据，已进入模型上下文，供你据此分析：\n';
+  // returnToLLM===true（B2）：yield 汇总全文由 executor 写进宿主结果缓存，
+  // 观察只回「完成 + 事实元信息（总字符数）+ 结果句柄 + 读取指路 + 读全后分析」。
+  // 不含任何数据本体（【yield 汇总 values】正文 / value 字段），整条控制在单条上限内，
+  // 避免 ToolLoop.clipObservation 把「不要编造」「读全后再分析」等指令截掉（双重裁剪缺陷）。
+  // 总字符数是事实、不是阈值；体积口径沿用既有 CONTEXT_LIMITS.maxCharsPerMessage。
   const valuesText = `【yield 汇总 values】\n${debugValue(result.values)}`;
-  const clipped = clipForReturnToLLM(valuesText);
-  const analysisTail = '请据以上数据做关系分析，逐条给出基于数据的理由；'
+  const readTail = `yield 汇总全文共 ${valuesText.length} 字符，已存入宿主结果缓存。\n`
+    + `结果句柄 resultId：${skillId}；数据本体不在这条观察里，请用 ${WORKFLOW_RESULT_READ_TOOL_NAME} 分段读全。\n`
+    + `先调 {\"resultId\":\"${skillId}\",\"mode\":\"info\"} 看总量；`
+    + `主推 {\"resultId\":\"${skillId}\",\"mode\":\"slice\",\"offset\":0}，即 mode:\"slice\" 从 offset:0 起读，`
+    + '按每次返回的「请把 offset 设为 X 继续读」递增 offset，直到「已到正文末尾」。\n'
+    + '读全后再做关系分析，逐条给出基于数据的理由；读全后再分析前不要下结论、不要只据第一片归纳；'
     + '不要复述或翻译原始 JSON、不要把数据原样重列一遍；'
-    + '如标注了「已按单条上限截断」，只依据可见部分分析、不要补写未显示的内容；'
     + '任一节点失败或数据缺失时如实说明，不要编造。';
-  return head + clipped + '\n' + analysisTail;
-}
-
-/**
- * returnToLLM 单块裁剪：上限沿用 CONTEXT_LIMITS.maxCharsPerMessage（既有单条文本量，
- * 不新造数值常量）；超过就按同一常量裁一次并附截断标记。与 debug 分支的
- * clipForDebug 各自独立（那边按声明步数均分，这里只回灌 yield 汇总一块）。
- */
-function clipForReturnToLLM(text: string): string {
-  const limit = CONTEXT_LIMITS.maxCharsPerMessage;
-  if (text.length <= limit) return text;
-  const tail = '…[已按单条上限截断]';
-  return text.slice(0, Math.max(0, limit - tail.length)) + tail;
+  const observation = firstLine + readTail;
+  // 保险：skillId 极长时整条观察仍不越上限（沿用既有上限、不新增数值常量）；
+  // 正常 skillId 下这条永远不触发，保留的是「不被二次裁剪」的不变式。
+  return observation.length <= CONTEXT_LIMITS.maxCharsPerMessage
+    ? observation
+    : observation.slice(0, CONTEXT_LIMITS.maxCharsPerMessage - 1) + '…';
 }
 
 /** 结构化失败文本：哪个节点 / 什么错 / 已完成节点列表，供模型兜底表达。 */
@@ -322,6 +420,11 @@ export function buildWorkflowToolParts(
     return { tools: [], executors: {} };
   }
 
+  // A2：一次 buildChatToolKit = 一次 tool loop = 一轮对话。进程内 Map 缓存，
+  // run_workflow 写入 → 同轮紧随的 N 次 workflow_result_read 读出，天然对齐；
+  // 重新装配即新缓存，跨测试零污染。不用 defaultWebFetchCache（那是 web_fetch 的
+  // URL 命名空间，塞 workflow 键会污染其语义，正是选 B2 而非 B1 的原因）。
+  const wfResultCache = createMemoryWebFetchCache();
   const executors: Record<string, ToolExecutor> = {};
   executors[RUN_WORKFLOW_TOOL_NAME] = async (argsJson: string): Promise<ToolOutcome> => {
     let parsed: unknown;
@@ -399,6 +502,15 @@ export function buildWorkflowToolParts(
     const result = await runWorkflow(
       skill.workflow, inputs, registry, onTrace, skill.inputs, debug,
     );
+    // A3：只有成功 + 正常模式 + returnToLLM:true 才写缓存；失败 / debug / false 都不写。
+    // 键 = skillId（与观察里的 resultId 逐字一致）；同 id 再跑覆盖，与 web_fetch 同口径。
+    if (result.ok && !debug && skill.returnToLLM === true) {
+      const text = `【yield 汇总 values】\n${debugValue(result.values)}`;
+      wfResultCache.put(skillId, {
+        url: skillId, status: 200, statusText: 'workflow yield',
+        contentType: 'application/json', text, ok: true,
+      });
+    }
     // 验收闸门：debug:true 且 DAG 全绿才把该技能置为已验收启用。
     // 失败不翻转、非调试调用不翻转；翻转失败如实追加一行观察，不谎报已启用。
     // 验收回执放观察**开头**：ToolLoop 会按单条消息上限裁剪尾部，
@@ -431,16 +543,64 @@ export function buildWorkflowToolParts(
     return outcome;
   };
 
+  // A6：薄转发层 —— 校验 resultId/mode，把 resultId 映射成 url 后直接复用
+  // executeWebCacheRead（自带分页引擎 + preparatory:true，按单条上限收口）。
+  // 空缓存给自定义友好提示，不透传 web_fetch 语义的「请先调用 web_fetch 取回它」。
+  executors[WORKFLOW_RESULT_READ_TOOL_NAME] = async (argsJson: string): Promise<ToolOutcome> => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(argsJson) as unknown;
+    } catch {
+      return {
+        observation: `${WORKFLOW_RESULT_READ_TOOL_NAME} 参数不是合法 JSON 对象。`,
+        ok: false, detail: '参数解析失败', preparatory: true,
+      };
+    }
+    const req = (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed))
+      ? parsed as Record<string, unknown>
+      : {};
+    const resultId = req['resultId'];
+    const mode = req['mode'];
+    if (typeof resultId !== 'string' || resultId.trim() === '') {
+      return {
+        observation: `${WORKFLOW_RESULT_READ_TOOL_NAME}：缺少 resultId（填 run_workflow 观察里给的那个值，即 skillId）。`,
+        ok: false, detail: '缺少 resultId', preparatory: true,
+      };
+    }
+    if (mode !== 'info' && mode !== 'slice' && mode !== 'grep') {
+      return {
+        observation: `${WORKFLOW_RESULT_READ_TOOL_NAME}：mode 必须是 info / slice / grep 之一。`,
+        ok: false, detail: '非法 mode', preparatory: true,
+      };
+    }
+    if (wfResultCache.get(resultId) === undefined) {
+      return {
+        observation: `技能「${resultId}」本轮还没有可读取的 yield 结果，请先调用 run_workflow 跑该技能（或核对 resultId）。`,
+        ok: false, detail: `无缓存 ${resultId}`, preparatory: true,
+      };
+    }
+    // 薄转发：resultId → url，其余同名参数原样透传，不重写分页引擎。
+    const mapped: Record<string, unknown> = { url: resultId, mode };
+    for (const key of ['offset', 'length', 'pattern', 'flags', 'before', 'after', 'skip', 'limit', 'count']) {
+      if (req[key] !== undefined) mapped[key] = req[key];
+    }
+    const read = executeWebCacheRead(JSON.stringify(mapped), wfResultCache);
+    // WebCacheReadResult 与 ToolOutcome 同形状（preparatory:true 必须保留），显式构造避免结构漂移。
+    return {
+      observation: read.observation, ok: read.ok, detail: read.detail, preparatory: true,
+    };
+  };
+
   const toolDef = buildWorkflowTool(active, devMode);
   console.info('[wf-diag] buildWorkflowToolParts() result', {
-    tools: [toolDef.name],
+    tools: [toolDef.name, WORKFLOW_RESULT_READ_TOOL_NAME],
     skillIdEnum: ((toolDef.parameters as { properties?: Record<string, unknown> })
       .properties?.['skillId'] as { enum?: string[] } | undefined)?.enum ?? [],
     debugExposed: 'debug' in ((toolDef.parameters as
       { properties?: Record<string, unknown> }).properties ?? {}),
   });
   return {
-    tools: [toolDef],
+    tools: [toolDef, WORKFLOW_RESULT_READ_TOOL],
     executors,
   };
 }
