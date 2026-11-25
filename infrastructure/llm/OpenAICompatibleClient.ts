@@ -24,6 +24,7 @@
 
 import { buildChatCompletionsUrl } from './LLMCredentialStore';
 import { resolveLLMRequestUrl } from './LLMProxyUrl';
+import { emitTokenUsage } from '../../application/token/TokenUsageSink';
 
 /** OpenAI content part（多模态）。形状由 MultimodalTranslator 统一构造。 */
 export type WireContentPart =
@@ -93,6 +94,12 @@ export interface OpenAICompatibleConfig {
   maxTokens?: number;
   /** 是否关闭推理模型的思考过程，默认 true（发 reasoning_effort: 'none'） */
   disableThinking?: boolean;
+  /**
+   * 调用用途标签（仅用于 token 统计分组，不发给端点）。
+   * 网关传 req.task（chat.reply / chat.title / chat.compact / skill.route …），
+   * 意图识别传 'intent'。缺省 'unspecified'。
+   */
+  task?: string;
 }
 
 /** request() 的公共返回，两条链路各自投影成自己的结果类型 */
@@ -104,12 +111,16 @@ interface RawCompletion {
 }
 
 export class OpenAICompatibleClient {
+  /** 原始端点（未经 /proxy 改写），token 记录里用它标识端点，避免 provider 全变成代理域名 */
   private readonly endpoint: string;
   private readonly apiKey: string;
   private readonly model: string;
   private readonly timeoutMs: number;
   private readonly maxTokens: number;
   private readonly disableThinking: boolean;
+  /** new URL(baseUrl).host；标准解析，解析失败回落 'unknown' */
+  private readonly provider: string;
+  private readonly task: string;
 
   constructor(config: OpenAICompatibleConfig) {
     this.endpoint = buildChatCompletionsUrl(config.baseUrl);
@@ -119,6 +130,12 @@ export class OpenAICompatibleClient {
     this.timeoutMs = config.timeoutMs ?? 60_000;
     this.maxTokens = config.maxTokens ?? 4096;
     this.disableThinking = config.disableThinking ?? true;
+    this.task = config.task ?? 'unspecified';
+    try {
+      this.provider = new URL(config.baseUrl).host || 'unknown';
+    } catch {
+      this.provider = 'unknown';
+    }
   }
 
   /**
@@ -227,6 +244,11 @@ export class OpenAICompatibleClient {
       }
 
       const data = await response.json() as {
+        usage?: {
+          prompt_tokens?: number;
+          completion_tokens?: number;
+          total_tokens?: number;
+        };
         choices?: Array<{
           message?: {
             /** 部分端点在多模态响应里也返回 content part 数组，这里统一拍平为文本 */
@@ -250,6 +272,33 @@ export class OpenAICompatibleClient {
             .join('')
         : (typeof message?.content === 'string' ? message.content : '');
       const truncated = choice?.finish_reason === 'length';
+
+      // token 用量埋点：唯一发射点，放在「HTTP 2xx + 响应解析完成」之后。
+      // 语义 = 一次真实发生的请求消耗，与上层 chat() 是否判「空内容」失败无关；
+      // 400 降级是递归 return this.request(...)，只会记最终成功那次。
+      // provider 取构造时解析的原始 host，不取 resolveLLMRequestUrl 后的代理地址。
+      const rawPrompt = data.usage?.prompt_tokens;
+      const rawCompletion = data.usage?.completion_tokens;
+      const rawTotal = data.usage?.total_tokens;
+      const reported = data.usage !== undefined && (
+        typeof rawPrompt === 'number' || typeof rawCompletion === 'number' || typeof rawTotal === 'number'
+      );
+      const promptTokens = typeof rawPrompt === 'number' ? rawPrompt : 0;
+      const completionTokens = typeof rawCompletion === 'number' ? rawCompletion : 0;
+      const totalTokens = typeof rawTotal === 'number'
+        ? rawTotal
+        : promptTokens + completionTokens;
+      emitTokenUsage({
+        ts: Date.now(),
+        provider: this.provider,
+        endpoint: this.endpoint,
+        model: this.model,
+        task: this.task,
+        promptTokens,
+        completionTokens,
+        totalTokens,
+        reported,
+      });
 
       // 规范化 tool_calls：缺 id / 非法 function 的条目直接丢弃，避免 loop 里
       // 拿着坏 id 回填 role:'tool' 被端点拒绝。

@@ -379,6 +379,8 @@ export class LLMIntentProvider {
       ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
       ...(config.maxTokens !== undefined ? { maxTokens: config.maxTokens } : {}),
       ...(config.disableThinking !== undefined ? { disableThinking: config.disableThinking } : {}),
+      // 功能助手的意图识别也是一次真实 LLM 请求，归入全部请求统计。
+      task: 'intent',
     });
 
     const chatResult = await client.chat([

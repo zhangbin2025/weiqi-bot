@@ -15,6 +15,7 @@
  *   /llm maxtokens <数>               调整 token 预算（512~16384，默认 4096）
  *   /llm thinking on|off              开启/关闭推理模型的思考过程（默认关闭）
  *   /llm repairs <1-10>              插件自动修复轮数（默认 3）
+ *   /llm retention <1-365>           token 消耗统计保留天数（默认 30）
  *   /llm status                      查看当前配置（脱敏）
  *   /llm off                         关闭并清除凭据
  *   /llm                             显示用法
@@ -48,6 +49,14 @@ import {
   savePluginMaxAttempts,
   normalizePluginMaxAttempts,
 } from '../plugin/PluginConfig';
+import {
+  loadTokenRetentionDays,
+  saveTokenRetentionDays,
+} from '../token/TokenUsageConfig';
+import {
+  MIN_TOKEN_RETENTION_DAYS,
+  MAX_TOKEN_RETENTION_DAYS,
+} from '../token/TokenUsageTypes';
 
 export interface LLMCommandDeps {
   /** 渲染并保存到历史（复用 CommandHandler 的既有行为） */
@@ -71,6 +80,7 @@ function usage(): string {
     '| `/llm maxtokens <数>` | token 预算（默认 4096） |',
     '| `/llm thinking on\\|off` | 思考开关（默认 off） |',
     '| `/llm repairs <1-10>` | 插件自动修复轮数（默认 3） |',
+    '| `/llm retention <1-365>` | Token 统计保留天数（默认 30） |',
     '| `/llm status` | 查看配置 |',
     '| `/llm off` | 关闭并清除凭据 |',
     '',
@@ -81,7 +91,7 @@ function usage(): string {
 }
 
 /** 已知子命令（这些命令的第二段是子命令名，不是 apiKey，不能脱敏） */
-export const LLM_SUBCOMMANDS = new Set(['model', 'status', 'off', 'timeout', 'maxtokens', 'thinking', 'repairs']);
+export const LLM_SUBCOMMANDS = new Set(['model', 'status', 'off', 'timeout', 'maxtokens', 'thinking', 'repairs', 'retention']);
 
 /** 把用户输入的命令渲染成脱敏版本（主命令 + 参数名，不含 apiKey 明文） */
 export function redactCommand(raw: string): string {
@@ -132,6 +142,7 @@ export async function handleLLMCommand(raw: string, deps: LLMCommandDeps): Promi
       `- token 预算：${config.maxTokens ?? DEFAULT_LLM_MAX_TOKENS}（/llm maxtokens <数> 可调）`,
       `- 思考过程：${normalizeDisableThinking(config.disableThinking) ? '已关闭 ✅' : '已开启'}（/llm thinking on|off）`,
       `- 插件自动修复轮数：${loadPluginMaxAttempts()}（默认 ${DEFAULT_PLUGIN_MAX_ATTEMPTS}，/llm repairs <数> 可调）`,
+      `- Token 统计保留：${loadTokenRetentionDays()} 天（/llm retention <天数> 可调）`,
       `- apiKey：\`${config.keyHint || '****'}\`（已加密缓存）`,
       `- 更新时间：${new Date(config.updatedAt).toLocaleString()}`,
     ].join('\n');
@@ -160,6 +171,30 @@ export async function handleLLMCommand(raw: string, deps: LLMCommandDeps): Promi
       `✅ 插件自动修复轮数已改为 ${normalized}` +
       (normalized !== n ? `（已收敛到 ${MIN_PLUGIN_MAX_ATTEMPTS}~${MAX_PLUGIN_MAX_ATTEMPTS}）` : '') +
       '\n下次进入对话页生效。',
+    );
+    return true;
+  }
+
+  // /llm retention <天数>：token 消耗统计的保留期（业务约束 1~365 天）
+  if (sub === 'retention') {
+    const raw = parts[2];
+    if (!raw) {
+      await deps.renderMessage(
+        `ℹ️ 当前 Token 统计保留 ${loadTokenRetentionDays()} 天。` +
+        `\n用法：\`/llm retention <天数>\`（${MIN_TOKEN_RETENTION_DAYS}~${MAX_TOKEN_RETENTION_DAYS}）`,
+      );
+      return true;
+    }
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) {
+      await deps.renderMessage('❌ 必须是正数天数，例如 `/llm retention 60`');
+      return true;
+    }
+    const days = saveTokenRetentionDays(n);
+    await deps.renderMessage(
+      `✅ Token 统计保留天数已改为 ${days}` +
+      (days !== n ? `（已收敛到 ${MIN_TOKEN_RETENTION_DAYS}~${MAX_TOKEN_RETENTION_DAYS}）` : '') +
+      '\n下次打开 AI 对话页的「Token 消耗」时生效。',
     );
     return true;
   }

@@ -108,6 +108,9 @@ export class OpenAIModelGateway implements IModelGateway {
         : (config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {})),
       ...(config.disableThinking !== undefined
         ? { disableThinking: config.disableThinking } : {}),
+      // token 统计按调用用途分组：网关把 ModelRequest.task 透给底层客户端，
+      // 用途标签只进本地统计，不进请求体。
+      task: req.task,
     });
 
     const chatMessages = toChatMessages(req.messages);

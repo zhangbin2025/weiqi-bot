@@ -9,6 +9,11 @@
 import { ChatPage } from '../../../presentation/adapters/web/pages/assistant/ChatPage';
 import { resolveProxyUrl } from '../shared/resolveProxyUrl';
 import { installLLMProxy } from '../../../infrastructure/llm/LLMProxyUrl';
+import { installTokenUsageRecorder } from '../../../infrastructure/token/installTokenUsageRecorder';
+
+// Token 统计旁路：越早装配越好，覆盖本页初始化期间可能发生的任何 LLM 请求。
+// 幂等，ChatPage.init 内再调一次也不会双记。
+installTokenUsageRecorder();
 
 const page = new ChatPage();
 // 附件按钮先绑定：App 端 window.prompt('config:get') 是原生桥接，可能挂起；

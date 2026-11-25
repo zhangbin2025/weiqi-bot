@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { isLLMCommand, redactCommand, handleLLMCommand } from '../LLMCommand';
 import { loadPluginMaxAttempts, resetPluginMaxAttemptsForTest } from '../../plugin/PluginConfig';
+import {
+  loadTokenRetentionDays, resetTokenRetentionDaysForTest,
+} from '../../token/TokenUsageConfig';
 
 describe('isLLMCommand', () => {
   it('匹配主命令，大小写不敏感', () => {
@@ -80,14 +83,15 @@ describe('/llm 帮助信息', () => {
     expect(shown).not.toContain('```');
     expect(shown).not.toContain('Authorization: Bearer');
     expect(shown).not.toContain('localStorage');
-    expect(shown.split('\n').length).toBeLessThanOrEqual(16);
+    // 2026-11-25 新增 /llm retention 一行（共 17 行），仍保持速查表精简
+    expect(shown.split('\n').length).toBeLessThanOrEqual(17);
   });
 
   it('命令以反引号包住（防 <baseUrl> 被 markdown 吞成 HTML），速查完整', async () => {
     let shown = '';
     await handleLLMCommand('/llm', { renderMessage: async (c) => { shown = c; } });
     expect(shown).toContain('`/llm <baseUrl> <apiKey> <model>`');
-    for (const cmd of ['model', 'timeout', 'maxtokens', 'thinking', 'repairs', 'status', 'off']) {
+    for (const cmd of ['model', 'timeout', 'maxtokens', 'thinking', 'repairs', 'retention', 'status', 'off']) {
       expect(shown).toContain('`/llm ' + cmd);
     }
   });
@@ -127,5 +131,46 @@ describe('/llm repairs（插件自动修复轮数可配置）', () => {
     let shown = '';
     await handleLLMCommand('/llm repairs abc', { renderMessage: async (c) => { shown = c; } });
     expect(shown).toContain('❌');
+  });
+});
+
+describe('/llm retention（Token 统计保留天数）', () => {
+  it('无参数显示当前值，缺省 30 天', async () => {
+    resetTokenRetentionDaysForTest();
+    let shown = '';
+    await handleLLMCommand('/llm retention', { renderMessage: async (c) => { shown = c; } });
+    expect(shown).toContain('当前 Token 统计保留 30 天');
+    expect(shown).toContain('/llm retention');
+  });
+
+  it('合法值保存并提示', async () => {
+    resetTokenRetentionDaysForTest();
+    let shown = '';
+    await handleLLMCommand('/llm retention 60', { renderMessage: async (c) => { shown = c; } });
+    expect(shown).toContain('已改为 60');
+    expect(loadTokenRetentionDays()).toBe(60);
+    resetTokenRetentionDaysForTest();
+  });
+
+  it('越界收敛到 1~365', async () => {
+    resetTokenRetentionDaysForTest();
+    await handleLLMCommand('/llm retention 999', { renderMessage: async () => {} });
+    expect(loadTokenRetentionDays()).toBe(365);
+    await handleLLMCommand('/llm retention 1', { renderMessage: async () => {} });
+    expect(loadTokenRetentionDays()).toBe(1);
+    // 0 / 负数由命令层直接拒绝，不覆盖已有值
+    await handleLLMCommand('/llm retention 0', { renderMessage: async () => {} });
+    expect(loadTokenRetentionDays()).toBe(1);
+    resetTokenRetentionDaysForTest();
+  });
+
+  it('非正数 / 非数字给出错误提示', async () => {
+    let shown = '';
+    await handleLLMCommand('/llm retention abc', { renderMessage: async (c) => { shown = c; } });
+    expect(shown).toContain('❌');
+  });
+
+  it('redactCommand 不把 retention 参数当 apiKey 打码', () => {
+    expect(redactCommand('/llm retention 90')).toBe('/llm retention 90');
   });
 });

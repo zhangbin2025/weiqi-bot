@@ -17,7 +17,8 @@
  * 插件数据来自独立工件存储，不来自会话历史 —— 新会话、老会话、会话清空后
  * LLM 都能看到并修改插件。装配失败时降级为「闲聊可用、开发角色给提示」。
  *
- * 右上角菜单六项：新建会话 / 历史会话 / 导出会话 / 清空会话 / 插件 / 技能。
+ * 右上角菜单七项：新建会话 / 历史会话 / 导出会话 / 清空会话 / 插件 / 技能 /
+ * Token 消耗。Token 面板读本地压缩统计，与会话数据完全独立。
  * 「插件」是人工确认闸门：查看完整源码、复制、启停、删除都由用户显式操作。
  * 「技能」是安装制：在线源只浏览/安装，装进本地库（与自建技能一起列在「我的技能」）
  * 才会被 LLM 调用；可启停/删除/更新/配置技能源。
@@ -29,6 +30,9 @@ import { FavoriteService } from '../../../../../services/favorite/FavoriteServic
 import { IndexedDBAdapter } from '../../../../../infrastructure/storage/adapters/web/IndexedDBAdapter';
 import { WebFileExporter } from '../../../../../infrastructure/utils/export/WebFileExporter';
 import { WebDialog } from '../../components/Dialog';
+import { TokenUsagePanel } from './TokenUsagePanel';
+import { tokenUsageStore } from '../../../../../infrastructure/token/TokenUsageStore';
+import { installTokenUsageRecorder } from '../../../../../infrastructure/token/installTokenUsageRecorder';
 import { ChatUseCase, type LocalFileInput, type SkillDeps } from '../../../../../application/chat/ChatUseCase';
 import { createSkillRegistry } from '../../../../../application/skill/SkillRegistry';
 import type { SkillPrimitive, SkillRecipe } from '../../../../../application/skill/SkillTypes';
@@ -153,6 +157,8 @@ interface PanelFocus {
 export class ChatPage {
   private readonly renderer = new AssistantRenderer();
   private readonly dialog = new WebDialog();
+  /** Token 消耗面板：与插件/技能面板共用同一个单例 WebDialog */
+  private readonly tokenPanel = new TokenUsagePanel(this.dialog, tokenUsageStore);
   private readonly exporter = new WebFileExporter();
   private history!: ChatHistoryManager;
   private useCase!: ChatUseCase;
@@ -206,6 +212,9 @@ export class ChatPage {
     // 附件按钮是纯 DOM 行为，必须第一时间可用：后面 IndexedDB / 插件系统 /
     // 会话恢复任何一个 await 卡住或抛错，都不该让用户点 📎 毫无反应。
     this.bindAttachUI();
+    // Token 统计旁路装配（幂等）：与功能助手页入口共用同一注册器，
+    // 保证「全部 LLM 请求」都被记录；未装配的环境 emit 是空操作。
+    installTokenUsageRecorder();
 
     const storage = new IndexedDBAdapter<{ id: string; category: string; key: string; createdAt: number }>(
       DB_NAME, DB_STORE,
@@ -475,7 +484,7 @@ export class ChatPage {
     input?.addEventListener('input', () => this.autoResize(input));
     sendBtn?.addEventListener('click', () => void this.handleSend());
 
-    // 菜单五项 + 遮罩关闭
+    // 菜单七项 + 遮罩关闭
     document.getElementById('menuBtn')?.addEventListener('click', () => this.toggleMenu());
     document.getElementById('menuOverlay')?.addEventListener('click', () => this.toggleMenu(false));
     document.getElementById('miNew')?.addEventListener('click', () => void this.newSession());
@@ -484,6 +493,10 @@ export class ChatPage {
     document.getElementById('miClear')?.addEventListener('click', () => void this.clearCurrent());
     document.getElementById('miPlugin')?.addEventListener('click', () => void this.showPluginPanel());
     document.getElementById('miSkill')?.addEventListener('click', () => void this.showSkillPanel());
+    document.getElementById('miToken')?.addEventListener('click', () => {
+      this.toggleMenu(false);
+      void this.tokenPanel.open();
+    });
 
     // 标题栏角色选择器
     document.getElementById('roleBtn')?.addEventListener('click', (e) => {
