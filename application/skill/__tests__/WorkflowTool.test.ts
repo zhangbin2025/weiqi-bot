@@ -468,3 +468,112 @@ describe('buildWorkflowToolParts — dev 动态候选 + 调试通过才启用', 
     expect(accepted).toEqual(['user.dynamic']); // 失败没有二次 accept
   });
 });
+
+
+/**
+ * returnToLLM 开关（契约 D）：缺省 / false 逐字保持「完成 + 句柄」观察；
+ * true 才在正常模式把 yield 汇总 values 回灌模型，并附据数据做分析的授权语句。
+ * 复用既有 debugValue / maxCharsPerMessage，不新造数值常量。
+ */
+describe('buildWorkflowToolParts — returnToLLM 开关', () => {
+  const YIELD_VALUE = '弈友圈对阵数据-9f8e7d6c';
+  const spec: WorkflowSpec = {
+    steps: [
+      { id: 'fetch', call: 'fetch_data', yield: true },
+      { id: 'normalize', call: 'normalize' },
+    ] as WorkflowStep[],
+  };
+  const registry = fakeRegistry({
+    fetch_data: () => ({ value: { stats: YIELD_VALUE } }),
+    normalize: () => ({ value: null }),
+  });
+
+  it('缺省（不写 returnToLLM）：观察不含 yield 汇总 values，逐字保持旧「完成 + 句柄」', async () => {
+    const skill = recipe({ id: 'demo.r2l.off', workflow: spec });
+    const outcome = await run([skill], registry, { skillId: skill.id });
+    expect(outcome.ok).toBe(true);
+    expect(outcome.observation).toContain('执行完成');
+    expect(outcome.observation).toContain('结果位置（句柄）');
+    expect(outcome.observation).toContain('请如实告知用户任务已完成');
+    expect(outcome.observation).not.toContain(YIELD_VALUE);
+    expect(outcome.observation).not.toContain('yield 汇总 values');
+    expect(outcome.observation).not.toContain('据以上数据做关系分析');
+  });
+
+  it('returnToLLM:true：含 yield 汇总 values（debugValue 序列化）且含授权模型据数据分析的语句', async () => {
+    const skill = recipe({ id: 'demo.r2l.on', workflow: spec, returnToLLM: true });
+    const outcome = await run([skill], registry, { skillId: skill.id });
+    expect(outcome.ok).toBe(true);
+    expect(outcome.observation).toContain('执行完成');
+    expect(outcome.observation).toContain('【yield 汇总 values】');
+    expect(outcome.observation).toContain(YIELD_VALUE);       // 汇总确实回灌
+    expect(outcome.observation).toContain('据以上数据做关系分析'); // 授权语句
+    expect(outcome.observation).toContain('不要复述');
+    expect(outcome.observation).toContain('不要编造');
+    // true 分支不再用旧结束句（那是「只告知完成」的口径）
+    expect(outcome.observation).not.toContain('请如实告知用户任务已完成');
+  });
+
+  it('returnToLLM:true：观察不含「未进入本轮模型上下文」「结果位置（句柄）」，且自洽声明数据已回灌', async () => {
+    const skill = recipe({ id: 'demo.r2l.self', workflow: spec, returnToLLM: true });
+    const outcome = await run([skill], registry, { skillId: skill.id });
+    expect(outcome.ok).toBe(true);
+    // 旧 head 的三处措辞与「紧接着回灌 values」自相矛盾，true 分支必须全部去掉。
+    expect(outcome.observation).not.toContain('未进入本轮模型上下文');
+    expect(outcome.observation).not.toContain('结果位置（句柄）');
+    expect(outcome.observation).not.toContain('由宿主旁路交付');
+    // 第二行改为自洽口径，并确实含回灌 values 与授权分析语句。
+    expect(outcome.observation).toContain('已进入模型上下文');
+    expect(outcome.observation).toContain('【yield 汇总 values】');
+    expect(outcome.observation).toContain(YIELD_VALUE);        // 回灌 values
+    expect(outcome.observation).toContain('据以上数据做关系分析'); // 授权分析语句
+  });
+
+  it('returnToLLM:false 与缺省逐字一致（observation 相等）', async () => {
+    const off = recipe({ id: 'demo.r2l.cmp', workflow: spec });
+    const explicitFalse = recipe({ id: 'demo.r2l.cmp', workflow: spec, returnToLLM: false });
+    const a = await run([off], registry, { skillId: off.id });
+    const b = await run([explicitFalse], registry, { skillId: explicitFalse.id });
+    expect(b.observation).toBe(a.observation);
+    expect(b.observation).not.toContain(YIELD_VALUE);
+  });
+
+  it('returnToLLM:true 且超长：按既有单条上限做单块裁剪并附截断标记，且不新造数值', async () => {
+    // 造一个明显超过 CONTEXT_LIMITS.maxCharsPerMessage 的 value（长度由既有上限推导，
+    // 测试里不写死任何新阈值常量）。
+    const { CONTEXT_LIMITS } = await import('@application/chat/ConversationPrompt');
+    const big = '弈'.repeat(CONTEXT_LIMITS.maxCharsPerMessage + 100);
+    const bigReg = fakeRegistry({
+      fetch_data: () => ({ value: big }),
+      normalize: () => ({ value: null }),
+    });
+    const skill = recipe({ id: 'demo.r2l.big', workflow: spec, returnToLLM: true });
+    const outcome = await run([skill], bigReg, { skillId: skill.id });
+    expect(outcome.observation).toContain('【yield 汇总 values】');
+    expect(outcome.observation).toContain('…[已按单条上限截断]');
+    expect(outcome.observation).toContain('据以上数据做关系分析');
+    // 回灌块（head 之后、授权 tail 之前）不超过单条上限
+    const valuesPart = outcome.observation.split('【yield 汇总 values】')[1]!
+      .split('请据以上数据做关系分析')[0]!;
+    expect(valuesPart.length).toBeLessThanOrEqual(CONTEXT_LIMITS.maxCharsPerMessage);
+  });
+
+  it('returnToLLM:true 不影响 debug 分支与失败观察（两条既有路径零回归）', async () => {
+    const skill = recipe({ id: 'demo.r2l.debug', workflow: spec, returnToLLM: true });
+    const debugOutcome = await run([skill], registry, {
+      skillId: skill.id, debug: true,
+    });
+    expect(debugOutcome.observation).toContain('调试模式');
+    expect(debugOutcome.observation).not.toContain('据以上数据做关系分析'); // debug 分支不动
+
+    const failSkill = recipe({ id: 'demo.r2l.fail', workflow: spec, returnToLLM: true });
+    const failReg = fakeRegistry({
+      fetch_data: () => ({ value: YIELD_VALUE }),
+      normalize: () => { throw new Error('归一化失败'); },
+    });
+    const failOutcome = await run([failSkill], failReg, { skillId: failSkill.id });
+    expect(failOutcome.ok).toBe(false);
+    expect(failOutcome.observation).toContain('workflow 执行失败');
+    expect(failOutcome.observation).not.toContain(YIELD_VALUE);
+  });
+});

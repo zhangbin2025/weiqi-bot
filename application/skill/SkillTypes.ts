@@ -150,6 +150,11 @@ export interface SkillRecipe {
   workflow?: WorkflowSpec;
   /** 可选：模型在 yield 边界填空的参数契约；与 workflow 配套，runner 合并时消费。 */
   inputs?: WorkflowInput[];
+  /**
+   * 可选：缺省 false = 逐字保持现有「完成+句柄」观察；true = 正常模式也把 yield 汇总回灌模型
+   * （供需要据数据做分析、给理由的技能；由 WorkflowTool.successObservation 消费）。
+   */
+  returnToLLM?: boolean;
 }
 
 /** 瘦索引里的一条技能摘要（完整配方在 skills/<id>/skill.json） */

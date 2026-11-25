@@ -154,6 +154,14 @@ const SKILL_WRITE_TOOL: ModelToolDefinition = {
         description: '可选。run_workflow 入口的填参契约：每项 {name, type: string|number|integer|boolean|object|array,'
           + ' required?: boolean, default?: 任意, enum?: 数组}；与 workflow 配套，name 在数组内唯一。',
       },
+      returnToLLM: {
+        type: 'boolean',
+        description: '可选，默认 false。缺省 / false：正常调用只回「完成 + 句柄」，yield 汇总正文不进模型上下文；'
+          + 'true：正常模式也把 yield 汇总 values 回灌模型（按既有单条上限裁剪），'
+          + '用于需要据数据做关系分析、逐条给理由的技能；仅带 workflow 的配方有意义。'
+          + '与 workflow / inputs 配套：配方 returnToLLM:true 时，prompt 要授权模型据回灌数据做分析，'
+          + '不要复述原始 JSON、被截断时只据可见部分、不编造。',
+      },
     },
     required: ['name', 'summary', 'primitives', 'prompt'],
     additionalProperties: false,
@@ -246,6 +254,9 @@ function buildSystemSuffix(primitives: ReadonlyMap<string, SkillPrimitive>): str
     '- 正常调用（不传 debug）保持「完成 + 句柄」，业务数据不进上下文；'
       + '调试字段按既有单条消息上限均分裁剪，超长会标注截断，不要凭被截断的片段下结论。',
     'inputs 是 run_workflow 入口的填参契约：{name, type, required?, default?, enum?}，type 取 string/number/integer/boolean/object/array。',
+    'returnToLLM 可选（默认 false，仅带 workflow 的配方有意义）：缺省 / false 时正常调用只回「完成 + 句柄」；'
+      + 'true 时正常模式也把 yield 汇总 values 回灌模型（按既有单条上限裁剪），'
+      + '配方要同时在 prompt 里授权模型据数据做分析、别复述原始 JSON、截断时只据可见部分、不编造。',
     'workflow 配方仍要写 name / summary / prompt（prompt 只是展示说明，不进 model system）。',
     'call 不校验静态白名单：运行时由宿主 OperatorRegistry 按名精确查表，未注册会结构化报「未注册算子」。'
       + '写之前先看下面清单，别编造算子名。',
@@ -288,6 +299,7 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
         ...(e.recipe.category !== undefined ? { category: e.recipe.category } : {}),
         ...(e.recipe.workflow !== undefined ? { workflow: e.recipe.workflow } : {}),
         ...(e.recipe.inputs !== undefined ? { inputs: e.recipe.inputs } : {}),
+        ...(e.recipe.returnToLLM !== undefined ? { returnToLLM: e.recipe.returnToLLM } : {}),
         summary: e.recipe.summary,
         prompt: e.recipe.prompt,
       }));
@@ -403,6 +415,7 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
       ...(args['category'] !== undefined ? { category: args['category'] } : {}),
       ...(args['workflow'] !== undefined ? { workflow: args['workflow'] } : {}),
       ...(args['inputs'] !== undefined ? { inputs: args['inputs'] } : {}),
+      ...(args['returnToLLM'] !== undefined ? { returnToLLM: args['returnToLLM'] } : {}),
       prompt: args['prompt'],
     });
     if (!parsed.ok) {

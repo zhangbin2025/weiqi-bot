@@ -176,30 +176,63 @@ function buildWorkflowTool(
  */
 function successObservation(
   result: WorkflowRunResult, skillId: string, devMode = false,
+  returnToLLM = false,
 ): string {
-  const hasMarkdown = result.effects.some(
-    (e) => typeof e.displayMarkdown === 'string' && e.displayMarkdown.length > 0,
-  );
-  const hasLink = result.effects.some(
-    (e) => typeof e.actionLink === 'string' && e.actionLink.length > 0,
-  );
-  const handles: string[] = [];
-  if (hasMarkdown) handles.push('宿主展示块');
-  if (hasLink) handles.push('宿主动作链接');
-  const place = handles.length > 0 ? handles.join(' + ') : '宿主内部（无可见旁路产物）';
-  const head = `workflow「${skillId}」执行完成：已完成 ${result.completedStepIds.length} 个节点。\n`
-    + `结果位置（句柄）：${place}；结果内容由宿主旁路交付，未进入本轮模型上下文。\n`;
+  // 两分支共用的第一行：只报告「完成 + 节点数」，不含任何交付口径措辞。
+  const firstLine = `workflow「${skillId}」执行完成：已完成 ${result.completedStepIds.length} 个节点。\n`;
   // chat / 不传 devMode：逐字沿用旧第三句（既有测试断言与零回归契约）。
   // dev 的正常模式：模型正处在「验收 / 排查」语境，旧第三句「请如实告知用户任务
   // 已完成」会让它直接结束本轮、回复「没法逐条核对」；改成指路，告诉它同一
   // skillId 再调一次带 debug:true 就能拿到逐步数据，不要就此下结论。
-  const tail = devMode
+  const defaultTail = devMode
     ? '如果你是来验收 / 排查这个技能的，不要就此下结论说「没法核对」：'
       + `用同一 skillId「${skillId}」再调用一次 run_workflow 并带 debug:true，`
       + '宿主会把每一步输出和最终交付结果回灌给你，供你逐条核对；'
       + '不要复述、归纳或凭空补写本轮没拿到的结果内容。'
     : '请如实告知用户任务已完成、结果见宿主呈现；不要复述、归纳、翻译或补写结果内容，也不要编造未取到的数据。';
-  return head + tail;
+  if (!returnToLLM) {
+    // 默认 false / 缺省：完整返回字符串与改动前逐字一致（既有断言零回归）。
+    // 句柄信息只在本分支需要：结果确实走宿主旁路、不进模型上下文。
+    const hasMarkdown = result.effects.some(
+      (e) => typeof e.displayMarkdown === 'string' && e.displayMarkdown.length > 0,
+    );
+    const hasLink = result.effects.some(
+      (e) => typeof e.actionLink === 'string' && e.actionLink.length > 0,
+    );
+    const handles: string[] = [];
+    if (hasMarkdown) handles.push('宿主展示块');
+    if (hasLink) handles.push('宿主动作链接');
+    const place = handles.length > 0 ? handles.join(' + ') : '宿主内部（无可见旁路产物）';
+    const head = firstLine
+      + `结果位置（句柄）：${place}；结果内容由宿主旁路交付，未进入本轮模型上下文。\n`;
+    return head + defaultTail;
+  }
+
+  // returnToLLM===true：正常模式也把 yield 汇总 values 回灌模型（本技能要据数据做分析）。
+  // 第二行改成自洽口径：数据已回灌、已进入本轮上下文，不再提「句柄 / 旁路 /
+  // 未进入上下文」，避免与紧随其后的回灌事实自相矛盾；句柄变量只属于上面的默认分支。
+  // 复用既有 debugValue 序列化 + CONTEXT_LIMITS.maxCharsPerMessage 做单块裁剪，
+  // 不新造任何数值常量（分母 / 上限一律来自同一个既有上限）。
+  const head = firstLine + '以下为本轮 yield 汇总数据，已进入模型上下文，供你据此分析：\n';
+  const valuesText = `【yield 汇总 values】\n${debugValue(result.values)}`;
+  const clipped = clipForReturnToLLM(valuesText);
+  const analysisTail = '请据以上数据做关系分析，逐条给出基于数据的理由；'
+    + '不要复述或翻译原始 JSON、不要把数据原样重列一遍；'
+    + '如标注了「已按单条上限截断」，只依据可见部分分析、不要补写未显示的内容；'
+    + '任一节点失败或数据缺失时如实说明，不要编造。';
+  return head + clipped + '\n' + analysisTail;
+}
+
+/**
+ * returnToLLM 单块裁剪：上限沿用 CONTEXT_LIMITS.maxCharsPerMessage（既有单条文本量，
+ * 不新造数值常量）；超过就按同一常量裁一次并附截断标记。与 debug 分支的
+ * clipForDebug 各自独立（那边按声明步数均分，这里只回灌 yield 汇总一块）。
+ */
+function clipForReturnToLLM(text: string): string {
+  const limit = CONTEXT_LIMITS.maxCharsPerMessage;
+  if (text.length <= limit) return text;
+  const tail = '…[已按单条上限截断]';
+  return text.slice(0, Math.max(0, limit - tail.length)) + tail;
 }
 
 /** 结构化失败文本：哪个节点 / 什么错 / 已完成节点列表，供模型兜底表达。 */
@@ -386,7 +419,7 @@ export function buildWorkflowToolParts(
       observation: acceptanceNote + (debug
         ? debugObservation(result, skillId, merged, skill.workflow.steps.length)
         : (result.ok
-          ? successObservation(result, skillId, devMode)
+          ? successObservation(result, skillId, devMode, skill.returnToLLM === true)
           : failureObservation(result))),
       ok: result.ok,
       detail: result.ok

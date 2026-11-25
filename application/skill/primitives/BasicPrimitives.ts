@@ -36,6 +36,7 @@ import {
 import { createDisplayJsonListPrimitive } from './DisplayJsonListPrimitive';
 import { jsonExtractPrimitive } from './JsonExtractPrimitive';
 import { createRegexPrimitives } from './RegexPrimitives';
+import { createFoxwqCirclePrimitives } from './FoxwqCirclePrimitives';
 
 /** navigate_to 工具名（与 definition.name 一致） */
 export const NAVIGATE_TO_TOOL_NAME = 'navigate_to';
@@ -158,6 +159,9 @@ export function createBasicPrimitives(webDeps: WebFetchToolDeps): SkillPrimitive
     // regex_match / regex_extract / regex_replace，纯计算、零网络 / 零时钟，
     // 各自产出纯 value，供阶段二 workflow 连线或直接交给下游展示算子。
     ...createRegexPrimitives(),
+    // 弈友圈取数算子 foxwq_fetch_batch：复用 executeWebFetch(storeOnly) 链路，
+    // 动态翻页 / 二跳展开封装在算子内，DSL 保持静态 DAG。
+    ...createFoxwqCirclePrimitives(webDeps),
     // 通用展示原语：纯渲染，吃已是数组的 value，按 fields/format/note 生成
     // markdown 列表或表格 → displayMarkdown。不读缓存、不解析 JSON、不提取字段；
     // 宿主不认识任何业务字段；正文全程不进模型上下文。

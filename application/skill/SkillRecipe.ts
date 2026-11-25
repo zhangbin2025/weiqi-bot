@@ -123,6 +123,20 @@ function readRouteWords(raw: Record<string, unknown>): FieldResult<string[] | un
     : { ok: true, value: undefined }; // 空数组 / 全空白 → 缺省
 }
 
+/**
+ * 可选 returnToLLM：若给必须是 boolean（其它值报错）；缺省 = undefined（默认 false）。
+ * 与 readWorkflowSpec 里 yield / required 的「若给必须是 boolean」口径一致，
+ * 字段本身可选、不直塞 undefined（exactOptionalPropertyTypes）。
+ */
+function readReturnToLLM(raw: Record<string, unknown>): FieldResult<boolean | undefined> {
+  const value = raw['returnToLLM'];
+  if (value === undefined) return { ok: true, value: undefined };
+  if (typeof value !== 'boolean') {
+    return { ok: false, reason: '字段「returnToLLM」若给必须是 boolean' };
+  }
+  return { ok: true, value };
+}
+
 function readSecrets(raw: Record<string, unknown>): FieldResult<SkillRecipe['secrets']> {
   if (raw['secrets'] === undefined) return { ok: true, value: undefined };
   try {
@@ -375,6 +389,8 @@ export function parseSkillRecipe(
   if (!prompt.ok) return prompt;
   const wf = readWorkflow(raw);
   if (!wf.ok) return wf;
+  const returnToLLM = readReturnToLLM(raw);
+  if (!returnToLLM.ok) return returnToLLM;
 
   // exactOptionalPropertyTypes：可选字段条件展开，不直塞 undefined。
   const skill: SkillRecipe = {
@@ -389,6 +405,7 @@ export function parseSkillRecipe(
     ...(category.value !== undefined ? { category: category.value } : {}),
     ...(wf.value.workflow !== undefined ? { workflow: wf.value.workflow } : {}),
     ...(wf.value.inputs !== undefined ? { inputs: wf.value.inputs } : {}),
+    ...(returnToLLM.value !== undefined ? { returnToLLM: returnToLLM.value } : {}),
     prompt: prompt.value,
   };
   return { ok: true, skill };

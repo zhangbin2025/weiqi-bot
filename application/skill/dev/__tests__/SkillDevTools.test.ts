@@ -408,3 +408,57 @@ describe('skill_write 可选 routeHint', () => {
   });
 
 });
+
+
+// ---------- returnToLLM 开关（契约 D）：skill_write 新字段解析 ----------
+describe('skill_write 可选 returnToLLM', () => {
+  it('schema 放行 returnToLLM（boolean），且 workflow/inputs 说明里提到该字段', () => {
+    const { dev } = kit();
+    const schema = dev.tools.find((t) => t.name === 'skill_write')!.parameters;
+    const props = schema.properties as Record<string, { type?: string; description?: string }>;
+    expect(props['returnToLLM']).toMatchObject({ type: 'boolean' });
+    expect(props['returnToLLM']!.description).toContain('yield 汇总');
+    expect(props['returnToLLM']!.description).toContain('默认 false');
+    // workflow / inputs 配套说明里要点到该字段，否则开发角色写不进
+    expect(dev.systemSuffix).toContain('returnToLLM');
+    expect(dev.systemSuffix).toContain('仅带 workflow 的配方有意义');
+  });
+
+  it('合法 boolean 透传落库；缺省不塞进配方（默认 false）', async () => {
+    const { users, exec } = kit();
+    const r = await exec('skill_write', {
+      name: '弈友圈测试', summary: '分析弈友圈', primitives: [],
+      prompt: '据数据分析', returnToLLM: true,
+      workflow: { steps: [{ id: 'only', call: 'web_fetch', yield: true }] },
+    });
+    expect(r.ok).toBe(true);
+    const saved = await users.list();
+    expect(saved[0]!.recipe.returnToLLM).toBe(true);
+    // skill_list 回显该字段
+    const list = await exec('skill_list', {});
+    expect(list.observation).toContain('returnToLLM');
+
+    const r2 = await exec('skill_write', {
+      name: '另一个技能', summary: 's', primitives: [], prompt: 'p',
+      workflow: { steps: [{ id: 'only', call: 'web_fetch' }] },
+    });
+    expect(r2.ok).toBe(true);
+    const all = await users.list();
+    const plain = all.find((e) => e.recipe.name === '另一个技能')!;
+    expect(plain.recipe).not.toHaveProperty('returnToLLM');
+  });
+
+  it('非法值（字符串 / 数字 / null）在 parseSkillRecipe 阶段拒绝，不落库', async () => {
+    const { users, exec } = kit();
+    const base = {
+      name: '坏开关', summary: 's', primitives: ['web_fetch'], prompt: 'p',
+    };
+    for (const bad of ['true', 1, null]) {
+      const r = await exec('skill_write', { ...base, returnToLLM: bad });
+      expect(r.ok).toBe(false);
+      expect(r.observation).toContain('returnToLLM');
+      expect(r.observation).toContain('boolean');
+    }
+    expect(await users.list()).toEqual([]);
+  });
+});
