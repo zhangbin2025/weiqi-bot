@@ -48,7 +48,7 @@ export type OperatorAdapterRegistry = Readonly<Record<string, OperatorAdapter>>;
  * 3. 都没有时才回退完整 `artifact.id`（生成式，仅展示/兜底，不该被配方引用）。
  * 两个 adapter 共用，框架不认识具体扩展点。
  */
-function artifactSlug(artifact: PluginArtifact): string {
+export function artifactSlug(artifact: PluginArtifact): string {
   if (artifact.slug !== undefined && artifact.slug.trim() !== '') return artifact.slug;
   const resourceId = artifact.catalogRef?.resourceId;
   const prefix = `${WORKFLOW_OPERATOR_POINT_ID}.`;

@@ -43,6 +43,11 @@ function makePage(): ChatPage & Record<string, unknown> {
   page['refreshOperatorRegistry'] = vi.fn(async () => {});
   page['showPluginError'] = vi.fn();
   page['showSkillError'] = vi.fn();
+  // 依赖插件闸门：散文配方（recipe 无 workflow）零依赖 → plan 返回空动作、不弹框。
+  page['skillPluginInstaller'] = {
+    plan: vi.fn(async () => ({ resourceIds: [], actions: [], blockers: [], installEntries: new Map() })),
+    apply: vi.fn(async () => ({ ok: true, message: '依赖插件均已满足', installed: [], enabled: [], failures: [] })),
+  };
   return page;
 }
 
@@ -200,6 +205,216 @@ describe('技能安装/更新 → 跳「我的技能」并定位条目', () => {
     expect(page['skillPanelTab']).toBe('online');
     expect(page['skillPanelFocus']).toBeUndefined();
     expect(page['skillPanelFlash']).toEqual({ text: '缺少原语', error: true });
+  });
+});
+
+// ---------- 装技能时自动装/启用依赖插件（2026-11-25） ----------
+
+/** 带 workflow、引用插件算子的配方：call 里第一个点前是插件 slug */
+const pluginRecipe: SkillRecipe = {
+  ...recipe,
+  id: 'circle.foxwq',
+  name: '弈友圈',
+  primitives: [],
+  workflow: { steps: [
+    { id: 'fetch', call: 'foxwq_fetch_batch' },
+    { id: 'norm', call: 'circle.normalize' },
+  ] },
+};
+
+function pluginSkillItem(): SkillBrowseItem {
+  return { recipe: pluginRecipe, state: 'new' };
+}
+
+function fakeAction(overrides: Partial<{
+  resourceId: string; slug: string; name: string; kind: 'install' | 'update' | 'enable'; artifactId: string;
+}> = {}) {
+  return {
+    resourceId: 'workflow-operator.circle', slug: 'circle', name: '弈友圈关系算子',
+    kind: 'install' as const, ...overrides,
+  };
+}
+
+describe('技能依赖插件：装前确认 + 自动安装/启用', () => {
+  beforeEach(() => { document.body.innerHTML = ''; });
+
+  /** 点安装按钮并等刷新被调用；返回页面对象供断言 */
+  async function installAndFlush(
+    page: ReturnType<typeof makePage>, install: ReturnType<typeof vi.fn>,
+  ): Promise<void> {
+    const card = (page['buildOnlineSkillCard'] as (
+      i: SkillBrowseItem, s: SkillSource, c: SkillCatalogService,
+    ) => HTMLElement).call(page, pluginSkillItem(), skillSource, fakeSkillCatalog(install));
+    await clickAndFlush(findButton(card, '安装'), page['refreshSkillPanel'] as ReturnType<typeof vi.fn>);
+  }
+
+  it('无插件依赖（plan 零动作）：不弹框、直接装技能', async () => {
+    const page = makePage();
+    const install = vi.fn(async () => ({ ok: true, action: 'installed', message: '已安装。' }));
+    const dialog = vi.fn(async () => true);
+    page['openSkillPluginConfirmDialog'] = dialog;
+    await installAndFlush(page, install);
+    expect(page['skillPluginInstaller'].plan).toHaveBeenCalledWith(pluginRecipe);
+    expect(dialog).not.toHaveBeenCalled();
+    expect(install).toHaveBeenCalledTimes(1);
+    expect(page['skillPanelTab']).toBe('local');
+    expect(page['skillPanelFocus']).toEqual({ key: 'local:circle.foxwq' });
+  });
+
+  it('有依赖 → 弹框列出将安装启用的插件；取消 = 放弃整次技能安装', async () => {
+    const page = makePage();
+    const install = vi.fn(async () => ({ ok: true, action: 'installed', message: '已安装。' }));
+    const actions = [fakeAction(), fakeAction({ resourceId: 'workflow-operator.calendar', slug: 'calendar', name: '日历算子', kind: 'enable', artifactId: 'art-cal' })];
+    (page['skillPluginInstaller'].plan as ReturnType<typeof vi.fn>).mockResolvedValue({
+      resourceIds: actions.map((a) => a.resourceId), actions, blockers: [], installEntries: new Map(),
+    });
+    // 取消：弹框 resolve(false)
+    page['openSkillPluginConfirmDialog'] = vi.fn(async () => false);
+    await installAndFlush(page, install);
+    const dialog = page['openSkillPluginConfirmDialog'] as ReturnType<typeof vi.fn>;
+    expect(dialog).toHaveBeenCalledWith('弈友圈', actions);
+    expect(page['skillPluginInstaller'].apply).not.toHaveBeenCalled();
+    expect(install).not.toHaveBeenCalled();
+    expect(page['skillPanelTab']).toBe('online');
+    expect(page['skillPanelFocus']).toBeUndefined();
+    expect(page['skillPanelFlash']).toEqual({ text: expect.stringContaining('已放弃安装技能'), error: false });
+  });
+
+  it('确认 → 先 apply 安装/启用插件、刷新算子表，再装技能', async () => {
+    const page = makePage();
+    const install = vi.fn(async () => ({ ok: true, action: 'installed', message: '已安装。' }));
+    const actions = [fakeAction(), fakeAction({ resourceId: 'workflow-operator.calendar', slug: 'calendar', name: '日历算子', kind: 'enable', artifactId: 'art-cal' })];
+    const apply = vi.fn(async () => ({
+      ok: true, message: '依赖插件处理：已启用 弈友圈关系算子、日历算子。',
+      installed: ['弈友圈关系算子'], enabled: ['弈友圈关系算子', '日历算子'], failures: [],
+    }));
+    (page['skillPluginInstaller'].plan as ReturnType<typeof vi.fn>).mockResolvedValue({
+      resourceIds: actions.map((a) => a.resourceId), actions, blockers: [], installEntries: new Map(),
+    });
+    page['skillPluginInstaller'].apply = apply;
+    page['openSkillPluginConfirmDialog'] = vi.fn(async () => true);
+    await installAndFlush(page, install);
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(page['refreshOperatorRegistry']).toHaveBeenCalled();
+    expect(install).toHaveBeenCalledTimes(1);
+    expect(page['skillPanelTab']).toBe('local');
+    expect(page['skillPanelFocus']).toEqual({ key: 'local:circle.foxwq' });
+    expect(page['skillPanelFlash']).toEqual({
+      text: expect.stringContaining('依赖插件处理'), error: false,
+    });
+    expect(page['skillPanelFlash']).toEqual({ text: expect.stringContaining('已安装。'), error: false });
+  });
+
+  it('blockers（在线源找不到依赖）：不弹框、放弃装技能、中文提示', async () => {
+    const page = makePage();
+    const install = vi.fn(async () => ({ ok: true, action: 'installed', message: '已安装。' }));
+    (page['skillPluginInstaller'].plan as ReturnType<typeof vi.fn>).mockResolvedValue({
+      resourceIds: ['workflow-operator.circle'], actions: [],
+      blockers: ['在线插件源里找不到依赖插件 workflow-operator.circle'], installEntries: new Map(),
+    });
+    page['openSkillPluginConfirmDialog'] = vi.fn(async () => true);
+    await installAndFlush(page, install);
+    expect(page['openSkillPluginConfirmDialog']).not.toHaveBeenCalled();
+    expect(page['skillPluginInstaller'].apply).not.toHaveBeenCalled();
+    expect(install).not.toHaveBeenCalled();
+    expect(page['skillPanelFlash']).toEqual({
+      text: expect.stringContaining('找不到依赖插件'), error: true,
+    });
+  });
+
+  it('apply 失败：放弃装技能，不定位本地条目', async () => {
+    const page = makePage();
+    const install = vi.fn(async () => ({ ok: true, action: 'installed', message: '已安装。' }));
+    const actions = [fakeAction()];
+    (page['skillPluginInstaller'].plan as ReturnType<typeof vi.fn>).mockResolvedValue({
+      resourceIds: actions.map((a) => a.resourceId), actions, blockers: [], installEntries: new Map(),
+    });
+    page['skillPluginInstaller'].apply = vi.fn(async () => ({
+      ok: false, message: '依赖插件处理：失败：xxx。', installed: [], enabled: [], failures: ['xxx'],
+    }));
+    page['openSkillPluginConfirmDialog'] = vi.fn(async () => true);
+    await installAndFlush(page, install);
+    expect(install).not.toHaveBeenCalled();
+    expect(page['skillPanelTab']).toBe('online');
+    expect(page['skillPanelFocus']).toBeUndefined();
+    expect(page['skillPanelFlash']).toEqual({ text: expect.stringContaining('已放弃安装技能'), error: true });
+  });
+});
+
+describe('依赖插件确认弹框：真实 DOM 交互', () => {
+  beforeEach(() => { document.body.innerHTML = ''; });
+
+  /** 直接调私有的自建 overlay 弹框（不 mock），返回 Promise 与页面对象 */
+  function openDialog(page: ReturnType<typeof makePage>) {
+    const actions = [fakeAction(), fakeAction({
+      resourceId: 'workflow-operator.calendar', slug: 'calendar',
+      name: '日历算子', kind: 'enable', artifactId: 'art-cal',
+    })];
+    const promise = (page['openSkillPluginConfirmDialog'] as (
+      n: string, a: unknown[],
+    ) => Promise<boolean>).call(page, '弈友圈', actions);
+    const overlay = document.getElementById('skillPluginConfirmOverlay')!;
+    return { promise, overlay };
+  }
+
+  function btn(overlay: HTMLElement, label: string): HTMLButtonElement {
+    const found = Array.from(overlay.querySelectorAll('button'))
+      .find((b) => b.textContent === label);
+    if (!found) throw new Error(`弹框里找不到「${label}」按钮`);
+    return found;
+  }
+
+  it('列出将安装 / 启用的插件名与动作，动态文本走 textContent（含特殊字符不解释）', async () => {
+    const page = makePage();
+    const { promise, overlay } = openDialog(page);
+    const text = overlay.textContent ?? '';
+    expect(text).toContain('弈友圈关系算子');
+    expect(text).toContain('workflow-operator.circle');
+    expect(text).toContain('安装并启用');
+    expect(text).toContain('日历算子');
+    expect(text).toContain('启用（已安装、当前停用）');
+    // 没有 innerHTML 拼接的痕迹：用带 HTML 的名字再开一次
+    btn(overlay, '放弃安装技能').click();
+    expect(await promise).toBe(false);
+    const special = `<img src=x onerror=alert(1)>`;
+    const p2 = (page['openSkillPluginConfirmDialog'] as (
+      n: string, a: unknown[],
+    ) => Promise<boolean>).call(page, 'X', [{ ...fakeAction(), name: special }]);
+    const o2 = document.getElementById('skillPluginConfirmOverlay')!;
+    expect(o2.querySelector('img')).toBeNull();
+    expect(o2.textContent).toContain(special);
+    btn(o2, '放弃安装技能').click();
+    expect(await p2).toBe(false);
+  });
+
+  it('点「确认安装」→ true；取消 / 遮罩 / Esc → false 且 overlay 移除', async () => {
+    const page = makePage();
+    // 确认
+    {
+      const { promise, overlay } = openDialog(page);
+      btn(overlay, '确认安装（技能 + 依赖插件）').click();
+      expect(await promise).toBe(true);
+      expect(document.getElementById('skillPluginConfirmOverlay')).toBeNull();
+    }
+    // 取消
+    {
+      const { promise, overlay } = openDialog(page);
+      btn(overlay, '放弃安装技能').click();
+      expect(await promise).toBe(false);
+      expect(document.getElementById('skillPluginConfirmOverlay')).toBeNull();
+    }
+    // 点遮罩
+    {
+      const { promise, overlay } = openDialog(page);
+      overlay.click();
+      expect(await promise).toBe(false);
+    }
+    // Esc
+    {
+      const { promise } = openDialog(page);
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      expect(await promise).toBe(false);
+    }
   });
 });
 

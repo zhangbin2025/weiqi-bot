@@ -57,6 +57,8 @@ import { createSkillDevKit } from '../../../../../application/skill/dev/SkillDev
 import {
   createDefaultSkillCatalog, type SkillCatalogService,
   type SkillCatalogBrowseResult, type SkillBrowseItem,
+  SkillPluginInstaller, skillPluginResourceIds,
+  type SkillPluginAction, type SkillPluginPlan,
 } from '../../../../../services/skill-catalog/SkillCatalogService';
 import { SkillCatalogSources, type SkillSource } from '../../../../../services/skill-catalog/SkillCatalogSources';
 import { clampTitle } from '../../../../../application/chat/SessionTitle';
@@ -177,6 +179,8 @@ export class ChatPage {
   private pluginPanelSeq = 0;
   /** 技能编排服务：loadSkills / browse / 源管理 / 自建技能库共用同一实例 */
   private skillCatalog: SkillCatalogService | undefined;
+  /** 技能依赖插件编排：装技能前 plan() 只读推导、确认后 apply() 安装并启用依赖插件 */
+  private skillPluginInstaller: SkillPluginInstaller | undefined;
   /** 宿主原语注册表：面板标注「在线技能引用了没有的原语」时复用 */
   private skillPrimitives: ReadonlyMap<string, SkillPrimitive> | undefined;
   /** 本地数据层：凭据弹框与 http_fetch_auth 共用同一 service 实例 */
@@ -289,6 +293,16 @@ export class ChatPage {
     this.skillCatalog = createDefaultSkillCatalog({
       users: userSkills, sources: skillSources, primitives: skillPrimitives,
     });
+    // 依赖插件编排复用同一批实例：在线插件目录（this.catalog）+ 本地工件服务
+    // （this.plugin.artifacts），与「🧩 插件」面板共用，绝不另起一套存储/沙箱。
+    // 插件系统装配失败时两者缺省 → 有依赖的技能走 blockers 如实拒绝安装。
+    const installerDeps: {
+      catalog?: PluginCatalogService;
+      artifacts?: PluginArtifactService;
+    } = {};
+    if (this.catalog !== undefined) installerDeps.catalog = this.catalog;
+    if (this.plugin?.artifacts !== undefined) installerDeps.artifacts = this.plugin.artifacts;
+    this.skillPluginInstaller = new SkillPluginInstaller(installerDeps);
     const skillDeps: SkillDeps = {
       loadSkills: async () => {
         const recipes = await this.skillCatalog!.loadSkills();
@@ -2167,8 +2181,19 @@ export class ChatPage {
     if (item.state === 'new' || item.state === 'update') {
       actions.appendChild(this.pluginAction(item.state === 'update' ? '更新' : '安装', () => {
         void (async () => {
+          // 依赖插件闸门：先只读推导本次要顺带装 / 启用的插件，再弹框让用户拍板。
+          // 无插件依赖（散文配方 / 依赖都已满足）→ actions 为空，直接装技能且不弹框。
+          const gate = await this.confirmSkillPluginInstall(recipe);
+          if (!gate.proceed) {
+            // 放弃 / blockers / 依赖处理失败：本次不装技能，也不装 / 启用任何插件。
+            // 面板仍刷新一次，好让 flash / 已装插件状态如实呈现。
+            await this.refreshSkillPanel();
+            return;
+          }
           const out = await catalog.install(recipe);
-          this.skillPanelFlash = { text: out.message, error: !out.ok };
+          // 依赖插件处理回执与技能安装回执合并成一条 flash，别让后者盖掉前者。
+          const prefix = gate.note !== undefined ? `${gate.note} ` : '';
+          this.skillPanelFlash = { text: `${prefix}${out.message}`, error: !out.ok };
           if (out.ok) {
             // 安装 / 更新一律落到「我的技能」标签页，并定位到本地库里那一条：
             // 装完要看到的是本地配方（启停、版本、原语），不是在线源里的镜像
@@ -2214,6 +2239,193 @@ export class ChatPage {
     tip.textContent = message;
     body.prepend(tip);
     setTimeout(() => tip.remove(), 3000);
+  }
+
+  /**
+   * 技能安装前的依赖插件闸门。proceed=true 才允许继续调用 catalog.install(recipe)；
+   * note 是插件处理回执，由调用方合并进技能面板 flash（别让后者盖掉前者）。
+   *
+   * - plan() 只读推导：无插件依赖 / 依赖都已启用 → 零动作，直接返回 true（不弹框）；
+   * - blockers（插件系统未装配 / 在线源找不到 / 条目不可装）→ 中文 flash + false，放弃装技能；
+   * - 有动作 → 独立 overlay 弹框列出将顺带安装 / 启用的插件；取消 / 关闭 / 遮罩 / Esc
+   *   一律放弃整次技能安装（插件一律不动）；确认才 apply() 安装 + 启用；
+   * - apply() 失败（含部分成功）→ 中文 flash + false，不装技能，避免留下跑不起来的残废配方；
+   * - 成功后 refreshOperatorRegistry() 重建算子表快照：新启用的插件算子本轮即可被
+   *   workflow runner 命中。插件面板若正开着也顺手刷新一次（状态不漂移）。
+   *
+   * 弹框不走单例 WebDialog：技能面板已占着它，嵌套 show 会覆盖 resolvePromise。
+   * 与 SecretPromptDialog 同款自建 overlay，动态文本一律 textContent。
+   */
+  private async confirmSkillPluginInstall(
+    recipe: SkillRecipe,
+  ): Promise<{ proceed: boolean; note?: string }> {
+    const abort = { proceed: false };
+    const proceed = { proceed: true };
+    const installer = this.skillPluginInstaller;
+    if (installer === undefined) {
+      // 装配失败只在「确实有依赖」时拦一下；散文技能零回归。
+      const deps = skillPluginResourceIds(recipe);
+      if (deps.length > 0) {
+        this.skillPanelFlash = {
+          text: `插件系统未就绪，技能依赖 ${deps.join('、')}，已放弃安装。`, error: true,
+        };
+        return abort;
+      }
+      return proceed;
+    }
+
+    let plan: SkillPluginPlan;
+    try {
+      plan = await installer.plan(recipe);
+    } catch (error) {
+      this.skillPanelFlash = {
+        text: `检查依赖插件失败：${error instanceof Error ? error.message : String(error)}，已放弃安装技能。`,
+        error: true,
+      };
+      return abort;
+    }
+    if (plan.blockers.length > 0) {
+      this.skillPanelFlash = {
+        text: `依赖插件无法自动安装：${plan.blockers.join('；')}。已放弃安装技能。`, error: true,
+      };
+      return abort;
+    }
+    // 无插件依赖 / 依赖都已启用：不弹框，保持原有「一键安装即刻生效」。
+    if (plan.actions.length === 0) return proceed;
+
+    const confirmed = await this.openSkillPluginConfirmDialog(recipe.name, plan.actions);
+    if (!confirmed) {
+      this.skillPanelFlash = { text: '已放弃安装技能，未安装 / 启用任何插件。', error: false };
+      return abort;
+    }
+
+    let out: Awaited<ReturnType<SkillPluginInstaller['apply']>>;
+    try {
+      out = await installer.apply(plan);
+    } catch (error) {
+      this.skillPanelFlash = {
+        text: `安装依赖插件失败：${error instanceof Error ? error.message : String(error)}，已放弃安装技能。`,
+        error: true,
+      };
+      return abort;
+    }
+    // 启用过工件，重建宿主算子表快照（启用失败的那几条本就不在 enabled 集合里）。
+    if (out.enabled.length > 0) await this.refreshOperatorRegistry();
+    if (!out.ok) {
+      this.skillPanelFlash = { text: `${out.message} 已放弃安装技能。`, error: true };
+      return abort;
+    }
+    // 成功：插件面板若正开着顺手刷新一次（状态不漂移），回执由调用方合并进 flash。
+    if (document.getElementById('pluginPanelRoot') !== null) {
+      await this.refreshPluginPanel();
+    }
+    return { proceed: true, note: out.message };
+  }
+
+  /**
+   * 独立的「顺带安装启用插件」确认弹框（不用单例 WebDialog，避免与技能面板嵌套冲突）。
+   * true = 用户明确同意；false = 放弃（取消 / 关闭 / 点遮罩 / Esc 四路等价）。
+   * 动态文本全部 textContent，不拼 innerHTML；Promise 只结算一次。
+   */
+  private openSkillPluginConfirmDialog(
+    skillName: string, actions: readonly SkillPluginAction[],
+  ): Promise<boolean> {
+    const OVERLAY_ID = 'skillPluginConfirmOverlay';
+    document.getElementById(OVERLAY_ID)?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = OVERLAY_ID;
+    overlay.style.cssText =
+      'position: fixed; inset: 0; z-index: 10000; display: flex;'
+      + ' align-items: center; justify-content: center; background: rgba(20,18,40,.55);';
+    const card = document.createElement('div');
+    card.style.cssText =
+      'width: min(480px, calc(100vw - 32px)); max-height: 90vh; overflow: auto;'
+      + ' background: #fff; border-radius: 14px; box-shadow: 0 18px 60px rgba(0,0,0,.28);'
+      + ' font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #333;';
+    overlay.appendChild(card);
+
+    const head = document.createElement('div');
+    head.style.cssText = 'padding: 18px 20px 10px; border-bottom: 1px solid #eee;';
+    const title = document.createElement('h3');
+    title.textContent = '安装技能前请确认';
+    title.style.cssText = 'margin: 0 0 6px; font-size: 17px; color: #333;';
+    head.appendChild(title);
+    head.appendChild(this.confirmDialogText(
+      `技能「${skillName}」依赖下列插件。确认后会自动安装 / 启用它们，再安装技能。`,
+      'margin: 0; font-size: 13px; line-height: 1.6; color: #555;',
+    ));
+    card.appendChild(head);
+
+    const body = document.createElement('div');
+    body.style.cssText = 'padding: 14px 20px;';
+    const list = document.createElement('ul');
+    list.style.cssText = 'margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.9; color: #333;';
+    const kindText: Readonly<Record<SkillPluginAction['kind'], string>> = {
+      install: '安装并启用',
+      update: '更新并启用',
+      enable: '启用（已安装、当前停用）',
+    };
+    for (const action of actions) {
+      const li = document.createElement('li');
+      li.textContent = `${action.name}（${action.resourceId}）：${kindText[action.kind]}`;
+      list.appendChild(li);
+    }
+    body.appendChild(list);
+    body.appendChild(this.confirmDialogText(
+      '插件源码来自当前在线插件源，安装前照旧做兼容性检查与 QuickJS 沙箱试跑；'
+      + '启用只针对上面这些依赖插件，不影响其它插件。',
+      'margin: 12px 0 0; font-size: 11px; line-height: 1.6; color: #888;',
+    ));
+    body.appendChild(this.confirmDialogText(
+      '点「放弃安装技能」或关闭本框，则本次不安装技能，也不安装 / 启用任何插件。',
+      'margin: 6px 0 0; font-size: 11px; line-height: 1.6; color: #8a6d00;',
+    ));
+    card.appendChild(body);
+
+    const foot = document.createElement('div');
+    foot.style.cssText =
+      'display: flex; justify-content: flex-end; gap: 10px; padding: 12px 20px 18px;'
+      + ' border-top: 1px solid #eee; flex-wrap: wrap;';
+    card.appendChild(foot);
+    document.body.appendChild(overlay);
+
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (value: boolean): void => {
+        if (settled) return;
+        settled = true;
+        overlay.remove();
+        document.removeEventListener('keydown', onKey);
+        resolve(value);
+      };
+      const onKey = (e: KeyboardEvent): void => {
+        if (e.key === 'Escape') finish(false);
+      };
+      document.addEventListener('keydown', onKey);
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) finish(false);
+      });
+      const cancel = this.pluginAction('放弃安装技能', () => finish(false));
+      cancel.style.cssText =
+        'padding: 8px 16px; border: 1px solid #ddd; border-radius: 8px;'
+        + ' background: #fff; color: #666; font-size: 13px; cursor: pointer;';
+      foot.appendChild(cancel);
+      const confirm = this.pluginAction('确认安装（技能 + 依赖插件）', () => finish(true),
+        'plugin-panel__primary');
+      confirm.style.cssText =
+        'padding: 8px 18px; border: 0; border-radius: 8px; background: #5b4b9e;'
+        + ' color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;';
+      foot.appendChild(confirm);
+      confirm.focus();
+    });
+  }
+
+  /** 确认弹框里的纯文本段落（textContent 防注入） */
+  private confirmDialogText(text: string, css: string): HTMLParagraphElement {
+    const el = document.createElement('p');
+    el.textContent = text;
+    el.style.cssText = css;
+    return el;
   }
 
   // ---------- 工具 ----------

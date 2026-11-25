@@ -6,13 +6,19 @@
  *       两段式取数（索引 + 逐条 skill.json）下「单条失败标 unavailable」的降级语义。
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   parseSkillRecipe,
   parseSkillRegistryIndex,
 } from '@application/skill/SkillRecipe';
 import type { SkillPrimitive, SkillRecipe } from '@application/skill/SkillTypes';
-import { SkillCatalogService } from '../SkillCatalogService';
+import {
+  SkillCatalogService, skillPluginResourceIds, SkillPluginInstaller,
+} from '../SkillCatalogService';
+import type { CatalogEntry } from '@services/plugin-catalog/PluginCatalogTypes';
+import type { PluginCatalogService } from '@services/plugin-catalog/PluginCatalogService';
+import type { PluginArtifactService } from '@application/plugin/PluginArtifactService';
+import type { PluginArtifact } from '@domain/plugin/types';
 import { UserSkillStore } from '@application/skill/dev/UserSkillStore';
 
 /** 内存版 localStorage 桩 */
@@ -437,6 +443,228 @@ describe('parseSkillRegistryIndex — v2 瘦索引解析', () => {
     }).ok).toBe(true);
     // baseUrl 非字符串则拒绝
     expect(parseSkillRegistryIndex({ ...indexOf([]), baseUrl: 42 }).ok).toBe(false);
+  });
+});
+
+// ---------- 依赖插件自动安装/启用编排（2026-11-25） ----------
+
+function wfRecipe(calls: string[]): SkillRecipe {
+  // parseSkillRecipe 允许 primitives:[] 的前提是同一份 raw 里带 workflow 声明；
+  // 先解析再加 workflow 会被「散文配方必须至少 1 条原语」拒掉。
+  return asRecipe(recipe({
+    id: 'circle.foxwq', primitives: [],
+    workflow: { steps: calls.map((call, i) => ({ id: `s${i}`, call })) },
+  }));
+}
+
+function pluginEntry(overrides: Partial<CatalogEntry> = {}): CatalogEntry {
+  return {
+    registryUrl: 'https://assets.example.com/registry.json', official: true,
+    resourceId: 'workflow-operator.circle', kind: 'plugin', name: '弈友圈关系算子',
+    summary: '关系算子', state: 'new', remoteCode: 'export function normalize() {}',
+    ...overrides,
+  };
+}
+
+function localArtifact(overrides: Partial<PluginArtifact> = {}): PluginArtifact {
+  return {
+    id: 'art-circle', name: '弈友圈关系算子', pointId: 'workflow-operator',
+    enabled: false, catalogRef: {
+      registryUrl: 'https://assets.example.com/registry.json',
+      resourceId: 'workflow-operator.circle',
+    },
+    ...overrides,
+  } as unknown as PluginArtifact;
+}
+
+function fakePluginCatalog(
+  entries: CatalogEntry[],
+  install: (e: CatalogEntry) => Promise<{ ok: boolean; action: string; message: string; artifact?: PluginArtifact }> =
+    async () => ({ ok: true, action: 'installed', message: '已安装', artifact: localArtifact({ enabled: true }) }),
+): PluginCatalogService {
+  return {
+    browse: async () => ({ entries, failures: [] }),
+    install,
+  } as unknown as PluginCatalogService;
+}
+
+function fakeArtifacts(list: PluginArtifact[]) {
+  const setEnabled = vi.fn(async (_id: string, _enabled: boolean) => {});
+  const service = {
+    list: async () => list,
+    setEnabled,
+  } as unknown as PluginArtifactService;
+  return { service, setEnabled };
+}
+
+describe('skillPluginResourceIds — 从 workflow DAG 推导依赖插件', () => {
+  it('插件算子 <slug>.<method> → workflow-operator.<slug>，去重保序；内置算子不含点被忽略', () => {
+    expect(skillPluginResourceIds(wfRecipe([
+      'foxwq_fetch_batch', 'circle.normalize', 'circle.stats', 'calendar.lookup',
+    ]))).toEqual(['workflow-operator.circle', 'workflow-operator.calendar']);
+  });
+
+  it('散文配方（无 workflow）/ 只调内置算子 → 零依赖，进而不弹框', () => {
+    expect(skillPluginResourceIds(asRecipe(recipe()))).toEqual([]);
+    expect(skillPluginResourceIds(wfRecipe(['json_extract', 'display_json_list']))).toEqual([]);
+  });
+});
+
+describe('SkillPluginInstaller.plan — 只读推导', () => {
+  it('自建算子插件（有 slug、无 catalogRef）已启用 → 零动作、零网络请求', async () => {
+    let browsed = false;
+    const catalog = {
+      browse: async () => { browsed = true; return { entries: [], failures: [] }; },
+    } as unknown as PluginCatalogService;
+    const installer = new SkillPluginInstaller({
+      catalog,
+      artifacts: fakeArtifacts([localArtifact({
+        enabled: true, slug: 'circle', catalogRef: undefined,
+      })]).service,
+    });
+    const plan = await installer.plan(wfRecipe(['circle.normalize']));
+    expect(plan.actions).toEqual([]);
+    expect(plan.blockers).toEqual([]);
+    expect(plan.resourceIds).toEqual(['workflow-operator.circle']);
+    expect(browsed).toBe(false);
+  });
+
+  it('在线装来的依赖已启用且远端 state=installed（当前版本）→ 核对一次后仍零动作', async () => {
+    const installer = new SkillPluginInstaller({
+      catalog: fakePluginCatalog([pluginEntry({ state: 'installed' })]),
+      artifacts: fakeArtifacts([localArtifact({ enabled: true })]).service,
+    });
+    const plan = await installer.plan(wfRecipe(['circle.normalize']));
+    expect(plan.actions).toEqual([]);
+    expect(plan.blockers).toEqual([]);
+  });
+
+  it('在线装来的依赖已启用但远端 state=update → 列「更新并启用」动作（进弹框）', async () => {
+    const installer = new SkillPluginInstaller({
+      catalog: fakePluginCatalog([pluginEntry({ state: 'update', name: '弈友圈关系算子 v2' })]),
+      artifacts: fakeArtifacts([localArtifact({ enabled: true })]).service,
+    });
+    const plan = await installer.plan(wfRecipe(['circle.normalize']));
+    expect(plan.actions).toEqual([{
+      resourceId: 'workflow-operator.circle', slug: 'circle',
+      name: '弈友圈关系算子 v2', kind: 'update',
+    }]);
+    expect(plan.installEntries.size).toBe(1);
+    expect(plan.blockers).toEqual([]);
+  });
+
+  it('本地已有但停用 → 只 enable、不安装、不联网', async () => {
+    let browsed = false;
+    const catalog = {
+      browse: async () => { browsed = true; return { entries: [], failures: [] }; },
+    } as unknown as PluginCatalogService;
+    const art = localArtifact({ enabled: false });
+    const installer = new SkillPluginInstaller({ catalog, artifacts: fakeArtifacts([art]).service });
+    const plan = await installer.plan(wfRecipe(['circle.normalize']));
+    expect(plan.actions).toEqual([{
+      resourceId: 'workflow-operator.circle', slug: 'circle', name: '弈友圈关系算子',
+      kind: 'enable', artifactId: 'art-circle',
+    }]);
+    expect(browsed).toBe(false);
+  });
+
+  it('缺件 → 从在线源安装；更新态标 update；已装停用 + 缺件并存', async () => {
+    const entries = [
+      pluginEntry({ state: 'new' }),
+      pluginEntry({ resourceId: 'workflow-operator.calendar', name: '日历算子', state: 'update' }),
+    ];
+    const installer = new SkillPluginInstaller({
+      catalog: fakePluginCatalog(entries),
+      artifacts: fakeArtifacts([localArtifact({
+        id: 'art-cal', name: '日历算子', enabled: false,
+        catalogRef: { registryUrl: 'https://assets.example.com/registry.json', resourceId: 'workflow-operator.calendar' },
+      })]).service,
+    });
+    const plan = await installer.plan(wfRecipe(['circle.normalize', 'calendar.lookup']));
+    expect(plan.blockers).toEqual([]);
+    expect(plan.actions.map((a) => [a.resourceId, a.kind])).toEqual([
+      // circle 缺件 → install；calendar 本地已装停用 → 只 enable（不更新、不重装）
+      ['workflow-operator.circle', 'install'],
+      ['workflow-operator.calendar', 'enable'],
+    ]);
+    expect(plan.installEntries.size).toBe(1);
+  });
+
+  it('在线源找不到 / 条目不可装 / 插件系统未装配 → blockers（UI 据此拒绝装技能）', async () => {
+    const missing = new SkillPluginInstaller({
+      catalog: fakePluginCatalog([]), artifacts: fakeArtifacts([]).service,
+    });
+    expect((await missing.plan(wfRecipe(['circle.normalize']))).blockers[0]).toContain('找不到依赖插件');
+
+    const incompatible = new SkillPluginInstaller({
+      catalog: fakePluginCatalog([pluginEntry({ state: 'incompatible', reason: 'specVersion 不符' })]),
+      artifacts: fakeArtifacts([]).service,
+    });
+    expect((await incompatible.plan(wfRecipe(['circle.normalize']))).blockers[0]).toContain('不可安装');
+
+    const uninstalled = new SkillPluginInstaller();
+    expect((await uninstalled.plan(wfRecipe(['circle.normalize']))).blockers[0]).toContain('插件系统未就绪');
+    // 散文配方零依赖：哪怕插件系统没装也不该拦
+    expect(await uninstalled.plan(asRecipe(recipe()))).toMatchObject({ actions: [], blockers: [] });
+  });
+});
+
+describe('SkillPluginInstaller.apply — 确认后才写', () => {
+  it('install 动作：调用 catalog.install + setEnabled(true)，如实回执', async () => {
+    const install = vi.fn(async () => ({
+      ok: true, action: 'installed', message: '已安装',
+      artifact: localArtifact({ enabled: false }),
+    }));
+    const { service: artifacts, setEnabled } = fakeArtifacts([]);
+    const installer = new SkillPluginInstaller({
+      catalog: fakePluginCatalog([pluginEntry()], install), artifacts,
+    });
+    const plan = await installer.plan(wfRecipe(['circle.normalize']));
+    const out = await installer.apply(plan);
+    expect(install).toHaveBeenCalledTimes(1);
+    expect(setEnabled).toHaveBeenCalledWith('art-circle', true);
+    expect(out.ok).toBe(true);
+    expect(out.installed).toEqual(['弈友圈关系算子']);
+    expect(out.enabled).toEqual(['弈友圈关系算子']);
+  });
+
+  it('enable 动作：只启用，不调用在线安装', async () => {
+    let installed = 0;
+    const { service: artifacts, setEnabled } = fakeArtifacts([localArtifact({ enabled: false })]);
+    const installer = new SkillPluginInstaller({
+      catalog: fakePluginCatalog([], async () => { installed += 1; return { ok: true, action: 'installed', message: '' }; }),
+      artifacts,
+    });
+    const plan = await installer.plan(wfRecipe(['circle.normalize']));
+    const out = await installer.apply(plan);
+    expect(installed).toBe(0);
+    expect(setEnabled).toHaveBeenCalledWith('art-circle', true);
+    expect(out.ok).toBe(true);
+    expect(out.installed).toEqual([]);
+    expect(out.enabled).toEqual(['弈友圈关系算子']);
+  });
+
+  it('failures / blockers → ok:false，不抛；plan 未经确认不会被本类自动调用', async () => {
+    const fail = new SkillPluginInstaller({
+      catalog: fakePluginCatalog([pluginEntry()], async () => ({ ok: false, action: 'rejected', message: '试跑不通过' })),
+      artifacts: fakeArtifacts([]).service,
+    });
+    const plan = await fail.plan(wfRecipe(['circle.normalize']));
+    const out = await fail.apply(plan);
+    expect(out.ok).toBe(false);
+    expect(out.failures[0]).toContain('试跑不通过');
+    expect(out.enabled).toEqual([]);
+
+    // blockers 场景用「已装配但在线源找不到」的 installer：
+    // apply 先保证 catalog/artifacts 在，再如实汇总 blockers，不抛。
+    const blockedInstaller = new SkillPluginInstaller({
+      catalog: fakePluginCatalog([]), artifacts: fakeArtifacts([]).service,
+    });
+    const blocked = await blockedInstaller.plan(wfRecipe(['circle.normalize']));
+    expect(blocked.blockers.length).toBeGreaterThan(0);
+    const blockedOut = await blockedInstaller.apply(blocked);
+    expect(blockedOut.ok).toBe(false);
+    expect(blockedOut.message).toContain('存在无法自动满足的依赖');
   });
 });
 
