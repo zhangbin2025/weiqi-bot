@@ -215,7 +215,11 @@ const PREPARATORY = true;
 
 export function createAuthFetchPrimitives(deps: AuthFetchPrimitivesDeps): SkillPrimitive[] {
   const cache = deps.cache ?? defaultWebFetchCache;
-  const fetchImpl = deps.fetchImpl ?? globalThis.fetch;
+  // 浏览器原生 window.fetch 是 WebIDL 方法：把函数引用取出来裸调、或当普通对象的方法调，
+  // this 不是 Window 就会抛 "Failed to execute 'fetch' on 'Window': Illegal invocation"。
+  // 与 SkillCatalogClient / PluginCatalogClient 同口径，默认实现显式 bind(globalThis)；
+  // 注入的 fetchImpl 是测试桩（普通函数），原样使用，不 bind 出副本以免影响 spy 身份。
+  const fetchImpl = deps.fetchImpl ?? globalThis.fetch.bind(globalThis);
 
   return [
     {
@@ -616,7 +620,9 @@ async function ghFetch(ctx: GithubRequestCtx, url: string, init: RequestInit): P
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ctx.timeoutMs);
   try {
-    return await ctx.fetchImpl(url, {
+    // 别把 fetch 当 ctx 的方法调：那样 this 是普通对象，原生 fetch 会抛 Illegal invocation。
+    // 显式 call(globalThis, …) 固定 receiver，注入未 bind 的实现也不会中招。
+    return await ctx.fetchImpl.call(globalThis, url, {
       ...init,
       headers: ctx.headers,
       signal: controller.signal,
@@ -729,7 +735,9 @@ function needPublishSecret(deps: PublishPrimitivesDeps, reason: string): Primiti
 }
 
 export function createPublishPrimitives(deps: PublishPrimitivesDeps): SkillPrimitive[] {
-  const fetchImpl = deps.fetchImpl ?? globalThis.fetch;
+  // 同上：默认 fetch 必须 bind(globalThis)。未 bind 时 ghFetch 里 ctx.fetchImpl(...) 会把
+  // this 变成普通对象 ctx，浏览器在第一次 GET 就抛 Illegal invocation（发布中断）。
+  const fetchImpl = deps.fetchImpl ?? globalThis.fetch.bind(globalThis);
   return [
     {
       name: ASSET_EXPORT_TOOL_NAME,
