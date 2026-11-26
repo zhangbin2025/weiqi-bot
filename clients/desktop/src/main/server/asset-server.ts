@@ -44,6 +44,16 @@ const MIME_TYPES: Record<string, string> = {
   'wasm': 'application/wasm',
 };
 
+/**
+ * /proxy 内部跟随重定向的最大跳数。
+ *
+ * 依据：Android 端 ProxyHandler 复用的 OkHttpClient（AssetServer.kt 显式
+ * followRedirects(true) / followSslRedirects(true)）内置协议层上限
+ * RetryAndFollowUpInterceptor.MAX_FOLLOW_UPS = 20（okhttp 4.12.0，本工程 gradle
+ * 依赖版本）。两端对齐同一上限；这是协议层的跳数安全上限，非业务阈值。
+ */
+const PROXY_MAX_REDIRECT_HOPS = 20;
+
 function formatMB(bytes: number): string {
   return (bytes / 1024 / 1024).toFixed(1);
 }
@@ -495,6 +505,11 @@ export class AssetServer {
 
   /**
    * 处理代理请求
+   *
+   * 上游 3xx 在代理侧内部跟随，只把最终响应回给前端。浏览器 fetch 拿到一个
+   * 没有 Location 的 302 时无法自行跟随（CORS 下 Location 也读不到），典型场景
+   * 是微信公众号文章的 302 -> 302 -> 200 链路。对齐 Android ProxyHandler 使用的
+   * OkHttpClient（AssetServer.kt 显式 followRedirects(true) / followSslRedirects(true)）。
    */
   private handleProxy(req: http.IncomingMessage, res: http.ServerResponse): void {
     const query = url.parse(req.url || '', true).query;
@@ -515,41 +530,78 @@ export class AssetServer {
 
     console.log(`[AssetServer] Proxy -> ${targetUrl}`);
 
-    const client = targetUrl.startsWith('https') ? https : http;
-
-    const urlObj = new URL(targetUrl);
-    const options: https.RequestOptions = {
-      hostname: urlObj.hostname,
-      port: urlObj.port || (urlObj.protocol === 'https:' ? 443 : 80),
-      path: urlObj.pathname + urlObj.search,
-      method: req.method,
-      headers: {} as Record<string, string>,
+    /** 明确的 JSON 错误（只发一次），不把半成品 3xx 静默丢给前端。 */
+    const fail = (status: number, error: string, detail?: string): void => {
+      if (res.headersSent) { res.end(); return; }
+      res.writeHead(status, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': '*',
+        'Access-Control-Expose-Headers': 'X-Set-Cookie',
+      });
+      res.end(JSON.stringify(detail ? { error, detail } : { error }));
     };
 
-    const userAgent = req.headers['x-user-agent'] || req.headers['user-agent'];
-    if (userAgent) (options.headers as Record<string, string>)['User-Agent'] = userAgent as string;
-
-    const referer = req.headers['x-referer'] || req.headers['referer'];
-    if (referer) (options.headers as Record<string, string>)['Referer'] = referer as string;
-
-    const cookie = req.headers['x-cookie'] || req.headers['cookie'];
-    if (cookie) (options.headers as Record<string, string>)['Cookie'] = cookie as string;
-
-    const contentType = req.headers['content-type'];
-    if (contentType) (options.headers as Record<string, string>)['Content-Type'] = contentType as string;
-
-    // 透传其他自定义请求头（签名头等，如 AppKey, CheckSum, accesstoken, Nonce, timestamp 等）
-    const passthroughHeaders = [
-      'appkey', 'checksum', 'accesstoken', 'nonce', 'curtime',
-      'timestamp', 'usertoken', 'version', 'platform', 'uuid',
-      'accept', 'accept-language', 'authorization',
-    ];
-    for (const h of passthroughHeaders) {
-      const value = req.headers[h];
-      if (value) (options.headers as Record<string, string>)[h] = value as string;
+    let initialUrl: URL;
+    try {
+      initialUrl = new URL(targetUrl);
+    } catch {
+      fail(400, 'invalid_proxy_url');
+      return;
     }
 
-    const proxyReq = client.request(options, (proxyRes) => {
+    // 中间跳上游的 Set-Cookie（只取 name=value），仅同 host 时并入下一跳的 Cookie。
+    // 微信公众号那条 302 -> 302 -> 200 实测不需要 Cookie，这里只是保持会话语义合理。
+    let upstreamCookies: string | null = null;
+    // POST/PUT 的 body 先缓冲，重定向时才能把同一份字节重放到每一跳
+    // （原来的 req.pipe(proxyReq) 只能喂第一跳）。
+    const bodyChunks: Buffer[] = [];
+
+    // 跨 host 时不再透传凭据类头（最小开放）。
+    const credentialHeaders = new Set([
+      'cookie', 'authorization', 'appkey', 'checksum', 'accesstoken', 'usertoken',
+    ]);
+
+    /** 每一跳都复用同一套前端头透传逻辑，不随跳数漂移。 */
+    const buildForwardHeaders = (currentUrl: URL): Record<string, string> => {
+      const headers: Record<string, string> = {};
+      const sameOrigin = currentUrl.origin === initialUrl.origin;
+
+      const userAgent = req.headers['x-user-agent'] || req.headers['user-agent'];
+      if (userAgent) headers['User-Agent'] = userAgent as string;
+
+      const referer = req.headers['x-referer'] || req.headers['referer'];
+      if (referer) headers['Referer'] = referer as string;
+
+      const cookie = req.headers['x-cookie'] || req.headers['cookie'];
+      if (sameOrigin && cookie) headers['Cookie'] = cookie as string;
+
+      const contentType = req.headers['content-type'];
+      if (contentType) headers['Content-Type'] = contentType as string;
+
+      // 透传其他自定义请求头（签名头等，如 AppKey, CheckSum, accesstoken, Nonce, timestamp 等）
+      const passthroughHeaders = [
+        'appkey', 'checksum', 'accesstoken', 'nonce', 'curtime',
+        'timestamp', 'usertoken', 'version', 'platform', 'uuid',
+        'accept', 'accept-language', 'authorization',
+      ];
+      for (const h of passthroughHeaders) {
+        if (!sameOrigin && credentialHeaders.has(h)) continue;
+        const value = req.headers[h];
+        if (value) headers[h] = value as string;
+      }
+
+      if (sameOrigin && upstreamCookies) {
+        headers['Cookie'] = headers['Cookie']
+          ? `${headers['Cookie']}; ${upstreamCookies}`
+          : upstreamCookies;
+      }
+      return headers;
+    };
+
+    /** 把最终响应（含最终 status / content-type / 正文 / X-Set-Cookie）回给前端。 */
+    const relayFinal = (proxyRes: http.IncomingMessage): void => {
       const headers: Record<string, string> = {
         'Content-Type': proxyRes.headers['content-type'] || 'application/json',
         'Access-Control-Allow-Origin': '*',
@@ -559,28 +611,80 @@ export class AssetServer {
       };
 
       const setCookies = proxyRes.headers['set-cookie'];
-      if (setCookies) {
-        headers['X-Set-Cookie'] = setCookies.join('; ');
-      }
+      if (setCookies) headers['X-Set-Cookie'] = setCookies.join('; ');
 
       res.writeHead(proxyRes.statusCode || 200, headers);
       proxyRes.pipe(res);
-    });
+    };
 
-    proxyReq.on('error', (err) => {
-      console.error(`[AssetServer] Proxy error:`, err);
-      if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'proxy_failed' }));
-      } else {
-        res.end();
+    const visit = (currentUrl: URL, redirects: number): void => {
+      if (redirects > PROXY_MAX_REDIRECT_HOPS) {
+        fail(502, 'proxy_too_many_redirects', `exceeded ${PROXY_MAX_REDIRECT_HOPS} redirect hops`);
+        return;
       }
-    });
+      if (currentUrl.protocol !== 'http:' && currentUrl.protocol !== 'https:') {
+        fail(400, 'proxy_unsupported_protocol', currentUrl.protocol);
+        return;
+      }
+
+      const client = currentUrl.protocol === 'https:' ? https : http;
+      const options: https.RequestOptions = {
+        hostname: currentUrl.hostname,
+        port: currentUrl.port || (currentUrl.protocol === 'https:' ? 443 : 80),
+        path: currentUrl.pathname + currentUrl.search,
+        method: req.method,
+        headers: buildForwardHeaders(currentUrl),
+      };
+
+      const proxyReq = client.request(options, (proxyRes) => {
+        const status = proxyRes.statusCode || 0;
+        // RFC 7231 / RFC 7538 定义的重定向状态码；304 等不在此列。
+        if (status === 301 || status === 302 || status === 303 || status === 307 || status === 308) {
+          // 中间跳的正文不往前端发；收干净以便连接复用。
+          proxyRes.resume();
+          const location = proxyRes.headers.location;
+          if (!location) {
+            fail(502, 'proxy_redirect_missing_location', `HTTP ${status} without Location`);
+            return;
+          }
+          let nextUrl: URL;
+          try {
+            // 相对 Location 基于当前 URL 补全（也接受绝对 URL）。
+            nextUrl = new URL(location, currentUrl);
+          } catch {
+            fail(502, 'proxy_invalid_redirect_location', location);
+            return;
+          }
+          const setCookies = proxyRes.headers['set-cookie'];
+          if (setCookies) {
+            const pairs = setCookies.map((c) => c.split(';')[0]);
+            upstreamCookies = upstreamCookies
+              ? `${upstreamCookies}; ${pairs.join('; ')}`
+              : pairs.join('; ');
+          }
+          console.log(`[AssetServer] Proxy redirect ${status}: ${currentUrl.toString()} -> ${nextUrl.toString()}`);
+          visit(nextUrl, redirects + 1);
+          return;
+        }
+
+        relayFinal(proxyRes);
+      });
+
+      proxyReq.on('error', (err) => {
+        console.error(`[AssetServer] Proxy error:`, err);
+        fail(500, 'proxy_failed');
+      });
+
+      for (const chunk of bodyChunks) proxyReq.write(chunk);
+      proxyReq.end();
+    };
 
     if (req.method === 'POST' || req.method === 'PUT') {
-      req.pipe(proxyReq);
+      req.on('data', (chunk: Buffer) => bodyChunks.push(chunk));
+      req.on('end', () => visit(initialUrl, 0));
+      req.on('error', () => fail(500, 'proxy_failed'));
     } else {
-      proxyReq.end();
+      visit(initialUrl, 0);
     }
   }
 
