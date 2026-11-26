@@ -95,6 +95,23 @@ describe('AppSnifferProvider document 事件', () => {
     await session.stop();
   });
 
+  it('start({timeout}) 把窗口值拼进 sniffer://start，与两端原生会话超时对齐', async () => {
+    const provider = new AppSnifferProvider();
+    const prompts: string[] = [];
+    vi.stubGlobal('prompt', vi.fn((u: string) => { prompts.push(u); return ''; }));
+    await provider.start(URL, { timeout: 45000 });
+    expect(prompts).toHaveLength(1);
+    const uri = prompts[0]!;
+    expect(uri).toContain('sniffer://start?');
+    expect(uri).toContain('timeout=45000');
+    // url 仍是 encodeURIComponent 后的完整值，不被 timeout 参数破坏
+    expect(decodeURIComponent(uri)).toContain('gamekey=ABC');
+    // 不传 timeout 时不拼这个参数，原生既有默认值兜底（零新常数）
+    prompts.length = 0;
+    await provider.start(URL);
+    expect(prompts[0]).not.toContain('timeout=');
+  });
+
   it('doc 对象缺字段时回落空值，不丢整条事件', async () => {
     const provider = new AppSnifferProvider();
     const session = await provider.start(URL);

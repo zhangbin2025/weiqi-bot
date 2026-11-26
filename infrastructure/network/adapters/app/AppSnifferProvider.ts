@@ -296,6 +296,14 @@ export class AppSnifferProvider implements ISnifferProvider {
       queryString += `&httpPattern=${encodeURIComponent(options.httpPattern)}`;
     }
 
+    // 两端原生 sniffer 都解析 sniffer://start?timeout=...（Electron parseInt /
+    // Android getQueryParameter("timeout")），但此前本方法一直没透传，导致原生会话
+    // 恒用默认 30000ms：TS 层 wait 等满前原生就 stop(timeout=true) 把尾包截断。
+    // 这里只接上既有字段，不改协议、不设默认值（缺省仍由原生既有默认兜底）。
+    if (options?.timeout !== undefined) {
+      queryString += `&timeout=${encodeURIComponent(String(options.timeout))}`;
+    }
+
     // 调用 sniffer://start 协议（使用 prompt 避免页面导航）
     const snifferUrl = `sniffer://start?${queryString}`;
 

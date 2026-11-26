@@ -56,7 +56,11 @@ function messages(): SnifferMessage[] {
 interface FakeSession extends ISnifferSession {
   stopped: number;
   untilSeen: ((messages: SnifferMessage[]) => boolean) | undefined;
+  /** wait() 是否收到 options（holdMs 路径下为 false，走现成空等窗口） */
+  optionsSeen: boolean;
   timeoutSeen: number | undefined;
+  /** start() 收到的 SnifferOptions.timeout（与 wait 窗口必须一致） */
+  startTimeoutSeen: number | undefined;
 }
 
 /** 每次 start 造一个新会话；wait 返回注入的消息，记录 until / timeout / stop 次数 */
@@ -70,22 +74,25 @@ function fakeSniffer(msgs: SnifferMessage[] = messages()): {
     displayName: '假 sniffer',
     isAvailable: () => true,
     getEnvironmentDescription: () => '测试环境',
-    start: async (url: string): Promise<ISnifferSession> => {
+    start: async (url: string, options?: { timeout?: number }): Promise<ISnifferSession> => {
       const s: FakeSession = {
         id: `s${sessions.length}`,
         url,
         status: 'running',
         stopped: 0,
         untilSeen: undefined,
+        optionsSeen: false,
         timeoutSeen: undefined,
+        startTimeoutSeen: options?.timeout,
         onMessage: () => {},
         onError: () => {},
         getMessages: () => [...msgs],
         wait: async (timeout?: number, options?: { until?: (m: SnifferMessage[]) => boolean }): Promise<SnifferResult> => {
           s.timeoutSeen = timeout;
           s.untilSeen = options?.until;
-          // 宿主语义：until 命中即提前结束；这里断言谓词确实对注入消息成立。
-          if (options?.until) expect(options.until(msgs)).toBe(true);
+          s.optionsSeen = options !== undefined;
+          // 真实 provider 语义：until 命中才提前结束，没命中就等 timeout 兜底再返回已抓到的消息。
+          // 这里不强制断言命中——minEvents 大于注入帧数时本就该走兜底、仍返回已采集数据。
           return { success: true, sessionId: s.id, messages: [...msgs] };
         },
         stop: async () => { s.stopped += 1; s.status = 'stopped'; },
@@ -169,6 +176,90 @@ describe('browser_capture 通用采集（workflow 第一通路）', () => {
   });
 });
 
+describe('browser_capture 等待语义（LLM 开发反馈整改）', () => {
+  it('缺省 minEvents=1：逐字保持旧行为（第一帧 + document 即命中 until）', async () => {
+    const { deps, sessions } = fakeSniffer();
+    await browserCapturePrimitive(deps).execute(JSON.stringify({ url: URL, waitFor: 'ws' }));
+    const s = sessions[0]!;
+    expect(s.optionsSeen).toBe(true);
+    expect(s.timeoutSeen).toBe(1234); // 既有 deps.timeoutMs 作兜底，不新造
+    const until = s.untilSeen!;
+    const doc = { type: 'document', url: URL, snapshot: snapshot(), timestamp: 2 } as SnifferMessage;
+    const oneWs = { type: 'ws_receive', wsUrl: 'wss://x', data: 'f1', timestamp: 1 } as SnifferMessage;
+    expect(until([oneWs, doc])).toBe(true);
+  });
+
+  it('minEvents=N：攒够 N 条目标分区帧才命中，首帧不再收工', async () => {
+    const { deps, sessions } = fakeSniffer();
+    const r = await browserCapturePrimitive(deps).execute(
+      JSON.stringify({ url: URL, waitFor: 'ws', minEvents: 3 }),
+    );
+    expect(valueOf(r).meta.ws).toBe(2); // 分类照常，结束条件由 until 决定
+    const s = sessions[0]!;
+    expect(s.optionsSeen).toBe(true);
+    expect(s.timeoutSeen).toBe(1234); // 兜底上限仍是既有配置值，不是 N 换算出来的数
+    expect(s.startTimeoutSeen).toBe(1234);
+    const until = s.untilSeen!;
+    const doc = { type: 'document', url: URL, snapshot: snapshot(), timestamp: 9 } as SnifferMessage;
+    const frame = (i: number) => ({ type: 'ws_receive', wsUrl: 'wss://x', data: `f${i}`, timestamp: i } as SnifferMessage);
+    expect(until([frame(1), frame(2), doc])).toBe(false); // 2 条不够
+    expect(until([frame(1), frame(2), frame(3), doc])).toBe(true); // 第 3 条到才收工
+    // 仍须有 document 快照（不因计数就跳过 load 前置）
+    expect(until([frame(1), frame(2), frame(3)])).toBe(false);
+  });
+
+  it('holdMs=M：走现成不设 until 的空等窗口，timeout 逐字等于声明值', async () => {
+    const { deps, sessions } = fakeSniffer();
+    const r = await browserCapturePrimitive(deps).execute(
+      JSON.stringify({ url: URL, holdMs: 8000, parts: ['ws'] }),
+    );
+    const v = valueOf(r);
+    expect(v.ws).toHaveLength(2);
+    expect(v.http).toEqual([]); // parts 仍生效
+    expect(v.meta.ws).toBe(2);  // meta 恒真实计数
+    const s = sessions[0]!;
+    expect(s.optionsSeen).toBe(false);   // 没有 until
+    expect(s.untilSeen).toBeUndefined();
+    expect(s.timeoutSeen).toBe(8000);    // 声明值直接透传给 wait
+    expect(s.startTimeoutSeen).toBe(8000); // 同一窗口值传给原生 start，避免 30s 默认值截断
+    expect(s.stopped).toBe(1);           // finally 恒关
+  });
+
+  it('minEvents 与 holdMs 互斥 / 非法值结构化拒绝，且绝不启动会话', async () => {
+    const { deps, sessions } = fakeSniffer();
+    const p = browserCapturePrimitive(deps);
+    const bad = [
+      { url: URL, minEvents: 2, holdMs: 1000 },
+      { url: URL, minEvents: 0 },
+      { url: URL, minEvents: 1.5 },
+      { url: URL, minEvents: '3' },
+      { url: URL, holdMs: 0 },
+      { url: URL, holdMs: -1 },
+      { url: URL, holdMs: 2.5 },
+    ];
+    for (const a of bad) {
+      const r = await p.execute(JSON.stringify(a));
+      expect(r.ok).toBe(false);
+      expect(r.value).toBeUndefined();
+      expect(r.observation).toContain('browser_capture');
+    }
+    expect(sessions).toHaveLength(0);
+  });
+
+  it('工具定义与 system 说明都写明了 minEvents / holdMs，且承认不是事件后计时', () => {
+    const { deps } = fakeSniffer();
+    const kit = createBrowserCaptureToolKit(deps);
+    const def = kit.tools.find((t) => t.name === BROWSER_CAPTURE_TOOL_NAME)!;
+    const desc = JSON.stringify(def);
+    expect(desc).toContain('minEvents');
+    expect(desc).toContain('holdMs');
+    expect(desc).toContain('互斥');
+    expect(CAPTURE_SYSTEM_SUFFIX).toContain('minEvents');
+    expect(CAPTURE_SYSTEM_SUFFIX).toContain('holdMs');
+    expect(CAPTURE_SYSTEM_SUFFIX).toContain('固定采集');
+  });
+});
+
 describe('browser_capture LLM 出口（句柄分页读）', () => {
   it('ToolKit 三件工具 + 通用 system 说明，零站点/棋谱知识', () => {
     const { deps } = fakeSniffer();
@@ -234,5 +325,7 @@ describe('browser_capture LLM 出口（句柄分页读）', () => {
     // waitFor / parts 非法值也结构化拒绝
     expect((await p.execute(JSON.stringify({ url: URL, waitFor: 'eval' }))).ok).toBe(false);
     expect((await p.execute(JSON.stringify({ url: URL, parts: ['fetch'] }))).ok).toBe(false);
+    expect((await p.execute(JSON.stringify({ url: URL, minEvents: 'x' }))).ok).toBe(false);
+    expect((await p.execute(JSON.stringify({ url: URL, holdMs: 'x' }))).ok).toBe(false);
   });
 });
