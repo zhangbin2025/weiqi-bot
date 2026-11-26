@@ -22,7 +22,8 @@ export interface IDialogConfig {
   inputType?: DialogInputType;
   inputPlaceholder?: string;
   inputDefaultValue?: string;
-  buttons?: Array<{ id: string; text: string }>;
+  /** keepOpen=true 的按钮不 resolve/关闭弹窗，交给调用方自行绑定行为（如内联二次确认） */
+  buttons?: Array<{ id: string; text: string; keepOpen?: boolean }>;
 }
 /**
  * 对话框结果

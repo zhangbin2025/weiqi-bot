@@ -62,16 +62,24 @@ export class WebDialog implements IDialog {
       this.dialog.appendChild(inputEl);
     }
     const buttonContainer = document.createElement('div');
+    buttonContainer.className = 'web-dialog__buttons';
+    // flex-wrap 会让内联二次确认条另起一行；确认条由调用方插进这个容器。
     buttonContainer.style.cssText = 'margin-top: 20px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;';
     if (type === 'custom' && config.buttons) {
       for (const btn of config.buttons) {
         const button = document.createElement('button');
+        button.className = 'web-dialog__btn';
+        // 供调用方按 id 定位（如 Token 面板把「清除统计」改成内联二次确认），
+        // 纯属性，不改变任何现有行为。
+        button.dataset['btnId'] = btn.id;
         button.textContent = btn.text;
         const isCancel = btn.id === 'cancel';
         button.style.cssText = isCancel
           ? 'padding: 12px 24px; min-width: 100px; border: none; border-radius: 8px; background: #f0f0f0; color: #333; font-size: 16px; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; justify-content: center;'
           : 'padding: 12px 24px; min-width: 100px; border: none; border-radius: 8px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; font-size: 16px; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; justify-content: center;';
         button.onclick = () => {
+          // keepOpen 按钮由调用方接管（例如内联二次确认），不改弹窗生命周期。
+          if (btn.keepOpen) return;
           this.resolvePromise?.(btn.id);
           this.close();
         };

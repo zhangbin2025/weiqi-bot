@@ -4,10 +4,10 @@
  *
  * 界面刻意保持简单：一个弹窗、一条时间段切换条、主要就是消耗数据。
  * - 总览：合计 / 上行 / 下行 / 请求数（未上报用量单列提示）
- * - 「按提供商 / 模型」一张表（provider › model 二级展开为一行一个模型）
+ * - 「按提供商 / 模型」卡片式条目（一行一个模型，窄屏不换行挤压）
  * - 「按用途」一行简要（task 维度用得上但不占版面）
  * - 趋势：今日 / 昨日按小时 24 桶，最近 7 / 30 天按天；堆叠柱高度线性归一化
- * - 底部：保留天数、实测存储占用、清空（内联二次确认，不嵌套单例 WebDialog）
+ * - 「清除统计」在弹窗按钮栏与「关闭」并列（内联二次确认，不嵌套单例 WebDialog）
  *
  * 数字一律走 formatTokenCount（K/M 紧凑单位）展示；tooltip 里给精确值
  * exactTokenCount，避免缩写舍入让「分项相加 ≠ 总数」看起来像统计错误。
@@ -17,11 +17,11 @@
 import type { WebDialog } from '../../components/Dialog';
 import type { TokenUsageStore } from '../../../../../infrastructure/token/TokenUsageStore';
 import {
-  TOKEN_RANGE_LABELS, MIN_TOKEN_RETENTION_DAYS, MAX_TOKEN_RETENTION_DAYS,
+  TOKEN_RANGE_LABELS,
   type TokenRangeId, type TokenStats, type TokenTrendPoint,
 } from '../../../../../application/token/TokenUsageTypes';
 import {
-  computeTokenStats, formatTokenCount, exactTokenCount, formatBytes, rangeBounds,
+  computeTokenStats, formatTokenCount, exactTokenCount, rangeBounds,
   MODEL_KEY_SEP,
 } from '../../../../../application/token/TokenUsageStats';
 import { loadTokenRetentionDays } from '../../../../../application/token/TokenUsageConfig';
@@ -46,8 +46,8 @@ function escapeHtml(raw: string): string {
 }
 
 /** 数字单元：K/M 显示 + 精确值 tooltip */
-function tokenCell(n: number, extraClass = ''): string {
-  return `<span class="${extraClass}" title="${exactTokenCount(n)} tokens">${formatTokenCount(n)}</span>`;
+function tokenCell(n: number): string {
+  return `<span title="${exactTokenCount(n)} tokens">${formatTokenCount(n)}</span>`;
 }
 
 export class TokenUsagePanel {
@@ -70,11 +70,16 @@ export class TokenUsagePanel {
         '<div class="tk-panel" id="tkPanelRoot">'
         + '<div class="tk-ranges" id="tkRanges"></div>'
         + '<div class="tk-body" id="tkBody">正在读取统计…</div>'
-        + '<div class="tk-footer" id="tkFooter"></div>'
         + '</div>',
-      buttons: [{ id: 'close', text: '关闭' }],
+      buttons: [
+        { id: 'close', text: '关闭' },
+        { id: 'clear', text: '清除统计', keepOpen: true },
+      ],
     });
     this.bindRanges();
+    // 按钮在 show() 里同步插入 DOM，此时可绑定；清除沿用内联二次确认，
+    // 不嵌套单例 WebDialog、不依赖 window.confirm。
+    this.bindClear();
     await this.refresh();
   }
 
@@ -99,30 +104,25 @@ export class TokenUsagePanel {
   private async refresh(): Promise<void> {
     const seq = ++this.seq;
     const body = document.getElementById('tkBody');
-    const footer = document.getElementById('tkFooter');
-    if (!body || !footer) return;
+    if (!body) return;
     const now = Date.now();
+    // retention 是 loadRangeAndPrune 的数据裁剪参数（保留多少天），与界面显示无关。
     const retention = loadTokenRetentionDays();
     // 一次读够最宽窗口（最近 30 天），切时间段只重算不重读。
     const widest = rangeBounds('last30', now);
     let stats: TokenStats;
-    let bytes: number;
     try {
       const records = await this.store.loadRangeAndPrune(
         widest.fromDate, widest.toDate, retention, now,
       );
-      bytes = await this.store.storageBytes();
       stats = computeTokenStats(records, this.range, now);
     } catch {
       if (seq !== this.seq) return;
       body.innerHTML = '<div class="tk-empty">统计读取失败，请稍后重试。</div>';
-      footer.textContent = '';
       return;
     }
     if (seq !== this.seq) return;
     body.innerHTML = this.renderStats(stats);
-    footer.innerHTML = this.renderFooter(retention, bytes);
-    this.bindClear();
   }
 
   private renderStats(s: TokenStats): string {
@@ -134,7 +134,7 @@ export class TokenUsagePanel {
     // 恒等式自检：Σ 分用途 应恰好等于总消耗。false 只可能来自坏分片/旧数据，
     // 明确告诉用户「以总消耗为准」，避免把异常分项当真（可清空统计重建）。
     if (!s.consistent) {
-      notes.push('<div class="tk-note">⚠️ 分用途合计与总消耗不一致（可能是旧版本残留数据）。请以「总消耗」为准；可执行「清空全部统计」后重新累计。</div>');
+      notes.push('<div class="tk-note">⚠️ 分用途合计与总消耗不一致（可能是旧版本残留数据）。请以「总消耗」为准；可执行「清除统计」后重新累计。</div>');
     }
     return [
       `<div class="tk-summary">`,
@@ -143,7 +143,7 @@ export class TokenUsagePanel {
       `</div>`,
       ...notes,
       `<div class="tk-section-title">按提供商 / 模型</div>`,
-      this.renderModelTable(s),
+      this.renderModelCards(s),
       `<div class="tk-section-title">按用途</div>`,
       this.renderTaskLine(s),
       `<div class="tk-section-title">消耗趋势（${escapeHtml(s.fromDate)} ~ ${escapeHtml(s.toDate)}，${s.hourly ? '按小时' : '按天'}）</div>`,
@@ -151,22 +151,31 @@ export class TokenUsagePanel {
     ].join('');
   }
 
-  private renderModelTable(s: TokenStats): string {
+  /**
+   * 卡片式条目：一个模型一张卡，不再用表格。
+   * 窄屏下表格六列会把 provider / model 挤成多行，卡片把「标识」与「数字」分层：
+   * 头部 provider + model（可换行但不与数字抢同一行），下面一行小字给
+   * 次数 / 上行 / 下行 / 合计，合计用主色强调。长 host / 模型名靠 word-break 折叠。
+   */
+  private renderModelCards(s: TokenStats): string {
     if (s.byModel.length === 0) return '<div class="tk-empty">该时间段暂无请求</div>';
-    const rows = s.byModel.map((r) => {
+    const cards = s.byModel.map((r) => {
       const [provider, model] = r.key.split(MODEL_KEY_SEP);
-      return `<tr>`
-        + `<td>${escapeHtml(provider ?? '')}</td>`
-        + `<td>${escapeHtml(model ?? '')}</td>`
-        + `<td class="tk-num">${r.requests}</td>`
-        + `<td class="tk-num">${tokenCell(r.promptTokens)}</td>`
-        + `<td class="tk-num">${tokenCell(r.completionTokens)}</td>`
-        + `<td class="tk-num tk-num--strong">${tokenCell(r.totalTokens)}</td>`
-        + `</tr>`;
+      return `<div class="tk-card">`
+        + `<div class="tk-card__head">`
+        + `<span class="tk-card__provider" title="${escapeHtml(provider ?? '')}">${escapeHtml(provider ?? '')}</span>`
+        + `<span class="tk-card__sep">›</span>`
+        + `<span class="tk-card__model" title="${escapeHtml(model ?? '')}">${escapeHtml(model ?? '')}</span>`
+        + `</div>`
+        + `<div class="tk-card__metrics">`
+        + `<span>${r.requests} 次</span>`
+        + `<span>上行 ${tokenCell(r.promptTokens)}</span>`
+        + `<span>下行 ${tokenCell(r.completionTokens)}</span>`
+        + `<span class="tk-card__total">合计 ${tokenCell(r.totalTokens)}</span>`
+        + `</div>`
+        + `</div>`;
     }).join('');
-    return `<table class="tk-table"><thead><tr>`
-      + '<th>提供商</th><th>模型</th><th>次数</th><th>上行</th><th>下行</th><th>合计</th>'
-      + `</tr></thead><tbody>${rows}</tbody></table>`;
+    return `<div class="tk-cards">${cards}</div>`;
   }
 
   private renderTaskLine(s: TokenStats): string {
@@ -179,14 +188,36 @@ export class TokenUsagePanel {
   private renderTrend(s: TokenStats): string {
     // 高度按窗口内最大单桶合计线性归一化；max=0 时全为 0 高，不做任何估算。
     const max = s.trend.reduce((m, d) => Math.max(m, d.totalTokens), 0);
-    const cols = s.trend.map((d) => {
+    const n = s.trend.length;
+    // X 轴刻度按明确的时间单位显示（业务规则，不是几何估算）：
+    //   - 今日 / 昨日按小时：每 4 小时一刻度 → 0 / 4 / 8 / 12 / 16 / 20
+    //   - 按天（最近 30 天）：每 7 天一刻度 → 首日、+7、+14、+21、+28
+    //   - 最近 7 天只有 7 桶，窄屏每柱约 31px，逐柱标 DD 也放得下，故间隔取 1
+    // 柱子由 CSS flex 均分（min-width:0，无横向滚动）；刻度绝对定位、不占柱宽，
+    // 所以标签长短不会影响柱子能否放下。精确时间仍在各柱 tooltip 与趋势标题里。
+    const tickStep = s.hourly ? 4 : (n > 7 ? 7 : 1);
+    const lastTick = Math.floor((n - 1) / tickStep) * tickStep;
+    const tickLabel = (d: TokenTrendPoint): string => {
+      if (s.hourly) return String(Number(d.label));              // "04" → "4"
+      if (tickStep > 1) return d.date.slice(5).replace('-', '/'); // "2026-10-28" → "10/28"
+      return d.label;                                            // "28"（日号 DD）
+    };
+    const cols = s.trend.map((d, i) => {
       const pHeight = max > 0 ? (d.promptTokens / max) * 100 : 0;
       const cHeight = max > 0 ? (d.completionTokens / max) * 100 : 0;
+      const isTick = i % tickStep === 0;
+      // 首尾刻度改为左 / 右对齐：居中会让半个 label 溢出柱区，
+      // 而 .tk-body 的 overflow-x 会由 overflow-y:scroll 推导成 auto，
+      // 这点溢出就可能重新冒出横向滚动条。钳制后 label 完全落在柱区内。
+      const alignCls = isTick && i === 0 ? ' tk-col__label--first'
+        : isTick && i === lastTick ? ' tk-col__label--last' : '';
+      const label = isTick
+        ? `<div class="tk-col__label${alignCls}">${escapeHtml(tickLabel(d))}</div>` : '';
       return `<div class="tk-col" title="${escapeHtml(this.trendTooltip(d, s.hourly))}">`
         + `<div class="tk-bar-wrap">`
         + `<div class="tk-bar tk-bar--completion" style="height:${cHeight.toFixed(2)}%"></div>`
         + `<div class="tk-bar tk-bar--prompt" style="height:${pHeight.toFixed(2)}%"></div>`
-        + `</div><div class="tk-col__label">${escapeHtml(d.label)}</div></div>`;
+        + `</div>${label}</div>`;
     }).join('');
     const peakUnit = s.hourly ? '小时' : '日';
     return `<div class="tk-trend${s.hourly ? ' tk-trend--hourly' : ''}">${cols}</div>`
@@ -199,35 +230,35 @@ export class TokenUsagePanel {
     return `${when}：合计 ${exactTokenCount(d.totalTokens)}（上行 ${exactTokenCount(d.promptTokens)} / 下行 ${exactTokenCount(d.completionTokens)}），${d.requests} 次请求`;
   }
 
-  private renderFooter(retention: number, bytes: number): string {
-    return `<div class="tk-footer__line">保留 ${retention} 天（/llm retention ${MIN_TOKEN_RETENTION_DAYS}~${MAX_TOKEN_RETENTION_DAYS} 可改） · 存储占用 ${formatBytes(bytes)}</div>`
-      + `<div class="tk-footer__line"><button type="button" class="tk-clear" id="tkClear">清空全部统计</button></div>`;
-  }
-
   private bindClear(): void {
-    const btn = document.getElementById('tkClear');
+    // 限定在本面板所在弹窗内查找，避免命中其他 WebDialog 实例的同名按钮。
+    const root = document.getElementById('tkPanelRoot');
+    const btn = root?.closest('.web-dialog')
+      ?.querySelector<HTMLButtonElement>('.web-dialog__btn[data-btn-id="clear"]');
     if (!btn) return;
+    // 该按钮声明了 keepOpen，Dialog 组件不会因点击而关闭弹窗；
+    // 这里只展开内联二次确认条，确认后才真正清库并刷新。
+    btn.classList.add('web-dialog__btn--danger');
     btn.addEventListener('click', () => {
-      // 内联二次确认：不嵌套单例 WebDialog、不依赖 window.confirm
-      const footer = document.getElementById('tkFooter');
-      if (!footer || footer.querySelector('.tk-confirm')) return;
-      const bar = document.createElement('div');
-      bar.className = 'tk-confirm';
+      const bar = btn.parentElement;
+      if (!bar || bar.querySelector('.tk-confirm')) return;
+      const confirm = document.createElement('div');
+      confirm.className = 'tk-confirm';
       const text = document.createElement('span');
-      text.textContent = '确定清空全部 Token 统计？此操作不可恢复。';
+      text.textContent = '确定清除全部 Token 统计？此操作不可恢复。';
       const yes = document.createElement('button');
       yes.type = 'button';
-      yes.textContent = '确定清空';
+      yes.textContent = '确定清除';
       const no = document.createElement('button');
       no.type = 'button';
       no.textContent = '取消';
-      no.addEventListener('click', () => bar.remove());
+      no.addEventListener('click', () => confirm.remove());
       yes.addEventListener('click', () => {
         void this.store.clear().then(() => this.refresh());
-        bar.remove();
+        confirm.remove();
       });
-      bar.append(text, no, yes);
-      footer.append(bar);
+      confirm.append(text, no, yes);
+      bar.append(confirm);
     });
   }
 }
