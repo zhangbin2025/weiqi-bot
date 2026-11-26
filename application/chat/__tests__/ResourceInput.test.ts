@@ -107,3 +107,44 @@ describe('resourceFromFile', () => {
     expect(r.sourceUrl).toBeUndefined();
   });
 });
+
+
+describe('fetchResourceFromUrl 的 X-User-Agent（与 web_fetch 同源 resolveProxyUserAgent）', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const uaDeps = () => ({
+    proxyUrl: 'https://api.weiqi.lol',
+    timeoutMs: 60_000,
+    fetchImpl: vi.fn(async () => ({
+      ok: true, status: 200, statusText: 'OK',
+      headers: new Headers({ 'content-type': 'application/pdf' }),
+      arrayBuffer: async () => new Uint8Array(PDF_MAGIC).buffer,
+    })) as unknown as typeof fetch,
+  });
+  const sentUA = (d: ReturnType<typeof uaDeps>) =>
+    ((d.fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]![1] as RequestInit)
+      .headers as Record<string, string>;
+
+  it('原生壳 WeiqiApp/1.0 回落到标准浏览器 UA，不把分流标识发给站点', async () => {
+    vi.stubGlobal('navigator', { userAgent: 'WeiqiApp/1.0' });
+    const d = uaDeps();
+    await fetchResourceFromUrl('https://example.com/x.pdf', d);
+    const ua = sentUA(d)['X-User-Agent'];
+    expect(ua).toContain('Mozilla/5.0');
+    expect(ua).not.toContain('WeiqiApp');
+  });
+
+  it('纯 Web 原样使用浏览器真实 UA，不伪造', async () => {
+    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (X11; Linux) TestBrowser/2.0' });
+    const d = uaDeps();
+    await fetchResourceFromUrl('https://example.com/x.pdf', d);
+    expect(sentUA(d)['X-User-Agent']).toBe('Mozilla/5.0 (X11; Linux) TestBrowser/2.0');
+  });
+
+  it('navigator 不可用时不带该头（不崩、不臆造 UA）', async () => {
+    vi.stubGlobal('navigator', undefined);
+    const d = uaDeps();
+    await fetchResourceFromUrl('https://example.com/x.pdf', d);
+    expect(sentUA(d)['X-User-Agent']).toBeUndefined();
+  });
+});

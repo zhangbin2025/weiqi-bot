@@ -17,7 +17,7 @@
  */
 
 import type { WebFetchToolDeps } from './WebFetchTool';
-import { validateWebFetchUrl } from './WebFetchTool';
+import { validateWebFetchUrl, resolveProxyUserAgent } from './WebFetchTool';
 
 /** 工具能处理的资源种类。unsupported 明确回观察，不猜内容。 */
 export type ResourceKind = 'pdf' | 'image' | 'unsupported';
@@ -114,8 +114,10 @@ function labelFromUrl(url: string): string {
 
 /**
  * 从公开 URL 取回原始字节。失败一律变「观察」用的错误文本，不抛给 loop。
- * 显式带 X-User-Agent（浏览器自身 UA，来源清楚），因为部分图片站点对无 UA
- * 请求返 403；代理白名单会把 X- 前缀还原成标准 User-Agent，三端一致。
+ * 显式带 X-User-Agent，因为部分图片站点对无 UA 请求返 403；代理白名单会把
+ * X- 前缀还原成标准 User-Agent，三端一致。UA 取值统一走 WebFetchTool 的
+ * resolveProxyUserAgent()：纯 Web 用浏览器真实 UA，原生壳（WeiqiApp/1.0
+ * 分流标识）回落到标准浏览器 UA，与 web_fetch 同一真相源、不另造常量。
  */
 export async function fetchResourceFromUrl(
   rawUrl: string,
@@ -134,9 +136,8 @@ export async function fetchResourceFromUrl(
   const timer = setTimeout(() => controller.abort(), deps.timeoutMs);
   const fetchImpl = deps.fetchImpl ?? globalThis.fetch;
   const headers: Record<string, string> = {};
-  if (typeof navigator !== 'undefined' && navigator.userAgent) {
-    headers['X-User-Agent'] = navigator.userAgent;
-  }
+  const proxyUserAgent = resolveProxyUserAgent();
+  if (proxyUserAgent) headers['X-User-Agent'] = proxyUserAgent;
   try {
     const response = await fetchImpl(target, {
       method: 'GET',

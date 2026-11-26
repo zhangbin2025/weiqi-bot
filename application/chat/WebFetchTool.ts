@@ -23,11 +23,10 @@
  *   本工具不提供任何鉴权来源，也不注入伪造的 Referer / User-Agent。
  *   唯一多带一个 X-User-Agent：透明代理只认请求端显式给出的头、不会回落到
  *   浏览器自动携带的 UA，缺 UA 时部分站点（如微信公众号文章）只返回验证页
- *   而非正文；代理把该头还原成标准 User-Agent。三端代理均已支持 X-User-Agent，
- *   与 ResourceInput.fetchResourceFromUrl（图片工具）的做法一致。
- *   纯 Web 用浏览器自身真实 UA；原生壳的 navigator.userAgent 被 override 成
- *   应用内分流标识 "WeiqiApp/1.0"（非浏览器身份，会被上述站点拦），抓取时
- *   回落到仓库既有的标准浏览器 UA（见 FETCH_BROWSER_UA，出处见其注释）。
+ *   而非正文；代理把该头还原成标准 User-Agent。三端代理均已支持 X-User-Agent。
+ *   取值统一由本模块导出的 resolveProxyUserAgent() 决定（纯 Web 用浏览器真实
+ *   UA；原生壳的 WeiqiApp/1.0 分流标识回落到既有标准浏览器 UA），web_fetch
+ *   与 ResourceInput.fetchResourceFromUrl（图片/PDF 字节）共用同一真相源。
  *
  * URL 校验是防护边界而非业务语义：只放行 http/https，拒绝环回 / 私网
  * 字面地址（RFC 1918 / 3927 / 5735 定义的地址段）。域名解析到私网 IP
@@ -52,7 +51,26 @@ import { defaultWebFetchCache, type CachedWebResource, type WebFetchCache } from
  * 本机直连（绕过 Cloudflare）结果相同，说明与出口 IP 无关。因此仅当识别到壳
  * 标识时回落到这个值；纯 Web 仍用浏览器自身真实 UA，不回落、不伪造。
  */
-const FETCH_BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+export const FETCH_BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+
+/**
+ * 解析「经透明代理发出的请求」应带上的 User-Agent。
+ *
+ * 透明代理只认请求端显式给出的头，不回落浏览器自动携带的 UA；三端代理都把
+ * X-User-Agent 还原成标准 User-Agent。凡走 `${proxyUrl}/?url=` 的链路
+ * （web_fetch 取正文、fetchResourceFromUrl 取图片/PDF 字节）统一走这里，
+ * 保证 UA 口径单一真相源、原生壳回落逻辑不出现第二份常量/判据。
+ *
+ * - 纯 Web：返回浏览器自身真实 UA，不伪造。
+ * - 原生壳：navigator.userAgent 被 override 成 WeiqiApp/1.0（分流标识，见
+ *   createAIEngine.isAppEnvironment），部分站点（如微信公众号文章）据此只回
+ *   验证页；回落到 FETCH_BROWSER_UA。
+ * - navigator 不可用：返回 undefined，调用方不带该头，不臆造。
+ */
+export function resolveProxyUserAgent(): string | undefined {
+  if (typeof navigator === 'undefined' || !navigator.userAgent) return undefined;
+  return navigator.userAgent.includes('WeiqiApp') ? FETCH_BROWSER_UA : navigator.userAgent;
+}
 
 /** 工具名：模型按这个名字发起调用，改动需同步 WEB_FETCH_TOOL.function.name */
 export const WEB_FETCH_TOOL_NAME = 'web_fetch';
@@ -181,15 +199,11 @@ export async function executeWebFetch(argsJson: string, deps: WebFetchToolDeps):
   const timer = setTimeout(() => controller.abort(), deps.timeoutMs);
   const fetchImpl = deps.fetchImpl ?? globalThis.fetch;
   // 透明代理只认请求端显式给出的头，不会回落到浏览器自动携带的 UA，缺 UA 时
-  // 微信等站点只返回验证页。与 ResourceInput.fetchResourceFromUrl 一致。
-  // 壳标识 "WeiqiApp" 的判据与 createAIEngine.isAppEnvironment() 完全对齐；
-  // 命中时回落到标准浏览器 UA（依据见 FETCH_BROWSER_UA），纯 Web 原样使用真实 UA。
+  // 微信等站点只返回验证页。UA 口径统一由 resolveProxyUserAgent() 决定，
+  // 与 fetchResourceFromUrl（图片/PDF 字节）共用同一真相源。
   const headers: Record<string, string> = {};
-  if (typeof navigator !== 'undefined' && navigator.userAgent) {
-    headers['X-User-Agent'] = navigator.userAgent.includes('WeiqiApp')
-      ? FETCH_BROWSER_UA
-      : navigator.userAgent;
-  }
+  const proxyUserAgent = resolveProxyUserAgent();
+  if (proxyUserAgent) headers['X-User-Agent'] = proxyUserAgent;
   try {
     const response = await fetchImpl(target, {
       method: NO_FETCH_BODY_METHOD,
