@@ -97,6 +97,8 @@ export {
   type WsMessageData,
   type HttpRequestData,
   type HttpResponseData,
+  type DocumentSnapshot,
+  type DocumentMessageData,
   type SnifferMessage,
   type SnifferOptions,
   type SnifferSession,

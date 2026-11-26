@@ -313,6 +313,10 @@ class SnifferSession(
                     eventType.startsWith("http_") -> {
                         SnifferEvent.HTTP(HTTPEvent.fromJson(eventObj))
                     }
+                    // Document 快照事件
+                    eventType == "document" -> {
+                        SnifferEvent.DOCUMENT(DocumentEvent.fromJson(eventObj))
+                    }
                     // 未知事件类型，跳过
                     else -> {
                         Logger.w(TAG, "[$id] Unknown event type: $eventType")

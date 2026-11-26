@@ -149,6 +149,7 @@ class SnifferManager(
                                 val jsonObj = when (event) {
                                     is SnifferEvent.WS -> org.json.JSONObject(event.event.toJson())
                                     is SnifferEvent.HTTP -> org.json.JSONObject(event.event.toJson())
+                                    is SnifferEvent.DOCUMENT -> org.json.JSONObject(event.event.toJson())
                                 }
                                 jsonArray.put(jsonObj)
                             }

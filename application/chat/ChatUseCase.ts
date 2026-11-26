@@ -54,6 +54,10 @@ import { buildWorkflowToolParts } from '../skill/WorkflowTool';
 import { buildSkillSystemPrompt } from '../skill/SkillSystemPrompt';
 import { beginUserTurn } from '../skill/SkillTurn';
 import type { KvKit } from '../skill/kv/KvKit';
+import {
+  createBrowserCaptureToolKit,
+  type BrowserCaptureDeps,
+} from './BrowserCapture';
 
 /** 拦截「/」开头：chat 页零命令体系，配置请回功能助手 */
 export const SLASH_COMMAND_HINT = '对话页不支持命令，模型配置请回到功能助手操作。';
@@ -189,6 +193,12 @@ export class ChatUseCase {
      * 不传则阶段二 workflow 能力整条不挂，既有装配 / 测试零变化。
      */
     private readonly operatorRegistry?: OperatorRegistry,
+    /**
+     * 阶段二第 11 参（放最后，不动前 10 参顺序）：通用浏览器内容采集依赖。
+     * 仅非纯 Web 环境由 ChatPage 注入（AppSnifferProvider.isAvailable() 为真）；
+     * 不传则 browser_capture* 工具与 system 说明整条不挂，既有装配 / 测试零变化。
+     */
+    private readonly captureDeps?: BrowserCaptureDeps,
   ) {}
 
   isReady(): boolean {
@@ -461,7 +471,9 @@ export class ChatUseCase {
       kit = await this.buildDevToolKit(messages, localParts.length > 0, onTrace);
     } else if (usePlugin) {
       kit = this.pluginToolKit!;
-    } else if (this.skills || this.kvKit) {
+    } else if (this.skills || this.kvKit || this.captureDeps) {
+      // 精简装配只注入了 captureDeps（无技能 / kv）时也必须走 buildChatToolKit，
+      // 否则会落到 createWebToolKit 把 browser_capture* 工具与 system 说明整条丢掉。
       kit = await this.buildChatToolKit(messages, localParts.length > 0, devMode, onTrace);
     } else {
       kit = createWebToolKit(this.webTools!);
@@ -515,6 +527,23 @@ export class ChatUseCase {
     onTrace?: (step: PluginTraceStep) => void,
   ): Promise<ToolKit> {
     let base = createWebToolKit(this.webTools!);
+    // 通用浏览器内容采集：仅在非纯 Web（宿主 sniffer 可用）时由装配层注入。
+    // 与 kv 同一套「去重 + 拼 system」口径；纯 Web 完全不挂，模型看不到任何 browser_capture*。
+    const capture = this.captureDeps
+      ? createBrowserCaptureToolKit(this.captureDeps)
+      : undefined;
+    if (capture) {
+      const tools = [...base.tools];
+      const executors: Record<string, ToolExecutor> = { ...base.executors };
+      for (const t of capture.tools) {
+        const exec = capture.executors[t.name];
+        if (exec && !executors[t.name]) {
+          tools.push(t);
+          executors[t.name] = exec;
+        }
+      }
+      base = { ...base, tools, executors };
+    }
     // 本地数据层：chat 超集，基础 web 工具之上恒定追加（同一套去重口径）。
     // kv_* 是通用能力，不依赖技能命中；技能配方也可在 primitives 里引用同名原语。
     const kv = this.kvKit;
@@ -587,6 +616,11 @@ export class ChatUseCase {
     // 挂了 kv 就必须走拼装路径，让它的 system 说明进入本轮（ToolLoop 是替换制）。
     // 例外：有带 workflow 的配方时即使散文路径没命中也要挂 run_workflow（活性由 workflow 字段判）。
     const kvSuffix = kv?.systemSuffix ?? '';
+    // ToolLoop.systemPrompt 是替换制：capture 说明必须拼进完整 system 尾部，
+    // 且纳入下面「闲聊无命中」早退判断，否则挂了采集能力的客户端首轮会丢工具/说明。
+    const captureSystem = typeof capture?.systemPrompt === 'string'
+      ? capture.systemPrompt
+      : '';
     const hitWorkflow = this.operatorRegistry
       ? active.filter((s) => s.workflow !== undefined)
       : [];
@@ -615,10 +649,10 @@ export class ChatUseCase {
     console.info('[wf-diag] buildChatToolKit() mount decision', {
       workflowActive: workflowActive.map((s) => s.id),
       withWorkflow: workflowActive.filter((s) => s.workflow !== undefined).map((s) => s.id),
-      willReturnBase: active.length === 0 && !dev && !kvSuffix && workflowActive.length === 0,
+      willReturnBase: active.length === 0 && !dev && !kvSuffix && !captureSystem && workflowActive.length === 0,
       willMountWf: Boolean(this.operatorRegistry) && (Boolean(dev) || workflowActive.length > 0),
     });
-    if (active.length === 0 && !dev && !kvSuffix && workflowActive.length === 0) return base;
+    if (active.length === 0 && !dev && !kvSuffix && !captureSystem && workflowActive.length === 0) return base;
 
     const parts = this.skills
       ? buildSkillToolParts(active, this.skills.primitives)
@@ -670,6 +704,7 @@ export class ChatUseCase {
     // ToolLoop.systemPrompt 是替换制，因此域清单与边界说明必须追加到已拼好的
     // 完整 system 尾部，不冲掉闲聊 / 技能 / 技能开发说明。
     if (kvSuffix) systemPrompt = `${systemPrompt}\n\n${kvSuffix}`;
+    if (captureSystem) systemPrompt = `${systemPrompt}\n\n${captureSystem}`;
     return { tools, executors, systemPrompt };
   }
 

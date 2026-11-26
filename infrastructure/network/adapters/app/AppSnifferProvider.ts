@@ -14,6 +14,8 @@ import type {
   WsMessageData,
   HttpRequestData,
   HttpResponseData,
+  DocumentMessageData,
+  DocumentSnapshot,
 } from '../../interfaces/SnifferTypes';
 import { UnsupportedSnifferSession } from '../common/UnsupportedSnifferProvider';
 
@@ -89,6 +91,22 @@ class AppSnifferSession implements ISnifferSession {
         const url = event.u || event.url || '';
         const msgData = event.d || event.data || '';
         const timestamp = event.ts || event.timestamp || Date.now();
+        // document 事件的 d 是结构化对象（不是字符串）；按两端注入脚本契约逐字读取，
+        // 缺失字段一律回落到空值，避免整条事件因单点损坏被静默丢弃。
+        const docRaw = event.d;
+        const docObj = (docRaw && typeof docRaw === 'object' && !Array.isArray(docRaw))
+          ? docRaw as Record<string, unknown>
+          : {};
+        const toStringArray = (v: unknown): string[] =>
+          Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+        const docSnapshot: DocumentSnapshot = {
+          title: typeof docObj['title'] === 'string' ? docObj['title'] : '',
+          text: typeof docObj['text'] === 'string' ? docObj['text'] : '',
+          html: typeof docObj['html'] === 'string' ? docObj['html'] : '',
+          resources: toStringArray(docObj['resources']),
+          scripts: toStringArray(docObj['scripts']),
+          url: typeof docObj['url'] === 'string' ? docObj['url'] : url,
+        };
 
         // App端type值映射
         let type = rawType;
@@ -100,6 +118,8 @@ class AppSnifferSession implements ISnifferSession {
         else if (rawType === 'close') type = 'ws_close';
         // HTTP 事件映射（保持原样）
         else if (rawType.startsWith('http_')) type = rawType;
+        // document 快照事件（独立消息族，保持原样）
+        else if (rawType === 'document') type = 'document';
 
         // 转换为统一的 SnifferMessage 格式
         let message: SnifferMessage | null = null;
@@ -146,6 +166,14 @@ class AppSnifferSession implements ISnifferSession {
             body: msgData?.body,
             timestamp,
           } as HttpResponseData;
+        } else if (type === 'document') {
+          // JS 渲染后的 document 快照：结构化对象，不套 WS 的 data:string 口径。
+          message = {
+            type: 'document',
+            url,
+            snapshot: docSnapshot,
+            timestamp,
+          } as DocumentMessageData;
         }
 
         if (message) {

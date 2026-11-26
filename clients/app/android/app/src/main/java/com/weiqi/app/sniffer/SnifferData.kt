@@ -102,22 +102,92 @@ data class HTTPEvent(
 }
 
 /**
+ * Document 快照事件数据类
+ */
+data class DocumentEvent(
+    val type: String,                 // document
+    val url: String,                  // 页面 URL（顶层 u）
+    val title: String?,               // document.title
+    val text: String?,                // document.body.innerText
+    val html: String?,                // document.documentElement.outerHTML
+    val resourceUrls: List<String>,   // performance resource entries
+    val scriptUrls: List<String>,     // document.scripts 的 src
+    val timestamp: Long               // 时间戳（顶层 ts）
+) {
+    companion object {
+        fun fromJson(obj: JSONObject): DocumentEvent {
+            val dataObj = obj.getJSONObject("d")
+
+            val resourceArray = dataObj.getJSONArray("resources")
+            val resources = mutableListOf<String>()
+            for (i in 0 until resourceArray.length()) {
+                resources.add(resourceArray.getString(i))
+            }
+
+            val scriptArray = dataObj.getJSONArray("scripts")
+            val scripts = mutableListOf<String>()
+            for (i in 0 until scriptArray.length()) {
+                scripts.add(scriptArray.getString(i))
+            }
+
+            return DocumentEvent(
+                type = obj.getString("t"),
+                url = obj.getString("u"),
+                title = dataObj.optString("title"),
+                text = dataObj.optString("text"),
+                html = dataObj.optString("html"),
+                resourceUrls = resources,
+                scriptUrls = scripts,
+                timestamp = obj.getLong("ts")
+            )
+        }
+    }
+
+    fun toJson(): String {
+        val obj = JSONObject().apply {
+            put("t", type)
+            put("u", url)
+            put("ts", timestamp)
+
+            val dataObj = JSONObject().apply {
+                put("title", title)
+                put("text", text)
+                put("html", html)
+                put("resources", JSONArray().apply {
+                    resourceUrls.forEach { put(it) }
+                })
+                put("scripts", JSONArray().apply {
+                    scriptUrls.forEach { put(it) }
+                })
+                // 前端按 url 键读页面地址，保持与采集端逐字一致。
+                put("url", url)
+            }
+            put("d", dataObj)
+        }
+        return obj.toString()
+    }
+}
+
+/**
  * 抓包事件（联合类型）
  */
 sealed class SnifferEvent {
     data class WS(val event: WSEvent) : SnifferEvent()
     data class HTTP(val event: HTTPEvent) : SnifferEvent()
+    data class DOCUMENT(val event: DocumentEvent) : SnifferEvent()
     
     val timestamp: Long
         get() = when (this) {
             is WS -> event.timestamp
             is HTTP -> event.timestamp
+            is DOCUMENT -> event.timestamp
         }
     
     val url: String
         get() = when (this) {
             is WS -> event.url
             is HTTP -> event.url
+            is DOCUMENT -> event.url
         }
 }
 

@@ -37,6 +37,11 @@ import { ChatUseCase, type LocalFileInput, type SkillDeps } from '../../../../..
 import { createSkillRegistry } from '../../../../../application/skill/SkillRegistry';
 import type { SkillPrimitive, SkillRecipe } from '../../../../../application/skill/SkillTypes';
 import { createBasicPrimitives } from '../../../../../application/skill/primitives/BasicPrimitives';
+import {
+  createBrowserCapturePrimitives,
+  type BrowserCaptureDeps,
+} from '../../../../../application/chat/BrowserCapture';
+import { AppSnifferProvider } from '../../../../../infrastructure/network/adapters/app/AppSnifferProvider';
 import { loadWebProxyOverride } from '../../../../../infrastructure/config/WebProxyOverride';
 import { createKvKit } from '../../../../../application/skill/kv/KvKit';
 import { ConversationCompactor } from '../../../../../application/chat/ConversationCompactor';
@@ -253,6 +258,16 @@ export class ChatPage {
       get proxyUrl(): string { return loadWebProxyOverride() ?? injectedProxyUrl; },
       timeoutMs: config?.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS,
     };
+    // 通用浏览器内容采集：复用 game.ts 里同款能力探测（AppSnifferProvider 的 WeiqiApp UA 判定），
+    // 不引入新的环境判断。纯 Web 得到 undefined → 算子 / 工具 / 系统说明整条不注册。
+    // timeoutMs 直接用上面 webTools 的既有配置值，零新增数值。
+    const appSniffer = new AppSnifferProvider();
+    const captureDeps: BrowserCaptureDeps | undefined = appSniffer.isAvailable()
+      ? { sniffer: appSniffer, timeoutMs: webTools.timeoutMs }
+      : undefined;
+    const capturePrimitives = captureDeps
+      ? createBrowserCapturePrimitives(captureDeps)
+      : [];
     // 技能是安装制：本地库是唯一生效来源，在线源只浏览/安装，绝不自动叠加。
     // - primitives 是宿主内置且固定的执行器注册表（基础 web 原语 + display_json_list 通用展示原语
     //   + 赛事导入两阶段原语），
@@ -271,6 +286,7 @@ export class ChatPage {
     this.secretSpecs = secretSpecs;
     const skillPrimitives = createSkillRegistry([
       ...createBasicPrimitives(webTools),
+      ...capturePrimitives,
       ...kvKit.primitives,
       // 通用带凭据直连：模型只给 url + secretKey，域名白名单 / header / 重认证
       // 状态全由配方 secrets 声明，宿主按 secretKey 查表执行。
@@ -333,7 +349,13 @@ export class ChatPage {
     // 的降级装配：内置算子照常可用，插件算子天然不注册（runner 会结构化报未注册），
     // 与「装配失败不阻塞对话页」的既有兜底一致，不自造工件/运行时实例。
     const operatorDeps: OperatorRegistryDeps = {
-      primitives: createBasicPrimitives(webTools),
+      // workflow 第一通路：browser_capture 作为宿主可信内置算子进算子表，
+      // 产出的 structured value 由 WorkflowRunner 连线给下游 json_extract / regex_* / display_json_list。
+      // 纯 Web capturePrimitives 为空数组，算子表里天然没有 browser_capture。
+      primitives: [
+        ...createBasicPrimitives(webTools),
+        ...capturePrimitives,
+      ],
       artifacts: this.plugin?.artifacts ?? {
         // 最小降级桩：只实现 createOperatorRegistry 会调的 listActive()。
         // 类型由结构补齐（PluginArtifactService 的公开面较宽），用 as 收口避免把
@@ -396,6 +418,8 @@ export class ChatPage {
       new ConversationCompactor({ gateway, store: kvKit.service }),
       // 阶段二第 10 参：宿主统一算子表（稳定代理）；不传则 workflow 能力整条不挂。
       this.operatorRegistry,
+      // 第 11 参：通用内容采集依赖（仅非纯 Web）。纯 Web 传 undefined，工具/说明整条不挂。
+      captureDeps,
     );
 
     this.bindUI();

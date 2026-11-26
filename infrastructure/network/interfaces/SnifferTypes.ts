@@ -12,7 +12,8 @@ export type SnifferMessageType =
   | 'ws_send'      // WebSocket 发送消息
   | 'ws_close'     // WebSocket 连接关闭
   | 'http_request' // HTTP 请求
-  | 'http_response'; // HTTP 响应
+  | 'http_response' // HTTP 响应
+  | 'document';    // JS 渲染后的 document 快照（两端注入脚本在 window load 时采集一次）
 
 /**
  * WebSocket 消息数据
@@ -71,9 +72,38 @@ export interface HttpResponseData {
 }
 
 /**
+ * JS 渲染后的 document 快照（两端注入脚本在 window 'load' 时采集一次）。
+ * 字段名与 Electron sniffer-preload.js / Android ws-sniffer-ext/content-script.js
+ * 上报的 d 对象逐字一致；1MB 截断沿用同文件 HTTP Hook 既有 MAX_BODY_SIZE 口径，
+ * 是可解释的同一来源，不是新阈值。SPA 后续动态渲染的采集触发点可按需扩展。
+ */
+export interface DocumentSnapshot {
+  title: string;
+  text: string;
+  html: string;
+  /** performance.getEntriesByType('resource') 的 URL 列表 */
+  resources: string[];
+  /** document.scripts 的 src 列表（已过滤空值） */
+  scripts: string[];
+  /** 采集时的 location.href */
+  url: string;
+}
+
+/** document 事件消息：用 snapshot 承载结构化对象，避免与 WsMessageData.data:string 撞型 */
+export interface DocumentMessageData {
+  type: 'document';
+  /** 页面 URL（底层事件的 u） */
+  url: string;
+  /** 结构化快照（底层事件的 d 对象） */
+  snapshot: DocumentSnapshot;
+  /** 时间戳（毫秒） */
+  timestamp: number;
+}
+
+/**
  * Sniffer 消息（联合类型）
  */
-export type SnifferMessage = WsMessageData | HttpRequestData | HttpResponseData;
+export type SnifferMessage = WsMessageData | HttpRequestData | HttpResponseData | DocumentMessageData;
 
 /**
  * Sniffer 配置选项

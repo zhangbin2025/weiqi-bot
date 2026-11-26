@@ -323,6 +323,26 @@
                 } catch (e) { /* ignore */ }
             }
         })();
+
+        // ========== Document 快照采集（新增）==========
+        // 当前在 load 时抓一次快照；SPA 后续动态渲染的采集触发点可按需扩展。
+        // document_start 注入时 load 尚未触发，能监听到。
+        (function () {
+            // 沿用同文件 HTTP Hook 的 MAX_BODY_SIZE 1MB 口径，同一可解释来源，非新阈值。
+            var MAX_DOC_SIZE = 1024 * 1024;
+
+            window.addEventListener('load', function () {
+                var MAX = MAX_DOC_SIZE;
+                post('document', location.href, {
+                    title: document.title || '',
+                    text: (document.body && document.body.innerText || '').slice(0, MAX),
+                    html: (document.documentElement && document.documentElement.outerHTML || '').slice(0, MAX),
+                    resources: (performance.getEntriesByType ? performance.getEntriesByType('resource').map(function (e) { return e.name }) : []),
+                    scripts: Array.prototype.slice.call(document.scripts).map(function (s) { return s.src }).filter(Boolean),
+                    url: location.href
+                }, false);
+            }, { once: true });
+        })();
     }
 
     function inject() {
