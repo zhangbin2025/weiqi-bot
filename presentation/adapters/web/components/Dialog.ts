@@ -17,9 +17,13 @@ export class WebDialog implements IDialog {
     `;
     this.dialog = document.createElement('div');
     this.dialog.className = 'web-dialog';
+    // min-width 用 min(300px, 100vw-80px)：宽屏(>=380px)仍是 300px，观感不变；
+    // 窄屏降到「视口 - 80px」，保证容器总宽 <= 100vw - 40px（左右各留 20px）。
+    // 80px = 容器自身 padding 40px + 期望左右外边距 40px，来源与任何具体页面无关；
+    // 300px 是 content-box 硬下限，叠加 40px padding 后实为 340px，会在 <340px 视口溢出。
     this.dialog.style.cssText = `
       background: white; padding: 20px; border-radius: 8px;
-      min-width: 300px; max-width: 500px;
+      min-width: min(300px, calc(100vw - 80px)); max-width: 500px;
     `;
     this.contentContainer = document.createElement('div');
     this.contentContainer.className = 'web-dialog__content';

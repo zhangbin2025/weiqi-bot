@@ -106,7 +106,7 @@ function emptyTrend(fromDate: string, toDate: string, hourly: boolean): TokenTre
   } else {
     for (let date = fromDate; date <= toDate; date = shiftDate(date, 1)) {
       points.push({
-        // 固定宽度弹窗里 30 根柱并排，柱下只标「日」（DD）；完整日期在
+        // 窄屏弹窗里 30 根柱并排，柱下只标「日」（DD）；完整日期在
         // 趋势标题的起止范围与各柱 tooltip 里给全，避免 label 互相挤压。
         key: date, date, label: date.slice(8), bucketHour: null,
         requests: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0,

@@ -356,13 +356,18 @@
             text-overflow: ellipsis; white-space: nowrap;
         }
 
-        /* Token 消耗面板：单弹窗，主要展示数字，样式沿用插件面板的紫色体系 */
-        /* 固定宽度：.web-dialog 宽度由内容撑开（max-width:500px，自带 20px padding）。
-           面板固定 440px + dialog padding 40px = 480px，各时间段切换时宽度不再随内容变；
-           内部左右各留 8px padding（border-box 计入 440px）。 */
+        /* Token 消耗面板：单弹窗，主要展示数字，样式沿用插件面板的紫色体系。
+           宽度按屏幕自适应（屏幕宽度下只留 padding，勿再写死 440px）：
+           .web-dialog 未设 width，宽度由内容撑开（min/max-width 约束）+ 左右各 20px padding，
+           所以面板取 calc(100vw - 80px) 时容器总宽自然是 100vw - 40px（左右各 20px 留白）；
+           宽屏由面板 max-width:440px 封顶，容器 480px，沿用原桌面观感。
+           Dialog 组件的 min-width 已改为响应式，窄屏不会用硬下限把容器撑出屏幕。
+           margin:auto 让面板在容器略宽于内容时居中；内部再留左右各 8px padding。
+           不依赖 :has()/容器选择器，纯盒模型，旧 WebView 同样生效。 */
         .tk-panel {
             display: flex; flex-direction: column; max-height: 62vh; font-size: 13px;
-            width: 440px; max-width: 440px; box-sizing: border-box; padding: 0 8px;
+            width: calc(100vw - 80px); max-width: 440px; margin: 0 auto;
+            box-sizing: border-box; padding: 0 8px;
         }
         .tk-ranges { display: flex; gap: 4px; border-bottom: 1px solid #e8e8ee; margin-bottom: 10px; flex: 0 0 auto; }
         .tk-range {
@@ -387,9 +392,10 @@
         .tk-num--strong { color: #4b43a8; font-weight: 600; }
         .tk-tasks { display: flex; flex-wrap: wrap; gap: 6px; }
         .tk-task { background: #f0eefc; color: #5546a8; border-radius: 12px; padding: 3px 9px; font-size: 11px; }
-        .tk-trend { display: flex; align-items: flex-end; gap: 2px; height: 92px; padding: 4px 0; }
-        /* 小时 24 桶 / 天 30 桶都在固定宽度内均分，不横向滚动 */
-        .tk-col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; }
+        .tk-trend { display: flex; align-items: flex-end; gap: 2px; height: 92px; padding: 4px 0; overflow-x: auto; }
+        /* 柱子最小 12px：宽屏由 flex-grow 均分填满；窄屏 24/30 桶放不下时横向滚动，
+           保证柱下 DD / 小时 label 不被挤糊（精确时间在 tooltip 与趋势标题里）。 */
+        .tk-col { flex: 1 0 12px; min-width: 12px; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; }
         .tk-bar-wrap { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: flex-end; min-height: 0; }
         .tk-bar { width: 100%; }
         .tk-bar--prompt { background: #667eea; border-radius: 2px 2px 0 0; }
