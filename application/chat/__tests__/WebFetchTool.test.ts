@@ -156,6 +156,24 @@ describe('executeWebFetch 带浏览器自身 UA（透明代理不回落自动 UA
       .toBe('Mozilla/5.0 (X11; Linux x86_64) TestBrowser/1.0');
   });
 
+  it('原生壳 UA（含 WeiqiApp）：回落到标准浏览器 UA，不把分流标识发给站点', async () => {
+    vi.stubGlobal('navigator', { userAgent: 'WeiqiApp/1.0' });
+    const d = deps();
+    await executeWebFetch(JSON.stringify({ url: 'https://example.com/' }), d);
+    const init = (d.fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]![1] as RequestInit;
+    const ua = (init.headers as Record<string, string>)['X-User-Agent'];
+    expect(ua).not.toContain('WeiqiApp');
+    expect(ua).toContain('Mozilla/5.0');
+  });
+
+  it('后台任务壳 UA（WeiqiApp/1.0 (BackgroundTask)）同样回落', async () => {
+    vi.stubGlobal('navigator', { userAgent: 'WeiqiApp/1.0 (BackgroundTask)' });
+    const d = deps();
+    await executeWebFetch(JSON.stringify({ url: 'https://example.com/' }), d);
+    const init = (d.fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]![1] as RequestInit;
+    expect((init.headers as Record<string, string>)['X-User-Agent']).not.toContain('WeiqiApp');
+  });
+
   it('navigator 不可用时不带该头（不崩、不臆造 UA）', async () => {
     vi.stubGlobal('navigator', undefined);
     const d = deps();
