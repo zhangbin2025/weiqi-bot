@@ -142,3 +142,25 @@ describe('executeWebFetch 短响应直给（减少模型往返）', () => {
     expect(r.observation).not.toContain('无需再调用 web_cache_read');
   });
 });
+
+
+describe('executeWebFetch 带浏览器自身 UA（透明代理不回落自动 UA）', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('fetch 带 X-User-Agent = navigator.userAgent，值来自浏览器自身、不伪造', async () => {
+    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (X11; Linux x86_64) TestBrowser/1.0' });
+    const d = deps();
+    await executeWebFetch(JSON.stringify({ url: 'https://example.com/' }), d);
+    const init = (d.fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]![1] as RequestInit;
+    expect((init.headers as Record<string, string>)['X-User-Agent'])
+      .toBe('Mozilla/5.0 (X11; Linux x86_64) TestBrowser/1.0');
+  });
+
+  it('navigator 不可用时不带该头（不崩、不臆造 UA）', async () => {
+    vi.stubGlobal('navigator', undefined);
+    const d = deps();
+    await executeWebFetch(JSON.stringify({ url: 'https://example.com/' }), d);
+    const init = (d.fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]![1] as RequestInit;
+    expect((init.headers as Record<string, string>)['X-User-Agent']).toBeUndefined();
+  });
+});

@@ -20,7 +20,12 @@
  *   web_read_pdf / web_read_image（见 WebResourceTools.ts），它们复用本文件的
  *   URL 校验与代理链路，把字节交给端侧抽取 / 多模态转换器。
  * - 授权（Authorization / X-Cookie / X-Referer）由后续端侧插件决定，
- *   本工具不提供任何鉴权来源，也不注入默认 Referer / User-Agent。
+ *   本工具不提供任何鉴权来源，也不注入伪造的 Referer / User-Agent。
+ *   唯一例外：用 X-User-Agent 带上浏览器自身真实 UA（来源清楚、不伪造），
+ *   因为透明代理只认请求端显式给出的头、不会回落到浏览器自动携带的 UA，
+ *   缺 UA 时部分站点（如微信公众号文章）只返回验证页而非正文；代理把该头
+ *   还原成标准 User-Agent。与 ResourceInput.fetchResourceFromUrl（图片工具）
+ *   的做法完全一致，三端代理均已支持 X-User-Agent。
  *
  * URL 校验是防护边界而非业务语义：只放行 http/https，拒绝环回 / 私网
  * 字面地址（RFC 1918 / 3927 / 5735 定义的地址段）。域名解析到私网 IP
@@ -157,9 +162,17 @@ export async function executeWebFetch(argsJson: string, deps: WebFetchToolDeps):
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), deps.timeoutMs);
   const fetchImpl = deps.fetchImpl ?? globalThis.fetch;
+  // 透明代理只认请求端显式给出的头，不会回落到浏览器自动携带的 UA；
+  // 用 X-User-Agent 带上浏览器自身真实 UA（来源清楚、不伪造），缺 UA 时
+  // 微信等站点只返回验证页。与 ResourceInput.fetchResourceFromUrl 一致。
+  const headers: Record<string, string> = {};
+  if (typeof navigator !== 'undefined' && navigator.userAgent) {
+    headers['X-User-Agent'] = navigator.userAgent;
+  }
   try {
     const response = await fetchImpl(target, {
       method: NO_FETCH_BODY_METHOD,
+      headers,
       signal: controller.signal,
       cache: 'no-store',
     });
