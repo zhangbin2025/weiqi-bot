@@ -1,23 +1,19 @@
 /**
  * 插件沙箱运行时（宿主侧）
- * @module infrastructure/plugin-vm/QuickJsRuntime
  *
- * Worker 按需启动并复用；每次 run 仍在 QuickJsExecutor 中创建独立 QuickJS
- * Runtime + Context。调用串行排队，避免同一 Worker 并发污染消息/执行状态。
- * 遇到硬超时、Worker 崩溃、OOM 或无法恢复的沙箱故障时立即销毁 Worker；
- * 下一次调用重新创建，保留原有故障隔离边界。
+ * 每次算子调用都创建独立 Worker：init/WASM 加载、执行、返回结果后立即
+ * terminate。Worker、QuickJS 模块、Runtime、Context 均不跨调用复用。
+ * 这样一次调用的死循环、WASM trap、内存破坏或插件残留状态不会污染下一次调用。
  */
 
 import type { IPluginRuntime, PluginSpec, PluginRunResult } from '../../domain/plugin/types';
 
-/** Worker 构造函数可注入，便于测试与不同构建环境 */
 export type WorkerFactory = () => Worker;
 
 export interface QuickJsRuntimeOptions {
   workerFactory: WorkerFactory;
-  /** wasm 二进制；Worker 启动后作为 init 消息传入 */
   wasmBinary: ArrayBuffer | (() => Promise<ArrayBuffer>);
-  /** 硬超时余量：Worker 侧 timeout 之外的额外缓冲 */
+  /** Worker 硬超时余量：QuickJS 自身 timeout 之外的缓冲 */
   hardTimeoutMarginMs?: number;
 }
 
@@ -25,23 +21,6 @@ interface WorkerReply { type: 'result'; result: PluginRunResult }
 interface WorkerReady { type: 'ready' }
 interface WorkerError { type: 'error'; message: string }
 type WorkerMessage = WorkerReply | WorkerReady | WorkerError;
-
-interface ActiveRun {
-  started: number;
-  resolve: (result: PluginRunResult) => void;
-  timer: ReturnType<typeof setTimeout>;
-}
-
-interface WorkerSession {
-  worker: Worker;
-  ready: Promise<void>;
-  resolveReady: () => void;
-  rejectReady: (error: Error) => void;
-  readySettled: boolean;
-  /** Worker 被关闭后忽略迟到消息，避免旧 session 回调影响新 session。 */
-  closed: boolean;
-  active?: ActiveRun;
-}
 
 function makeFailure(
   phase: 'crash' | 'timeout',
@@ -62,181 +41,108 @@ function makeFailure(
 
 export class QuickJsRuntime implements IPluginRuntime {
   private disposed = false;
-  private session: WorkerSession | null = null;
-  private queue: Promise<void> = Promise.resolve();
+  private readonly activeCalls = new Set<() => void>();
 
   constructor(private readonly options: QuickJsRuntimeOptions) {}
 
   run(code: string, input: unknown, spec: PluginSpec): Promise<PluginRunResult> {
     if (this.disposed) return Promise.reject(new Error('QuickJsRuntime 已释放'));
-    const task = this.queue.then(() => this.runOne(code, input, spec));
-    this.queue = task.then(() => undefined, () => undefined);
-    return task;
+    return this.runIsolated(code, input, spec);
   }
 
-  private createSession(started: number): WorkerSession | null {
-    let worker: Worker;
-    try {
-      worker = this.options.workerFactory();
-    } catch {
-      return null;
-    }
-
-    let resolveReady!: () => void;
-    let rejectReady!: (error: Error) => void;
-    const ready = new Promise<void>((resolve, reject) => {
-      resolveReady = resolve;
-      rejectReady = reject;
-    });
-    // ready 失败会由 runOne 消费；附加处理器避免初始化与销毁竞态产生未处理拒绝。
-    void ready.catch(() => undefined);
-    const session: WorkerSession = {
-      worker, ready, resolveReady, rejectReady, readySettled: false, closed: false,
-    };
-    this.session = session;
-
-    worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
-      if (session.closed) return;
-      const msg = event.data;
-      if (!msg || typeof msg !== 'object') return;
-      if (msg.type === 'ready') {
-        if (!session.readySettled) {
-          session.readySettled = true;
-          session.resolveReady();
-        }
-        return;
-      }
-      if (msg.type === 'error') {
-        this.breakSession(session, makeFailure('crash', msg.message, session.active?.started ?? started));
-        return;
-      }
-      if (msg.type === 'result') {
-        const active = session.active;
-        if (!active) return;
-        clearTimeout(active.timer);
-        delete session.active;
-        // crash / timeout / oom / 栈溢出可能意味着 QuickJS/WASM 状态已不可信，必须回收 Worker。
-        const failure = msg.result.ok ? undefined : msg.result;
-        const runtimeError = `${failure?.error?.name ?? ''} ${failure?.error?.message ?? ''}`;
-        const unsafeRuntimeState = /stack overflow|maximum call stack|out of memory|memory access out of bounds/i.test(runtimeError);
-        if (!msg.result.ok && (
-          msg.result.phase === 'crash' || msg.result.phase === 'timeout'
-          || msg.result.phase === 'oom' || unsafeRuntimeState
-        )) {
-          this.terminateSession(session);
-        }
-        active.resolve(msg.result);
-      }
-    };
-    worker.onerror = (event: ErrorEvent) => {
-      if (session.closed) return;
-      this.breakSession(session, makeFailure(
-        'crash', event.message || 'Worker 运行异常', session.active?.started ?? started,
-      ));
-    };
-    worker.onmessageerror = () => {
-      if (session.closed) return;
-      this.breakSession(session, makeFailure(
-        'crash', 'Worker 消息无法结构化克隆', session.active?.started ?? started,
-      ));
-    };
-
-    void (async () => {
-      try {
-        const provider = this.options.wasmBinary;
-        const binary = typeof provider === 'function' ? await provider() : provider;
-        if (this.session === session && !this.disposed) {
-          worker.postMessage({ type: 'init', wasmBinary: binary });
-        }
-      } catch (error) {
-        this.breakSession(session, makeFailure(
-          'crash', `wasm 资源读取失败: ${String(error)}`, session.active?.started ?? started,
-        ));
-      }
-    })();
-    return session;
-  }
-
-  private async runOne(code: string, input: unknown, spec: PluginSpec): Promise<PluginRunResult> {
-    if (this.disposed) throw new Error('QuickJsRuntime 已释放');
+  private runIsolated(code: string, input: unknown, spec: PluginSpec): Promise<PluginRunResult> {
     const started = Date.now();
-    const margin = this.options.hardTimeoutMarginMs ?? 1000;
-    const hardTimeoutMs = spec.limits.timeoutMs + margin;
-    const session = this.session ?? this.createSession(started);
-    if (!session) return makeFailure('crash', '无法创建沙箱 Worker', started);
+    const hardTimeoutMs = spec.limits.timeoutMs + (this.options.hardTimeoutMarginMs ?? 1000);
 
     return new Promise<PluginRunResult>((resolve) => {
-      const active: ActiveRun = {
-        started,
-        resolve,
-        timer: setTimeout(() => {
-          this.breakSession(
-            session,
-            makeFailure('timeout', `超过 ${hardTimeoutMs}ms 硬超时`, started),
-          );
-        }, hardTimeoutMs),
+      let worker: Worker | null = null;
+      let settled = false;
+      let ready = false;
+      let timer: ReturnType<typeof setTimeout>;
+
+      const cleanup = (): void => {
+        clearTimeout(timer);
+        if (worker) {
+          worker.onmessage = null;
+          worker.onerror = null;
+          worker.onmessageerror = null;
+          try { worker.terminate(); } catch { /* Worker 已退出 */ }
+          worker = null;
+        }
+        this.activeCalls.delete(cancel);
       };
-      session.active = active;
 
-      void session.ready.then(() => {
-        if (this.session !== session || session.active !== active || this.disposed) return;
+      const finish = (result: PluginRunResult): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(result);
+      };
+
+      const cancel = (): void => {
+        finish(makeFailure('crash', 'QuickJsRuntime 已释放', started));
+      };
+
+      this.activeCalls.add(cancel);
+      timer = setTimeout(() => {
+        finish(makeFailure('timeout', `超过 ${hardTimeoutMs}ms 硬超时`, started));
+      }, hardTimeoutMs);
+
+      if (this.disposed) {
+        cancel();
+        return;
+      }
+
+      try {
+        worker = this.options.workerFactory();
+      } catch (error) {
+        finish(makeFailure('crash', `无法创建沙箱 Worker: ${String(error)}`, started));
+        return;
+      }
+
+      worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
+        if (settled) return;
+        const msg = event.data;
+        if (!msg || typeof msg !== 'object') return;
+        if (msg.type === 'ready') {
+          if (ready) return;
+          ready = true;
+          try {
+            worker?.postMessage({ type: 'run', code, input, spec });
+          } catch (error) {
+            finish(makeFailure('crash', `无法向沙箱发送执行请求: ${String(error)}`, started));
+          }
+          return;
+        }
+        if (msg.type === 'error') {
+          finish(makeFailure('crash', msg.message || 'Worker 初始化或执行失败', started));
+          return;
+        }
+        if (msg.type === 'result') finish(msg.result);
+      };
+      worker.onerror = (event: ErrorEvent) => {
+        finish(makeFailure('crash', event.message || 'Worker 运行异常', started));
+      };
+      worker.onmessageerror = () => {
+        finish(makeFailure('crash', 'Worker 消息无法结构化克隆', started));
+      };
+
+      void (async () => {
         try {
-          session.worker.postMessage({ type: 'run', code, input, spec });
+          const provider = this.options.wasmBinary;
+          const binary = typeof provider === 'function' ? await provider() : provider;
+          if (settled || this.disposed) return;
+          worker?.postMessage({ type: 'init', wasmBinary: binary });
         } catch (error) {
-          this.breakSession(
-            session,
-            makeFailure('crash', `无法向沙箱发送执行请求: ${String(error)}`, started),
-          );
+          finish(makeFailure('crash', `wasm 资源读取失败: ${String(error)}`, started));
         }
-      }).catch((error: unknown) => {
-        if (session.active === active) {
-          this.breakSession(
-            session,
-            makeFailure('crash', error instanceof Error ? error.message : String(error), started),
-          );
-        }
-      });
+      })();
     });
-  }
-
-  /**
-   * 统一关闭 session：先标记 closed 并解绑事件，再终止 Worker。
-   * 这样即使浏览器队列里还有迟到的 message/error，也不会再次处理旧会话。
-   */
-  private closeSession(session: WorkerSession): void {
-    if (session.closed) return;
-    session.closed = true;
-    if (this.session === session) this.session = null;
-    session.worker.onmessage = null;
-    session.worker.onerror = null;
-    session.worker.onmessageerror = null;
-    try { session.worker.terminate(); } catch { /* 已终止 */ }
-    if (!session.readySettled) {
-      session.readySettled = true;
-      session.rejectReady(new Error('沙箱 Worker 已终止'));
-    }
-  }
-
-  private breakSession(session: WorkerSession, failure: PluginRunResult): void {
-    this.closeSession(session);
-    const active = session.active;
-    if (active) {
-      clearTimeout(active.timer);
-      delete session.active;
-      active.resolve(failure);
-    }
-  }
-
-  private terminateSession(session: WorkerSession): void {
-    this.closeSession(session);
   }
 
   async dispose(): Promise<void> {
+    if (this.disposed) return;
     this.disposed = true;
-    const session = this.session;
-    if (session) {
-      this.breakSession(session, makeFailure('crash', 'QuickJsRuntime 已释放', Date.now()));
-    }
-    await this.queue;
+    for (const cancel of [...this.activeCalls]) cancel();
   }
 }
