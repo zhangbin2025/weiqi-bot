@@ -372,18 +372,24 @@ function runRegex(action: string, args: Record<string, unknown>): unknown {
 function assertOutputBudget(value: unknown): void {
   const stack: Array<{ value: unknown; depth: number }> = [{ value, depth: 0 }];
   let nodes = 0;
+  let textUnits = 0;
   while (stack.length > 0) {
     const current = stack.pop()!;
     nodes += 1;
     if (nodes > MAX_OUTPUT_NODES) throw new Error('算子输出节点数超过上限');
     if (current.depth > MAX_OUTPUT_DEPTH) throw new Error('算子输出嵌套深度超过上限');
-    if (typeof current.value === 'string' && current.value.length > MAX_JSON_TEXT_LENGTH) {
-      throw new Error('算子输出字符串超过长度上限');
+    if (typeof current.value === 'string') {
+      textUnits += current.value.length;
+      if (textUnits > MAX_JSON_TEXT_LENGTH) throw new Error('算子输出累计文本超过长度上限');
     }
     if (Array.isArray(current.value)) {
       for (const child of current.value) stack.push({ value: child, depth: current.depth + 1 });
     } else if (isRecord(current.value)) {
-      for (const child of Object.values(current.value)) stack.push({ value: child, depth: current.depth + 1 });
+      for (const [key, child] of Object.entries(current.value)) {
+        textUnits += key.length;
+        if (textUnits > MAX_JSON_TEXT_LENGTH) throw new Error('算子输出累计文本超过长度上限');
+        stack.push({ value: child, depth: current.depth + 1 });
+      }
     }
   }
 }
