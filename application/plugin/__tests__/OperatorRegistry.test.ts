@@ -85,6 +85,9 @@ function fakePrimitive(
   return {
     name,
     definition: { name, description: '内置假原语', parameters: { type: 'object' } },
+    idempotent: true,
+    outputSchema: {},
+    kind: 'pure',
     execute,
   };
 }
