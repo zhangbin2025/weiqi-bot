@@ -25,7 +25,7 @@ import { createExtensionPointBehaviors } from '@application/plugin/behaviors';
 import { resolvePluginSpec, PLUGIN_SPECS } from '@domain/plugin/types';
 import type { PluginArtifact, IPluginRuntime, PluginRunResult, PluginSpec } from '@domain/plugin/types';
 import type { PluginArtifactService } from '@application/plugin/PluginArtifactService';
-import { PluginCatalogClient } from './PluginCatalogClient';
+import { PluginCatalogClient, PluginCatalogContractError } from './PluginCatalogClient';
 import type { ParsedRegistryResource } from './PluginCatalogClient';
 import { PluginCatalogSources } from './PluginCatalogSources';
 import { PluginCatalogCache } from './PluginCatalogCache';
@@ -378,8 +378,9 @@ export class PluginCatalogService {
       codeUrl = fetched.codeUrl;
     } catch (error) {
       const reason = messageOf(error);
-      // 旧 workflow-operator manifest 是明确的契约不兼容，不应伪装成网络不可用。
-      if (reason.startsWith('旧 exposes[].params')) {
+      // JSON 解析、字段形状、版本或资源路径违反契约属于 incompatible；
+      // 只有 HTTP / 网络 / 超时等取数故障才是 unavailable。
+      if (error instanceof PluginCatalogContractError) {
         return { ...base, state: 'incompatible', reason };
       }
       return { ...base, state: 'unavailable', reason: `清单不可用：${reason}` };
