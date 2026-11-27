@@ -100,7 +100,14 @@ export interface WorkflowRepeat {
   steps: WorkflowStep[];
 }
 
-/** 一个节点是普通算子调用，或由 runner 调度的通用循环控制块。 */
+/** 按一个上游 boolean value 选择分支；条件本身不执行表达式。 */
+export interface WorkflowIfElse {
+  condition: WorkflowLoopReference;
+  then: WorkflowStep[];
+  else?: WorkflowStep[];
+}
+
+/** 一个节点是普通算子调用，或由 runner 调度的通用控制块。 */
 export interface WorkflowStep {
   id: string;
   /** 普通算子调用；循环控制节点不填写。 */
@@ -110,6 +117,7 @@ export interface WorkflowStep {
   yield?: boolean;
   forEach?: WorkflowForEach;
   repeat?: WorkflowRepeat;
+  ifElse?: WorkflowIfElse;
 }
 
 /** 模型在 run_workflow 入口填空的参数契约（形状，不是代码）。 */
