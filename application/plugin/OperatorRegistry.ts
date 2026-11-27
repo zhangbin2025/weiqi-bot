@@ -20,8 +20,6 @@
  * - 各扩展点的入口 / 命名 / 输入形状由各自的适配声明给出（见 behaviors/OperatorAdapters），
  *   框架不写死任何契约入口。
  *
- * 不引入任何新阈值 / 经验常数：idempotent 缺省 true 是明说的业务约定
- * （纯计算算子默认幂等，non-idempotent 需显式声明），不是拟合数值。
  */
 
 import type {
@@ -64,7 +62,6 @@ export interface OperatorRegistry {
 function primitiveToOperatorSpec(p: SkillPrimitive): OperatorSpec {
   return {
     name: p.name,
-    // 纯计算算子默认幂等；non-idempotent 需原语显式声明（D 代理给 SkillPrimitive 补的可选字段）
     idempotent: p.idempotent,
     description: p.definition.description,
     inputSchema: p.definition.parameters,
@@ -97,6 +94,7 @@ export async function createOperatorRegistry(deps: OperatorRegistryDeps): Promis
 
   for (const spec of map.values()) {
     validateSchemaDefinition(spec.inputSchema, `${spec.name}.inputSchema`);
+    if (spec.inputSchema.type !== 'object') throw new Error(`${spec.name}.inputSchema 根类型必须是 object`);
     validateSchemaDefinition(spec.outputSchema, `${spec.name}.outputSchema`);
   }
 
@@ -112,6 +110,7 @@ export async function createOperatorRegistry(deps: OperatorRegistryDeps): Promis
     if (!adapter) continue; // 未声明算子适配的扩展点不进算子表（通用规则，不是特判）
     for (const op of adapter.toSpecs({ artifact, runtime: deps.runtime })) {
       validateSchemaDefinition(op.inputSchema, `${op.name}.inputSchema`);
+      if (op.inputSchema.type !== 'object') throw new Error(`${op.name}.inputSchema 根类型必须是 object`);
       validateSchemaDefinition(op.outputSchema, `${op.name}.outputSchema`);
       map.set(op.name, op);
     }
