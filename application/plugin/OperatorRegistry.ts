@@ -65,11 +65,11 @@ function primitiveToOperatorSpec(p: SkillPrimitive): OperatorSpec {
   return {
     name: p.name,
     // 纯计算算子默认幂等；non-idempotent 需原语显式声明（D 代理给 SkillPrimitive 补的可选字段）
-    idempotent: p.idempotent ?? true,
+    idempotent: p.idempotent,
     description: p.definition.description,
     inputSchema: p.definition.parameters,
-    outputSchema: p.outputSchema ?? {},
-    kind: p.kind ?? 'io',
+    outputSchema: p.outputSchema,
+    kind: p.kind,
     run: async (args: Record<string, unknown>): Promise<StepResult> => {
       const r: PrimitiveResult = await p.execute(args);
       const effects: NonNullable<StepResult['effects']> = [];
