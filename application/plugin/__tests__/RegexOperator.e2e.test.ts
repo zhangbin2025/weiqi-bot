@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { QuickJsExecutor } from '@infrastructure/plugin-vm/QuickJsExecutor';
+import { QuickJsExecutor } from '../../../infrastructure/plugin-vm/QuickJsExecutor';
 import { createOperatorRegistry } from '../OperatorRegistry';
 import {
   WORKFLOW_OPERATOR_SPEC,
@@ -16,7 +16,7 @@ import {
   type IPluginRuntime,
   type PluginArtifact,
   type OperatorArtifactContract,
-} from '@domain/plugin/types';
+} from '../../../domain/plugin/types';
 import type { PluginArtifactService } from '../PluginArtifactService';
 
 const wasmPath = resolve(
