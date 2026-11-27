@@ -47,7 +47,7 @@ function makeRegistry(): OperatorRegistry {
   const add = (
     name: string,
     fn: (args: Record<string, unknown>) => StepResult,
-  ): void => { specs.set(name, { name, idempotent: true, run: async (args) => fn(args) }); };
+  ): void => { specs.set(name, { name, description: name, inputSchema: { type: 'object' }, outputSchema: {}, kind: 'pure', idempotent: true, run: async (args) => fn(args) }); };
 
   add('web_fetch', () => ({ value: PAGE_TEXT }));
   add('json_extract', (args) => {
