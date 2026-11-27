@@ -130,7 +130,7 @@ function matches(item: unknown, where: unknown): boolean {
   if (!isRecord(where)) return true;
   for (const [path, expected] of Object.entries(where)) {
     let actual: unknown;
-    try { actual = path === '
+    try { actual = path === String.fromCharCode(36) ? item : getPath(item, path); } catch { return false; }
     if (isRecord(expected) && Object.prototype.hasOwnProperty.call(expected, 'notIn')) {
       if (!Array.isArray(expected['notIn']) || expected['notIn'].includes(actual)) return false;
     } else if (isRecord(expected) && Object.prototype.hasOwnProperty.call(expected, 'stringEq')) {
