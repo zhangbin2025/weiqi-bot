@@ -121,8 +121,8 @@ export async function createOperatorRegistry(deps: OperatorRegistryDeps): Promis
       continue;
     }
     for (const op of adapted) {
-      // Generic data operators are reserved host capabilities; an old or custom plugin
-      // must not shadow the native json.* / regex.* implementation.
+      // Generic host Workflow operators are reserved; an old or custom plugin
+      // must not shadow the native json.* / regex.* / storage.* implementation.
       if (op.name.startsWith('json.') || op.name.startsWith('regex.') || op.name.startsWith('storage.')) continue;
       try {
         validateSchemaDefinition(op.inputSchema, `${op.name}.inputSchema`);
