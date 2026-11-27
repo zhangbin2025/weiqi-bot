@@ -135,7 +135,7 @@ describe('createOperatorRegistry：结构化参数与 Schema 边界', () => {
       kind: 'pure',
       outputSchema: { type: 'string' },
       execute: async () => ({
-        observation: 'regex_extract：正则执行失败。没有产出 value。',
+        observation: 'regex.extract：正则执行失败。没有产出 value。',
         ok: false,
         detail: '正则执行失败',
       }),
@@ -145,7 +145,7 @@ describe('createOperatorRegistry：结构化参数与 Schema 边界', () => {
       () => '',
       (error: unknown) => error instanceof Error ? error.message : String(error),
     );
-    expect(failureMessage).toContain('regex_extract：正则执行失败');
+    expect(failureMessage).toContain('regex.extract：正则执行失败');
     expect(failureMessage).not.toContain('输出校验失败');
   });
 
