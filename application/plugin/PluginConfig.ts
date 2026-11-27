@@ -9,7 +9,10 @@
  * 此时退回到进程内内存值，读写仍然自洽，不会抛 ReferenceError。
  */
 
-/** 自主决策预算对应的修复/延续预算，默认 9；对应 10 次决策，最多 50 次决策 */
+/**
+ * 自主决策次数 = 内部修复/延续预算 + 1。
+ * 业务约束：单次对话最多允许 50 次自主决策；默认给 10 次，最少 1 次。
+ */
 export const DEFAULT_PLUGIN_MAX_ATTEMPTS = 9;
 export const MIN_PLUGIN_MAX_ATTEMPTS = 0;
 export const MAX_PLUGIN_MAX_ATTEMPTS = 49;
