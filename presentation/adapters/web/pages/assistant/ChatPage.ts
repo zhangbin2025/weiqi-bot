@@ -37,6 +37,7 @@ import { ChatUseCase, type LocalFileInput, type SkillDeps } from '../../../../..
 import { createSkillRegistry } from '../../../../../application/skill/SkillRegistry';
 import type { SkillPrimitive, SkillRecipe } from '../../../../../application/skill/SkillTypes';
 import { createBasicPrimitives } from '../../../../../application/skill/primitives/BasicPrimitives';
+import { createWorkflowStoragePrimitives } from '../../../../../application/skill/primitives/WorkflowStoragePrimitives';
 import {
   createBrowserCapturePrimitives,
   type BrowserCaptureDeps,
@@ -354,6 +355,7 @@ export class ChatPage {
       // 纯 Web capturePrimitives 为空数组，算子表里天然没有 browser_capture。
       primitives: [
         ...createBasicPrimitives(webTools),
+        ...createWorkflowStoragePrimitives(kvKit.service),
         ...capturePrimitives,
       ],
       artifacts: this.plugin?.artifacts ?? {
