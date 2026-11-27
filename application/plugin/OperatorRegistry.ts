@@ -69,6 +69,9 @@ function primitiveToOperatorSpec(p: SkillPrimitive): OperatorSpec {
     kind: p.kind,
     run: async (args: Record<string, unknown>): Promise<StepResult> => {
       const r: PrimitiveResult = await p.execute(args);
+      // 失败结果没有可供连线的 value。先把原语结构化观察交给 WorkflowRunner 的失败通道，
+      // 不要把 undefined 归一成 null 后误报为 outputSchema 类型错误。
+      if (!r.ok) throw new Error(r.observation || r.detail || `算子 ${p.name} 执行失败`);
       const effects: NonNullable<StepResult['effects']> = [];
       if (r.displayMarkdown) effects.push({ displayMarkdown: r.displayMarkdown });
       if (r.actionLink) effects.push({ actionLink: r.actionLink.url });
