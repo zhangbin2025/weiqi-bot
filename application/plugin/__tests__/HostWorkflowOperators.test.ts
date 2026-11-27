@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createHostWorkflowOperators } from '../HostWorkflowOperators';
 
 describe('host-native Workflow JSON / regex operators', () => {
-  const operators = new Map(createHostWorkflowOperators().map((operator) => [operator.name, operator]));
+  const operators = new Map(createHostWorkflowOperators().map((operator) => [operator.name, operator] as const));
 
   it('keeps the existing json.* and regex.* call names and data contracts', async () => {
     const parsed = await operators.get('json.parse')!.run({ text: '{"items":[{"uid":7},{"uid":8}]}' });
