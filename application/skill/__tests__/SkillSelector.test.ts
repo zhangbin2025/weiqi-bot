@@ -162,12 +162,12 @@ describe('createSkillRegistry + buildSkillToolParts', () => {
     expect('code' in outcome).toBe(false);
   });
 
-  it('executor 透传 argsJson 给原语 execute', async () => {
+  it('executor 在工具边界解析 JSON，一次性向原语传递对象', async () => {
     const reg = registry(['p_a']);
     const s = recipe({ id: 'x.1', primitives: ['p_a'] });
     const { executors } = buildSkillToolParts([s], reg);
-    const outcome = await executors['p_a']!('PAYLOAD');
-    expect(outcome.observation).toBe('obs:p_a:PAYLOAD');
+    const outcome = await executors['p_a']!('{"x":1}');
+    expect(outcome.observation).toBe('obs:p_a:{"x":1}');
   });
 
   it('active 为空 → tools / executors 都为空', () => {
