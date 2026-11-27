@@ -410,6 +410,7 @@ function createDataPrimitive(
       parameters: { type: 'object', additionalProperties: true },
     },
     idempotent: true,
+    workflowOnly: true,
     outputSchema: {},
     kind: 'pure',
     execute: async (args): Promise<PrimitiveResult> => {
