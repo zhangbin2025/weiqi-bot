@@ -23,6 +23,14 @@ export interface ChatToolKitParts {
   executors: Record<string, (a: string) => Promise<ToolOutcome>>;
 }
 
+function parseToolArguments(argsJson: string): Record<string, unknown> {
+  const value: unknown = JSON.parse(argsJson);
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('工具参数必须是 JSON 对象');
+  }
+  return value as Record<string, unknown>;
+}
+
 /** PrimitiveResult → ToolOutcome：三个必填字段 + 可选的宿主注入链接 / 展示块 */
 function toToolOutcome(r: PrimitiveResult): ToolOutcome {
   const out: ToolOutcome = { observation: r.observation, ok: r.ok, detail: r.detail };
@@ -52,7 +60,7 @@ export function buildSkillToolParts(
       if (!primitive) continue; // 第二道保险：缺原语静默跳过
       seen.add(name);
       tools.push(primitive.definition);
-      executors[name] = async (argsJson: string) => toToolOutcome(await primitive.execute(argsJson));
+      executors[name] = async (argsJson: string) => toToolOutcome(await primitive.execute(parseToolArguments(argsJson)));
     }
   }
 
