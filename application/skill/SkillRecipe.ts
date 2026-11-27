@@ -311,7 +311,7 @@ function readWorkflowSpec(raw: Record<string, unknown>): FieldResult<WorkflowSpe
       } else {
         if (!isRecord(repeatRaw)) return { ok: false, reason: `${at} repeat 必须是对象` };
         const max = repeatRaw['maxIterations'];
-        if (!(typeof max === 'number' && Number.isInteger(max) && max > 0)
+        if (!(typeof max === 'number' && Number.isInteger(max) && max > 0 && max <= 100)
           && !(typeof max === 'string' && /^\{\{input\.[^{}]+\}\}$/.test(max))) {
           return { ok: false, reason: `${at} repeat.maxIterations 必须是正整数或完整 input 占位符` };
         }
@@ -443,6 +443,31 @@ function readWorkflow(raw: Record<string, unknown>): FieldResult<{
   if (!workflow.ok) return workflow;
   const inputs = readWorkflowInputs(raw);
   if (!inputs.ok) return inputs;
+
+  const inputNames = new Set((inputs.value ?? []).map((input) => input.name));
+  const validateRepeatInputs = (steps: readonly WorkflowStepT[]): FieldResult<true> => {
+    for (const step of steps) {
+      if (step.forEach !== undefined) {
+        const nested = validateRepeatInputs(step.forEach.steps);
+        if (!nested.ok) return nested;
+      }
+      if (step.repeat !== undefined) {
+        if (typeof step.repeat.maxIterations === 'string') {
+          const match = /^\{\{input\.([^{}]+)\}\}$/.exec(step.repeat.maxIterations);
+          if (match && !inputNames.has(match[1]!)) {
+            return { ok: false, reason: 'repeat.maxIterations 引用了未声明的输入参数：' + match[1] };
+          }
+        }
+        const nested = validateRepeatInputs(step.repeat.steps);
+        if (!nested.ok) return nested;
+      }
+    }
+    return { ok: true, value: true };
+  };
+  if (workflow.value !== undefined) {
+    const repeatInputs = validateRepeatInputs(workflow.value.steps);
+    if (!repeatInputs.ok) return repeatInputs;
+  }
   return { ok: true, value: { workflow: workflow.value, inputs: inputs.value } };
 }
 
