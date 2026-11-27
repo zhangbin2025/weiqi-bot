@@ -90,11 +90,17 @@ describe('Host-native regex Workflow operators', () => {
     });
 
     const unsafe = await runWorkflow({
-      steps: [{
+      steps: [
+        { id: 'parse', call: 'json.parse', args: { text: '{"safe":true}' } },
+        {
         id: 'unsafe',
         call: 'json.get',
         args: { path: '__proto__.polluted' },
-        bindings: [{ from: 'parse', path: '$', as: 'value' }],
+        bindings: [{ from: 'parse', path: '
+    expect(unsafe.ok).toBe(false);
+  });
+});
+, as: 'value' }],
       }],
     }, {}, registry);
     expect(unsafe.ok).toBe(false);
