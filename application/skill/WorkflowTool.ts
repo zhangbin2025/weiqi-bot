@@ -15,7 +15,8 @@
  * （resultId→url），零重复分页逻辑；preparatory:true 让分页读取不占自主决策轮数。
  *
  * 2026-11-25 B3：B2 缓存里放的是全量 yield 汇总，浏览器实测 167,385 字符需约 22 片、
- * 撞上 ToolLoop 的 maxModelCalls=16 硬约束。B3 在写缓存前按配方 `llmProjection.keep`
+ * 撞上 ToolLoop 的总调用 guard。默认 maxTurns=10 时 maxModelCalls=100；用户设为 50 次决策时
+ * guard 上限为 2,500 次模型调用。B3 在写缓存前按配方 `llmProjection.keep`
  * 做声明式字段白名单投影 + 无损紧凑行（columns/rows，列名从对象键推导，零硬编码技能字段名），
  * 缓存只放关系摘要；全量账号保留、不截断、不取前 N 条。无 llmProjection 声明 = B2 全量（零回归）。
  * `workflow_result_read` 引擎、分页口径、CONTEXT_LIMITS 体积口径一律不动；成功观察只把
