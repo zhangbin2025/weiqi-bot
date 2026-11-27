@@ -27,6 +27,9 @@ describe('buildSkillToolParts', () => {
         description: 'echo',
         parameters: { type: 'object' },
       },
+      idempotent: true,
+      outputSchema: {},
+      kind: 'pure',
       execute,
     };
     const parts = buildSkillToolParts([recipe], new Map([['echo', primitive]]));
@@ -40,6 +43,9 @@ describe('buildSkillToolParts', () => {
     const primitive: SkillPrimitive = {
       name: 'echo',
       definition: { name: 'echo', description: 'echo', parameters: { type: 'object' } },
+      idempotent: true,
+      outputSchema: {},
+      kind: 'pure',
       execute: vi.fn(async () => ({ observation: 'ok', ok: true, detail: 'ok' })),
     };
     const parts = buildSkillToolParts([recipe], new Map([['echo', primitive]]));
