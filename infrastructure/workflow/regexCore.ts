@@ -1,4 +1,4 @@
-/** Pure regex implementation. Imported only by the dedicated regex Worker. */
+/** Pure regex implementation. Used by the dedicated regex Worker; production never executes it on the main thread. */
 export function executeRegex(method: string, a: Record<string, unknown>): unknown {
   if (typeof a['text'] !== 'string' || typeof a['pattern'] !== 'string') {
     throw new Error('text/pattern 必须是字符串');
