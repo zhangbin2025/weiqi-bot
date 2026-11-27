@@ -509,10 +509,12 @@ describe('skillPluginResourceIds — 从 workflow DAG 推导依赖插件', () =>
     ]))).toEqual(['workflow-operator.foxwq', 'workflow-operator.circle', 'workflow-operator.calendar']);
   });
 
-  it('JSON 沙箱算子需要插件依赖；display 是宿主通用能力', () => {
+  it('JSON / regex 是宿主 Workflow 算子，不触发插件安装；领域算子仍需插件', () => {
     expect(skillPluginResourceIds(asRecipe(recipe()))).toEqual([]);
-    expect(skillPluginResourceIds(wfRecipe(['display']))).toEqual([]);
-    expect(skillPluginResourceIds(wfRecipe(['json.get', 'json.unique']))).toEqual(['workflow-operator.json']);
+    expect(skillPluginResourceIds(wfRecipe(['display', 'json.get', 'json.unique', 'regex.extract']))).toEqual([]);
+    expect(skillPluginResourceIds(wfRecipe(['circle.normalize', 'calendar.buildMonth']))).toEqual([
+      'workflow-operator.circle', 'workflow-operator.calendar',
+    ]);
   });
 });
 
@@ -784,9 +786,6 @@ describe('skillPluginResourceIds — control block dependency traversal', () => 
         ],
       },
     }));
-    expect(skillPluginResourceIds(parsed)).toEqual([
-      'workflow-operator.json',
-      'workflow-operator.regex',
-    ]);
+    expect(skillPluginResourceIds(parsed)).toEqual([]);
   });
 });
