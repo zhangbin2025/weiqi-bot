@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { QuickJsExecutor } from '../../../infrastructure/plugin-vm/QuickJsExecutor';
 import { createOperatorRegistry } from '../OperatorRegistry';
+import { runWorkflow } from '../../skill/WorkflowRunner';
 import {
   WORKFLOW_OPERATOR_SPEC,
   WORKFLOW_OPERATOR_POINT_ID,
@@ -67,7 +68,7 @@ const contract: OperatorArtifactContract = {
 };
 
 describe('Regex operator E2E', () => {
-  it('经算子注册表在真实 QuickJS WASM 沙箱中完成 match / extract / replace', async () => {
+  it('经 WorkflowRunner → OperatorRegistry → 真实 QuickJS WASM 完成 match / extract / replace', async () => {
     const code = readFileSync(
       resolve(process.cwd(), 'application/plugin/__tests__/fixtures/regex-plugin.js'),
       'utf8',
@@ -98,34 +99,43 @@ describe('Regex operator E2E', () => {
     } as unknown as PluginArtifactService;
     const registry = await createOperatorRegistry({ primitives: [], artifacts, runtime });
 
-    const match = await registry.run('regex.match', {
-      text: 'abc123',
-      pattern: '(\\d+)',
-    });
-    expect(match.value).toEqual({
-      matched: true,
-      value: '123',
-      index: 3,
-      groups: ['123'],
-    });
+    const result = await runWorkflow({
+      steps: [
+        {
+          id: 'match',
+          call: 'regex.match',
+          args: { text: 'abc123', pattern: '(\\\\d+)' },
+          yield: true,
+        },
+        {
+          id: 'extract',
+          call: 'regex.extract',
+          args: { text: 'x12 y34', pattern: '\\\\d+', withIndex: true },
+          yield: true,
+        },
+        {
+          id: 'replace',
+          call: 'regex.replace',
+          args: { text: 'a1 b2', pattern: '\\\\d+', replacement: '#' },
+          yield: true,
+        },
+      ],
+    }, {}, registry);
 
-    const extract = await registry.run('regex.extract', {
-      text: 'x12 y34',
-      pattern: '\\d+',
-      withIndex: true,
+    expect(result.ok).toBe(true);
+    expect(result.values).toEqual({
+      match: {
+        matched: true,
+        value: '123',
+        index: 3,
+        groups: ['123'],
+      },
+      extract: [
+        { value: '12', index: 1 },
+        { value: '34', index: 5 },
+      ],
+      replace: 'a# b#',
     });
-    expect(extract.value).toEqual([
-      { value: '12', index: 1 },
-      { value: '34', index: 5 },
-    ]);
-
-    const replace = await registry.run('regex.replace', {
-      text: 'a1 b2',
-      pattern: '\\d+',
-      replacement: '#',
-    });
-    expect(replace.value).toBe('a# b#');
-
     await runtime.dispose();
   });
 });
