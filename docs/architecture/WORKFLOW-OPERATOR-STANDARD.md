@@ -49,7 +49,7 @@ interface StepResult {
 - inputSchema 描述完整参数对象，根类型必须是 object。
 - outputSchema 描述 value，不描述 effects。
 - 成功结果必须包含 value；无业务数据时返回 null。
-- 首期 JSON Schema 支持 `type`、`properties`、`required`、`items`、`enum`、`additionalProperties`、`description`、`minLength`、`maxLength`、`minimum`、`maximum`。未支持的关键字在注册时直接拒绝。
+- 首期 JSON Schema 支持 `type`、`properties`、`required`、`items`、`enum`、`additionalProperties`、`description`、`minLength`、`maxLength`、`minItems`、`maxItems`、`minimum`、`maximum`、`pattern`。未支持的关键字在注册时直接拒绝。
 - 注册时校验 Schema 声明；执行前校验输入，执行后校验输出。
 
 ## 4. 数据传递
