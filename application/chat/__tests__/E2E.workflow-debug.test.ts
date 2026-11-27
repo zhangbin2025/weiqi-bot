@@ -287,7 +287,8 @@ describe('端到端：同一轮 skill_write → run_workflow(debug:true)', () =>
     expect(obs[1]).toContain('第 1/3 步 fetch');
     expect(obs[1]).toContain('第 2/3 步 extract');
     expect(obs[1]).toContain('第 3/3 步 render');
-    expect(obs[1]).toContain(String.raw`\"word\":\"柯洁\"`);
+    expect(obs[1]).toContain('json.pluck');
+    expect(obs[1]).toContain('["柯洁","申真谞","官子","劫争"]');
     expect(obs[1]).toContain('"list"');
     expect(obs[1]).toContain('最终交付');
     expect(obs[1]).toContain('技能已启用');
