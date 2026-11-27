@@ -85,7 +85,9 @@ const INPUTS_STEP_ID = '<inputs>';
  * 配方是严格 JSON，占位符只能是字符串值；裸 `{{...}}` 非合法 JSON、禁用。
  */
 const WHOLE_PLACEHOLDER_RE = /^\{\{input\.([^{}]+)\}\}$/;
-const EMBEDDED_PLACEHOLDER_RE = /\{\{input\.([^{}]+)\}\}/g;
+const EMBEDDED_PLACEHOLDER_RE = /\{\{(?:input\.[^{}]+|item(?:\.[^{}]+)?|index|state(?:\.[^{}]+)?)\}\}/g;
+const SCOPE_PLACEHOLDER_RE = /^\{\{(item(?:\.[^{}]+)?|index|state(?:\.[^{}]+)?)\}\}$/;
+const MAX_WORKFLOW_ITERATIONS = 100;
 
 /** 属性访问只认自身属性，并挡住原型链上的危险键（与宿主其余取值层同口径）。 */
 const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
@@ -187,7 +189,70 @@ function resolveScopePlaceholder(
   }
   const dot = token.indexOf('.');
   const rootName = dot < 0 ? token : token.slice(0, dot);
-  const path = dot < 0 ? '
+  const path = dot < 0 ? '$' : token.slice(dot + 1);
+  const root = rootName === 'item' ? scope?.item : scope?.state;
+  if (root === undefined) {
+    return { ok: false, error: '占位符 {{' + token + '}} 不在对应循环作用域内' };
+  }
+  const got = readBindingValue(root, path);
+  return got.ok ? got : { ok: false, error: '占位符 {{' + token + '}}：' + got.error };
+}
+
+function substituteInputs(
+  node: unknown,
+  resolved: Record<string, unknown>,
+  scope?: WorkflowTemplateScope,
+): { ok: true; value: unknown } | { ok: false; error: string } {
+  if (typeof node === 'string') {
+    const whole = WHOLE_PLACEHOLDER_RE.exec(node);
+    if (whole) {
+      const name = whole[1]!;
+      if (!Object.prototype.hasOwnProperty.call(resolved, name)) {
+        return { ok: false, error: '占位符 {{input.' + name + '}} 没有对应的已解析 input' };
+      }
+      return { ok: true, value: resolved[name] };
+    }
+    const scopeWhole = SCOPE_PLACEHOLDER_RE.exec(node);
+    if (scopeWhole) return resolveScopePlaceholder(scopeWhole[1]!, scope);
+    let failure: string | undefined;
+    const replaced = node.replace(EMBEDDED_PLACEHOLDER_RE, (token) => {
+      const input = /^\{\{input\.([^{}]+)\}\}$/.exec(token);
+      if (input) {
+        const name = input[1]!;
+        if (!Object.prototype.hasOwnProperty.call(resolved, name)) {
+          failure = '占位符 {{input.' + name + '}} 没有对应的已解析 input';
+          return token;
+        }
+        return String(resolved[name]);
+      }
+      const scoped = /^\{\{([^{}]+)\}\}$/.exec(token);
+      if (!scoped) return token;
+      const got = resolveScopePlaceholder(scoped[1]!, scope);
+      if (!got.ok) { failure = got.error; return token; }
+      return String(got.value);
+    });
+    return failure ? { ok: false, error: failure } : { ok: true, value: replaced };
+  }
+  if (Array.isArray(node)) {
+    const out: unknown[] = [];
+    for (const item of node) {
+      const r = substituteInputs(item, resolved, scope);
+      if (!r.ok) return r;
+      out.push(r.value);
+    }
+    return { ok: true, value: out };
+  }
+  if (node !== null && typeof node === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+      const r = substituteInputs(v, resolved, scope);
+      if (!r.ok) return r;
+      out[k] = r.value;
+    }
+    return { ok: true, value: out };
+  }
+  return { ok: true, value: node };
+}
 
 // ---------------------------------------------------------------- binding 引用取值
 
