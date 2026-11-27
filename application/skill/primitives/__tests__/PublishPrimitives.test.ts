@@ -119,7 +119,7 @@ describe('github_publish_file（fetch 的 this 绑定）', () => {
     try {
       const { exp, pub } = setup();
       const handle = await exportHandle(exp);
-      const r = await pub.execute(JSON.stringify({ handle }));
+      const r = await pub.execute({ handle });
       expect(r.ok).toBe(true);
       expect(r.observation).not.toContain('Illegal invocation');
       expect(r.observation).not.toContain('发布中断');
