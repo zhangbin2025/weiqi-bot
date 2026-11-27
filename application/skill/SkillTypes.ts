@@ -76,18 +76,38 @@ export interface WorkflowBinding {
   as: string;
 }
 
-/** DAG 的一个节点：调用一个算子，args 为字面量参数，bindings 覆写注入上游值。 */
+/** 循环体中的状态引用：只从本次循环已完成的局部节点读取。 */
+export interface WorkflowLoopReference {
+  from: string;
+  path: string;
+}
+
+/** 对数组逐项执行一段子工作流；每项使用 {{item}} / {{item.path}} 与 {{index}}。 */
+export interface WorkflowForEach {
+  from: string;
+  path: string;
+  steps: WorkflowStep[];
+}
+
+/** 有界重复执行；每轮以 {{state.path}} 读取状态，并从 stateFrom 节点更新状态。 */
+export interface WorkflowRepeat {
+  maxIterations: number | string;
+  initialState?: Record<string, unknown>;
+  stateFrom: WorkflowLoopReference;
+  until: WorkflowLoopReference;
+  steps: WorkflowStep[];
+}
+
+/** 一个节点是普通算子调用，或由 runner 调度的通用循环控制块。 */
 export interface WorkflowStep {
-  /** 节点 id，在 steps 内唯一；被 bindings[].from 引用。 */
   id: string;
-  /** 算子名（内置 snake_case 或插件 <slug>.<method>）；白名单命中由装配期/运行时校验，解析期不查。 */
-  call: string;
-  /** 字面量参数对象（可由 bindings 覆写注入）；缺省 = 空对象。 */
+  /** 普通算子调用；循环控制节点不填写。 */
+  call?: string;
   args?: Record<string, unknown>;
-  /** 依赖边集合；缺省 = 无上游依赖。 */
   bindings?: WorkflowBinding[];
-  /** 仅显式 true 的节点 .value 进宿主结果汇总；成功观察只回完成+句柄、不回灌模型；缺省 false。 */
   yield?: boolean;
+  forEach?: WorkflowForEach;
+  repeat?: WorkflowRepeat;
 }
 
 /** 模型在 run_workflow 入口填空的参数契约（形状，不是代码）。 */
