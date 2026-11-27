@@ -309,7 +309,10 @@ function makeRegex(pattern: string, flags: string): RegExp {
   if (flags.includes('y')) throw new Error('不支持 sticky 标志 y');
   const quantifiedGroup = /\((?:\\.|[^\\()])*(?:[*+?]|\{\d+(?:,\d*)?\})(?:\\.|[^\\()])*\)(?:[*+?]|\{\d+(?:,\d*)?\})/;
   const ambiguousRepeatedGroup = /\((?:\\.|[^\\()])*\|(?:\\.|[^\\()])*\)(?:[*+?]|\{\d+(?:,\d*)?\})/;
-  if (quantifiedGroup.test(pattern) || ambiguousRepeatedGroup.test(pattern)) {
+  const adjacentQuantifiedAtoms = /(?:\\?.)(?:[*+?]|\\{\\d+(?:,\\d*)?\\})(?:\\?.)(?:[*+?]|\\{\\d+(?:,\\d*)?\\})/;
+  const repeatedWildcards = /\\.\\*.*\\.\\*|\\.\\+.*\\.\\+/;
+  if (quantifiedGroup.test(pattern) || ambiguousRepeatedGroup.test(pattern)
+    || adjacentQuantifiedAtoms.test(pattern) || repeatedWildcards.test(pattern)) {
     throw new Error('正则包含可能导致灾难性回溯的重复分组，已拒绝执行');
   }
   return new RegExp(pattern, flags);
