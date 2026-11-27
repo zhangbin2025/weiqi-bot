@@ -487,6 +487,7 @@ export async function runWorkflow(
       }
       let state: unknown = initial.value;
       const results: unknown[] = [];
+      let stopped = false;
       for (let iteration = 0; iteration < maxIterations; iteration++) {
         const local = new Map(upstream);
         const nested = await runSteps(
@@ -508,14 +509,15 @@ export async function runWorkflow(
         if (typeof untilValue.value !== 'boolean') {
           return { ok: false, stepId, error: 'repeat.until 必须指向 boolean 值', detail: `节点 ${stepId} 停止条件不是 boolean` };
         }
-        if (untilValue.value) break;
+        if (untilValue.value) { stopped = true; break; }
       }
-      upstream.set(step.id, results);
-      lastValue = results;
-      if (collectYield && step.yield === true) values[step.id] = results;
+      const repeatResult = { items: results, state, stopped };
+      upstream.set(step.id, repeatResult);
+      lastValue = repeatResult;
+      if (collectYield && step.yield === true) values[step.id] = repeatResult;
       completedStepIds.push(stepId);
-      stepTrace?.push({ stepId, call: callName, args: { maxIterations }, value: results, effects: [], ok: true });
-      pushTrace(onTrace, true, `节点 ${stepId} repeat 完成（${results.length} 轮）`);
+      stepTrace?.push({ stepId, call: callName, args: { maxIterations }, value: repeatResult, effects: [], ok: true });
+      pushTrace(onTrace, true, `节点 ${stepId} repeat 完成（${results.length} 轮，${stopped ? '已满足停止条件' : '达到轮数上限'}）`);
     }
     return { ok: true, lastValue };
   };
