@@ -102,7 +102,7 @@ export function createBasicPrimitives(webDeps: WebFetchToolDeps): SkillPrimitive
       idempotent: true,
       outputSchema: {},
       kind: 'io',
-      execute: async (args) => toPrimitiveResult(await executeWebFetch(JSON.stringify(args), webDeps)),
+      execute: async (args) => toPrimitiveResult(await executeWebFetch(args, webDeps)),
     },
     {
       name: WEB_CACHE_READ_TOOL_NAME,
