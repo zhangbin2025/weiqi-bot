@@ -56,7 +56,7 @@ export interface OperatorRegistry {
 
 /**
  * 内置原语 → OperatorSpec。
- * args 经 JSON.stringify 走既有 execute(argsJson) 签名；PrimitiveResult.value 是算子的纯 value 出，
+ * 原生 args 直接传给 primitive；PrimitiveResult.value 是算子的纯 value 出，
  * 缺省按 null（连线只认 value）。displayMarkdown 走既有宿主渲染通道（effects），
  * actionLink 是宿主结构化链接对象，映射成 effects 里的字符串（url），label 不进 value。
  */
@@ -67,10 +67,10 @@ function primitiveToOperatorSpec(p: SkillPrimitive): OperatorSpec {
     idempotent: p.idempotent ?? true,
     description: p.definition.description,
     inputSchema: p.definition.parameters,
-    ...(p.outputSchema !== undefined ? { outputSchema: p.outputSchema } : {}),
-    ...(p.kind !== undefined ? { kind: p.kind } : {}),
+    outputSchema: p.outputSchema,
+    kind: p.kind ?? 'io',
     run: async (args: Record<string, unknown>): Promise<StepResult> => {
-      const r: PrimitiveResult = await p.execute(JSON.stringify(args));
+      const r: PrimitiveResult = await p.execute(args);
       const effects: NonNullable<StepResult['effects']> = [];
       if (r.displayMarkdown) effects.push({ displayMarkdown: r.displayMarkdown });
       if (r.actionLink) effects.push({ actionLink: r.actionLink.url });
