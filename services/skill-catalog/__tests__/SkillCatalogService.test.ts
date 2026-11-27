@@ -509,9 +509,10 @@ describe('skillPluginResourceIds — 从 workflow DAG 推导依赖插件', () =>
     ]))).toEqual(['workflow-operator.foxwq', 'workflow-operator.circle', 'workflow-operator.calendar']);
   });
 
-  it('散文配方（无 workflow）/ 只调内置算子 → 零依赖，进而不弹框', () => {
+  it('JSON 沙箱算子需要插件依赖；display 是宿主通用能力', () => {
     expect(skillPluginResourceIds(asRecipe(recipe()))).toEqual([]);
-    expect(skillPluginResourceIds(wfRecipe(['json_extract', 'display_json_list']))).toEqual([]);
+    expect(skillPluginResourceIds(wfRecipe(['display']))).toEqual([]);
+    expect(skillPluginResourceIds(wfRecipe(['json.get', 'json.unique']))).toEqual(['workflow-operator.json']);
   });
 });
 
