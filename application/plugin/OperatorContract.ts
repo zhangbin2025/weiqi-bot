@@ -16,7 +16,7 @@
  */
 
 import type { OperatorArtifactContract } from '@domain/plugin/types';
-import { validateSchemaDefinition } from './OperatorSchema';
+import { validateSchemaDefinition, validateSchemaValue } from './OperatorSchema';
 
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
@@ -68,6 +68,10 @@ if (typeof e.inputSchema !== 'object' || e.inputSchema === null || Array.isArray
     if (s.method !== undefined && (typeof s.method !== 'string' || !names.has(s.method))) {
       return `smoke[].method 不在 exposes[] 白名单里：${String(s.method)}`;
     }
+    const method = s.method ?? exposes[0]!.name;
+    const exposure = exposes.find((item) => item.name === method)!;
+    const inputError = validateSchemaValue(exposure.inputSchema, s.args[0]);
+    if (inputError) return `smoke[].args 不符合 ${method} 的 inputSchema：${inputError}`;
   }
   return undefined;
 }
