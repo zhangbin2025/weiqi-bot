@@ -148,7 +148,7 @@ describe('runWorkflow — 失败短路 / 结构化错误', () => {
     expect(result.values).toEqual({ one: 1 }); // 已完成 yield 节点仍保留
     // 过程块：开头「共 3 步」 + 第一步完成 + 失败块 = 3 条；最后一条 ok:false
     expect(trace.length).toBe(3);
-    expect(trace[0]!.detail).toContain('共 3 步');
+    expect(trace[0]!.detail).toContain('共 3 个顶层步骤（循环由宿主调度）');
     expect(trace[0]!.ok).toBe(true);
     expect(trace[1]!.detail).toContain('第 1/3 步 one 完成');
     expect(trace[2]!.ok).toBe(false);
@@ -396,7 +396,7 @@ describe('runWorkflow — 过程块条数与文案', () => {
     const { steps: trace, onTrace } = collectTrace();
     await runWorkflow(spec, {}, reg, onTrace);
     expect(trace.length).toBe(4);
-    expect(trace[0]!.detail).toBe('workflow 共 3 步');
+    expect(trace[0]!.detail).toBe('workflow 共 3 个顶层步骤（循环由宿主调度）');
     expect(trace[1]!.detail).toContain('第 1/3 步 a 完成');
     expect(trace[2]!.detail).toContain('第 2/3 步 b 完成');
     expect(trace[3]!.detail).toContain('第 3/3 步 c 完成');
