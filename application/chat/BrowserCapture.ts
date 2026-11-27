@@ -245,8 +245,6 @@ interface CaptureArgs {
 }
 
 function parseCaptureArgs(raw: Record<string, unknown>): { ok: true; value: CaptureArgs } | { ok: false; error: string } {
-  let raw: unknown;
-
   if (!isRecord(raw)) return { ok: false, error: '参数必须是 JSON 对象' };
   if (typeof raw['url'] !== 'string' || !raw['url'].trim()) {
     return { ok: false, error: '缺少 url 参数' };
