@@ -190,6 +190,9 @@ export function createKvPrimitives(service: KvServiceLike): SkillPrimitive[] {
     out.push({
       name: definition.name,
       definition,
+      idempotent: capability !== 'write',
+      outputSchema: {},
+      kind: capability === 'write' || capability === 'remove' || capability === 'blob' ? 'effect' : 'io',
       execute: async (args: Record<string, unknown>): Promise<PrimitiveResult> => {
         return toPrimitive(await service.execute(capability, args));
       },
