@@ -2,8 +2,8 @@
  * 在线技能（Skill Recipe）核心类型 —— 本项目唯一类型来源。
  * @module application/skill/SkillTypes
  *
- * 设计：宿主原语内置且稳定；在线只发「纯声明 JSON 配方」，
- * 配方只引用宿主已注册的原语名，永远不含可执行代码。
+ * 设计：宿主提供少量通用原语；在线只发「纯声明 JSON 配方」，
+ * Workflow 可引用宿主原语与沙箱算子插件，配方永远不含可执行代码。
  * 所有模块一律从这里 import，禁止另写一份同名类型。
  */
 
@@ -63,12 +63,12 @@ export interface PrimitiveResult {
  * Workflow 声明（纯 JSON、零代码、无表达式 / 无任意条件；循环仅限 forEach 与有界 repeat）。
  * 语义出处：PHASE2-CONTRACT.md「DSL 语义条款」与「DSL 字段形状」。
  * 连线只认上游 StepResult.value；effects 走既有宿主通道，不参与连线。
- * 供 F 代理的 WorkflowRunner / WorkflowTool 与 G 代理的配方迁移按本类型 import。
+ * 供 WorkflowRunner / WorkflowTool 与资源配方迁移按本类型 import。
  */
 
 /** 一条有向依赖边：从上游节点 .value 按 path 取值，注入下游参数命名为 as。 */
 export interface WorkflowBinding {
-  /** 上游 step id；解析期必须指向本 steps 数组中「位置更靠前」的真实节点（即无环）。 */
+  /** 上游 step id；解析期必须指向当前作用域中位置更靠前的真实节点，或循环体可见的外层节点。 */
   from: string;
   /** 纯引用取值路径（不做拼接 / 表达式 / 函数调用）；'$' 表示整个上游 value。 */
   path: string;
@@ -124,7 +124,7 @@ export interface WorkflowInput {
   enum?: unknown[];
 }
 
-/** DAG 声明：steps 顺序即拓扑序（bindings.from 只能指更前，天然无环）。 */
+/** Workflow 声明：普通 steps 顺序即拓扑序；循环体拥有受限局部作用域。 */
 export interface WorkflowSpec { steps: WorkflowStep[]; }
 
 /** 一条技能 = 纯 JSON 配方，只引用宿主原语，不含任何可执行代码 */
