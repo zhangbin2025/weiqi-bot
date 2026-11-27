@@ -9,7 +9,6 @@
 
 import type { ModelToolDefinition } from '../model/IModelGateway';
 import type { SecretSpec } from './SecretSpec';
-import type { OperatorJsonSchema, OperatorKind } from '@domain/plugin/types';
 
 /** 宿主内置原语：真正能执行的函数。在线资源永远不含代码。 */
 export interface SkillPrimitive {
@@ -22,10 +21,8 @@ export interface SkillPrimitive {
    * 缺省由 OperatorRegistry 按 true 处理（纯计算默认幂等，明说约定不是拟合数值）。
    */
   idempotent?: boolean;
-  /** 新契约元数据；缺省的旧原语继续走 legacy 兼容路径。 */
-  outputSchema?: OperatorJsonSchema;
-  kind?: OperatorKind;
-  execute(argsJson: string): Promise<PrimitiveResult>;
+  /** 原生结构化参数；模型工具入口在边界解析 JSON，Workflow 直接传对象。 */
+  execute(args: Record<string, unknown>): Promise<PrimitiveResult>;
 }
 
 export interface PrimitiveResult {
@@ -57,11 +54,6 @@ export interface PrimitiveResult {
   displayMarkdown?: string;
   /** 算子的纯 value 出参；阶段二 workflow 连线只认它。渲染/动作仍走 displayMarkdown / actionLink。 */
   value?: unknown;
-  /**
-   * 算子是否幂等；kv_write / secret_prompt 等非幂等原语显式标 false，
-   * 缺省由 OperatorRegistry 按 true 处理（纯计算默认幂等，明说约定不是拟合数值）。
-   */
-  idempotent?: boolean;
 }
 
 /**
