@@ -76,7 +76,7 @@ export class QuickJsRuntime implements IPluginRuntime {
     let worker: Worker;
     try {
       worker = this.options.workerFactory();
-    } catch (error) {
+    } catch {
       return null;
     }
 
@@ -111,7 +111,7 @@ export class QuickJsRuntime implements IPluginRuntime {
         const active = session.active;
         if (!active) return;
         clearTimeout(active.timer);
-        session.active = undefined;
+        delete session.active;
         // crash / timeout / oom 可能意味着 QuickJS/WASM 状态已不可信，必须回收 Worker。
         if (!msg.result.ok && (
           msg.result.phase === 'crash' || msg.result.phase === 'timeout' || msg.result.phase === 'oom'
