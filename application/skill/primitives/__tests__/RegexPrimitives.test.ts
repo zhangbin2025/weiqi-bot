@@ -21,12 +21,12 @@ import {
   REGEX_REPLACE_TOOL_NAME,
 } from '../RegexPrimitives';
 
-/** 用真实 execute(argsJson) 签名调用，取完整 PrimitiveResult。 */
+/** 用结构化参数调用，取完整 PrimitiveResult。 */
 async function run(
   p: ReturnType<typeof createRegexMatchPrimitive>,
   args: Record<string, unknown>,
 ) {
-  return p.execute(JSON.stringify(args));
+  return p.execute(args);
 }
 
 describe('createRegexPrimitives — 三个内置算子的注册契约', () => {
@@ -186,7 +186,7 @@ describe('三算子共用的严格边界', () => {
 
   it('参数不是对象 / 缺 text / 缺 pattern 一律结构化失败，不产 value', async () => {
     for (const p of ps) {
-      const notObj = await p.execute('[]');
+      const notObj = await p.execute([] as unknown as Record<string, unknown>);
       expect(notObj.ok).toBe(false);
       const noText = await run(p, { pattern: 'a' });
       expect(noText.ok).toBe(false);
