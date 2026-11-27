@@ -82,7 +82,7 @@ const INPUTS_STEP_ID = '<inputs>';
 const WHOLE_PLACEHOLDER_RE = /^\{\{input\.([^{}]+)\}\}$/;
 const EMBEDDED_PLACEHOLDER_RE = /\{\{(?:input\.[^{}]+|item(?:\.[^{}]+)?|index|state(?:\.[^{}]+)?)\}\}/g;
 const SCOPE_PLACEHOLDER_RE = /^\{\{(item(?:\.[^{}]+)?|index|state(?:\.[^{}]+)?)\}\}$/;
-const MAX_WORKFLOW_ITERATIONS = 100;
+const MAX_WORKFLOW_ITERATIONS = 100;\nconst MAX_WORKFLOW_TOTAL_ITERATIONS = 500;
 
 /** 属性访问只认自身属性，并挡住原型链上的危险键（与宿主其余取值层同口径）。 */
 const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
@@ -392,7 +392,7 @@ export async function runWorkflow(
   }
   const resolvedInputs = resolved.values;
 
-  type Scope = WorkflowTemplateScope;
+  let totalLoopIterations = 0;\n  type Scope = WorkflowTemplateScope;
   type InternalResult =
     | { ok: true; lastValue: unknown }
     | { ok: false; stepId: string; error: string; detail: string };
