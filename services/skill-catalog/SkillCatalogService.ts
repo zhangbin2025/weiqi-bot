@@ -254,10 +254,17 @@ const PLUGIN_RESOURCE_PREFIX = `${WORKFLOW_OPERATOR_POINT_ID}.`;
  */
 export function skillPluginResourceIds(recipe: SkillRecipe): string[] {
   const slugs = new Set<string>();
-  for (const step of recipe.workflow?.steps ?? []) {
-    const dot = step.call.indexOf('.');
-    if (dot > 0) slugs.add(step.call.slice(0, dot));
-  }
+  const collect = (steps: readonly NonNullable<SkillRecipe['workflow']>['steps'][number][]): void => {
+    for (const step of steps) {
+      if (step.call !== undefined) {
+        const dot = step.call.indexOf('.');
+        if (dot > 0) slugs.add(step.call.slice(0, dot));
+      }
+      if (step.forEach !== undefined) collect(step.forEach.steps);
+      if (step.repeat !== undefined) collect(step.repeat.steps);
+    }
+  };
+  collect(recipe.workflow?.steps ?? []);
   return [...slugs].map((slug) => `${PLUGIN_RESOURCE_PREFIX}${slug}`);
 }
 
