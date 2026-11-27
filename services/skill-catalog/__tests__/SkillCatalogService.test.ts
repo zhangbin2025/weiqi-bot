@@ -483,7 +483,9 @@ function fakePluginCatalog(
     async () => ({ ok: true, action: 'installed', message: '已安装', artifact: localArtifact({ enabled: true }) }),
 ): PluginCatalogService {
   return {
-    browse: async () => ({ entries, failures: [] }),
+    browseResources: async (resourceIds: readonly string[]) => ({
+      entries: entries.filter((entry) => resourceIds.includes(entry.resourceId)), failures: [],
+    }),
     install,
   } as unknown as PluginCatalogService;
 }
@@ -511,10 +513,32 @@ describe('skillPluginResourceIds — 从 workflow DAG 推导依赖插件', () =>
 });
 
 describe('SkillPluginInstaller.plan — 只读推导', () => {
+  it('只向插件目录查询配方声明的依赖 resourceIds', async () => {
+    const browseResources = vi.fn(async (ids: readonly string[]) => ({
+      entries: [
+        pluginEntry(),
+        pluginEntry({ resourceId: 'workflow-operator.calendar', name: '日历算子' }),
+      ].filter((entry) => ids.includes(entry.resourceId)),
+      failures: [],
+    }));
+    const installer = new SkillPluginInstaller({
+      catalog: { browseResources } as unknown as PluginCatalogService,
+      artifacts: fakeArtifacts([]).service,
+    });
+    const plan = await installer.plan(wfRecipe(['circle.normalize', 'calendar.lookup']));
+    expect(browseResources).toHaveBeenCalledTimes(1);
+    expect(browseResources).toHaveBeenCalledWith([
+      'workflow-operator.circle', 'workflow-operator.calendar',
+    ]);
+    expect(plan.actions.map((action) => action.resourceId)).toEqual([
+      'workflow-operator.circle', 'workflow-operator.calendar',
+    ]);
+  });
+
   it('自建算子插件（有 slug、无 catalogRef）已启用 → 零动作、零网络请求', async () => {
     let browsed = false;
     const catalog = {
-      browse: async () => { browsed = true; return { entries: [], failures: [] }; },
+      browseResources: async () => { browsed = true; return { entries: [], failures: [] }; },
     } as unknown as PluginCatalogService;
     const installer = new SkillPluginInstaller({
       catalog,
@@ -556,7 +580,7 @@ describe('SkillPluginInstaller.plan — 只读推导', () => {
   it('本地已有但停用 → 只 enable、不安装、不联网', async () => {
     let browsed = false;
     const catalog = {
-      browse: async () => { browsed = true; return { entries: [], failures: [] }; },
+      browseResources: async () => { browsed = true; return { entries: [], failures: [] }; },
     } as unknown as PluginCatalogService;
     const art = localArtifact({ enabled: false });
     const installer = new SkillPluginInstaller({ catalog, artifacts: fakeArtifacts([art]).service });

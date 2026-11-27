@@ -364,4 +364,73 @@ describe('分类标签 category 落地', () => {
     await service.install((await pluginEntry(service))!);
     expect((await artifacts.list())[0]!.category).toBeUndefined();
   });
+  it('browseResources 源不可达时只回放目标依赖缓存，且不覆盖完整目录缓存', async () => {
+    const localStorage = fakeLocalStorage();
+    const sources = new PluginCatalogSources({ localStorage });
+    const cache = new PluginCatalogCache({ localStorage });
+    const artifacts = new PluginArtifactService(new InMemoryPluginArtifactStore());
+
+    // 先通过完整 browse 建立包含 plugin + tool 的全量缓存。
+    const online = new PluginCatalogService({
+      client: new PluginCatalogClient({ fetchImpl: makeFetch(CODE_V1) }),
+      sources, cache, artifacts,
+    });
+    const initial = await online.browse();
+    expect(initial.entries).toHaveLength(2);
+    expect(await cache.load(DEFAULT_REGISTRY_URL)).toHaveLength(2);
+
+    // 模拟 registry 离线；定向查询应仅从缓存返回请求的插件。
+    const offline = new PluginCatalogService({
+      client: new PluginCatalogClient({
+        fetchImpl: (async () => ({
+          ok: false, status: 503, text: async () => 'offline',
+        }) as Response) as unknown as typeof fetch,
+      }),
+      sources, cache, artifacts,
+    });
+    const result = await offline.browseResources(['ranking.total-score']);
+
+    expect(result.failures).toHaveLength(1);
+    expect(result.entries.map((entry) => entry.resourceId)).toEqual(['ranking.total-score']);
+    expect(result.entries[0]?.cached).toBe(true);
+    // 定向回放不能把单个依赖写回并覆盖 browse() 保存的完整目录缓存。
+    const after = await cache.load(DEFAULT_REGISTRY_URL);
+    expect(after.map((entry) => entry.resourceId).sort()).toEqual([
+      'ranking.total-score', 'web-fetch.v1',
+    ]);
+  });
+
+  it('browseResources 只读取请求的资源，不下载目录中其它插件的 manifest / 源码', async () => {
+    const raw = registry(CODE_V1);
+    raw.resources.push({
+      id: 'unused.plugin', type: 'plugin', name: '无关插件', summary: '不应读取',
+      pointId: 'ranking', specVersion: 1, path: 'plugins/unused/plugin.json',
+    });
+    const calls: string[] = [];
+    const fallback = makeFetch(CODE_V1);
+    const client = new PluginCatalogClient({
+      fetchImpl: (async (url: string | URL | Request) => {
+        const value = String(url);
+        calls.push(value);
+        if (value.endsWith('registry.json')) {
+          return { ok: true, status: 200, text: async () => JSON.stringify(raw) } as Response;
+        }
+        return fallback(url);
+      }) as unknown as typeof fetch,
+    });
+    const localStorage = fakeLocalStorage();
+    const artifacts = new PluginArtifactService(new InMemoryPluginArtifactStore());
+    const service = new PluginCatalogService({
+      client,
+      sources: new PluginCatalogSources({ localStorage }),
+      cache: new PluginCatalogCache({ localStorage }),
+      artifacts,
+    });
+
+    const result = await service.browseResources(['ranking.total-score']);
+    expect(result.entries.map((entry) => entry.resourceId)).toEqual(['ranking.total-score']);
+    expect(calls.some((url) => url.includes('plugins/unused/plugin.json'))).toBe(false);
+    expect(calls.some((url) => url.includes('plugins/unused/index.js'))).toBe(false);
+  });
+
 });
