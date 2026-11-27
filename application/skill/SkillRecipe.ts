@@ -495,7 +495,7 @@ function validateWorkflowTemplates(
       const token = match[1] ?? '';
       const urlEncode = token.startsWith('urlencode.');
       const name = urlEncode ? token.slice('urlencode.'.length) : token;
-      const inputMatch = /^input\\.(.+)$/.exec(name);
+      const inputMatch = /^input\.(.+)$/.exec(name);
       if (inputMatch) {
         if (!inputNames.has(inputMatch[1]!)) {
           return { ok: false, reason: `${where} 引用了未声明的输入参数：${inputMatch[1]}` };
@@ -508,14 +508,14 @@ function validateWorkflowTemplates(
         }
         continue;
       }
-      const itemMatch = /^(item)(?:\\.(.+))?$/.exec(name);
+      const itemMatch = /^(item)(?:\.(.+))?$/.exec(name);
       if (itemMatch) {
         if (!scope.item) {
           return { ok: false, reason: `${where} 的占位符 {{${token}}} 只能在 forEach 循环体内使用` };
         }
         continue;
       }
-      const stateMatch = /^(state)(?:\\.(.+))?$/.exec(name);
+      const stateMatch = /^(state)(?:\.(.+))?$/.exec(name);
       if (stateMatch) {
         if (!scope.state) {
           return { ok: false, reason: `${where} 的占位符 {{${token}}} 只能在 repeat 循环体内使用` };
