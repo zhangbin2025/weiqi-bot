@@ -244,13 +244,13 @@ export { DEFAULT_SKILL_REGISTRY_URL };
 const PLUGIN_RESOURCE_PREFIX = `${WORKFLOW_OPERATOR_POINT_ID}.`;
 
 /**
- * 从配方推导它依赖的插件资源 id（去重、保 workflow.steps 出现顺序）。散文配方返回 []。
+ * 从配方递归推导它依赖的插件资源 id（去重、保 workflow 声明顺序，包含循环体）。散文配方返回 []。
  *
  * 口径逐字沿用发布侧 buildAssetExport()（application/skill/primitives/AuthFetchPrimitives.ts）：
  * 插件算子 call 形如 `<slug>.<method>`，内置算子是 snake_case、不含点（见 SkillTypes.WorkflowStep.call
  * 与 weiqi-assets/schema/workflow.schema.json）；取第一个点前的 slug，发布时映射成
  * `${WORKFLOW_OPERATOR_POINT_ID}.${slug}` 资源 id（同文件 buildPluginFiles 的 resourceId，
- * registry.json 的 id 正是此形）。不新增配方字段、零数据迁移、不设白名单：依赖就写在技能自己的 DAG 里。
+ * registry.json 的 id 正是此形）。不新增配方字段、零数据迁移、不设白名单：依赖由技能 Workflow 中出现的插件算子命名空间自动推导，嵌套循环体同样纳入；已安装依赖按资源 id 去重。
  */
 export function skillPluginResourceIds(recipe: SkillRecipe): string[] {
   const slugs = new Set<string>();
