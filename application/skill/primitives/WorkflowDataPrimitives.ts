@@ -93,6 +93,9 @@ function cloneJson(value: unknown): unknown {
 
 function defineOwn(target: object, key: JsonPathToken, value: unknown): void {
   if (typeof key === 'string') safeKey(key);
+  if (Array.isArray(target) && (key === 'length' || (typeof key === 'number' && key > MAX_ARRAY_ITEMS))) {
+    throw new Error('不允许扩张或直接修改数组 length');
+  }
   Object.defineProperty(target, key, {
     value, enumerable: true, configurable: true, writable: true,
   });
