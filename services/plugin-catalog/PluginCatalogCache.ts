@@ -63,7 +63,9 @@ export class PluginCatalogCache {
       const all = await this.readAll();
       const raw = all[registryUrl];
       if (!Array.isArray(raw)) return [];
-      return raw.filter(isStaticEntry);
+      return raw.filter((entry): entry is StaticCatalogEntry =>
+        isStaticEntry(entry) && entry.registryUrl === registryUrl,
+      );
     } catch {
       return [];
     }
@@ -96,14 +98,48 @@ function toStatic(entry: CatalogEntry): StaticCatalogEntry {
   return s;
 }
 
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
 function isStaticEntry(v: unknown): v is StaticCatalogEntry {
-  if (typeof v !== 'object' || v === null || Array.isArray(v)) return false;
-  const o = v as Record<string, unknown>;
-  return typeof o['registryUrl'] === 'string'
-    && typeof o['resourceId'] === 'string'
-    && typeof o['name'] === 'string'
-    && typeof o['summary'] === 'string'
-    && (o['kind'] === 'plugin' || o['kind'] === 'tool')
-    && (o['exposes'] === undefined || Array.isArray(o['exposes']))
-    && (o['smoke'] === undefined || Array.isArray(o['smoke']));
+  if (!isRecord(v)) return false;
+  if (typeof v['registryUrl'] !== 'string'
+    || typeof v['official'] !== 'boolean'
+    || typeof v['resourceId'] !== 'string'
+    || !v['resourceId']
+    || typeof v['name'] !== 'string'
+    || typeof v['summary'] !== 'string'
+    || (v['kind'] !== 'plugin' && v['kind'] !== 'tool')) return false;
+
+  if (v['pointId'] !== undefined && typeof v['pointId'] !== 'string') return false;
+  if (v['specVersion'] !== undefined
+    && (!Number.isInteger(v['specVersion']) || (v['specVersion'] as number) < 1)) return false;
+  if (v['category'] !== undefined && typeof v['category'] !== 'string') return false;
+  if (v['remoteCode'] !== undefined && typeof v['remoteCode'] !== 'string') return false;
+  if (v['intent'] !== undefined && typeof v['intent'] !== 'string') return false;
+  if (v['origin'] !== undefined && v['origin'] !== 'llm' && v['origin'] !== 'manual') return false;
+
+  if (v['exposes'] !== undefined) {
+    if (!Array.isArray(v['exposes'])) return false;
+    for (const expose of v['exposes']) {
+      if (!isRecord(expose)
+        || typeof expose['name'] !== 'string'
+        || typeof expose['description'] !== 'string'
+        || !isRecord(expose['inputSchema'])
+        || !isRecord(expose['outputSchema'])
+        || (expose['kind'] !== 'pure' && expose['kind'] !== 'io' && expose['kind'] !== 'effect')
+        || typeof expose['idempotent'] !== 'boolean') return false;
+    }
+  }
+  if (v['smoke'] !== undefined) {
+    if (!Array.isArray(v['smoke'])) return false;
+    for (const sample of v['smoke']) {
+      if (!isRecord(sample)
+        || (sample['method'] !== undefined && typeof sample['method'] !== 'string')
+        || !Array.isArray(sample['args'])
+        || !Object.prototype.hasOwnProperty.call(sample, 'expect')) return false;
+    }
+  }
+  return true;
 }
