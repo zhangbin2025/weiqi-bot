@@ -12,6 +12,25 @@ import type { IUserContext } from "../../infrastructure/network/interfaces/IUser
 import { createUnsupportedResult, createErrorResult } from "./GameServiceHelpers";
 import { parseSGF } from "../../domain/sgf";
 
+/**
+ * URL signatures belonging to Providers that are intentionally unavailable in a
+ * plain Web runtime (Sniffer-only Providers and the remote-tunnel fallback).
+ * Keep these distinct from truly unknown URLs so the UI can preserve the
+ * environment/setup guidance instead of delegating them to the LLM.
+ */
+const KNOWN_BUT_ENVIRONMENT_DEPENDENT_URLS = [
+  /(?:h5\\.)?txwq\\.qq\\.com/i,
+  /yikeweiqi\\.com.*(?:room\\/|online-game\\/)/i,
+  /(?:19x19\\.com|golaxy)/i,
+  /xinboduiyi\\.com/i,
+  /shaoer\\.yikeweiqi\\.com/i,
+  /foxwq\\.com.*(?:svrid=|svrtype=20010|roomid=|golive)/i,
+];
+
+function isKnownButEnvironmentDependentUrl(url: string): boolean {
+  return KNOWN_BUT_ENVIRONMENT_DEPENDENT_URLS.some(pattern => pattern.test(url));
+}
+
 export interface GameFetchHelperOptions {
   registry: GameProviderRegistry;
   strategy: IGameStrategy;
@@ -66,6 +85,13 @@ export class GameFetchHelper {
     const provider = await strategy.selectProvider(url, registry.getProviders(), userContext);
     if (!provider) {
       const unsupported = createUnsupportedResult(url);
+      if (isKnownButEnvironmentDependentUrl(url)) {
+        // A known platform URL was skipped because this runtime lacks Sniffer
+        // or the remote tunnel. Keep it out of the LLM "unknown URL" fallback.
+        unsupported.source = 'unavailable';
+        unsupported.metadata.source = 'unavailable';
+        unsupported.error = '当前环境不支持此请求，请在设置中启用远程服务/隧道，或切换到支持该平台的运行环境。';
+      }
       return this.createFailedResult(url, unsupported);
     }
 
