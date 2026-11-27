@@ -303,7 +303,7 @@ function fail(reason: string): PrimitiveResult {
 /** 构造通用展示原语。纯渲染，无缓存依赖、无网络、无时钟。 */
 export function createDisplayJsonListPrimitive(): SkillPrimitive {
   return {
-    name: DISPLAY_JSON_LIST_TOOL_NAME,
+    name: DISPLAY_TOOL_NAME,
     definition: DISPLAY_JSON_LIST_TOOL,
     idempotent: true,
     outputSchema: { type: 'null' },
