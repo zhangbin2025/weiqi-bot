@@ -372,6 +372,12 @@ export async function runWorkflow(
         const nested = step.forEach?.steps ?? step.repeat?.steps ?? [];
         const missing = missingOperator(nested, path + "/");
         if (missing) return missing;
+        if (step.ifElse !== undefined) {
+          const thenMissing = missingOperator(step.ifElse.then, path + "/then/");
+          if (thenMissing) return thenMissing;
+          const elseMissing = missingOperator(step.ifElse.else ?? [], path + "/else/");
+          if (elseMissing) return elseMissing;
+        }
       }
     }
     return undefined;
@@ -409,7 +415,7 @@ export async function runWorkflow(
     let lastValue: unknown = null;
     for (const step of items) {
       const stepId = prefix + step.id;
-      const callName = step.call ?? (step.forEach ? '<forEach>' : '<repeat>');
+      const callName = step.call ?? (step.forEach ? '<forEach>' : step.repeat ? '<repeat>' : '<ifElse>');
 
       if (step.call !== undefined) {
         const literal = substituteInputs(step.args ?? {}, resolvedInputs, scope);
@@ -484,6 +490,39 @@ export async function runWorkflow(
         completedStepIds.push(stepId);
         stepTrace?.push({ stepId, call: callName, args: { from: step.forEach.from, path: step.forEach.path }, value: results, effects: [], ok: true });
         pushTrace(onTrace, true, `节点 ${stepId} forEach 完成（${results.length} 项）`);
+        continue;
+      }
+
+      if (step.ifElse !== undefined) {
+        const condition = step.ifElse.condition;
+        if (!upstream.has(condition.from)) {
+          return { ok: false, stepId, error: `ifElse 条件来源节点无 value：${condition.from}`, detail: `节点 ${stepId} 无法读取分支条件` };
+        }
+        const conditionValue = readBindingValue(upstream.get(condition.from), condition.path);
+        if (!conditionValue.ok) {
+          return { ok: false, stepId, error: conditionValue.error, detail: `节点 ${stepId} 分支条件读取失败：${conditionValue.error}` };
+        }
+        if (typeof conditionValue.value !== 'boolean') {
+          return { ok: false, stepId, error: 'ifElse.condition 必须指向 boolean 值', detail: `节点 ${stepId} 分支条件不是 boolean` };
+        }
+        const matched = conditionValue.value;
+        const branchSteps = matched ? step.ifElse.then : (step.ifElse.else ?? []);
+        const local = new Map(upstream);
+        const nested = await runSteps(
+          branchSteps, local, scope, `${stepId}.${matched ? 'then' : 'else'}/`, false,
+        );
+        if (!nested.ok) return nested;
+        const branchResult = { condition: matched, value: nested.lastValue };
+        upstream.set(step.id, branchResult);
+        lastValue = branchResult;
+        if (collectYield && step.yield === true) values[step.id] = branchResult;
+        completedStepIds.push(stepId);
+        stepTrace?.push({
+          stepId, call: callName,
+          args: { conditionFrom: condition.from, conditionPath: condition.path, matched },
+          value: branchResult, effects: [], ok: true,
+        });
+        pushTrace(onTrace, true, `节点 ${stepId} if/else 完成（${matched ? 'then' : 'else'} 分支）`);
         continue;
       }
 
