@@ -225,6 +225,9 @@ export function createAuthFetchPrimitives(deps: AuthFetchPrimitivesDeps): SkillP
     {
       name: HTTP_FETCH_AUTH_TOOL_NAME,
       definition: HTTP_FETCH_AUTH_TOOL,
+      idempotent: true,
+      outputSchema: {},
+      kind: 'io',
       execute: async (args): Promise<PrimitiveResult> => {
         const args = (() => {
           try { return args as Record<string, unknown>; }
@@ -327,6 +330,9 @@ export function createAuthFetchPrimitives(deps: AuthFetchPrimitivesDeps): SkillP
     {
       name: SECRET_PROMPT_TOOL_NAME,
       definition: SECRET_PROMPT_TOOL,
+      idempotent: true,
+      outputSchema: {},
+      kind: 'effect',
       execute: async (args): Promise<PrimitiveResult> => {
         const args = (() => {
           try { return args as Record<string, unknown>; }
@@ -742,6 +748,9 @@ export function createPublishPrimitives(deps: PublishPrimitivesDeps): SkillPrimi
     {
       name: ASSET_EXPORT_TOOL_NAME,
       definition: ASSET_EXPORT_TOOL,
+      idempotent: true,
+      outputSchema: {},
+      kind: 'effect',
       execute: async (args): Promise<PrimitiveResult> => {
         const args = parseArgs(args);
         const kind = args['kind'];
@@ -796,6 +805,9 @@ export function createPublishPrimitives(deps: PublishPrimitivesDeps): SkillPrimi
       definition: GITHUB_PUBLISH_FILE_TOOL,
       // 写外部仓库，非幂等；不让 OperatorRegistry 把它当纯计算算子。
       idempotent: false,
+      idempotent: false,
+      outputSchema: {},
+      kind: 'effect',
       execute: async (args): Promise<PrimitiveResult> => {
         const args = parseArgs(args);
         const handle = args['handle'];
