@@ -27,7 +27,7 @@ const defaultWorkerFactory: RegexWorkerFactory = () => new Worker(
 export function createRegexWorkerRunner(options: RegexWorkerRunnerOptions = {}):
   (method: string, args: Record<string, unknown>) => Promise<unknown> {
   const workerFactory = options.workerFactory ?? defaultWorkerFactory;
-  const timeoutMs = options.timeoutMs ?? 1000;
+  const timeoutMs = options.timeoutMs ?? 2000;
 
   return (method, args) => new Promise<unknown>((resolve, reject) => {
     let worker: Worker | null = null;
