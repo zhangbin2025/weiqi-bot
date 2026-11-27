@@ -150,12 +150,7 @@ interface ParsedArgs {
 }
 
 function parseArgs(args: Record<string, unknown>, fallbackFlags: string): { ok: true; value: ParsedArgs } | { ok: false; error: string } {
-  let raw: unknown;
-  try {
-    raw = args;
-  } catch {
-    return { ok: false, error: '参数不是合法 JSON' };
-  }
+  const raw: unknown = args;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return { ok: false, error: '参数必须是 JSON 对象' };
   }
