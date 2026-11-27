@@ -805,7 +805,6 @@ export function createPublishPrimitives(deps: PublishPrimitivesDeps): SkillPrimi
       definition: GITHUB_PUBLISH_FILE_TOOL,
       // 写外部仓库，非幂等；不让 OperatorRegistry 把它当纯计算算子。
       idempotent: false,
-      idempotent: false,
       outputSchema: {},
       kind: 'effect',
       execute: async (args): Promise<PrimitiveResult> => {
