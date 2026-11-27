@@ -105,9 +105,10 @@ export class PluginCatalogClient {
         const inputSchema = raw['inputSchema'];
         const outputSchema = raw['outputSchema'];
         const kind = raw['kind'];
+        const idempotent = raw['idempotent'];
         if (!isRecord(inputSchema) || !isRecord(outputSchema)
           || (kind !== 'pure' && kind !== 'io' && kind !== 'effect')
-          || typeof raw['idempotent'] !== 'boolean') {
+          || typeof idempotent !== 'boolean') {
           const legacy = Object.prototype.hasOwnProperty.call(raw, 'params');
           throw new Error(legacy
             ? '旧 exposes[].params 契约已停止支持；请重新发布并声明 inputSchema、outputSchema、kind、idempotent'
@@ -119,7 +120,7 @@ export class PluginCatalogClient {
           inputSchema,
           outputSchema,
           kind,
-          idempotent: raw['idempotent'],
+          idempotent,
         };
       });
     }
