@@ -104,19 +104,19 @@ describe('Regex operator E2E', () => {
         {
           id: 'match',
           call: 'regex.match',
-          args: { text: 'abc123', pattern: '(\\\\d+)' },
+          args: { text: 'abc123', pattern: '(\\d+)' },
           yield: true,
         },
         {
           id: 'extract',
           call: 'regex.extract',
-          args: { text: 'x12 y34', pattern: '\\\\d+', withIndex: true },
+          args: { text: 'x12 y34', pattern: '\\d+', withIndex: true },
           yield: true,
         },
         {
           id: 'replace',
           call: 'regex.replace',
-          args: { text: 'a1 b2', pattern: '\\\\d+', replacement: '#' },
+          args: { text: 'a1 b2', pattern: '\\d+', replacement: '#' },
           yield: true,
         },
       ],
