@@ -9,6 +9,7 @@
 
 import type { ModelToolDefinition } from '../model/IModelGateway';
 import type { SecretSpec } from './SecretSpec';
+import type { OperatorJsonSchema, OperatorKind } from '@domain/plugin/types';
 
 /** 宿主内置原语：真正能执行的函数。在线资源永远不含代码。 */
 export interface SkillPrimitive {
@@ -21,6 +22,9 @@ export interface SkillPrimitive {
    * 缺省由 OperatorRegistry 按 true 处理（纯计算默认幂等，明说约定不是拟合数值）。
    */
   idempotent?: boolean;
+  /** 新契约元数据；缺省的旧原语继续走 legacy 兼容路径。 */
+  outputSchema?: OperatorJsonSchema;
+  kind?: OperatorKind;
   execute(argsJson: string): Promise<PrimitiveResult>;
 }
 
