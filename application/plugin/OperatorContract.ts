@@ -37,7 +37,7 @@ export function validateOperatorContract(contract: unknown): string | undefined 
     if (typeof e.description !== 'string' || !e.description.trim()) {
       return `exposes[].description 为空：${e.name}`;
     }
-if (typeof e.inputSchema !== 'object' || e.inputSchema === null || Array.isArray(e.inputSchema)) {
+    if (typeof e.inputSchema !== 'object' || e.inputSchema === null || Array.isArray(e.inputSchema)) {
       return `exposes[].inputSchema 必须是 JSON Schema 对象：${e.name}`;
     }
     if (typeof e.outputSchema !== 'object' || e.outputSchema === null || Array.isArray(e.outputSchema)) {
