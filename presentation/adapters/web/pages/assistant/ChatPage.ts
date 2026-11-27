@@ -344,7 +344,7 @@ export class ChatPage {
     // 阶段二装配：宿主统一算子表。deps 三件都复用装配根现成实例/工厂：
     // - primitives：createBasicPrimitives(webTools)（上面 skillPrimitives 用的同一份工厂/依赖）；
     // - artifacts：this.plugin.artifacts（createPluginSystem 里 new PluginArtifactService(store)）；
-    // - runtime：this.plugin.runtime（QuickJsRuntime，一次性 Worker 沙箱）。
+    // - runtime：this.plugin.runtime（QuickJsRuntime，复用 Worker、逐次隔离 QuickJS Context）。
     // 插件系统装配失败（this.plugin === undefined）时，用「内置原语 + 空工件表 + 空运行时」
     // 的降级装配：内置算子照常可用，插件算子天然不注册（runner 会结构化报未注册），
     // 与「装配失败不阻塞对话页」的既有兜底一致，不自造工件/运行时实例。
