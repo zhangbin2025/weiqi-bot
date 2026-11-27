@@ -181,12 +181,12 @@ export async function executeWebFetch(args: Record<string, unknown>, deps: WebFe
   let url: string;
   let storeOnly = false;
   try {
-    if (typeof args.url !== 'string' || !args.url.trim()) {
+    if (typeof args['url'] !== 'string' || !args['url'].trim()) {
       throw new Error('缺少 url 参数');
     }
-    url = validateWebFetchUrl(args.url.trim());
+    url = validateWebFetchUrl(args['url'].trim());
     // storeOnly 只认严格布尔 true；其它值一律按缺省（完整观察）处理，不静默吞正文。
-    storeOnly = args.storeOnly === true;
+    storeOnly = args['storeOnly'] === true;
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     const observation = `web_fetch 参数无效：${reason}。请给出 http/https 开头的公开网页绝对 URL。`;
