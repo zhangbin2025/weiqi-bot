@@ -665,7 +665,7 @@ export function buildWorkflowToolParts(
     for (const key of ['offset', 'length', 'pattern', 'flags', 'before', 'after', 'skip', 'limit', 'count']) {
       if (req[key] !== undefined) mapped[key] = req[key];
     }
-    const read = executeWebCacheRead(JSON.stringify(mapped), wfResultCache);
+    const read = executeWebCacheRead(mapped, wfResultCache);
     // WebCacheReadResult 与 ToolOutcome 同形状（preparatory:true 必须保留），显式构造避免结构漂移。
     return {
       observation: read.observation, ok: read.ok, detail: read.detail, preparatory: true,
