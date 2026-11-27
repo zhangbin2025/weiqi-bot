@@ -101,7 +101,7 @@ describe('/llm repairs（插件自动修复轮数可配置）', () => {
   it('无参数显示当前值', async () => {
     let shown = '';
     await handleLLMCommand('/llm repairs', { renderMessage: async (c) => { shown = c; } });
-    expect(shown).toContain('当前插件自动修复轮数');
+    expect(shown).toContain('当前插件自主决策次数');
     expect(shown).toContain('/llm repairs');
   });
 
@@ -110,20 +110,22 @@ describe('/llm repairs（插件自动修复轮数可配置）', () => {
     let shown = '';
     await handleLLMCommand('/llm repairs 5', { renderMessage: async (c) => { shown = c; } });
     expect(shown).toContain('已改为 5');
-    expect(loadPluginMaxAttempts()).toBe(5);
+    expect(loadPluginMaxAttempts()).toBe(4);
     resetPluginMaxAttemptsForTest();
   });
 
-  it('越界收敛到 1~10', async () => {
+  it('越界收敛到 1~50', async () => {
     resetPluginMaxAttemptsForTest();
     await handleLLMCommand('/llm repairs 99', { renderMessage: async () => {} });
-    expect(loadPluginMaxAttempts()).toBe(10);
+    expect(loadPluginMaxAttempts()).toBe(49);
     await handleLLMCommand('/llm repairs 1', { renderMessage: async () => {} });
-    expect(loadPluginMaxAttempts()).toBe(1);
+    expect(loadPluginMaxAttempts()).toBe(0);
     // 0 / 负数由命令层直接拒绝，不覆盖已有值
     await handleLLMCommand('/llm repairs 0', { renderMessage: async () => {} });
     expect(loadPluginMaxAttempts()).toBe(1);
     await handleLLMCommand('/llm repairs 3', { renderMessage: async () => {} });
+    await handleLLMCommand('/llm repairs 50', { renderMessage: async () => {} });
+    expect(loadPluginMaxAttempts()).toBe(49);
     resetPluginMaxAttemptsForTest();
   });
 
