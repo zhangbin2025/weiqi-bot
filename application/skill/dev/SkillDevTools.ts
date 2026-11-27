@@ -34,6 +34,7 @@ import type { SkillPrimitive } from '@application/skill/SkillTypes';
 import { parseSkillRecipe } from '@application/skill/SkillRecipe';
 import { isValidResourceId, RESOURCE_ID_HINT } from '@application/skill/ResourceId';
 import { NAVIGATE_TO_TOOL_NAME, NAVIGATE_TO_TOOL } from '@application/skill/primitives/BasicPrimitives';
+import { nextNumberedName } from '@application/plugin/PluginNaming';
 import type { UserSkillStore } from './UserSkillStore';
 import type { WorkflowDevHooks } from '../WorkflowTool';
 
@@ -95,7 +96,9 @@ const SKILL_WRITE_TOOL: ModelToolDefinition = {
     + '带 workflow 的技能保存后处于「未启用（待验收）」，必须 run_workflow 传 debug:true '
     + '整条 DAG 跑通后才由宿主启用，修订会重置这道闸门。'
     + '新建时建议给一个发布用 id（与 weiqi-assets 命名规则同形，如 admin.publish）；'
-    + '不给则宿主按 name 生成 user. 前缀的稳定 id。修订时填 skill_list 查到的同一 id，并给出整份配方；'
+    + '不给则宿主按 name 生成 user. 前缀稳定 id；name 也可以省略，'
+    + '宿主先自动命名为「技能N」（按现有技能名排号、不撞车），再据此生成 id。'
+    + '修订时填 skill_list 查到的同一 id，并给出整份配方；'
     + '改已有技能的 id 请用 skill_rename（只需两个 id）。'
     + '在线安装的技能是只读的，不能改写或改名；primitives 只能引用系统提示里「可用原语」列出的名字。'
     + '带 workflow 的配方是纯声明 DAG：primitives 可为空数组，能力声明在 workflow.steps[].call（引用当前算子表里的名字）。',
@@ -108,7 +111,7 @@ const SKILL_WRITE_TOOL: ModelToolDefinition = {
           + '）；不给则宿主按 name 生成 user. 前缀稳定 id。'
           + '修订已有技能时填 skill_list 查到的同一 id。',
       },
-      name: { type: 'string', description: '展示名称' },
+      name: { type: 'string', description: '展示名称；不给时宿主自动命名为「技能N」（不与其他技能撞车）' },
       summary: { type: 'string', description: '一句话说明该技能做什么（命中后注入系统提示的执行说明）' },
       routeHint: {
         type: 'array',
@@ -179,7 +182,7 @@ const SKILL_WRITE_TOOL: ModelToolDefinition = {
           + '仅带 workflow 且 returnToLLM:true 有意义；宿主做无损紧凑行（columns/rows）后写入结果缓存。',
       },
     },
-    required: ['name', 'summary', 'primitives', 'prompt'],
+    required: ['summary', 'primitives', 'prompt'],
     additionalProperties: false,
   },
 };
@@ -239,7 +242,8 @@ function buildSystemSuffix(primitives: ReadonlyMap<string, SkillPrimitive>): str
     renderPrimitives(primitives),
     '',
     '用 skill_list 查看本地技能（含 id、版本、来源、启用状态、完整配方）；用 skill_write 创建/修订自建技能。',
-    'skill_write 字段：name / summary（命中后的执行说明：什么场景、做什么）'
+    'skill_write 字段：name（可选；不给则宿主自动命名「技能N」，按现有技能名排号且不撞车）'
+      + ' / summary（命中后的执行说明：什么场景、做什么）'
       + '/ routeHint（可选路由词，短语数组：每项声明「用户说什么话时选这条」，只供路由目录；不填则目录只给 id|name）'
       + '/ primitives（原语名数组，至少 1 条，必须来自上表）'
       + '/ prompt（启用后追加的自然语言指令，纯文本）；'
@@ -275,7 +279,8 @@ function buildSystemSuffix(primitives: ReadonlyMap<string, SkillPrimitive>): str
       + '配方要同时在 prompt 里授权模型据数据做分析、别复述原始 JSON、截断时只据可见部分、不编造。',
     'llmProjection 可选（{ keep: 非空字符串数组 }）：声明哪些 yield 顶层段进 LLM 视图，'
       + '缺省 = B2 全量；仅带 workflow 且 returnToLLM:true 有意义，出处见该技能 README。',
-    'workflow 配方仍要写 name / summary / prompt（prompt 只是展示说明，不进 model system）。',
+    'workflow 配方仍要写 summary / prompt（prompt 只是展示说明，不进 model system）；'
+      + 'name 可省略，宿主自动命名「技能N」。',
     'call 不校验静态白名单：运行时由宿主 OperatorRegistry 按名精确查表，未注册会结构化报「未注册算子」。'
       + '写之前先看下面清单，别编造算子名。',
     '',
@@ -387,20 +392,38 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
       return { observation: '入参必须是一个对象，未能保存技能', ok: false, detail: '技能保存失败' };
     }
 
-    // id：显式给发布用 id 优先；不给则按 name 生成 user. 前缀稳定 id。
+    // 名称：用户/LLM 不给时，新建自动排号「技能N」（按现有技能名、不撞车）；
+    // 修订（显式 id）沿用该技能已有的名字，不因缺字段而把名字改掉。
+    // id 生成与配方校验都依赖 name，所以在这两步之前先定下来。
+    const entries = await users.list();
     const rawId = args['id'];
+    const explicitId = typeof rawId === 'string' && rawId.trim() !== '' ? rawId : undefined;
+    const rawName = args['name'];
+    // 显式给了名字就原样用（沿用旧行为，宿主不擅自 trim / 截断）；
+    // 修订（显式 id）且没给名字时沿用该技能已有名字，不因缺字段把名字改掉；
+    // 新建且没给名字时按现有技能名自动排号「技能N」。
+    const prior = explicitId !== undefined
+      ? entries.find((e) => e.recipe.id === explicitId.trim())
+      : undefined;
+    let name: string;
+    if (typeof rawName === 'string' && rawName.trim() !== '') {
+      name = rawName;
+    } else {
+      name = prior?.recipe.name ?? nextNumberedName('技能', entries.map((e) => e.recipe.name));
+    }
+
+    // id：显式给发布用 id 优先；不给则按 name 生成 user. 前缀稳定 id。
     let id: string;
-    if (typeof rawId === 'string' && rawId.trim() !== '') {
-      if (!isValidResourceId(rawId)) {
+    if (explicitId !== undefined) {
+      if (!isValidResourceId(explicitId)) {
         return {
-          observation: `技能 id「${rawId}」不合法：${RESOURCE_ID_HINT}。`
+          observation: `技能 id「${explicitId}」不合法：${RESOURCE_ID_HINT}。`
             + '这条规则与 weiqi-assets 资源仓一致，发布时不会被校验拒收。',
           ok: false, detail: '技能 id 不合法',
         };
       }
-      id = rawId.trim();
+      id = explicitId.trim();
     } else {
-      const name = typeof args['name'] === 'string' ? args['name'] : '';
       id = makeUserSkillId(name);
     }
 
@@ -426,7 +449,7 @@ export function createSkillDevKit(deps: SkillDevDeps): SkillDevKit {
       schemaVersion: 1,
       id,
       version: 1, // 占位；UserSkillStore.save 会按同 id 现有版本 +1 覆盖，模型永远不写版本号
-      name: args['name'],
+      name,
       summary: args['summary'],
       ...(args['routeHint'] !== undefined ? { routeHint: args['routeHint'] } : {}),
       primitives: args['primitives'],

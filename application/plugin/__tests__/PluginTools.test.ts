@@ -94,12 +94,12 @@ describe('createPluginToolKit', () => {
   it('system 实时读清单：新建后立刻能看到插件（不依赖会话历史）', async () => {
     const h = harness();
     await h.artifacts.create({
-      name: '规则1', intent: '同分比胜局', code: CODE_V1,
+      name: '插件1', intent: '同分比胜局', code: CODE_V1,
       pointId: RANKING_POINT_ID, origin: 'llm', spec: RANKING_SPEC,
     });
     const kit = createPluginToolKit(h.deps);
     const sys = await kit.systemPrompt();
-    expect(sys).toContain('规则1');
+    expect(sys).toContain('插件1');
     expect(sys).toContain('同分比胜局');
   });
 });
@@ -519,11 +519,11 @@ describe('plugin_toggle 刷新算子表快照（阶段三整改）', () => {
   it('plugin_rename 拒绝非法 id / 重名 / 在线安装件 / 不存在的工件', async () => {
     const h = harness();
     const a = await h.artifacts.create({
-      name: '规则1', intent: '同分比胜局', code: CODE_V1,
+      name: '插件1', intent: '同分比胜局', code: CODE_V1,
       pointId: RANKING_POINT_ID, origin: 'llm', spec: RANKING_SPEC,
     });
     const b = await h.artifacts.create({
-      name: '规则2', intent: '另一种', code: CODE_V1,
+      name: '插件2', intent: '另一种', code: CODE_V1,
       pointId: RANKING_POINT_ID, origin: 'llm', spec: RANKING_SPEC,
       id: 'ranking.taken',
     });

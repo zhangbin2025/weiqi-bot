@@ -208,6 +208,52 @@ describe('createSkillDevKit', () => {
   });
 });
 
+describe('skill_write 未指定 name 时自动命名', () => {
+  it('空库第一个叫技能1，连续新建按技能2/技能3排号且不撞车', async () => {
+    const { exec, users } = kit();
+    const base = { summary: 's', primitives: ['web_fetch'], prompt: 'p' };
+    expect((await exec('skill_write', { ...base })).ok).toBe(true);
+    expect((await exec('skill_write', { ...base })).ok).toBe(true);
+    expect((await exec('skill_write', { ...base })).ok).toBe(true);
+    const names = (await users.list()).map((e) => e.recipe.name);
+    expect(names).toEqual(['技能1', '技能2', '技能3']);
+  });
+
+  it('显式 name 优先；已占用的「技能N」编号会被跳过', async () => {
+    const { exec, users } = kit();
+    const base = { summary: 's', primitives: ['web_fetch'], prompt: 'p' };
+    await exec('skill_write', { ...base, name: '技能1' });
+    expect((await exec('skill_write', { ...base })).ok).toBe(true);
+    expect((await exec('skill_write', { ...base, name: '查定式' })).ok).toBe(true);
+    const names = (await users.list()).map((e) => e.recipe.name);
+    expect(names).toEqual(['技能1', '技能2', '查定式']);
+  });
+
+  it('修订时省略 name 沿用原名，不改成自动编号', async () => {
+    const { exec, users } = kit();
+    const first = await exec('skill_write', {
+      name: '查定式', summary: 's', primitives: ['web_fetch'], prompt: 'p',
+    });
+    expect(first.ok).toBe(true);
+    const id = (await users.list())[0]!.recipe.id;
+    const revised = await exec('skill_write', {
+      id, summary: 's2', primitives: ['web_fetch'], prompt: 'p2',
+    });
+    expect(revised.ok).toBe(true);
+    const list = await users.list();
+    expect(list).toHaveLength(1);
+    expect(list[0]?.recipe.name).toBe('查定式');
+    expect(list[0]?.recipe.version).toBe(2);
+  });
+
+  it('schema 里 name 不再是必填', () => {
+    const { dev } = kit();
+    const schema = dev.tools.find((t) => t.name === 'skill_write')!.parameters;
+    const required = (schema as { required?: string[] }).required ?? [];
+    expect(required).not.toContain('name');
+  });
+});
+
 describe('secrets 声明（通用 http_fetch_auth 配方的自建路径）', () => {
   const spec = {
     key: 'github_token',

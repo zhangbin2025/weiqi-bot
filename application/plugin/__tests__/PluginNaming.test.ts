@@ -1,9 +1,10 @@
 /**
- * 插件命名规则：用户指定优先，否则「规则1/规则2」简短命名且不撞车
+ * 开发工件自动命名：用户指定优先，否则插件「插件N」/ 技能「技能N」简短命名且不撞车
  */
 import { describe, it, expect } from 'vitest';
 import {
   normalizePluginName,
+  nextNumberedName,
   nextSimplePluginName,
   resolvePluginName,
   MAX_PLUGIN_NAME_LENGTH,
@@ -34,33 +35,46 @@ describe('normalizePluginName', () => {
   });
 });
 
+describe('nextNumberedName（插件 / 技能共用同一套排号，只由前缀区分类型）', () => {
+  it('按前缀生成，空清单从 1 开始', () => {
+    expect(nextNumberedName('插件', [])).toBe('插件1');
+    expect(nextNumberedName('技能', [])).toBe('技能1');
+  });
+
+  it('跳过已占用的编号，且不同前缀互不影响', () => {
+    expect(nextNumberedName('技能', ['技能1', '技能2'])).toBe('技能3');
+    expect(nextNumberedName('技能', ['技能1', '技能3'])).toBe('技能2');
+    expect(nextNumberedName('插件', ['技能1', '技能2'])).toBe('插件1');
+  });
+});
+
 describe('nextSimplePluginName', () => {
-  it('空清单从规则1开始', () => {
-    expect(nextSimplePluginName([])).toBe('规则1');
+  it('空清单从插件1开始', () => {
+    expect(nextSimplePluginName([])).toBe('插件1');
   });
 
   it('跳过已占用的编号', () => {
-    expect(nextSimplePluginName(['规则1', '规则2'])).toBe('规则3');
-    expect(nextSimplePluginName(['规则1', '规则3'])).toBe('规则2');
+    expect(nextSimplePluginName(['插件1', '插件2'])).toBe('插件3');
+    expect(nextSimplePluginName(['插件1', '插件3'])).toBe('插件2');
   });
 
-  it('用户自定义名不占用编号，但同名「规则N」要跳过', () => {
-    expect(nextSimplePluginName(['同分比胜局', '规则2'])).toBe('规则1');
-    expect(nextSimplePluginName(['规则1', '同分比胜局'])).toBe('规则2');
+  it('用户自定义名不占用编号，但同名「插件N」要跳过', () => {
+    expect(nextSimplePluginName(['同分比胜局', '插件2'])).toBe('插件1');
+    expect(nextSimplePluginName(['插件1', '同分比胜局'])).toBe('插件2');
   });
 });
 
 describe('resolvePluginName', () => {
   it('用户明确指定名字时原样使用', () => {
-    expect(resolvePluginName('同分比胜局', [entry('规则1')])).toBe('同分比胜局');
+    expect(resolvePluginName('同分比胜局', [entry('插件1')])).toBe('同分比胜局');
   });
 
   it('没指定就自动排号，基于当前全部插件（工件中心，与会话无关）', () => {
-    expect(resolvePluginName(undefined, [entry('规则1'), entry('规则2')])).toBe('规则3');
-    expect(resolvePluginName('   ', [entry('规则1')])).toBe('规则2');
+    expect(resolvePluginName(undefined, [entry('插件1'), entry('插件2')])).toBe('插件3');
+    expect(resolvePluginName('   ', [entry('插件1')])).toBe('插件2');
   });
 
-  it('没有任何插件时第一个叫规则1', () => {
-    expect(resolvePluginName(undefined, [])).toBe('规则1');
+  it('没有任何插件时第一个叫插件1', () => {
+    expect(resolvePluginName(undefined, [])).toBe('插件1');
   });
 });

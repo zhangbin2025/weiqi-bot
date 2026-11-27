@@ -190,7 +190,7 @@ async function buildSystemPrompt(
     '只有收到工具观察回执后，才能在最终回复里确认状态。用户说「启用」就调 plugin_toggle + enabled:true，',
     '说「停用」就 enabled:false；不知道指哪个插件时先 plugin_list，不要凭记忆编 id。',
     '新建/修订产生的候选默认停用，用户确认后才启用。',
-    '【命名】只有用户明确给规则起了名字时才传 name；否则省略，系统自动排号，不要自己编花哨名字。',
+    '【命名】只有用户明确给插件起了名字时才传 name；否则省略，系统按「插件N」自动排号，不要自己编花哨名字。',
     '写 workflow-operator 算子时给一个稳定 slug（小写字母/数字/下划线、不带点）：'
     + '启用后算子名是 <slug>.<exposes[].name>，技能配方的 workflow.steps[].call 就引用它；'
     + '新建漏给可以在修订时用 plugin_write 补 slug。',
@@ -425,7 +425,7 @@ function buildTools(behaviors: ExtensionPointBehaviorRegistry): ModelToolDefinit
             + '与 artifactId 同时给出会被忽略（那是修订，id 不能改）。改已有插件的 id 请用 plugin_rename。',
         },
         intent: { type: 'string', description: '原始需求描述（新建时必填；修订时可省略，沿用原需求）' },
-        name: { type: 'string', description: '插件名；仅当用户明确起了名字时给，否则省略' },
+        name: { type: 'string', description: '插件名；仅当用户明确起了名字时给，否则省略（宿主自动命名「插件N」）' },
         slug: {
           type: 'string',
           description: '可选但写 workflow 算子时强烈建议给：稳定的算子命名空间短名（小写字母开头，'

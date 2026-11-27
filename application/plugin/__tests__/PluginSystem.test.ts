@@ -271,7 +271,7 @@ describe('可配置轮数持久化', () => {
     };
     const s = await sys({ localStorage: localStorage as never });
     const a = await s.artifacts.create({
-      name: '规则1', intent: '按积分', code: 'function rank(i){return i}',
+      name: '插件1', intent: '按积分', code: 'function rank(i){return i}',
       pointId: RANKING_SPEC.pointId, origin: 'llm', spec: RANKING_SPEC,
     });
     await localStorage.write('event-ranking-plugin', a.id);
