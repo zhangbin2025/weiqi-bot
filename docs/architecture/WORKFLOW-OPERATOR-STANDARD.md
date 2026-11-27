@@ -60,7 +60,7 @@ Runner 直接传递 JS 原生对象、数组、字符串、数字、布尔值和
 
 ## 5. 宿主能力边界
 
-宿主 Workflow 能力收敛为七项：
+宿主 Workflow 提供通用流程控制、网络、展示、导航与本地偏好存储能力：
 
 | 能力 | 职责 |
 |---|---|
@@ -71,6 +71,7 @@ Runner 直接传递 JS 原生对象、数组、字符串、数字、布尔值和
 | web_cache_read | 读取宿主管理的网页缓存 |
 | display | 展示任意 JSON 结构或 Markdown |
 | navigate_to | 生成站内导航链接 |
+| storage.get / storage.set / storage.delete | 读写或删除宿主管理的用户偏好；复用 KvService 域策略，不开放 opaque / host-only 域 |
 
 不提供业务专用抓取算子，也不提供通用 fetch_batch。批量请求由 forEach + web_fetch 组合。PDF/图片解析不属于本轮 Workflow 宿主能力。
 
@@ -83,7 +84,7 @@ JSON 与 regex 是宿主内置的纯计算 Workflow 算子，名称分别为 `js
 - JSON 算子提供 parse/stringify/get/set/select/pluck/concat/unique/append/groupCount/sortBy/take/isEmpty/assert/flatten/toString。
 - regex 算子提供 match/extract/replace；宿主限制输入长度、模式长度、匹配数量，并拒绝常见灾难性回溯模式，避免同步正则长时间阻塞主线程。
 - `calendar`、`circle` 等业务领域算子仍通过 `workflow-operator` 插件注册，方法名为 `slug.method`，仅处理输入数据，不得把网络访问或宿主权限藏进插件。
-- 技能依赖扫描只为领域插件生成自动安装依赖；`json.*` 与 `regex.*` 是宿主能力，不弹插件安装界面。
+- 技能依赖扫描只为领域插件生成自动安装依赖；`json.*`、`regex.*` 与 `storage.*` 是宿主能力，不弹插件安装界面。
 - 每个 exposes 项声明 inputSchema、outputSchema、kind、idempotent；插件提供 smoke 样例。
 - 技能安装器递归扫描普通节点、forEach、repeat、ifElse 分支中的插件依赖，按资源 ID 去重；已安装插件不重复安装。
 
