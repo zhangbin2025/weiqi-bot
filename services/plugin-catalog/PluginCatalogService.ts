@@ -377,7 +377,12 @@ export class PluginCatalogService {
       manifest = fetched.manifest;
       codeUrl = fetched.codeUrl;
     } catch (error) {
-      return { ...base, state: 'unavailable', reason: `清单不可用：${messageOf(error)}` };
+      const reason = messageOf(error);
+      // 旧 workflow-operator manifest 是明确的契约不兼容，不应伪装成网络不可用。
+      if (reason.startsWith('旧 exposes[].params')) {
+        return { ...base, state: 'incompatible', reason };
+      }
+      return { ...base, state: 'unavailable', reason: `清单不可用：${reason}` };
     }
 
     const enriched: CatalogEntry = {
