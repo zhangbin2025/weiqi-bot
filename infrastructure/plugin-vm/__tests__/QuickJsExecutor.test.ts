@@ -136,7 +136,7 @@ describe('QuickJsExecutor', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.phase).toBe('contract');
-    expect(result.hint).toContain('只返回必要');
+    expect(result.hint).toBe('请只返回下游 Workflow 需要的数据');
   });
 
   it('hostApi 只有被显式声明的函数才存在，且调用被记录', async () => {
