@@ -185,6 +185,8 @@ type WorkflowStepT = WorkflowSpecT['steps'][number];
 type WorkflowBindingT = NonNullable<WorkflowStepT['bindings']>[number];
 type WorkflowInputT = NonNullable<SkillRecipe['inputs']>[number];
 type WorkflowInputType = WorkflowInputT['type'];
+// 与 assets 发布校验器保持一致，限制声明树深度，避免恶意配方耗尽递归调用栈。
+const MAX_WORKFLOW_NESTING = 16;
 
 /** inputs[].type 的取值枚举，逐字来自 SkillTypes.WorkflowInput['type'] 联合类型（DSL 字段形状），不是拟合常数。 */
 const WORKFLOW_INPUT_TYPES: readonly string[] = [
@@ -224,7 +226,11 @@ function readWorkflowSpec(raw: Record<string, unknown>): FieldResult<WorkflowSpe
     source: readonly unknown[],
     inheritedIds: ReadonlySet<string>,
     where: string,
+    depth = 0,
   ): FieldResult<ParsedSteps> => {
+    if (depth > MAX_WORKFLOW_NESTING) {
+      return { ok: false, reason: `${where} 控制结构嵌套超过上限 ${MAX_WORKFLOW_NESTING}` };
+    }
     const available = new Set(inheritedIds);
     const localIds = new Set<string>();
     const out: WorkflowStepT[] = [];
@@ -307,7 +313,7 @@ function readWorkflowSpec(raw: Record<string, unknown>): FieldResult<WorkflowSpe
         if (!Array.isArray(forEachRaw['steps']) || forEachRaw['steps'].length === 0) {
           return { ok: false, reason: `${at} forEach.steps 必须是非空数组` };
         }
-        const nested = parseSteps(forEachRaw['steps'], available, `${at}.forEach.steps`);
+        const nested = parseSteps(forEachRaw['steps'], available, `${at}.forEach.steps`, depth + 1);
         if (!nested.ok) return nested;
         step = {
           id: idRes.value,
@@ -339,11 +345,11 @@ function readWorkflowSpec(raw: Record<string, unknown>): FieldResult<WorkflowSpe
         if (ifElseRaw['else'] !== undefined && !Array.isArray(ifElseRaw['else'])) {
           return { ok: false, reason: `${at} ifElse.else 若给必须是数组` };
         }
-        const thenParsed = parseSteps(ifElseRaw['then'], available, `${at}.ifElse.then`);
+        const thenParsed = parseSteps(ifElseRaw['then'], available, `${at}.ifElse.then`, depth + 1);
         if (!thenParsed.ok) return thenParsed;
         const elseParsed = ifElseRaw['else'] === undefined
           ? { ok: true as const, value: { steps: [] as WorkflowStepT[], ids: new Set<string>() } }
-          : parseSteps(ifElseRaw['else'] as readonly unknown[], available, `${at}.ifElse.else`);
+          : parseSteps(ifElseRaw['else'] as readonly unknown[], available, `${at}.ifElse.else`, depth + 1);
         if (!elseParsed.ok) return elseParsed;
         step = {
           id: idRes.value,
@@ -369,7 +375,7 @@ function readWorkflowSpec(raw: Record<string, unknown>): FieldResult<WorkflowSpe
         if (!Array.isArray(repeatRaw['steps']) || repeatRaw['steps'].length === 0) {
           return { ok: false, reason: `${at} repeat.steps 必须是非空数组` };
         }
-        const nested = parseSteps(repeatRaw['steps'], available, `${at}.repeat.steps`);
+        const nested = parseSteps(repeatRaw['steps'], available, `${at}.repeat.steps`, depth + 1);
         if (!nested.ok) return nested;
         const readLoopRef = (value: unknown, name: string): FieldResult<{ from: string; path: string }> => {
           if (!isRecord(value)) return { ok: false, reason: `${at} repeat.${name} 必须是对象` };
