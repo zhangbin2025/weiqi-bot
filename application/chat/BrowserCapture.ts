@@ -420,6 +420,8 @@ export function browserCapturePrimitive(deps: BrowserCaptureDeps): SkillPrimitiv
     // 沿用 SkillTypes / OperatorRegistry 既有约定（kv_write / secret_prompt 同样显式标 false），
     // 是语义声明，不是拟合出来的阈值。
     idempotent: false,
+    outputSchema: {},
+    kind: 'io',
     execute: async (args: Record<string, unknown>): Promise<PrimitiveResult> => {
       const r = await captureBrowser(deps, args);
       const out: PrimitiveResult = { observation: r.observation, ok: r.ok, detail: r.detail };
