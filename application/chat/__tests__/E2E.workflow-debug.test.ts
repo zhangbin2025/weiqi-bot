@@ -420,7 +420,7 @@ describe('端到端：同一轮 skill_write → run_workflow(debug:true)', () =>
     expect(obs[0]).not.toContain('第 1/3 步');
     expect(obs[0]).not.toContain('输出 value');
     expect(obs[0]).not.toContain('最终交付');
-    expect(obs[0]).not.toContain(String.raw`\"word\":\"柯洁\"`);
+    expect(obs[0]).not.toContain('["柯洁","申真谞","官子","劫争"]');
     expect(obs[0]).not.toContain('柯洁');
     // 正证据：DAG 确实跑完了 —— 业务数据由宿主 effects 旁路交付（displayMarkdown），
     // 只是不进 tool 观察 / 模型上下文。否则「零回灌」可能只是「压根没跑」的假绿。
