@@ -5,9 +5,6 @@ export function executeRegex(method: string, a: Record<string, unknown>): unknow
   }
   const text = a['text'];
   const pattern = a['pattern'];
-  if (pattern.length > 256 || text.length > 100_000) {
-    throw new Error('正则 pattern 最长 256 字符，text 最长 100000 字符');
-  }
   const flags = a['flags'] === undefined
     ? (method === 'extract' || method === 'replace' ? 'g' : '')
     : a['flags'];
@@ -39,7 +36,6 @@ export function executeRegex(method: string, a: Record<string, unknown>): unknow
         seen.add(String(value));
         out.push(a['withIndex'] === true ? { value, index: hit.index } : value);
       }
-      if (out.length > 10_000) throw new Error('regex.extract 命中数量超过 10000 项');
       if ((limit as number) > 0 && out.length >= (limit as number)) break;
       if (hit[0] === '') {
         if (re.lastIndex >= text.length) break;

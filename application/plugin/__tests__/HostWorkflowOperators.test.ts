@@ -28,11 +28,15 @@ describe('host-native Workflow JSON / regex operators', () => {
     ]);
   });
 
-  it('rejects prototype-sensitive paths and enforces regex input bounds', async () => {
+  it('rejects prototype-sensitive paths and handles large regex input', async () => {
     await expect(operators.get('json.get')!.run({ value: {}, path: '__proto__.polluted' }))
       .rejects.toThrow('保留属性');
-    await expect(operators.get('regex.match')!.run({
-      text: 'a'.repeat(100_001), pattern: 'a+',
-    })).rejects.toThrow('最长');
+    // 真实网页正文常超过旧版拍脑袋的 100000 字上限（如百度热搜榜约 175000 字符）。
+    // 隔离 + 硬超时由独立 Worker 负责，这里只验证大文本仍能正常抽取。
+    const text = ('"word":"热搜' + '",').repeat(20_000);
+    const extracted = await operators.get('regex.extract')!.run({
+      text, pattern: '"word":"([^"]+)"', group: 1,
+    });
+    expect(extracted.value).toHaveLength(20_000);
   });
 });
