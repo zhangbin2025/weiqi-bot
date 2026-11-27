@@ -312,7 +312,7 @@ function readWorkflowSpec(raw: Record<string, unknown>): FieldResult<WorkflowSpe
         if (!isRecord(repeatRaw)) return { ok: false, reason: `${at} repeat 必须是对象` };
         const max = repeatRaw['maxIterations'];
         if (!(typeof max === 'number' && Number.isInteger(max) && max > 0)
-          && !(typeof max === 'string' && /^\{\{input\.[^{}]+\}\}$.test(max))) {
+          && !(typeof max === 'string' && /^\{\{input\.[^{}]+\}\}$/.test(max))) {
           return { ok: false, reason: `${at} repeat.maxIterations 必须是正整数或完整 input 占位符` };
         }
         let initialState: Record<string, unknown> | undefined;
