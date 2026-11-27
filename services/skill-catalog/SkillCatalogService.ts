@@ -250,7 +250,7 @@ const PLUGIN_RESOURCE_PREFIX = `${WORKFLOW_OPERATOR_POINT_ID}.`;
  * 插件算子 call 形如 `<slug>.<method>`，内置算子是 snake_case、不含点（见 SkillTypes.WorkflowStep.call
  * 与 weiqi-assets/schema/workflow.schema.json）；取第一个点前的 slug，发布时映射成
  * `${WORKFLOW_OPERATOR_POINT_ID}.${slug}` 资源 id（同文件 buildPluginFiles 的 resourceId，
- * registry.json 的 id 正是此形）。不新增配方字段、零数据迁移、不设白名单：依赖由技能 Workflow 中出现的插件算子命名空间自动推导，嵌套循环体同样纳入；已安装依赖按资源 id 去重。
+ * registry.json 的 id 正是此形）。不新增配方字段、零数据迁移、不设白名单：依赖由技能 Workflow 中出现的插件算子命名空间自动推导，嵌套循环体与条件分支同样纳入；已安装依赖按资源 id 去重。
  */
 export function skillPluginResourceIds(recipe: SkillRecipe): string[] {
   const slugs = new Set<string>();
