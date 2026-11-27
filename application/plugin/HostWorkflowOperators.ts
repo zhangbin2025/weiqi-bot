@@ -158,7 +158,13 @@ function jsonCall(method: string, raw: Record<string, unknown>): unknown {
 }
 function regexCall(method: string, a: Record<string, unknown>): unknown {
   if (typeof a.text !== 'string' || typeof a.pattern !== 'string') throw new Error('text/pattern 必须是字符串');
-  if (a.pattern.length > 512 || a.text.length > 1_000_000) throw new Error('正则 pattern 或 text 超出长度限制');
+  if (a.pattern.length > 256 || a.text.length > 100_000) throw new Error('正则 pattern 最长 256 字符，text 最长 100000 字符');
+  // Host regex runs outside the QuickJS quota boundary. Reject common nested-quantifier
+  // and repeated-alternation forms that can trigger catastrophic backtracking.
+  if (/\\((?:[^()\\\\]|\\\\.)*[+*{](?:[^()\\\\]|\\\\.)*\\)[+*{]/.test(a.pattern) ||
+      /\\((?:[^()\\\\]|\\\\.)*\\|(?:[^()\\\\]|\\\\.)*\\)[+*{]/.test(a.pattern)) {
+    throw new Error('正则包含高风险嵌套重复结构，已拒绝执行');
+  }
   const flags = a.flags === undefined ? (method === 'extract' || method === 'replace' ? 'g' : '') : a.flags;
   if (typeof flags !== 'string' || /[^dgimsuvy]/.test(flags) || flags.includes('y')) throw new Error('flags 无效或不支持 sticky 标志 y');
   if (method === 'match') {
@@ -180,6 +186,7 @@ function regexCall(method: string, a: Record<string, unknown>): unknown {
         seen.add(String(value));
         out.push(a.withIndex === true ? { value, index: hit.index } : value);
       }
+      if (out.length >= 10_000) throw new Error('regex.extract 命中数量超过 10000 项');
       if ((limit as number) > 0 && out.length >= (limit as number)) break;
       if (hit[0] === '') {
         if (re.lastIndex >= a.text.length) break;
