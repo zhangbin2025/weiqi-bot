@@ -18,8 +18,7 @@ export interface SkillPrimitive {
   /** 传给模型的 JSON Schema */
   definition: ModelToolDefinition;
   /**
-   * 算子是否幂等；kv_write / secret_prompt 等非幂等原语显式标 false，
-   * 缺省由 OperatorRegistry 按 true 处理（纯计算默认幂等，明说约定不是拟合数值）。
+   * 算子是否幂等；所有原语必须显式声明，不设置默认值。
    */
   idempotent: boolean;
   /** 算子输出契约；空 Schema 表示任意 JSON value。 */
