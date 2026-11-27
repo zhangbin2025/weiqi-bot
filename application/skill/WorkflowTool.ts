@@ -610,7 +610,7 @@ export function buildWorkflowToolParts(
     const outcome: ToolOutcome = {
       // debug:true 时把逐步 trace + 最终交付结果回灌；否则逐字沿用旧观察。
       observation: acceptanceNote + (debug
-        ? debugObservation(result, skillId, merged, skill.workflow.steps.length)
+        ? debugObservation(result, skillId, merged)
         : (result.ok
           ? successObservation(result, skillId, devMode, skill.returnToLLM === true, llmTextLength)
           : failureObservation(result))),
@@ -745,7 +745,6 @@ function debugObservation(
   result: WorkflowRunResult,
   skillId: string,
   merged: Pick<ToolOutcome, 'displayMarkdown' | 'actionLink'>,
-  declaredSteps: number,
 ): string {
   const trace = result.stepTrace ?? [];
   const total = trace.length;
