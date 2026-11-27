@@ -364,4 +364,37 @@ describe('分类标签 category 落地', () => {
     await service.install((await pluginEntry(service))!);
     expect((await artifacts.list())[0]!.category).toBeUndefined();
   });
+  it('browseResources 只读取请求的资源，不下载目录中其它插件的 manifest / 源码', async () => {
+    const raw = registry(CODE_V1);
+    raw.resources.push({
+      id: 'unused.plugin', type: 'plugin', name: '无关插件', summary: '不应读取',
+      pointId: 'ranking', specVersion: 1, path: 'plugins/unused/plugin.json',
+    });
+    const calls: string[] = [];
+    const fallback = makeFetch(CODE_V1);
+    const client = new PluginCatalogClient({
+      fetchImpl: (async (url: string | URL | Request) => {
+        const value = String(url);
+        calls.push(value);
+        if (value.endsWith('registry.json')) {
+          return { ok: true, status: 200, text: async () => JSON.stringify(raw) } as Response;
+        }
+        return fallback(url);
+      }) as unknown as typeof fetch,
+    });
+    const localStorage = fakeLocalStorage();
+    const artifacts = new PluginArtifactService(new InMemoryPluginArtifactStore());
+    const service = new PluginCatalogService({
+      client,
+      sources: new PluginCatalogSources({ localStorage }),
+      cache: new PluginCatalogCache({ localStorage }),
+      artifacts,
+    });
+
+    const result = await service.browseResources(['ranking.total-score']);
+    expect(result.entries.map((entry) => entry.resourceId)).toEqual(['ranking.total-score']);
+    expect(calls.some((url) => url.includes('plugins/unused/plugin.json'))).toBe(false);
+    expect(calls.some((url) => url.includes('plugins/unused/index.js'))).toBe(false);
+  });
+
 });
