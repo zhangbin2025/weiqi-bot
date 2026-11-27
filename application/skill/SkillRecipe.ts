@@ -474,11 +474,6 @@ function readWorkflowInputs(raw: Record<string, unknown>): FieldResult<WorkflowI
   return { ok: true, value: out };
 }
 
-/**
- * 命名入口：解析 `workflow` / `inputs` 两项声明（阶段二「readWorkflow(raw)」）。
- * 任一不过返回 {ok:false}，由 parseSkillRecipe 整条拒装，沿用现有错误口径。
- * 只读 / 纯函数，不查宿主注册表、不引入对 OperatorRegistry 的依赖。
- */
 type WorkflowTemplateScope = { item: boolean; index: boolean; state: boolean };
 
 /**
@@ -494,8 +489,9 @@ function validateWorkflowTemplates(
   seen = new WeakSet<object>(),
 ): FieldResult<true> {
   if (typeof value === 'string') {
-    const matches = value.matchAll(/\\{\\{([^{}]*)\\}\\}/g);
-    for (const match of matches) {
+    const placeholderPattern = /\{\{([^{}]*)\}\}/g;
+    let match: RegExpExecArray | null;
+    while ((match = placeholderPattern.exec(value)) !== null) {
       const token = match[1] ?? '';
       const urlEncode = token.startsWith('urlencode.');
       const name = urlEncode ? token.slice('urlencode.'.length) : token;
@@ -530,20 +526,21 @@ function validateWorkflowTemplates(
     }
     return { ok: true, value: true };
   }
-  if (Array.isArray(value)) {
-    for (let i = 0; i < value.length; i += 1) {
-      const nested = validateWorkflowTemplates(value[i], inputNames, scope, `${where}[${i}]`, seen);
-      if (!nested.ok) return nested;
-    }
-    return { ok: true, value: true };
-  }
-  if (isRecord(value)) {
+  if (value !== null && typeof value === 'object') {
     if (seen.has(value)) return { ok: false, reason: `${where} 不能包含循环引用` };
     seen.add(value);
-    for (const [key, nestedValue] of Object.entries(value)) {
-      const nested = validateWorkflowTemplates(nestedValue, inputNames, scope, `${where}.${key}`, seen);
-      if (!nested.ok) return nested;
+    if (Array.isArray(value)) {
+      for (let i = 0; i < value.length; i += 1) {
+        const nested = validateWorkflowTemplates(value[i], inputNames, scope, `${where}[${i}]`, seen);
+        if (!nested.ok) return nested;
+      }
+    } else if (isRecord(value)) {
+      for (const [key, nestedValue] of Object.entries(value)) {
+        const nested = validateWorkflowTemplates(nestedValue, inputNames, scope, `${where}.${key}`, seen);
+        if (!nested.ok) return nested;
+      }
     }
+    seen.delete(value);
   }
   return { ok: true, value: true };
 }
@@ -586,6 +583,11 @@ function validateWorkflowStepTemplates(
   return { ok: true, value: true };
 }
 
+/**
+ * 命名入口：解析 `workflow` / `inputs` 两项声明（阶段二「readWorkflow(raw)」）。
+ * 任一不过返回 {ok:false}，由 parseSkillRecipe 整条拒装，沿用现有错误口径。
+ * 只读 / 纯函数，不查宿主注册表、不引入对 OperatorRegistry 的依赖。
+ */
 function readWorkflow(raw: Record<string, unknown>): FieldResult<{
   workflow: WorkflowSpecT | undefined;
   inputs: WorkflowInputT[] | undefined;
