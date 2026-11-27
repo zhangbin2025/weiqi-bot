@@ -26,6 +26,11 @@ export function validateSchemaDefinition(schema: OperatorJsonSchema, path = '$sc
       validateSchemaDefinition(child as OperatorJsonSchema, `${path}.properties.${key}`);
     }
   }
+  const pattern = schema['pattern'];
+  if (pattern !== undefined) {
+    if (typeof pattern !== 'string') throw new Error(`JSON Schema pattern 必须是字符串：${path}`);
+    try { new RegExp(pattern); } catch { throw new Error(`JSON Schema pattern 不是合法正则：${path}`); }
+  }
   const required = schema['required'];
   if (required !== undefined && (!Array.isArray(required) || required.some((v) => typeof v !== 'string'))) {
     throw new Error(`JSON Schema required 必须是字符串数组：${path}`);
@@ -42,6 +47,10 @@ export function validateSchemaDefinition(schema: OperatorJsonSchema, path = '$sc
     const value = schema[key];
     if (value !== undefined && (typeof value !== 'number' || !Number.isFinite(value))) {
       throw new Error(`JSON Schema ${key} 必须是有限数字：${path}`);
+    }
+    if ((key === 'minLength' || key === 'maxLength' || key === 'minItems' || key === 'maxItems')
+      && typeof value === 'number' && (!Number.isInteger(value) || value < 0)) {
+      throw new Error(`JSON Schema ${key} 必须是非负整数：${path}`);
     }
   }
 }
