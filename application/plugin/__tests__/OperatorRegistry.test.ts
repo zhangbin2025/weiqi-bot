@@ -97,6 +97,42 @@ function deps(
   return { primitives, artifacts: fakeArtifacts(all), runtime };
 }
 
+describe('createOperatorRegistry：结构化参数与 Schema 边界', () => {
+  it('把同一个原生参数对象传给内置原语，不做 JSON 往返', async () => {
+    const primitive = fakePrimitive('identity', null);
+    const registry = await createOperatorRegistry(deps([], fakeRuntime(), [primitive]));
+    const args = { nested: { value: 7 } };
+    await registry.run('identity', args);
+    expect(primitive.execute).toHaveBeenCalledWith(args);
+  });
+
+  it('输入不符合 Schema 时不执行原语', async () => {
+    const execute = vi.fn(async () => ({ observation: 'x', ok: true, detail: 'x', value: null }));
+    const primitive: SkillPrimitive = {
+      name: 'required_input',
+      definition: {
+        name: 'required_input', description: 'required',
+        parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'], additionalProperties: false },
+      },
+      execute,
+    };
+    const registry = await createOperatorRegistry(deps([], fakeRuntime(), [primitive]));
+    await expect(registry.run('required_input', {})).rejects.toThrow('输入校验失败');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('算子输出不符合 Schema 时拒绝结果', async () => {
+    const primitive: SkillPrimitive = {
+      name: 'string_output',
+      definition: { name: 'string_output', description: 'output', parameters: { type: 'object' } },
+      outputSchema: { type: 'string' },
+      execute: async () => ({ observation: 'x', ok: true, detail: 'x', value: { wrong: true } }),
+    };
+    const registry = await createOperatorRegistry(deps([], fakeRuntime(), [primitive]));
+    await expect(registry.run('string_output', {})).rejects.toThrow('输出校验失败');
+  });
+});
+
 describe('createOperatorRegistry：插件算子命名空间与 ranking 分派', () => {
   it('① catalog 装 calc：4 个方法按 catalogRef.resourceId 注册，不含生成式 id', async () => {
     const artifact = makeArtifact({
