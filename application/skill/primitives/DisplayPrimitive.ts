@@ -236,11 +236,12 @@ function buildMarkdown(value: unknown, args: DisplayArgs): string {
     const items = value;
     let fields = args.fields;
     let format = args.format;
-    if (fields.length === 0 && items.length > 0 && items.every((item) => item !== null && typeof item === 'object' && !Array.isArray(item))) {
+    const allObjects = items.length > 0 && items.every((item) => item !== null && typeof item === 'object' && !Array.isArray(item));
+    if (fields.length === 0 && allObjects) {
       const keys = Object.keys(items[0] as Record<string, unknown>).filter((key) => !DANGEROUS_KEYS.has(key));
       fields = keys.map((key) => ({ key }));
-      if (format === 'auto') format = 'table';
     }
+    if (format === 'auto') format = allObjects ? 'table' : 'list';
     if (fields.length === 0) fields = [{ key: 'value' }];
     const lines: string[] = [];
     if (format === 'table') {
@@ -252,8 +253,13 @@ function buildMarkdown(value: unknown, args: DisplayArgs): string {
       }
     } else {
       for (const item of items) {
-        if (fields.length === 1 && fields[0]!.key === 'value') lines.push('- ' + cell(item));
-        else lines.push('- ' + fields.map((f) => {
+        if (fields.length === 1 && fields[0]!.key === 'value') {
+          if (item !== null && typeof item === 'object' && !Array.isArray(item)) {
+            lines.push(...renderObject(item as Record<string, unknown>, 1));
+          } else if (Array.isArray(item)) {
+            lines.push(...item.map((child) => '  - ' + cell(child)));
+          } else lines.push('- ' + cell(item));
+        } else lines.push('- ' + fields.map((f) => {
           const md = fieldMarkdown(item, f);
           return fields.length > 1 && f.label ? cell(f.label) + '：' + md : md;
         }).join(' · '));
