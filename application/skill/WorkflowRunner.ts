@@ -466,8 +466,17 @@ export async function runWorkflow(
             step.forEach.steps, local, { ...scope, item: source.value[index], index },
             `${stepId}[${index}]/`, false,
           );
-          if (!nested.ok) return nested;
-          results.push(nested.lastValue);
+          if (!nested.ok) {
+            if (step.forEach.onError !== 'continue') return nested;
+            results.push({
+              ok: false,
+              error: { stepId: nested.stepId, message: nested.error },
+            });
+            continue;
+          }
+          results.push(step.forEach.onError === 'continue'
+            ? { ok: true, value: nested.lastValue }
+            : nested.lastValue);
         }
         upstream.set(step.id, results);
         lastValue = results;
