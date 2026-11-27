@@ -111,10 +111,23 @@ export async function createOperatorRegistry(deps: OperatorRegistryDeps): Promis
   for (const artifact of active) {
     const adapter = adapters[artifact.pointId];
     if (!adapter) continue; // 未声明算子适配的扩展点不进算子表（通用规则，不是特判）
-    for (const op of adapter.toSpecs({ artifact, runtime: deps.runtime })) {
-      validateSchemaDefinition(op.inputSchema, `${op.name}.inputSchema`);
-      if (op.inputSchema.type !== 'object') throw new Error(`${op.name}.inputSchema 根类型必须是 object`);
-      validateSchemaDefinition(op.outputSchema, `${op.name}.outputSchema`);
+    // 存量工件可能来自旧版持久化数据（exposes[].params）。单个旧/损坏工件不能
+    // 让整张宿主算子表装配失败；它不会注册，引用时会得到「未注册算子」诊断。
+    // 资源作者需按新契约重新发布并重新安装，宿主不提供 legacy 双轨执行。
+    let adapted: OperatorSpec[];
+    try {
+      adapted = adapter.toSpecs({ artifact, runtime: deps.runtime });
+    } catch {
+      continue;
+    }
+    for (const op of adapted) {
+      try {
+        validateSchemaDefinition(op.inputSchema, `${op.name}.inputSchema`);
+        if (op.inputSchema.type !== 'object') continue;
+        validateSchemaDefinition(op.outputSchema, `${op.name}.outputSchema`);
+      } catch {
+        continue;
+      }
       map.set(op.name, op);
     }
   }
