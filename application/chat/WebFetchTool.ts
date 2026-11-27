@@ -177,11 +177,10 @@ export function validateWebFetchUrl(raw: string): string {
  * 执行 web_fetch。任何失败都不抛给 loop，而是变成一条「观察」回填，
  * 让模型自己决定重试、换 URL 还是直接说明无法访问。
  */
-export async function executeWebFetch(argsJson: string, deps: WebFetchToolDeps): Promise<WebFetchResult> {
+export async function executeWebFetch(args: Record<string, unknown>, deps: WebFetchToolDeps): Promise<WebFetchResult> {
   let url: string;
   let storeOnly = false;
   try {
-    const args = JSON.parse(argsJson) as { url?: unknown; storeOnly?: unknown };
     if (typeof args.url !== 'string' || !args.url.trim()) {
       throw new Error('缺少 url 参数');
     }
