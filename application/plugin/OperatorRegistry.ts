@@ -123,7 +123,7 @@ export async function createOperatorRegistry(deps: OperatorRegistryDeps): Promis
     for (const op of adapted) {
       // Generic data operators are reserved host capabilities; an old or custom plugin
       // must not shadow the native json.* / regex.* implementation.
-      if (op.name.startsWith('json.') || op.name.startsWith('regex.')) continue;
+      if (op.name.startsWith('json.') || op.name.startsWith('regex.') || op.name.startsWith('storage.')) continue;
       try {
         validateSchemaDefinition(op.inputSchema, `${op.name}.inputSchema`);
         if (op.inputSchema['type'] !== 'object') continue;
