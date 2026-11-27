@@ -83,7 +83,7 @@ function setup(impl?: StrictImpl) {
 }
 
 async function exportHandle(exp: ReturnType<typeof setup>['exp']): Promise<string> {
-  const e = await exp.execute(JSON.stringify({ kind: 'skill', id: SKILL.id }));
+  const e = await exp.execute({ kind: 'skill', id: SKILL.id });
   expect(e.ok).toBe(true);
   const handle = (e.observation.match(/asset:skill:[^\s\n]+/) ?? [])[0];
   expect(handle).toBeTruthy();
@@ -105,7 +105,7 @@ describe('github_publish_file（fetch 的 this 绑定）', () => {
     const { exp, pub, calls } = setup(strictFetch as StrictImpl);
     const handle = await exportHandle(exp);
 
-    const r = await pub.execute(JSON.stringify({ handle }));
+    const r = await pub.execute({ handle });
     expect(r.ok).toBe(true);
     expect(r.observation).toContain('HTTP 200');
     expect(r.observation).not.toContain('Illegal invocation');
