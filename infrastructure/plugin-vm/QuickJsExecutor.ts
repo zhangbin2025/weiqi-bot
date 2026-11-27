@@ -63,6 +63,32 @@ function classifyPhase(error: PluginError): 'oom' | 'timeout' | 'runtime' | 'com
   return 'runtime';
 }
 
+/**
+ * 在宿主侧再次约束 JSON 输出结构。字节上限限制总量，深度上限避免极深树
+ * 被下游递归消费者击穿；节点数以 maxOutputBytes 为上界（JSON 每个值至少
+ * 占一个 UTF-8 字节），不另造一套与既有输出配额脱节的总量预算。
+ */
+function validateOutputShape(
+  root: unknown,
+  maxNodes: number,
+): string | undefined {
+  const maxDepth = 128;
+  const stack: Array<{ value: unknown; depth: number }> = [{ value: root, depth: 0 }];
+  let nodes = 0;
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    nodes += 1;
+    if (nodes > maxNodes) return `输出值数量超过上限 ${maxNodes}`;
+    if (current.depth > maxDepth) return `输出嵌套深度超过上限 ${maxDepth}`;
+    if (current.value === null || typeof current.value !== 'object') continue;
+    const children = Array.isArray(current.value)
+      ? current.value
+      : Object.values(current.value as Record<string, unknown>);
+    for (const child of children) stack.push({ value: child, depth: current.depth + 1 });
+  }
+  return undefined;
+}
+
 export class QuickJsExecutor {
   private modulePromise: Promise<QuickJSWASMModule> | null = null;
 
@@ -196,11 +222,12 @@ export class QuickJsExecutor {
           elapsedMs: Date.now() - started,
         };
       }
-      if (outStr.length > limits.maxOutputBytes) {
+      const outputBytes = new TextEncoder().encode(outStr).byteLength;
+      if (outputBytes > limits.maxOutputBytes) {
         return {
           ok: false,
           phase: 'contract',
-          error: { name: 'ContractError', message: `输出超出 ${limits.maxOutputBytes} 字节上限` },
+          error: { name: 'ContractError', message: `输出超出 ${limits.maxOutputBytes} 字节上限（实际 ${outputBytes} 字节）` },
           hint: '请只返回下游 Workflow 需要的数据',
           logs,
           elapsedMs: Date.now() - started,
@@ -215,6 +242,17 @@ export class QuickJsExecutor {
           phase: 'contract',
           error: { name: 'ContractError', message: '入口返回值无法序列化为 JSON' },
           hint: '不要返回循环引用 / 函数 / BigInt',
+          logs,
+          elapsedMs: Date.now() - started,
+        };
+      }
+      const shapeError = validateOutputShape(output, limits.maxOutputBytes);
+      if (shapeError) {
+        return {
+          ok: false,
+          phase: 'contract',
+          error: { name: 'ContractError', message: shapeError },
+          hint: '请减少输出的嵌套层级或元素数量，只返回下游 Workflow 需要的数据',
           logs,
           elapsedMs: Date.now() - started,
         };
