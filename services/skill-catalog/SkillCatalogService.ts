@@ -262,6 +262,10 @@ export function skillPluginResourceIds(recipe: SkillRecipe): string[] {
       }
       if (step.forEach !== undefined) collect(step.forEach.steps);
       if (step.repeat !== undefined) collect(step.repeat.steps);
+      if (step.ifElse !== undefined) {
+        collect(step.ifElse.then);
+        collect(step.ifElse.else ?? []);
+      }
     }
   };
   collect(recipe.workflow?.steps ?? []);
