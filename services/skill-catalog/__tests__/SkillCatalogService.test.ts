@@ -580,7 +580,7 @@ describe('SkillPluginInstaller.plan — 只读推导', () => {
   it('本地已有但停用 → 只 enable、不安装、不联网', async () => {
     let browsed = false;
     const catalog = {
-      browse: async () => { browsed = true; return { entries: [], failures: [] }; },
+      browseResources: async () => { browsed = true; return { entries: [], failures: [] }; },
     } as unknown as PluginCatalogService;
     const art = localArtifact({ enabled: false });
     const installer = new SkillPluginInstaller({ catalog, artifacts: fakeArtifacts([art]).service });
