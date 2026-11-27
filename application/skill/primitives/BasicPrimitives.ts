@@ -100,34 +100,34 @@ export function createBasicPrimitives(webDeps: WebFetchToolDeps): SkillPrimitive
     {
       name: WEB_FETCH_TOOL_NAME,
       definition: WEB_FETCH_TOOL,
-      execute: async (argsJson) => toPrimitiveResult(await executeWebFetch(argsJson, webDeps)),
+      execute: async (args) => toPrimitiveResult(await executeWebFetch(JSON.stringify(args), webDeps)),
     },
     {
       name: WEB_CACHE_READ_TOOL_NAME,
       definition: WEB_CACHE_READ_TOOL,
       execute: async (argsJson) => toPrimitiveResult(
-        executeWebCacheRead(argsJson, webDeps.cache),
+        executeWebCacheRead(JSON.stringify(args), webDeps.cache),
       ),
     },
     {
       name: WEB_READ_PDF_TOOL_NAME,
       definition: WEB_READ_PDF_TOOL,
-      execute: async (argsJson) => toPrimitiveResult(await executeWebReadPdf(argsJson, webDeps)),
+      execute: async (args) => toPrimitiveResult(await executeWebReadPdf(JSON.stringify(args), webDeps)),
     },
     {
       name: WEB_READ_IMAGE_TOOL_NAME,
       definition: WEB_READ_IMAGE_TOOL,
-      execute: async (argsJson) => toPrimitiveResult(await executeWebReadImage(argsJson, webDeps)),
+      execute: async (args) => toPrimitiveResult(await executeWebReadImage(JSON.stringify(args), webDeps)),
     },
     {
       name: NAVIGATE_TO_TOOL_NAME,
       definition: NAVIGATE_TO_TOOL,
-      execute: async (argsJson): Promise<PrimitiveResult> => {
+      execute: async (input): Promise<PrimitiveResult> => {
         let path = '';
         let label = '';
         let query: Record<string, string> = {};
         try {
-          const args = JSON.parse(argsJson) as {
+          const args = input as {
             path?: unknown; label?: unknown; query?: unknown;
           };
           if (typeof args.path === 'string') path = args.path.trim();
