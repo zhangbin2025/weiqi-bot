@@ -479,6 +479,113 @@ function readWorkflowInputs(raw: Record<string, unknown>): FieldResult<WorkflowI
  * 任一不过返回 {ok:false}，由 parseSkillRecipe 整条拒装，沿用现有错误口径。
  * 只读 / 纯函数，不查宿主注册表、不引入对 OperatorRegistry 的依赖。
  */
+type WorkflowTemplateScope = { item: boolean; index: boolean; state: boolean };
+
+/**
+ * 安装期校验模板占位符，避免配方装成功后才在运行到深层循环时失败。
+ * 作用域按 Runner 的实际规则继承：forEach 增加 item/index，repeat 增加 state，
+ * ifElse 不改变作用域；嵌套控制块可以同时访问外层作用域。
+ */
+function validateWorkflowTemplates(
+  value: unknown,
+  inputNames: ReadonlySet<string>,
+  scope: WorkflowTemplateScope,
+  where: string,
+  seen = new WeakSet<object>(),
+): FieldResult<true> {
+  if (typeof value === 'string') {
+    const matches = value.matchAll(/\\{\\{([^{}]*)\\}\\}/g);
+    for (const match of matches) {
+      const token = match[1] ?? '';
+      const urlEncode = token.startsWith('urlencode.');
+      const name = urlEncode ? token.slice('urlencode.'.length) : token;
+      const inputMatch = /^input\\.(.+)$/.exec(name);
+      if (inputMatch) {
+        if (!inputNames.has(inputMatch[1]!)) {
+          return { ok: false, reason: `${where} 引用了未声明的输入参数：${inputMatch[1]}` };
+        }
+        continue;
+      }
+      if (name === 'index') {
+        if (urlEncode || !scope.index) {
+          return { ok: false, reason: `${where} 的占位符 {{${token}}} 只能在 forEach 循环体内使用` };
+        }
+        continue;
+      }
+      const itemMatch = /^(item)(?:\\.(.+))?$/.exec(name);
+      if (itemMatch) {
+        if (!scope.item) {
+          return { ok: false, reason: `${where} 的占位符 {{${token}}} 只能在 forEach 循环体内使用` };
+        }
+        continue;
+      }
+      const stateMatch = /^(state)(?:\\.(.+))?$/.exec(name);
+      if (stateMatch) {
+        if (!scope.state) {
+          return { ok: false, reason: `${where} 的占位符 {{${token}}} 只能在 repeat 循环体内使用` };
+        }
+        continue;
+      }
+      return { ok: false, reason: `${where} 包含不支持的 Workflow 占位符：{{${token}}}` };
+    }
+    return { ok: true, value: true };
+  }
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i += 1) {
+      const nested = validateWorkflowTemplates(value[i], inputNames, scope, `${where}[${i}]`, seen);
+      if (!nested.ok) return nested;
+    }
+    return { ok: true, value: true };
+  }
+  if (isRecord(value)) {
+    if (seen.has(value)) return { ok: false, reason: `${where} 不能包含循环引用` };
+    seen.add(value);
+    for (const [key, nestedValue] of Object.entries(value)) {
+      const nested = validateWorkflowTemplates(nestedValue, inputNames, scope, `${where}.${key}`, seen);
+      if (!nested.ok) return nested;
+    }
+  }
+  return { ok: true, value: true };
+}
+
+function validateWorkflowStepTemplates(
+  steps: readonly WorkflowStepT[],
+  inputNames: ReadonlySet<string>,
+  scope: WorkflowTemplateScope,
+): FieldResult<true> {
+  for (const step of steps) {
+    if (step.args !== undefined) {
+      const args = validateWorkflowTemplates(step.args, inputNames, scope, `workflow 节点 ${step.id}.args`);
+      if (!args.ok) return args;
+    }
+    if (step.forEach !== undefined) {
+      const nested = validateWorkflowStepTemplates(step.forEach.steps, inputNames, {
+        ...scope, item: true, index: true,
+      });
+      if (!nested.ok) return nested;
+    }
+    if (step.ifElse !== undefined) {
+      const thenNested = validateWorkflowStepTemplates(step.ifElse.then, inputNames, scope);
+      if (!thenNested.ok) return thenNested;
+      const elseNested = validateWorkflowStepTemplates(step.ifElse.else ?? [], inputNames, scope);
+      if (!elseNested.ok) return elseNested;
+    }
+    if (step.repeat !== undefined) {
+      if (step.repeat.initialState !== undefined) {
+        const initial = validateWorkflowTemplates(
+          step.repeat.initialState, inputNames, scope, `workflow 节点 ${step.id}.repeat.initialState`,
+        );
+        if (!initial.ok) return initial;
+      }
+      const nested = validateWorkflowStepTemplates(step.repeat.steps, inputNames, {
+        ...scope, state: true,
+      });
+      if (!nested.ok) return nested;
+    }
+  }
+  return { ok: true, value: true };
+}
+
 function readWorkflow(raw: Record<string, unknown>): FieldResult<{
   workflow: WorkflowSpecT | undefined;
   inputs: WorkflowInputT[] | undefined;
@@ -517,6 +624,10 @@ function readWorkflow(raw: Record<string, unknown>): FieldResult<{
   if (workflow.value !== undefined) {
     const repeatInputs = validateRepeatInputs(workflow.value.steps);
     if (!repeatInputs.ok) return repeatInputs;
+    const templates = validateWorkflowStepTemplates(workflow.value.steps, inputNames, {
+      item: false, index: false, state: false,
+    });
+    if (!templates.ok) return templates;
   }
   return { ok: true, value: { workflow: workflow.value, inputs: inputs.value } };
 }
