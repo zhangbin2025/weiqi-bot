@@ -280,6 +280,8 @@ export function createDisplayJsonListPrimitive(): SkillPrimitive {
     name: DISPLAY_JSON_LIST_TOOL_NAME,
     definition: DISPLAY_JSON_LIST_TOOL,
     idempotent: true,
+    outputSchema: { type: 'null' },
+    kind: 'effect',
     execute: async (args: Record<string, unknown>): Promise<PrimitiveResult> => {
       const parsedArgs = parseArgs(args);
       if (!parsedArgs.ok) return fail(parsedArgs.error);
@@ -296,6 +298,3 @@ export function createDisplayJsonListPrimitive(): SkillPrimitive {
     },
   };
 }
-      idempotent: true,
-      outputSchema: { type: 'null' },
-      kind: 'effect',
