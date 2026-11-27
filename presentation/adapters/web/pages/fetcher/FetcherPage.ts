@@ -14,6 +14,8 @@ import { SessionStorageAdapter } from '../../../../../infrastructure/storage/ada
 import { LatestListCache } from './LatestListCache';
 import { LocalStorageAdapter } from '../../../../../infrastructure/storage/adapters/web/LocalStorageAdapter';
 import { normalizePuzzleFilterState } from '../../../../../services/game/providers/library/puzzleFilter';
+import { loadLLMConfig } from '../../../../../infrastructure/llm/LLMCredentialStore';
+import { buildLlmUrlTaskHref, shouldDelegateUnsupportedUrlToLlm } from './utils/llmUrlFallback';
 import {
   classifyGame,
   normalizeExternalUrl,
@@ -343,6 +345,14 @@ export class FetcherPage implements IPage {
           TaskHelper.notifyComplete(taskId, '抓取完成', message, moreUrl);
         }
       } else {
+        // 只有「没有任何 Provider 能处理」才交给 LLM。Provider 已匹配但下载失败
+        // （网络、认证、远程隧道等）仍显示原错误，避免把真实故障误判成能力缺失。
+        if (shouldDelegateUnsupportedUrlToLlm(result.source, loadLLMConfig() !== null)) {
+          const chatUrl = buildLlmUrlTaskHref(window.location.href, url);
+          console.info('[FetcherPage] 无匹配棋谱 Provider，转交 LLM 读取 URL', { url });
+          window.location.assign(chatUrl);
+          return;
+        }
         this.renderer.showError(this.getErrorTitle(result.error), result.error || '未知错误');
         console.warn('棋谱下载失败', { url, error: result.error });
         
