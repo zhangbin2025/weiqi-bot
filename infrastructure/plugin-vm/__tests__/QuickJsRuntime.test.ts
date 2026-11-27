@@ -3,7 +3,7 @@
  *
  * 用可控的 FakeWorker 模拟消息往返，验证：
  * - init → ready → run → result 的完整协议
- * - 每轮都创建新 Worker（崩溃可恢复的关键）
+ * - 正常调用复用 Worker；超时/崩溃后销毁并在下一次调用重建
  * - 硬超时 terminate + 返回 timeout 失败
  * - Worker error / messageerror / 未初始化 / 重复消息 的容错
  * - dispose 后拒绝执行
@@ -67,17 +67,21 @@ describe('QuickJsRuntime', () => {
     expect(workers[0]!.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'run', code: 'function rank(){return [1,2,3]}' }),
     );
+    expect(workers[0]!.terminate).not.toHaveBeenCalled();
+    await runtime.dispose();
     expect(workers[0]!.terminate).toHaveBeenCalledTimes(1);
   });
 
-  it('每次 run 都创建全新 Worker（崩溃后可继续）', async () => {
+  it('连续 run 复用同一个 Worker，dispose 时统一释放', async () => {
     const workers: FakeWorkerShape[] = [];
     const runtime = new QuickJsRuntime({ workerFactory: drivingFactory(workers, okResult), wasmBinary: binary });
     await runtime.run('a', [], spec());
     await runtime.run('b', [], spec());
     await runtime.run('c', [], spec());
-    expect(workers).toHaveLength(3);
-    for (const w of workers) expect(w.terminate).toHaveBeenCalledTimes(1);
+    expect(workers).toHaveLength(1);
+    expect(workers[0]!.postMessage.mock.calls.filter(([msg]) => (msg as {type:string}).type === 'run')).toHaveLength(3);
+    await runtime.dispose();
+    expect(workers[0]!.terminate).toHaveBeenCalledTimes(1);
   });
 
   it('硬超时强制 terminate 并返回 timeout 失败', async () => {
@@ -204,6 +208,8 @@ describe('QuickJsRuntime', () => {
     const runtime = new QuickJsRuntime({ workerFactory: factory, wasmBinary: binary });
     const result = await runtime.run('x', [], spec());
     expect(result.ok).toBe(true);
+    expect(w!.terminate).not.toHaveBeenCalled();
+    await runtime.dispose();
     expect(w!.terminate).toHaveBeenCalledTimes(1);
   });
 
