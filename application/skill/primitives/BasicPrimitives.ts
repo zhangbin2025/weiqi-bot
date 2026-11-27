@@ -26,7 +26,7 @@ import {
   buildNavigateToPath, isValidNavigateToPath, sanitizeNavigateToQuery,
   navigateToObservation,
 } from './NavigateToPath';
-import { createDisplayJsonListPrimitive } from './DisplayJsonListPrimitive';
+import { createDisplayPrimitive } from './DisplayPrimitive';
 
 /** navigate_to 工具名（与 definition.name 一致） */
 export const NAVIGATE_TO_TOOL_NAME = 'navigate_to';
