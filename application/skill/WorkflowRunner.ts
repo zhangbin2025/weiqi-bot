@@ -23,7 +23,7 @@
  * 依赖环：本文件只 type-import `SkillTypes` / `domain/plugin/types` /
  * `OperatorRegistry`，不 import 任何原语实现或 ToolLoop/ChatUseCase，
  * 不产生新依赖环。binding.path 的取值用 runner 内自带的**简单点路径**读取器
- * （`a.b[0].c` / `$`），故意不复用 json_extract 的完整路径引擎：
+ * （`a.b[0].c` / `$`），故意不复用 JSON 沙箱算子 的完整路径引擎：
  * 那属于算子能力（`[*]` / `..name` / where...），runner 只做「引用取值」，
  * 保持契约「runner 不重写算子 / 极窄 DSL」的边界。
  */
@@ -73,7 +73,7 @@ const INPUTS_STEP_ID = '<inputs>';
  * 主代理 10:xx 增量校正优先于旧措辞）：
  * - 规则①：字符串**完整等于** `{{input.xxx}}` → 按 inputs[].type 注入**原始值**
  *   （integer/number/boolean/object/array 保持类型，**不 String()**）。
- *   `display_json_list` 的 `{"fields":"{{input.fields}}"}` 靠这条：否则 fields
+ *   `display` 的 `{"fields":"{{input.fields}}"}` 靠这条：否则 fields
  *   变字符串会报错（数组类参数必须保原始类型）。
  * - 规则②：字符串**内嵌** `{{input.xxx}}` → 逐字 `String()` 替换（URL 里的 page/tag/pagesize）。
  *   不 eval、不拼接表达式、不递归、不引入转义/数值规则。这是数据注入，不是 DSL 表达式。
