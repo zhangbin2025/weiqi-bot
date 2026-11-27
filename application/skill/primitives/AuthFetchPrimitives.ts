@@ -743,8 +743,8 @@ export function createPublishPrimitives(deps: PublishPrimitivesDeps): SkillPrimi
       idempotent: true,
       outputSchema: {},
       kind: 'effect',
-      execute: async (args): Promise<PrimitiveResult> => {
-        const args = parseArgs(args);
+      execute: async (rawArgs: Record<string, unknown>): Promise<PrimitiveResult> => {
+        const args = parseArgs(rawArgs);
         const kind = args['kind'];
         const id = args['id'];
         if ((kind !== 'skill' && kind !== 'plugin') || typeof id !== 'string' || !id.trim()) {
