@@ -93,8 +93,10 @@ function primitiveToOperatorSpec(p: SkillPrimitive): OperatorSpec {
  */
 export async function createOperatorRegistry(deps: OperatorRegistryDeps): Promise<OperatorRegistry> {
   const map = new Map<string, OperatorSpec>();
+  const hostOperatorNames = new Set<string>();
   for (const p of deps.primitives) {
     map.set(p.name, primitiveToOperatorSpec(p));
+    hostOperatorNames.add(p.name);
   }
 
   for (const spec of map.values()) {
@@ -123,6 +125,9 @@ export async function createOperatorRegistry(deps: OperatorRegistryDeps): Promis
       continue;
     }
     for (const op of adapted) {
+      // Host operators (including reserved json.* / regex.* namespaces) cannot be shadowed
+      // by a downloaded or user-authored plugin.
+      if (hostOperatorNames.has(op.name)) continue;
       try {
         validateSchemaDefinition(op.inputSchema, `${op.name}.inputSchema`);
         if (op.inputSchema['type'] !== 'object') continue;
