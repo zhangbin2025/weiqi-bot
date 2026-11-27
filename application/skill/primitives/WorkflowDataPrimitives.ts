@@ -95,7 +95,7 @@ function defineOwn(target: object, key: JsonPathToken, value: unknown): void {
   if (typeof key === 'string') safeKey(key);
   const arrayIndex = typeof key === 'number'
     ? key
-    : typeof key === 'string' && /^(0|[1-9]\\d*)$/.test(key) ? Number(key) : undefined;
+    : typeof key === 'string' && /^(0|[1-9]\d*)$/.test(key) ? Number(key) : undefined;
   if (Array.isArray(target) && (key === 'length' || (arrayIndex !== undefined && arrayIndex >= MAX_ARRAY_ITEMS))) {
     throw new Error('不允许扩张或直接修改数组 length');
   }
