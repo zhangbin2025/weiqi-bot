@@ -19,12 +19,12 @@ import { parseSGF } from "../../domain/sgf";
  * environment/setup guidance instead of delegating them to the LLM.
  */
 const KNOWN_BUT_ENVIRONMENT_DEPENDENT_URLS = [
-  /(?:h5\\.)?txwq\\.qq\\.com/i,
-  /yikeweiqi\\.com.*(?:room\\/|online-game\\/)/i,
-  /(?:19x19\\.com|golaxy)/i,
-  /xinboduiyi\\.com/i,
-  /shaoer\\.yikeweiqi\\.com/i,
-  /foxwq\\.com.*(?:svrid=|svrtype=20010|roomid=|golive)/i,
+  /(?:h5\.)?txwq\.qq\.com/i,
+  /yikeweiqi\.com.*(?:room\/|online-game\/)/i,
+  /(?:19x19\.com|golaxy)/i,
+  /xinboduiyi\.com/i,
+  /shaoer\.yikeweiqi\.com/i,
+  /foxwq\.com.*(?:svrid=|svrtype=20010|roomid=|golive)/i,
 ];
 
 function isKnownButEnvironmentDependentUrl(url: string): boolean {
