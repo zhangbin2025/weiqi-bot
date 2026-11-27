@@ -58,7 +58,7 @@ function makeRegistry(): OperatorRegistry {
     const list = args['value'] as string[];
     return {
       value: null,
-      effects: [{ displayMarkdown: list.map((w) => `- ${w}`).join('\\n') }],
+      effects: [{ displayMarkdown: list.map((w) => `- ${w}`).join('\n') }],
     };
   });
 
