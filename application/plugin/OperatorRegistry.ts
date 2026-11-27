@@ -70,8 +70,8 @@ function primitiveToOperatorSpec(p: SkillPrimitive): OperatorSpec {
     run: async (args: Record<string, unknown>): Promise<StepResult> => {
       const r: PrimitiveResult = await p.execute(args);
       // 没有 value 的失败先走 WorkflowRunner 结构化失败通道，避免 undefined 被归一为
-      // null 后误报 outputSchema 错误。若失败仍携带合法 value（如 fetch_batch 部分成功），
-      // 保留该结果供下游按每项 ok/detail 自行处理。
+      // null 后误报 outputSchema 错误。单项错误隔离由 WorkflowRunner 的 forEach.onError 处理，
+      // 不在原语适配层伪造部分成功结果。
       if (!r.ok && r.value === undefined) {
         throw new Error(r.observation || r.detail || `算子 ${p.name} 执行失败`);
       }
