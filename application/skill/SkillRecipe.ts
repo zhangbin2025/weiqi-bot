@@ -196,13 +196,13 @@ function isWorkflowInputType(value: unknown): value is WorkflowInputType {
 }
 
 /**
- * 可选 workflow：阶段二 DAG 声明。缺省（字段没写）= 该技能走现有散文 prompt 路径，
+ * 可选 workflow：声明式算子链与受限循环。缺省（字段没写）= 该技能走现有散文 prompt 路径，
  * 不是新写的兼容桥；显式给值时做解析期静态校验，任一不过 {ok:false} 整条拒装。
  *
  * 判据（PHASE2-CONTRACT「DSL 字段形状 / runner 语义 / 触发接线」）：
  *  - workflow 必须是对象；steps 必须是非空数组；
- *  - 每个 step 必须是对象：id 非空字符串且 steps 内唯一、call 非空字符串、
- *    args 若给必须是对象、bindings 若给必须是数组、yield 若给必须是 boolean；
+ *  - 每个 step 必须是普通算子调用、forEach 或 repeat 三种形态之一；节点 id 在当前作用域唯一；
+ *  - forEach 来源必须是更早节点，循环体非空；repeat 必须有正整数/输入占位符次数、状态输出与 boolean 停止条件；
  *  - 每条 binding 必须是对象：from 非空字符串且指向「位置更靠前」的真实 step id
  *    （用已遍历过的 id 集合判定 → 天然无环 / 不许自引用 / 不许指向后继节点，不需运行时 guard）、
  *    as 非空字符串、path 是字符串（'$' 表示整个上游 value）；
@@ -239,6 +239,13 @@ function readWorkflowSpec(raw: Record<string, unknown>): FieldResult<WorkflowSpe
       const callRaw = item['call'];
       const forEachRaw = item['forEach'];
       const repeatRaw = item['repeat'];
+      if (callRaw !== undefined && (typeof callRaw !== 'string' || !callRaw.trim())) {
+        return { ok: false, reason: `${at} call 若给必须是非空字符串` };
+      }
+      if ((forEachRaw !== undefined || repeatRaw !== undefined)
+        && (item['args'] !== undefined || item['bindings'] !== undefined)) {
+        return { ok: false, reason: `${at} 循环控制节点不能声明 args 或 bindings` };
+      }
       const modes = Number(typeof callRaw === 'string' && callRaw.trim().length > 0)
         + Number(forEachRaw !== undefined) + Number(repeatRaw !== undefined);
       if (modes !== 1) {
