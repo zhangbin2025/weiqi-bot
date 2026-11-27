@@ -115,7 +115,7 @@ describe('browser_capture 通用采集（workflow 第一通路）', () => {
   it('一个 primitive 同时给 workflow 结构化 value 与 LLM 摘要观察', async () => {
     const { deps, sessions } = fakeSniffer();
     const p = browserCapturePrimitive(deps);
-    const r = await p.execute(JSON.stringify({ url: URL }));
+    const r = await p.execute({ url: URL });
     const v = valueOf(r);
 
     expect(v.handle).toBe(validateWebFetchUrl(URL));
@@ -151,12 +151,12 @@ describe('browser_capture 通用采集（workflow 第一通路）', () => {
     const { deps } = fakeSniffer();
     const p = browserCapturePrimitive(deps);
     for (const waitFor of ['ws', 'http', 'document', 'quiet'] as const) {
-      const r = await p.execute(JSON.stringify({ url: URL, waitFor }));
+      const r = await p.execute({ url: URL, waitFor });
       expect(valueOf(r).meta.ws).toBe(2);
     }
     // 直接验谓词：没有 document 快照时，ws/http 条件下不得提前返回
     const { deps: d2, sessions } = fakeSniffer();
-    await browserCapturePrimitive(d2).execute(JSON.stringify({ url: URL, waitFor: 'ws' }));
+    await browserCapturePrimitive(d2).execute({ url: URL, waitFor: 'ws' });
     const until = sessions[0]!.untilSeen!;
     const onlyWs: SnifferMessage[] = [{ type: 'ws_receive', wsUrl: 'wss://x', data: 'x', timestamp: 1 }];
     expect(until(onlyWs)).toBe(false); // 页面还没 load 完成，不能丢 document
@@ -179,7 +179,7 @@ describe('browser_capture 通用采集（workflow 第一通路）', () => {
 describe('browser_capture 等待语义（LLM 开发反馈整改）', () => {
   it('缺省 minEvents=1：逐字保持旧行为（第一帧 + document 即命中 until）', async () => {
     const { deps, sessions } = fakeSniffer();
-    await browserCapturePrimitive(deps).execute(JSON.stringify({ url: URL, waitFor: 'ws' }));
+    await browserCapturePrimitive(deps).execute({ url: URL, waitFor: 'ws' });
     const s = sessions[0]!;
     expect(s.optionsSeen).toBe(true);
     expect(s.timeoutSeen).toBe(1234); // 既有 deps.timeoutMs 作兜底，不新造
@@ -238,7 +238,7 @@ describe('browser_capture 等待语义（LLM 开发反馈整改）', () => {
       { url: URL, holdMs: 2.5 },
     ];
     for (const a of bad) {
-      const r = await p.execute(JSON.stringify(a));
+      const r = await p.execute(a);
       expect(r.ok).toBe(false);
       expect(r.value).toBeUndefined();
       expect(r.observation).toContain('browser_capture');
@@ -316,16 +316,16 @@ describe('browser_capture LLM 出口（句柄分页读）', () => {
     const { deps, sessions } = fakeSniffer();
     const p = browserCapturePrimitive(deps);
     for (const bad of ['', 'ftp://example.com/', 'http://127.0.0.1/', 'not-a-url']) {
-      const r = await p.execute(JSON.stringify({ url: bad }));
+      const r = await p.execute({ url: bad });
       expect(r.ok).toBe(false);
       expect(r.value).toBeUndefined();
       expect(r.observation).toContain('browser_capture');
     }
     expect(sessions).toHaveLength(0);
     // waitFor / parts 非法值也结构化拒绝
-    expect((await p.execute(JSON.stringify({ url: URL, waitFor: 'eval' }))).ok).toBe(false);
-    expect((await p.execute(JSON.stringify({ url: URL, parts: ['fetch'] }))).ok).toBe(false);
-    expect((await p.execute(JSON.stringify({ url: URL, minEvents: 'x' }))).ok).toBe(false);
-    expect((await p.execute(JSON.stringify({ url: URL, holdMs: 'x' }))).ok).toBe(false);
+    expect((await p.execute({ url: URL, waitFor: 'eval' })).ok).toBe(false);
+    expect((await p.execute({ url: URL, parts: ['fetch'] })).ok).toBe(false);
+    expect((await p.execute({ url: URL, minEvents: 'x' })).ok).toBe(false);
+    expect((await p.execute({ url: URL, holdMs: 'x' })).ok).toBe(false);
   });
 });
