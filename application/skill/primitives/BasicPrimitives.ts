@@ -79,11 +79,9 @@ function toPrimitiveResult(r: {
 }
 
 /**
- * 构造通用原语：web_fetch + web_cache_read + navigate_to +
- * json_extract（纯提取）/ 3 个正则算子（匹配 / 提取 / 替换，纯计算）/
- * display_json_list（纯渲染，数据旁路）。
+ * 构造通用宿主原语：web_fetch + web_cache_read + navigate_to + display。
  * webDeps 由上层（接线方）注入，与 createWebToolKit 用的是同一份依赖。
- * 正则算子由 createRegexPrimitives() 一次给出，新增即自动注册进 OperatorRegistry。
+ * JSON / regex 等纯计算算子由 workflow-operator 沙箱插件注册。
  */
 export function createBasicPrimitives(webDeps: WebFetchToolDeps): SkillPrimitive[] {
   return [
@@ -142,6 +140,6 @@ export function createBasicPrimitives(webDeps: WebFetchToolDeps): SkillPrimitive
       },
     },
     // 通用 display：纯渲染任意 JSON 或 Markdown → displayMarkdown；正文全程不进模型上下文。
-    createDisplayJsonListPrimitive(),
+    createDisplayPrimitive(),
   ];
 }
