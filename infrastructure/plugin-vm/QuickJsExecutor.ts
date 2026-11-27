@@ -187,7 +187,7 @@ export class QuickJsExecutor {
           phase: 'contract',
           error: { name: 'ContractError', message: '入口函数未返回可序列化结果' },
           contract: { entryFound: true, outputIsArray: false, missingFields: [] },
-          hint: '入口函数必须返回可 JSON 序列化的 { columns, rows } 对象',
+          hint: '入口函数必须返回可 JSON 序列化的 JSON 值',
           logs,
           elapsedMs: Date.now() - started,
         };
@@ -197,7 +197,7 @@ export class QuickJsExecutor {
           ok: false,
           phase: 'contract',
           error: { name: 'ContractError', message: `输出超出 ${limits.maxOutputBytes} 字节上限` },
-          hint: '请只返回必要的排名表列与行',
+          hint: '请只返回下游 Workflow 需要的数据',
           logs,
           elapsedMs: Date.now() - started,
         };
