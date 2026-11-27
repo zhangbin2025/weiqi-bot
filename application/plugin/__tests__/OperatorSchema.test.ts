@@ -24,7 +24,7 @@ describe('OperatorSchema', () => {
     };
     expect(validateSchemaValue(schema, { records: [{ id: 1 }] })).toBeUndefined();
     expect(validateSchemaValue(schema, { records: [] })).toContain('minItems');
-    expect(validateSchemaValue(schema, { records: [], extra: true })).toContain('未声明字段');
+    expect(validateSchemaValue(schema, { records: [{ id: 1 }], extra: true })).toContain('未声明字段');
   });
 
   it('验证输出值的类型和数值范围', () => {
