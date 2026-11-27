@@ -9,8 +9,8 @@
  * - 只做「把字节送到」，不搜索、不解析 HTML、不判语义、不落日志。
  * - 完整正文始终存入宿主缓存（WebFetchCache）。观察分三种：
  *   · storeOnly=true → 只回 URL / 状态 / 字符数句柄，不回任何正文或预览；
- *     只写宿主缓存，正文不进模型上下文；阶段二 workflow 用 json_extract 从上游
- *     value 提取、display_json_list 纯渲染（本工具不读缓存，缓存句柄形状不变）；
+ *     只写宿主缓存，正文不进模型上下文；阶段二 workflow 用 JSON 沙箱算子 从上游
+ *     value 提取、display 纯渲染（本工具不读缓存，缓存句柄形状不变）；
  *   · 短响应（整份 head + 正文 + foot ≤ 单条上限）→ **直接给完整正文**，
  *     不再需要 web_cache_read 翻页，少了整串「预览→分页→重发历史」的模型往返；
  *   · 长响应 → 只回元信息 + 预览 + 句柄，其余由 web_cache_read 分页 / 正则读取。
@@ -85,8 +85,8 @@ export const WEB_FETCH_TOOL: ModelToolDefinition = {
     '分页时从预览末尾的 offset 继续，不要从 0 重读已给过的内容。' +
     '同一个 URL 再次调用会重新取回并覆盖缓存。' +
     '可选 storeOnly=true：完整正文只写宿主缓存，观察只回 URL / 状态 / 字符数句柄，'
-    + '不回任何正文或预览；阶段二 workflow 用 json_extract 从上游 value 提取、'
-    + 'display_json_list 纯渲染（本阶段 storeOnly 只写缓存，不读缓存），'
+    + '不回任何正文或预览；阶段二 workflow 用 JSON 沙箱算子 从上游 value 提取、'
+    + 'display 纯渲染（本阶段 storeOnly 只写缓存，不读缓存），'
     + '大体积 JSON 不进模型上下文；此时不要用 web_cache_read 读回来，也不要凭句柄猜测正文。' +
     '只用于 GET；只传 http/https 绝对 URL。返回的是原始文本，不是搜索结果。',
   parameters: {
@@ -100,8 +100,8 @@ export const WEB_FETCH_TOOL: ModelToolDefinition = {
         type: 'boolean',
         description:
           '可选，默认 false。true = 只把完整正文存入宿主缓存，观察只回句柄、不含任何正文或预览；'
-          + '用于「取数 → 只写宿主缓存」的数据旁路，阶段二 workflow 用 json_extract 从上游 '
-          + 'value 提取、display_json_list 纯渲染，让大体积 JSON 不进入模型上下文。',
+          + '用于「取数 → 只写宿主缓存」的数据旁路，阶段二 workflow 用 JSON 沙箱算子 从上游 '
+          + 'value 提取、display 纯渲染，让大体积 JSON 不进入模型上下文。',
       },
     },
     required: ['url'],
@@ -241,13 +241,13 @@ export async function executeWebFetch(args: Record<string, unknown>, deps: WebFe
     const lineCount = text.split('\n').length;
 
     // ---- storeOnly：正文只留在宿主缓存，观察只回句柄（数据旁路） ----
-    // web_fetch(storeOnly) 只写宿主缓存；阶段二 workflow 用 json_extract 从上游 value
-    // 提取、display_json_list 纯渲染（display_json_list 不再读 WebFetchCache）。
+    // web_fetch(storeOnly) 只写宿主缓存；阶段二 workflow 用 JSON 沙箱算子 从上游 value
+    // 提取、display 纯渲染（display 不再读 WebFetchCache）。
     // 模型既不收到正文也不收到预览，因此大体积 JSON 不产生延迟 / token 开销。
     // 这里只回元信息，不含一个字符的正文；也不指路 web_cache_read（默认流程不该读回来）。
     if (storeOnly) {
       // 阶段二命门修复：正文 text 已在手，把它作为算子的纯 value 出参交给 DAG runner
-      // （json_extract 要的是已解析 JSON、display_json_list 要的是已解析数组）。
+      // （JSON 沙箱算子 要的是已解析 JSON、display 要的是已解析数组）。
       // 合法 JSON 给解析值、非 JSON 给原文字符串；不新增阈值、不重试。仅本分支加。
       let value: unknown;
       try { value = JSON.parse(text) as unknown; } catch { value = text; }
