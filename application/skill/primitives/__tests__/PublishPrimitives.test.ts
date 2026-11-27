@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import {
-  createPublishPrimitives, createSecretSpecRegistry,
+  createPublishPrimitives, createSecretSpecRegistry, collectWorkflowDependencyNamespaces,
   ASSET_EXPORT_TOOL_NAME, GITHUB_PUBLISH_FILE_TOOL_NAME,
 } from '../AuthFetchPrimitives';
 import type { SecretSpec } from '@application/skill/SecretSpec';
@@ -99,6 +99,28 @@ function assertCalls(calls: [string, RequestInit][]): void {
     expect(init.credentials).toBe('omit');
   }
 }
+
+
+describe('Workflow 发布依赖命名空间收集', () => {
+  it('跳过宿主 json / regex，同时递归保留领域插件依赖', () => {
+    const steps = [
+      { call: 'json.get' },
+      { call: 'regex.extract' },
+      { call: 'baidu.hotsearch' },
+      { forEach: { steps: [{ call: 'circle.foxwq' }, { call: 'json.select' }] } },
+      { ifElse: { then: [{ call: 'stock.news.10jqka' }], else: [{ call: 'regex.match' }] } },
+    ] as unknown as import('@application/skill/SkillTypes').WorkflowStep[];
+    expect(collectWorkflowDependencyNamespaces(steps)).toEqual([
+      'baidu', 'circle', 'stock',
+    ]);
+  });
+
+  it('没有插件算子时返回空依赖', () => {
+    expect(collectWorkflowDependencyNamespaces([
+      { call: 'json.parse' }, { call: 'regex.replace' },
+    ] as unknown as import('@application/skill/SkillTypes').WorkflowStep[])).toEqual([]);
+  });
+});
 
 describe('github_publish_file（fetch 的 this 绑定）', () => {
   it('注入未绑定的原生式 fetch 也能完成 GET/PUT，不抛 Illegal invocation', async () => {
