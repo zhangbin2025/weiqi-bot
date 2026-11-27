@@ -385,7 +385,7 @@ export class SkillPluginInstaller {
     if (needInstall.length > 0 || needUpdateCheck.length > 0) {
       let entries: readonly CatalogEntry[] = [];
       try {
-        entries = (await catalog.browse()).entries;
+        entries = (await catalog.browseResources([...needInstall, ...needUpdateCheck])).entries;
       } catch (error) {
         blockers.push(`读取在线插件源失败：${messageOf(error)}`);
       }
