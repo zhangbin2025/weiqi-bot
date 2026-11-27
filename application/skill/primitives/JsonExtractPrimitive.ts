@@ -531,6 +531,3 @@ export function createJsonExtractPrimitive(): SkillPrimitive {
 
 /** 与 BasicPrimitives 注册风格一致，直接导出一个实例亦可 */
 export const jsonExtractPrimitive: SkillPrimitive = createJsonExtractPrimitive();
-      idempotent: true,
-      outputSchema: {},
-      kind: 'pure',
