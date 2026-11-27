@@ -1,13 +1,10 @@
 /**
- * 宿主通用原语：4 个 web 工具（含 web_cache_read）+ navigate_to 指路原语
- * + json_extract 内置提取算子（纯 value→value，承接已删 json-query 插件的 path/where/pick）
- * + display_json_list 通用展示原语（纯渲染：吃已解析好的数组 value → 列表/表格，数据旁路，正文不进模型上下文）。
+ * 宿主通用 Workflow 原语：web_fetch、web_cache_read、navigate_to 与 display。
+ * JSON / regex 等纯计算能力由 workflow-operator 沙箱插件提供，不进入宿主原语表。
  * @module application/skill/primitives/BasicPrimitives
  *
- * 全部复用现有 web 工具的 definition 与执行器，不新造能力、不引入依赖。
+ * 网络请求复用既有 web_fetch 执行器；display 只负责通用数据展示，业务字段处理交给插件。
  * navigate_to 只生成站内链接文本（宿主不自动跳转），路径做最小合法性校验。
- * 提取（json_extract）与渲染（display_json_list）在阶段一各自独立注册；
- * 阶段二 workflow runner 把 json_extract 的 value 注入 display_json_list 的 value。
  *
  * 契约前移（2026-11-16 用户实测）：「宿主注入链接、模型绝不写 URL」这条约束
  * 原先只写在 navigateToObservation（工具执行后才回喂），模型在决定 tool_calls
@@ -20,10 +17,6 @@
 import {
   WEB_FETCH_TOOL, WEB_FETCH_TOOL_NAME, executeWebFetch, type WebFetchToolDeps,
 } from '@application/chat/WebFetchTool';
-import {
-  WEB_READ_PDF_TOOL, WEB_READ_PDF_TOOL_NAME, WEB_READ_IMAGE_TOOL, WEB_READ_IMAGE_TOOL_NAME,
-  executeWebReadPdf, executeWebReadImage,
-} from '@application/chat/WebResourceTools';
 import {
   WEB_CACHE_READ_TOOL, WEB_CACHE_READ_TOOL_NAME, executeWebCacheRead,
 } from '@application/chat/WebFetchCache';
