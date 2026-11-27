@@ -133,6 +133,47 @@ export class PluginCatalogService {
   }
 
   /**
+   * 按资源 id 定向检查插件：只下载技能实际依赖的 manifest / 源码。
+   * 不调用 browse()，不遍历无关资源，也不写全量目录缓存（避免用局部结果覆盖完整缓存）。
+   * registry.json 仍需读取一次以解析资源路径；源不可达时只从缓存中筛选目标 id。
+   */
+  async browseResources(resourceIds: readonly string[], noStore = false): Promise<CatalogBrowseResult> {
+    const wanted = new Set(resourceIds);
+    if (wanted.size === 0) return { entries: [], failures: [] };
+
+    const sources = await this.sources.list();
+    let locals: PluginArtifact[] = [];
+    try {
+      locals = await this.artifacts.list();
+    } catch {
+      locals = [];
+    }
+
+    const entries: CatalogEntry[] = [];
+    const failures: CatalogFailure[] = [];
+    for (const source of sources) {
+      let parsed: Awaited<ReturnType<PluginCatalogClient['fetchRegistry']>>;
+      try {
+        parsed = await this.client.fetchRegistry(source.url, noStore);
+      } catch (error) {
+        failures.push({ registryUrl: source.url, reason: messageOf(error) });
+        const cached = await this.cachedEntries(source, locals);
+        entries.push(...cached.filter((entry) => wanted.has(entry.resourceId)));
+        continue;
+      }
+
+      const matches = parsed.resources.filter((item) =>
+        typeof item.resource.id === 'string' && wanted.has(item.resource.id),
+      );
+      for (const item of matches) {
+        entries.push(await this.buildEntry(source, item, locals, noStore));
+      }
+    }
+
+    return { entries, failures };
+  }
+
+  /**
    * 安装 / 更新一条资源。
    * 先做与主机 spec 的兼容检查 + 静态预检 + 沙箱试跑（有 runtime 时），
    * 再按 catalogRef 找本地工件：没有 → create；有且 code 不同 → revise。
