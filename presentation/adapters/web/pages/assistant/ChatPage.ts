@@ -934,13 +934,8 @@ export class ChatPage {
 
     const input = document.getElementById('userInput') as HTMLTextAreaElement | null;
     if (!input) return;
-    input.value = [
-      '请使用可用的网页读取工具打开并读取下面这个 URL。',
-      '重点判断页面是否包含围棋棋谱；如果包含，请尽可能提取棋谱内容（SGF、主变化、分支和注释），并整理棋局双方、日期、结果等可获得的信息。',
-      '如果页面不是棋谱，也请说明页面主要内容；如果无法访问，请说明具体失败原因，不要编造读取结果。',
-      '',
-      rawUrl,
-    ].join('\n');
+    // 只传递用户提交的 URL，不预设任务类型；由 LLM 自行判断页面内容与处理方式。
+    input.value = rawUrl;
     this.autoResize(input);
     // 未配置 / 凭据不可用时 handleSend 会保留输入并显示现有 notReady 提示。
     await this.handleSend();
