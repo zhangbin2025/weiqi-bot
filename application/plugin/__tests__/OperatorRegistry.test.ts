@@ -288,13 +288,13 @@ describe('createOperatorRegistry：插件算子命名空间与 ranking 分派', 
 
   it('保留的 json.* / regex.* 命名空间不能被旧版或自建插件覆盖', async () => {
     const makeDataPlugin = (slug: string, method: string) => makeArtifact({
-      id: \`plugin-\${slug}\`,
+      id: `plugin-${slug}`,
       pointId: WORKFLOW_OPERATOR_POINT_ID,
       spec: WORKFLOW_OPERATOR_SPEC,
       enabled: true,
       catalogRef: {
         registryUrl: 'https://example.com/registry.json',
-        resourceId: \`workflow-operator.\${slug}\`,
+        resourceId: `workflow-operator.${slug}`,
       },
       operatorContract: {
         exposes: [{
