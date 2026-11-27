@@ -193,6 +193,23 @@ describe('createOperatorRegistry：插件算子命名空间与 ranking 分派', 
     );
   });
 
+  it('旧版 exposes[].params 工件不会拖垮注册表，但不会注册为可执行算子', async () => {
+    const legacy = makeArtifact({
+      id: 'legacy-plugin',
+      pointId: WORKFLOW_OPERATOR_POINT_ID,
+      spec: WORKFLOW_OPERATOR_SPEC,
+      enabled: true,
+      operatorContract: {
+        exposes: [{ name: 'collect', description: 'legacy', params: { type: 'object' } }],
+        smoke: [],
+      } as unknown as PluginArtifact['operatorContract'],
+    });
+    const registry = await createOperatorRegistry(deps([legacy], fakeRuntime()));
+    expect(registry.get('legacy-plugin.collect')).toBeUndefined();
+    await expect(registry.run('legacy-plugin.collect', {}))
+      .rejects.toThrow('未注册的算子');
+  });
+
   it('② LLM 自建件（无 catalogRef）：注册名用完整 artifact.id，不猜 calc', async () => {
     const artifact = makeArtifact({
       id: GENERATED_ID,
