@@ -91,7 +91,7 @@ function cloneJson(value: unknown): unknown {
   return JSON.parse(encoded) as unknown;
 }
 
-function defineOwn(target: Record<string, unknown> | unknown[], key: JsonPathToken, value: unknown): void {
+function defineOwn(target: object, key: JsonPathToken, value: unknown): void {
   if (typeof key === 'string') safeKey(key);
   Object.defineProperty(target, key, {
     value, enumerable: true, configurable: true, writable: true,
@@ -102,7 +102,7 @@ function setPath(root: unknown, path: unknown, value: unknown): unknown {
   const tokens = pathTokens(path);
   if (tokens.length === 0) throw new Error('不能设置根路径');
   if (root === null || typeof root !== 'object') throw new Error('value 必须是对象或数组');
-  let current = root as Record<string | number, unknown> | unknown[];
+  let current = root as Record<string | number, unknown>;
   for (let i = 0; i < tokens.length - 1; i += 1) {
     const key = tokens[i]!;
     const nextKey = tokens[i + 1]!;
@@ -112,7 +112,7 @@ function setPath(root: unknown, path: unknown, value: unknown): unknown {
     }
     const next = current[key];
     if (next === null || typeof next !== 'object') throw new Error('path 中间节点不可写');
-    current = next as Record<string | number, unknown> | unknown[];
+    current = next as Record<string | number, unknown>;
   }
   defineOwn(current, tokens[tokens.length - 1]!, value);
   return root;
