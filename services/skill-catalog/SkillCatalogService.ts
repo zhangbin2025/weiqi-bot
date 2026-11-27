@@ -243,13 +243,13 @@ export { DEFAULT_SKILL_REGISTRY_URL };
 
 const PLUGIN_RESOURCE_PREFIX = `${WORKFLOW_OPERATOR_POINT_ID}.`;
 /** 这些命名空间由宿主内置 Workflow 算子实现，不触发插件安装。 */
-const HOST_WORKFLOW_OPERATOR_NAMESPACES = new Set(['json', 'regex']);
+const HOST_WORKFLOW_OPERATOR_NAMESPACES = new Set(['json', 'regex', 'storage']);
 
 /**
  * 从配方递归推导它依赖的插件资源 id（去重、保 workflow 声明顺序，包含循环体）。散文配方返回 []。
  *
  * 口径逐字沿用发布侧 buildAssetExport()（application/skill/primitives/AuthFetchPrimitives.ts）：
- * 领域插件算子 call 形如 `<slug>.<method>`，宿主内置 JSON / regex 虽使用点命名空间，
+ * 领域插件算子 call 形如 `<slug>.<method>`，宿主内置 JSON / regex / storage 虽使用点命名空间，
  * 但由 HOST_WORKFLOW_OPERATOR_NAMESPACES 明确排除；其它插件命名空间映射成
  * `${WORKFLOW_OPERATOR_POINT_ID}.${slug}` 资源 id（同文件 buildPluginFiles 的 resourceId，
  * registry.json 的 id 正是此形）。嵌套循环体与条件分支同样纳入；已安装依赖按资源 id 去重。
