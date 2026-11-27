@@ -84,7 +84,7 @@ export function createFetchBatchPrimitive(deps: WebFetchToolDeps): SkillPrimitiv
       },
     },
     execute: async (args): Promise<PrimitiveResult> => {
-      const requests = args.requests as FetchBatchRequest[];
+      const requests = args['requests'] as FetchBatchRequest[];
       const results: Array<{ url: string; ok: boolean; detail: string; value: unknown }> =
         new Array(requests.length);
       let cursor = 0;
