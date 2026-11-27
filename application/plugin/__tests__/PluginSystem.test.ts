@@ -12,7 +12,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { createPluginSystem, loadPluginMaxAttempts, savePluginMaxAttempts, DEFAULT_PLUGIN_MAX_ATTEMPTS } from '../PluginSystem';
-import { resetPluginMaxAttemptsForTest } from '../PluginConfig';
+import { resetPluginMaxAttemptsForTest, MIN_PLUGIN_MAX_ATTEMPTS, MAX_PLUGIN_MAX_ATTEMPTS } from '../PluginConfig';
 import { InMemoryPluginArtifactStore } from '@infrastructure/plugin/InMemoryPluginArtifactStore';
 import type { IModelGateway, ModelRequest, ModelResult } from '@application/model/IModelGateway';
 import type { IPluginRuntime, PluginRunResult } from '@domain/plugin/types';
@@ -212,22 +212,22 @@ describe('createPluginSystem', () => {
 });
 
 describe('可配置轮数持久化', () => {
-  it('默认 3，保存后可读取，越界收敛', () => {
+  it('默认值、保存读取与上下界收敛', () => {
     resetPluginMaxAttemptsForTest();
-    expect(DEFAULT_PLUGIN_MAX_ATTEMPTS).toBe(3);
+    expect(DEFAULT_PLUGIN_MAX_ATTEMPTS).toBe(9);
     savePluginMaxAttempts(5);
     expect(loadPluginMaxAttempts()).toBe(5);
     savePluginMaxAttempts(99);
-    expect(loadPluginMaxAttempts()).toBe(10);
+    expect(loadPluginMaxAttempts()).toBe(MAX_PLUGIN_MAX_ATTEMPTS);
     savePluginMaxAttempts(0);
-    expect(loadPluginMaxAttempts()).toBe(1);
+    expect(loadPluginMaxAttempts()).toBe(MIN_PLUGIN_MAX_ATTEMPTS);
     savePluginMaxAttempts(3);
     resetPluginMaxAttemptsForTest();
   });
 
   it('非法存储值 / 无 localStorage 时回落默认值（不抛错）', () => {
     resetPluginMaxAttemptsForTest();
-    expect(loadPluginMaxAttempts()).toBe(3);
+    expect(loadPluginMaxAttempts()).toBe(DEFAULT_PLUGIN_MAX_ATTEMPTS);
     savePluginMaxAttempts(7);
     expect(loadPluginMaxAttempts()).toBe(7);
     resetPluginMaxAttemptsForTest();
@@ -253,7 +253,7 @@ describe('可配置轮数持久化', () => {
       stub.setItem('weiqi.plugin.maxAttempts', '99');
       expect(loadPluginMaxAttempts()).toBe(10);
       stub.setItem('weiqi.plugin.maxAttempts', '0');
-      expect(loadPluginMaxAttempts()).toBe(1);
+      expect(loadPluginMaxAttempts()).toBe(MIN_PLUGIN_MAX_ATTEMPTS);
     } finally {
       if (original) Object.defineProperty(globalThis, 'localStorage', original);
       else Reflect.deleteProperty(globalThis, 'localStorage');
