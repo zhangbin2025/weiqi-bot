@@ -244,9 +244,9 @@ interface CaptureArgs {
   parts?: CapturePart[];
 }
 
-function parseCaptureArgs(argsJson: string): { ok: true; value: CaptureArgs } | { ok: false; error: string } {
+function parseCaptureArgs(raw: Record<string, unknown>): { ok: true; value: CaptureArgs } | { ok: false; error: string } {
   let raw: unknown;
-  try { raw = JSON.parse(argsJson) as unknown; } catch { return { ok: false, error: '参数不是合法 JSON' }; }
+
   if (!isRecord(raw)) return { ok: false, error: '参数必须是 JSON 对象' };
   if (typeof raw['url'] !== 'string' || !raw['url'].trim()) {
     return { ok: false, error: '缺少 url 参数' };
@@ -356,8 +356,8 @@ function storeCapture(value: CaptureValue): void {
  * 通用采集引擎：宿主 start → wait(until) → stop，归类 → 存句柄 → 回「摘要 + 句柄」。
  * 任何失败都变成一条结构化观察，不抛给 loop / runner。
  */
-async function captureBrowser(deps: BrowserCaptureDeps, argsJson: string): Promise<CaptureOutcome> {
-  const parsed = parseCaptureArgs(argsJson);
+async function captureBrowser(deps: BrowserCaptureDeps, args: Record<string, unknown>): Promise<CaptureOutcome> {
+  const parsed = parseCaptureArgs(args);
   if (!parsed.ok) {
     return { observation: `browser_capture 参数无效：${parsed.error}`, ok: false, detail: `参数无效：${parsed.error}` };
   }
@@ -422,8 +422,8 @@ export function browserCapturePrimitive(deps: BrowserCaptureDeps): SkillPrimitiv
     // 沿用 SkillTypes / OperatorRegistry 既有约定（kv_write / secret_prompt 同样显式标 false），
     // 是语义声明，不是拟合出来的阈值。
     idempotent: false,
-    execute: async (argsJson: string): Promise<PrimitiveResult> => {
-      const r = await captureBrowser(deps, argsJson);
+    execute: async (args: Record<string, unknown>): Promise<PrimitiveResult> => {
+      const r = await captureBrowser(deps, args);
       const out: PrimitiveResult = { observation: r.observation, ok: r.ok, detail: r.detail };
       if (r.value !== undefined) out.value = r.value;
       return out;
@@ -496,7 +496,9 @@ function executeBrowserCaptureList(argsJson: string): ToolOutcome {
 export function createBrowserCaptureToolKit(deps: BrowserCaptureDeps): ToolKit {
   const primitive = browserCapturePrimitive(deps);
   const captureExecutor: ToolExecutor = async (argsJson: string): Promise<ToolOutcome> => {
-    const r = await primitive.execute(argsJson);
+    const parsed: unknown = JSON.parse(argsJson);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error('工具参数必须是 JSON 对象');
+    const r = await primitive.execute(parsed as Record<string, unknown>);
     return { observation: r.observation, ok: r.ok, detail: r.detail };
   };
   const readExecutor: ToolExecutor = async (argsJson: string): Promise<ToolOutcome> =>
