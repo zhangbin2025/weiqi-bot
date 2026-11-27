@@ -403,3 +403,80 @@ describe('runWorkflow — 过程块条数与文案', () => {
     expect(trace.every((s) => s.source === 'web' && s.attempt === 1 && s.phase === 'observe')).toBe(true);
   });
 });
+
+
+describe('runWorkflow — 通用控制结构补齐', () => {
+  it('forEach onError=continue：单项失败被记录，后续项继续，成功项统一包装', async () => {
+    const reg = fakeRegistry({
+      source: () => ({ value: [1, 2, 3] }),
+      double: (args) => {
+        if (args['value'] === 2) throw new Error('单项失败');
+        return { value: Number(args['value']) * 2 };
+      },
+    });
+    const spec: WorkflowSpec = {
+      steps: [
+        step({ id: 'source', call: 'source' }),
+        {
+          id: 'each',
+          yield: true,
+          forEach: {
+            from: 'source', path: '$', onError: 'continue',
+            steps: [step({ id: 'double', call: 'double', args: { value: '{{item}}' } })],
+          },
+        },
+      ],
+    };
+    const result = await runWorkflow(spec, {}, reg);
+    expect(result.ok).toBe(true);
+    expect(result.values['each']).toEqual([
+      { ok: true, value: 2 },
+      { ok: false, error: { stepId: 'each[1]/double', message: '单项失败' } },
+      { ok: true, value: 6 },
+    ]);
+    expect(reg.calls).toEqual(['source', 'double', 'double', 'double']);
+  });
+
+  it('ifElse 根据上游 boolean 选择一个分支，并把分支结果作为节点 value', async () => {
+    const reg = fakeRegistry({
+      condition: () => ({ value: { ready: true } }),
+      yes: () => ({ value: 'then-result' }),
+      no: () => ({ value: 'else-result' }),
+    });
+    const spec: WorkflowSpec = {
+      steps: [
+        step({ id: 'source', call: 'condition' }),
+        {
+          id: 'choice',
+          yield: true,
+          ifElse: {
+            condition: { from: 'source', path: 'ready' },
+            then: [step({ id: 'thenStep', call: 'yes' })],
+            else: [step({ id: 'elseStep', call: 'no' })],
+          },
+        },
+      ],
+    };
+    const result = await runWorkflow(spec, {}, reg);
+    expect(result.ok).toBe(true);
+    expect(result.values['choice']).toEqual({ condition: true, value: 'then-result' });
+    expect(reg.calls).toEqual(['condition', 'yes']);
+  });
+
+  it('urlencode.input 占位符对动态 URL 参数执行组件编码', async () => {
+    let received = '';
+    const reg = fakeRegistry({
+      fetch: (args) => { received = String(args['url']); return { value: true }; },
+    });
+    const inputs: WorkflowInput[] = [{ name: 'nickname', type: 'string', required: true }];
+    const spec: WorkflowSpec = {
+      steps: [step({
+        id: 'fetch', call: 'fetch',
+        args: { url: 'https://example.test/user?name={{urlencode.input.nickname}}' },
+      })],
+    };
+    const result = await runWorkflow(spec, { nickname: '张 三&?' }, reg, undefined, inputs);
+    expect(result.ok).toBe(true);
+    expect(received).toBe('https://example.test/user?name=%E5%BC%A0%20%E4%B8%89%26%3F');
+  });
+});
