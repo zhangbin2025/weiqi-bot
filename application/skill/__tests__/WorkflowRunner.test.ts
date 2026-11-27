@@ -24,7 +24,7 @@ function fakeRegistry(
 ): OperatorRegistry & { calls: string[] } {
   const specs = new Map<string, OperatorSpec>();
   for (const [name, fn] of Object.entries(ops)) {
-    specs.set(name, { name, idempotent: true, run: async (args) => fn(args) });
+    specs.set(name, { name, description: name, inputSchema: { type: 'object' }, outputSchema: {}, kind: 'pure', idempotent: true, run: async (args) => fn(args) });
   }
   const calls: string[] = [];
   return {
