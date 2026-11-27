@@ -33,6 +33,7 @@ import type {
 import type { SkillPrimitive, PrimitiveResult } from '@application/skill/SkillTypes';
 import type { PluginArtifactService } from './PluginArtifactService';
 import { createOperatorAdapters, type OperatorAdapterRegistry } from './behaviors/OperatorAdapters';
+import { validateSchemaDefinition, validateSchemaValue } from './OperatorSchema';
 
 export interface OperatorRegistryDeps {
   /** 宿主内置原语；接线方传 createBasicPrimitives(webDeps) 的返回值 */
@@ -67,7 +68,7 @@ function primitiveToOperatorSpec(p: SkillPrimitive): OperatorSpec {
     idempotent: p.idempotent ?? true,
     description: p.definition.description,
     inputSchema: p.definition.parameters,
-    outputSchema: p.outputSchema,
+    outputSchema: p.outputSchema ?? {},
     kind: p.kind ?? 'io',
     run: async (args: Record<string, unknown>): Promise<StepResult> => {
       const r: PrimitiveResult = await p.execute(args);
@@ -94,6 +95,11 @@ export async function createOperatorRegistry(deps: OperatorRegistryDeps): Promis
     map.set(p.name, primitiveToOperatorSpec(p));
   }
 
+  for (const spec of map.values()) {
+    validateSchemaDefinition(spec.inputSchema, `${spec.name}.inputSchema`);
+    validateSchemaDefinition(spec.outputSchema, `${spec.name}.outputSchema`);
+  }
+
   const adapters = deps.adapters ?? createOperatorAdapters();
   let active: PluginArtifact[] = [];
   try {
@@ -105,6 +111,8 @@ export async function createOperatorRegistry(deps: OperatorRegistryDeps): Promis
     const adapter = adapters[artifact.pointId];
     if (!adapter) continue; // 未声明算子适配的扩展点不进算子表（通用规则，不是特判）
     for (const op of adapter.toSpecs({ artifact, runtime: deps.runtime })) {
+      validateSchemaDefinition(op.inputSchema, `${op.name}.inputSchema`);
+      validateSchemaDefinition(op.outputSchema, `${op.name}.outputSchema`);
       map.set(op.name, op);
     }
   }
@@ -116,7 +124,12 @@ export async function createOperatorRegistry(deps: OperatorRegistryDeps): Promis
     run: async (name: string, args: Record<string, unknown>): Promise<StepResult> => {
       const op = specs.get(name);
       if (op === undefined) throw new Error(`未注册的算子：${name}`);
-      return op.run(args);
+      const inputError = validateSchemaValue(op.inputSchema, args);
+      if (inputError) throw new Error(`算子 ${name} 输入校验失败：${inputError}`);
+      const result = await op.run(args);
+      const outputError = validateSchemaValue(op.outputSchema, result.value);
+      if (outputError) throw new Error(`算子 ${name} 输出校验失败：${outputError}`);
+      return result;
     },
   };
 }
