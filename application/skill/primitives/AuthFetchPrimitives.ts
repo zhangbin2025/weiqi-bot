@@ -228,11 +228,7 @@ export function createAuthFetchPrimitives(deps: AuthFetchPrimitivesDeps): SkillP
       idempotent: true,
       outputSchema: {},
       kind: 'io',
-      execute: async (args): Promise<PrimitiveResult> => {
-        const args = (() => {
-          try { return args as Record<string, unknown>; }
-          catch { return {} as Record<string, unknown>; }
-        })();
+      execute: async (args: Record<string, unknown>): Promise<PrimitiveResult> => {
         const secretKey = args['secretKey'];
         if (typeof secretKey !== 'string' || !secretKey.trim()) {
           return { observation: 'http_fetch_auth 参数无效：缺少 secretKey。', ok: false, detail: '缺少 secretKey' };
@@ -333,11 +329,7 @@ export function createAuthFetchPrimitives(deps: AuthFetchPrimitivesDeps): SkillP
       idempotent: true,
       outputSchema: {},
       kind: 'effect',
-      execute: async (args): Promise<PrimitiveResult> => {
-        const args = (() => {
-          try { return args as Record<string, unknown>; }
-          catch { return {} as Record<string, unknown>; }
-        })();
+      execute: async (args: Record<string, unknown>): Promise<PrimitiveResult> => {
         const key = args['secretKey'];
         if (typeof key !== 'string' || !deps.specs.has(key.trim())) {
           return {
