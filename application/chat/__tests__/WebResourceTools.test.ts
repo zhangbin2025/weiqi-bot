@@ -51,8 +51,7 @@ describe('executeWebReadPdf', () => {
 
   it('默认 text 模式抽文字，观察带来源 URL', async () => {
     stubPdfJs();
-    const r = await executeWebReadPdf(
-      JSON.stringify({ url: 'https://example.com/a.pdf' }), deps(PDF_MAGIC, 'application/pdf'),
+    const r = await executeWebReadPdf({ url: 'https://example.com/a.pdf' }, deps(PDF_MAGIC, 'application/pdf'),
     );
     expect(r.ok).toBe(true);
     expect(r.observation).toContain('https://example.com/a.pdf');
@@ -61,8 +60,7 @@ describe('executeWebReadPdf', () => {
   });
 
   it('mode=native 送模型原文，产出 file part', async () => {
-    const r = await executeWebReadPdf(
-      JSON.stringify({ url: 'https://example.com/a.pdf', mode: 'native' }),
+    const r = await executeWebReadPdf({ url: 'https://example.com/a.pdf', mode: 'native' },
       deps(PDF_MAGIC, 'application/pdf'),
     );
     expect(r.parts?.[0]?.type).toBe('file');
@@ -70,8 +68,7 @@ describe('executeWebReadPdf', () => {
   });
 
   it('目标其实是图片 → 明确告知改用 web_read_image，不静默按错种类处理', async () => {
-    const r = await executeWebReadPdf(
-      JSON.stringify({ url: 'https://example.com/x.png' }), deps(PNG_MAGIC, 'image/png'),
+    const r = await executeWebReadPdf({ url: 'https://example.com/x.png' }, deps(PNG_MAGIC, 'image/png'),
     );
     expect(r.ok).toBe(false);
     expect(r.observation).toContain(WEB_READ_IMAGE_TOOL_NAME);
@@ -79,10 +76,10 @@ describe('executeWebReadPdf', () => {
 
   it('参数坏 / URL 私网都变可读观察，不抛', async () => {
     const d = deps(PDF_MAGIC, 'application/pdf');
-    const bad = await executeWebReadPdf('not-json', d);
+    const bad = await executeWebReadPdf({}, d);
     expect(bad.ok).toBe(false);
     expect(bad.observation).toContain('参数');
-    const ssrf = await executeWebReadPdf(JSON.stringify({ url: 'http://192.168.1.1/a.pdf' }), d);
+    const ssrf = await executeWebReadPdf({ url: 'http://192.168.1.1/a.pdf' }, d);
     expect(ssrf.ok).toBe(false);
     expect(ssrf.observation).toContain('环回或私网');
   });
@@ -90,8 +87,7 @@ describe('executeWebReadPdf', () => {
 
 describe('executeWebReadImage', () => {
   it('图片 → image part + image 附件，data URI 不传远程 URL', async () => {
-    const r = await executeWebReadImage(
-      JSON.stringify({ url: 'https://example.com/board.png' }), deps(PNG_MAGIC, 'image/png'),
+    const r = await executeWebReadImage({ url: 'https://example.com/board.png' }, deps(PNG_MAGIC, 'image/png'),
     );
     expect(r.ok).toBe(true);
     if (r.parts?.[0]?.type === 'image') {
@@ -101,8 +97,7 @@ describe('executeWebReadImage', () => {
   });
 
   it('目标其实是 PDF → 明确告知改用 web_read_pdf', async () => {
-    const r = await executeWebReadImage(
-      JSON.stringify({ url: 'https://example.com/a.pdf' }), deps(PDF_MAGIC, 'application/pdf'),
+    const r = await executeWebReadImage({ url: 'https://example.com/a.pdf' }, deps(PDF_MAGIC, 'application/pdf'),
     );
     expect(r.ok).toBe(false);
     expect(r.observation).toContain(WEB_READ_PDF_TOOL_NAME);
