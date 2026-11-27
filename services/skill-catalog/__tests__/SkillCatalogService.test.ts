@@ -759,3 +759,33 @@ describe('分类标签 category（可选、纯展示）', () => {
     expect(saved.find((e) => e.recipe.id === 'puzzle.tsumego')?.recipe.category).toBeUndefined();
   });
 });
+
+
+describe('skillPluginResourceIds — control block dependency traversal', () => {
+  it('递归收集 ifElse 两个分支中的插件依赖并按资源 ID 去重', () => {
+    const parsed = asRecipe(recipe({
+      workflow: {
+        steps: [
+          { id: 'source', call: 'web_fetch', args: { url: 'https://example.test' } },
+          {
+            id: 'branch',
+            ifElse: {
+              condition: { from: 'source', path: 'ok' },
+              then: [
+                { id: 'jsonA', call: 'json.get', args: { path: 'data' } },
+                { id: 'jsonB', call: 'json.unique', args: { key: 'id' } },
+              ],
+              else: [
+                { id: 'regex', call: 'regex.extract', args: { pattern: 'x' } },
+              ],
+            },
+          },
+        ],
+      },
+    }));
+    expect(skillPluginResourceIds(parsed)).toEqual([
+      'workflow-operator.json',
+      'workflow-operator.regex',
+    ]);
+  });
+});
