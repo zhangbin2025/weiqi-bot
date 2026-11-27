@@ -82,7 +82,8 @@ const INPUTS_STEP_ID = '<inputs>';
 const WHOLE_PLACEHOLDER_RE = /^\{\{input\.([^{}]+)\}\}$/;
 const EMBEDDED_PLACEHOLDER_RE = /\{\{(?:input\.[^{}]+|item(?:\.[^{}]+)?|index|state(?:\.[^{}]+)?)\}\}/g;
 const SCOPE_PLACEHOLDER_RE = /^\{\{(item(?:\.[^{}]+)?|index|state(?:\.[^{}]+)?)\}\}$/;
-const MAX_WORKFLOW_ITERATIONS = 100;\nconst MAX_WORKFLOW_TOTAL_ITERATIONS = 500;
+const MAX_WORKFLOW_ITERATIONS = 100;
+const MAX_WORKFLOW_TOTAL_ITERATIONS = 500;
 
 /** 属性访问只认自身属性，并挡住原型链上的危险键（与宿主其余取值层同口径）。 */
 const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
@@ -392,7 +393,8 @@ export async function runWorkflow(
   }
   const resolvedInputs = resolved.values;
 
-  let totalLoopIterations = 0;\n  type Scope = WorkflowTemplateScope;
+  let totalLoopIterations = 0;
+  type Scope = WorkflowTemplateScope;
   type InternalResult =
     | { ok: true; lastValue: unknown }
     | { ok: false; stepId: string; error: string; detail: string };
@@ -455,6 +457,10 @@ export async function runWorkflow(
         }
         const results: unknown[] = [];
         for (let index = 0; index < source.value.length; index++) {
+          if (totalLoopIterations >= MAX_WORKFLOW_TOTAL_ITERATIONS) {
+            return { ok: false, stepId, error: `Workflow 累计循环次数超过宿主上限 ${MAX_WORKFLOW_TOTAL_ITERATIONS}`, detail: `节点 ${stepId} 累计循环预算耗尽` };
+          }
+          totalLoopIterations += 1;
           const local = new Map(upstream);
           const nested = await runSteps(
             step.forEach.steps, local, { ...scope, item: source.value[index], index },
@@ -489,6 +495,10 @@ export async function runWorkflow(
       const results: unknown[] = [];
       let stopped = false;
       for (let iteration = 0; iteration < maxIterations; iteration++) {
+        if (totalLoopIterations >= MAX_WORKFLOW_TOTAL_ITERATIONS) {
+          return { ok: false, stepId, error: `Workflow 累计循环次数超过宿主上限 ${MAX_WORKFLOW_TOTAL_ITERATIONS}`, detail: `节点 ${stepId} 累计循环预算耗尽` };
+        }
+        totalLoopIterations += 1;
         const local = new Map(upstream);
         const nested = await runSteps(
           repeat.steps, local, { ...scope, state },
@@ -526,318 +536,6 @@ export async function runWorkflow(
   const upstream = new Map<string, unknown>();
   const execution = await runSteps(steps, upstream, {}, "", true);
   if (!execution.ok) return fail(execution.stepId, execution.error, execution.detail);
-  return {
-    ok: true, values, effects, completedStepIds,
-    ...(stepTrace !== undefined ? { stepTrace } : {}),
-  };
-}
-
-/**
- * 调试模式单步留痕。字段全部来自 runner 已有的真实数据，不新增业务计算：
- * - args：占位符替换 + bindings 注入后的**实际入参**（不是配方字面量）；
- * - value：本步算子的 .value（连线只认它）；yield:false 的节点也留；
- * - effects：本步产生的展示/动作旁路（与 WorkflowEffect 同形）；
- * - error：本步失败原因（成功时省略）。
- */
-export interface WorkflowStepTrace {
-  stepId: string;
-  call: string;
-  args: Record<string, unknown>;
-  value?: unknown;
-  effects: WorkflowEffect[];
-  ok: boolean;
-  error?: string;
-}
- : token.slice(dot + 1);
-  const root = rootName === 'item' ? scope?.item : scope?.state;
-  if (root === undefined) {
-    return { ok: false, error: `占位符 {{${token}}} 不在对应循环作用域内` };
-  }
-  const got = readBindingValue(root, path);
-  return got.ok ? got : { ok: false, error: `占位符 {{${token}}}：${got.error}` };
-}
-
-function substituteInputs(
-  node: unknown,
-  resolved: Record<string, unknown>,
-  scope?: WorkflowTemplateScope,
-): { ok: true; value: unknown } | { ok: false; error: string } {
-  if (typeof node === 'string') {
-    const whole = WHOLE_PLACEHOLDER_RE.exec(node);
-    if (whole) {
-      const name = whole[1]!;
-      if (!Object.prototype.hasOwnProperty.call(resolved, name)) {
-        return { ok: false, error: `占位符 {{input.${name}}} 没有对应的已解析 input` };
-      }
-      return { ok: true, value: resolved[name] };
-    }
-    const scopeWhole = SCOPE_PLACEHOLDER_RE.exec(node);
-    if (scopeWhole) return resolveScopePlaceholder(scopeWhole[1]!, scope);
-    let failure: string | undefined;
-    const replaced = node.replace(EMBEDDED_PLACEHOLDER_RE, (token) => {
-      const input = /^\\{\\{input\\.([^{}]+)\\}\\}$/.exec(token);
-      if (input) {
-        const name = input[1]!;
-        if (!Object.prototype.hasOwnProperty.call(resolved, name)) {
-          failure = `占位符 {{input.${name}}} 没有对应的已解析 input`;
-          return token;
-        }
-        return String(resolved[name]);
-      }
-      const scoped = /^\\{\\{([^{}]+)\\}\\}$/.exec(token);
-      if (!scoped) return token;
-      const got = resolveScopePlaceholder(scoped[1]!, scope);
-      if (!got.ok) { failure = got.error; return token; }
-      return String(got.value);
-    });
-    return failure ? { ok: false, error: failure } : { ok: true, value: replaced };
-  }
-  if (Array.isArray(node)) {
-    const out: unknown[] = [];
-    for (const item of node) {
-      const r = substituteInputs(item, resolved, scope);
-      if (!r.ok) return r;
-      out.push(r.value);
-    }
-    return { ok: true, value: out };
-  }
-  if (node !== null && typeof node === 'object') {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
-      const r = substituteInputs(v, resolved, scope);
-      if (!r.ok) return r;
-      out[k] = r.value;
-    }
-    return { ok: true, value: out };
-  }
-  return { ok: true, value: node };
-}
-
-// ---------------------------------------------------------------- binding 引用取值
-
-type PathToken = { kind: 'key'; name: string } | { kind: 'index'; n: number };
-
-/** 简单点路径解析：`a.b[0].c` / `$` / 可选 `["含点键"]` / 负下标。 */
-function parseSimplePath(path: string): PathToken[] | null {
-  const s = path.trim();
-  let i = 0;
-  if (s.startsWith('$')) {
-    i = 1;
-    if (s.charAt(i) === '.') i++;
-  }
-  const tokens: PathToken[] = [];
-  while (i < s.length) {
-    const c = s.charAt(i);
-    if (c === '.') { i++; continue; }
-    if (c === '[') {
-      const close = s.indexOf(']', i + 1);
-      if (close < 0) return null;
-      const inner = s.slice(i + 1, close).trim();
-      if (/^-?\d+$/.test(inner)) {
-        tokens.push({ kind: 'index', n: Number(inner) });
-      } else if (inner.startsWith('"') && inner.endsWith('"')) {
-        try { tokens.push({ kind: 'key', name: JSON.parse(inner) as string }); } catch { return null; }
-      } else {
-        return null;
-      }
-      i = close + 1;
-    } else {
-      let j = i;
-      while (j < s.length && s.charAt(j) !== '.' && s.charAt(j) !== '[') j++;
-      const name = s.slice(i, j).trim();
-      if (!name) return null;
-      tokens.push({ kind: 'key', name });
-      i = j;
-    }
-  }
-  return tokens;
-}
-
-/**
- * 从上游 StepResult.value 按 path 取值。`'$'`（或空串）取整个 value。
- * 取不到值 → 结构化失败（不静默继续、不注入 undefined）。
- */
-function readBindingValue(
-  root: unknown,
-  path: string,
-): { ok: true; value: unknown } | { ok: false; error: string } {
-  if (path === '' || path === '$') return { ok: true, value: root };
-  const tokens = parseSimplePath(path);
-  if (!tokens || tokens.length === 0) {
-    return { ok: false, error: `引用路径「${path}」无法解析` };
-  }
-  let cur: unknown = root;
-  for (const t of tokens) {
-    if (t.kind === 'key') {
-      if (DANGEROUS_KEYS.has(t.name) || cur === null || typeof cur !== 'object'
-        || Array.isArray(cur)
-        || !Object.prototype.hasOwnProperty.call(cur, t.name)) {
-        return { ok: false, error: `引用路径「${path}」在键「${t.name}」处取不到值` };
-      }
-      cur = (cur as Record<string, unknown>)[t.name];
-    } else {
-      if (!Array.isArray(cur)) {
-        return { ok: false, error: `引用路径「${path}」在下标「${t.n}」处不是数组` };
-      }
-      const n = t.n < 0 ? cur.length + t.n : t.n;
-      if (!Number.isInteger(n) || n < 0 || n >= cur.length) {
-        return { ok: false, error: `引用路径「${path}」在下标「${t.n}」处越界` };
-      }
-      cur = cur[n];
-    }
-  }
-  if (cur === undefined) {
-    return { ok: false, error: `引用路径「${path}」取不到值（结果为 undefined）` };
-  }
-  return { ok: true, value: cur };
-}
-
-// ---------------------------------------------------------------- 主流程
-
-/**
- * 跑一条 workflow 声明。
- *
- * 签名按契约 4 参；第 5 个可选参数 `inputDecls` 是 `SkillRecipe.inputs`：
- * E 的 `WorkflowSpec` 只有 `steps`，而契约要求 runner 做
- * default / required / enum / type 校验，声明表只能由调用方（WorkflowTool）
- * 从整条 SkillRecipe 透传。不传时跳过契约校验（仍做占位符替换与值合并），
- * 4 参调用与契约签名逐字兼容。
- */
-export async function runWorkflow(
-  spec: WorkflowSpec,
-  inputs: Record<string, unknown>,
-  registry: OperatorRegistry,
-  onTrace?: (s: PluginTraceStep) => void,
-  inputDecls?: readonly WorkflowInput[],
-  captureTrace = false,
-): Promise<WorkflowRunResult> {
-  const steps: readonly WorkflowStep[] = spec.steps ?? [];
-  const N = steps.length; // 步骤数 = 静态声明长度，零新常数
-
-  // 开头即显示「共 N 步」：声明静态，进度感从第一刻完整（条款 8）。
-  // phase='observe' 让 ChatUseCase 的实时过程块懒建立即点亮。
-  pushTrace(onTrace, true, `workflow 共 ${N} 步`);
-
-  const completedStepIds: string[] = [];
-  const effects: WorkflowEffect[] = [];
-  const values: Record<string, unknown> = {};
-  /** 调试模式逐步记录；captureTrace=false 时保持 undefined，正常结果对象零变化。 */
-  const stepTrace: WorkflowStepTrace[] | undefined = captureTrace ? [] : undefined;
-
-  const fail = (stepId: string, error: string, detail: string): WorkflowRunResult => {
-    pushTrace(onTrace, false, detail);
-    return {
-      ok: false,
-      values,
-      effects,
-      completedStepIds: [...completedStepIds],
-      ...(stepTrace !== undefined ? { stepTrace } : {}),
-      failure: { stepId, error, completedStepIds: [...completedStepIds] },
-    };
-  };
-
-  // 运行前防御（一次）：解析期已验无环/引用真实/唯一 id，这里只补「算子是否真的注册」。
-  // 未命中即拒跑，不执行任何节点（避免跑了一半才发现白名单没命中）。
-  for (const step of steps) {
-    if (registry.get(step.call) === undefined) {
-      const reason = `未注册算子:${step.call}`;
-      stepTrace?.push({
-        stepId: step.id, call: step.call, args: step.args ?? {},
-        ok: false, error: reason, effects: [],
-      });
-      return fail(step.id, reason,
-        `workflow 运行前校验失败：节点 ${step.id} 引用了未注册算子 ${step.call}`);
-    }
-  }
-
-  // inputs 契约校验 / 缺省填充。失败发生在任何节点之前，stepId 用哨兵。
-  const resolved = resolveInputs(inputDecls, inputs);
-  if (!resolved.ok) {
-    stepTrace?.push({
-      stepId: INPUTS_STEP_ID, call: '<inputs>', args: inputs,
-      ok: false, error: resolved.error, effects: [],
-    });
-    return fail(INPUTS_STEP_ID, resolved.error, `workflow 参数校验失败：${resolved.error}`);
-  }
-  const resolvedInputs = resolved.values;
-
-  // 上游 value 表：step id → StepResult.value（连线只认 value）。
-  const upstream = new Map<string, unknown>();
-
-  for (let k = 0; k < N; k++) {
-    const step = steps[k]!;
-    const kth = k + 1;
-
-    // 合并顺序：字面量 args（占位符按规则①/②注入 inputs 原值/文本）
-    // → bindings 从上游 value 覆写注入。inputs 只经配方里写明的占位符进入，
-    // 不 blanket 塞进每个节点（G 的 web_fetch 不该收到 year/page 等无关键）。
-    const literal = substituteInputs(step.args ?? {}, resolvedInputs);
-    if (!literal.ok) {
-      stepTrace?.push({
-        stepId: step.id, call: step.call, args: step.args ?? {},
-        ok: false, error: literal.error, effects: [],
-      });
-      return fail(step.id, literal.error, `第 ${kth}/${N} 步 ${step.call} 参数失败：${literal.error}`);
-    }
-    const mergedArgs: Record<string, unknown> = {
-      ...(literal.value as Record<string, unknown>),
-    };
-    for (const binding of step.bindings ?? []) {
-      const source = upstream.get(binding.from);
-      if (!upstream.has(binding.from)) {
-        const reason = `节点 ${binding.from} 尚无 value（bindings.from 必须指向更靠前的已完成节点）`;
-        stepTrace?.push({
-          stepId: step.id, call: step.call, args: mergedArgs,
-          ok: false, error: reason, effects: [],
-        });
-        return fail(step.id, reason,
-          `第 ${kth}/${N} 步 ${step.call} 引用失败：上游 ${binding.from} 无 value`);
-      }
-      const got = readBindingValue(source, binding.path);
-      if (!got.ok) {
-        stepTrace?.push({
-          stepId: step.id, call: step.call, args: mergedArgs,
-          ok: false, error: got.error, effects: [],
-        });
-        return fail(step.id, got.error,
-          `第 ${kth}/${N} 步 ${step.call} 引用失败：${got.error}`);
-      }
-      mergedArgs[binding.as] = got.value;
-    }
-
-    // 执行：OperatorRegistry.run 只抛普通 Error，runner 自己包装成结构化失败。
-    let result: StepResult;
-    try {
-      result = await registry.run(step.call, mergedArgs);
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      stepTrace?.push({
-        stepId: step.id, call: step.call, args: mergedArgs,
-        ok: false, error: reason, effects: [],
-      });
-      return fail(step.id, reason, `第 ${kth}/${N} 步 ${step.call} 失败：${reason}`);
-    }
-
-    // effects 全量累积（不覆盖、不取最后一个；插件节点天然无 effects）。
-    const stepEffects: WorkflowEffect[] = [];
-    for (const e of result.effects ?? []) {
-      effects.push(e);
-      stepEffects.push(e);
-    }
-    // 记录 value 供下游 binding；仅显式 yield:true 的节点进模型上下文汇总。
-    upstream.set(step.id, result.value);
-    if (step.yield === true) values[step.id] = result.value;
-    completedStepIds.push(step.id);
-    // 调试模式：连同实际入参（占位符已替换 + bindings 已注入）一起留痕，
-    // 让模型能对照「输入 → 输出」判断是哪一步算错，而不是只看最终交付。
-    stepTrace?.push({
-      stepId: step.id, call: step.call, args: mergedArgs,
-      value: result.value, effects: stepEffects, ok: true,
-    });
-
-    pushTrace(onTrace, true, `第 ${kth}/${N} 步 ${step.call} 完成`);
-  }
-
   return {
     ok: true, values, effects, completedStepIds,
     ...(stepTrace !== undefined ? { stepTrace } : {}),
