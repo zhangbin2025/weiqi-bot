@@ -166,7 +166,7 @@ describe('browser_capture 通用采集（workflow 第一通路）', () => {
   it('parts 只过滤主数组，meta 恒给真实采集计数', async () => {
     const { deps } = fakeSniffer();
     const r = await browserCapturePrimitive(deps).execute(
-      JSON.stringify({ url: URL, parts: ['document'] }),
+      { url: URL, parts: ['document'] },
     );
     const v = valueOf(r);
     expect(v.ws).toEqual([]);
@@ -192,7 +192,7 @@ describe('browser_capture 等待语义（LLM 开发反馈整改）', () => {
   it('minEvents=N：攒够 N 条目标分区帧才命中，首帧不再收工', async () => {
     const { deps, sessions } = fakeSniffer();
     const r = await browserCapturePrimitive(deps).execute(
-      JSON.stringify({ url: URL, waitFor: 'ws', minEvents: 3 }),
+      { url: URL, waitFor: 'ws', minEvents: 3 },
     );
     expect(valueOf(r).meta.ws).toBe(2); // 分类照常，结束条件由 until 决定
     const s = sessions[0]!;
@@ -211,7 +211,7 @@ describe('browser_capture 等待语义（LLM 开发反馈整改）', () => {
   it('holdMs=M：走现成不设 until 的空等窗口，timeout 逐字等于声明值', async () => {
     const { deps, sessions } = fakeSniffer();
     const r = await browserCapturePrimitive(deps).execute(
-      JSON.stringify({ url: URL, holdMs: 8000, parts: ['ws'] }),
+      { url: URL, holdMs: 8000, parts: ['ws'] },
     );
     const v = valueOf(r);
     expect(v.ws).toHaveLength(2);
