@@ -495,6 +495,12 @@ function readWorkflow(raw: Record<string, unknown>): FieldResult<{
         const nested = validateRepeatInputs(step.forEach.steps);
         if (!nested.ok) return nested;
       }
+      if (step.ifElse !== undefined) {
+        const thenNested = validateRepeatInputs(step.ifElse.then);
+        if (!thenNested.ok) return thenNested;
+        const elseNested = validateRepeatInputs(step.ifElse.else ?? []);
+        if (!elseNested.ok) return elseNested;
+      }
       if (step.repeat !== undefined) {
         if (typeof step.repeat.maxIterations === 'string') {
           const match = /^\{\{input\.([^{}]+)\}\}$/.exec(step.repeat.maxIterations);
