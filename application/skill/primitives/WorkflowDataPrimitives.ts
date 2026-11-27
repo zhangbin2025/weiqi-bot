@@ -182,8 +182,7 @@ function runJson(action: string, args: Record<string, unknown>): unknown {
     case 'select': {
       const items = requireArray(args['items'], 'items');
       const rows = items.filter((item) => matches(item, args['where']));
-      if (args['pick'] === undefined || (Array.isArray(args['pick']) && args['pick'].length === 0)) return rows;
-      if (!Array.isArray(args['pick'])) throw new Error('pick 必须是路径字符串数组');
+      if (!Array.isArray(args['pick']) || args['pick'].length === 0) return rows;
       return rows.map((item) => {
         const output: Record<string, unknown> = {};
         for (const field of args['pick'] as unknown[]) {
