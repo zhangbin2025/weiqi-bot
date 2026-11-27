@@ -113,7 +113,7 @@ export function createBasicPrimitives(webDeps: WebFetchToolDeps): SkillPrimitive
       outputSchema: {},
       kind: 'io',
       execute: async (args) => toPrimitiveResult(
-        executeWebCacheRead(JSON.stringify(args), webDeps.cache),
+        executeWebCacheRead(args, webDeps.cache),
       ),
     },
     {
@@ -122,7 +122,7 @@ export function createBasicPrimitives(webDeps: WebFetchToolDeps): SkillPrimitive
       idempotent: true,
       outputSchema: {},
       kind: 'io',
-      execute: async (args) => toPrimitiveResult(await executeWebReadPdf(JSON.stringify(args), webDeps)),
+      execute: async (args) => toPrimitiveResult(await executeWebReadPdf(args, webDeps)),
     },
     {
       name: WEB_READ_IMAGE_TOOL_NAME,
@@ -130,7 +130,7 @@ export function createBasicPrimitives(webDeps: WebFetchToolDeps): SkillPrimitive
       idempotent: true,
       outputSchema: {},
       kind: 'io',
-      execute: async (args) => toPrimitiveResult(await executeWebReadImage(JSON.stringify(args), webDeps)),
+      execute: async (args) => toPrimitiveResult(await executeWebReadImage(args, webDeps)),
     },
     {
       name: NAVIGATE_TO_TOOL_NAME,
