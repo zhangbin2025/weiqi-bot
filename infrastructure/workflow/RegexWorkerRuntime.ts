@@ -30,15 +30,18 @@ export function createRegexWorkerRunner(options: RegexWorkerRunnerOptions = {}):
   const timeoutMs = options.timeoutMs ?? 1000;
 
   return (method, args) => new Promise<unknown>((resolve, reject) => {
-    let worker: Worker;
+    let worker: Worker | null = null;
     let settled = false;
     const id = 1;
     const cleanup = (): void => {
       clearTimeout(timer);
-      worker.onmessage = null;
-      worker.onerror = null;
-      worker.onmessageerror = null;
-      try { worker.terminate(); } catch { /* already stopped */ }
+      if (worker) {
+        worker.onmessage = null;
+        worker.onerror = null;
+        worker.onmessageerror = null;
+        try { worker.terminate(); } catch { /* already stopped */ }
+        worker = null;
+      }
     };
     const finish = (error: Error | null, value?: unknown): void => {
       if (settled) return;
