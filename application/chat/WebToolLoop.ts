@@ -67,9 +67,9 @@ export async function runWebToolLoop(
 ): Promise<WebToolLoopResult> {
   const executors: Record<string, (argsJson: string) => Promise<ToolOutcome>> = {
     [WEB_FETCH_TOOL_NAME]: (args) => executeWebFetch(parseToolArgs(args), deps.toolDeps),
-    [WEB_CACHE_READ_TOOL_NAME]: (args) => Promise.resolve(executeWebCacheRead(args, deps.toolDeps.cache)),
-    [WEB_READ_PDF_TOOL_NAME]: (args) => executeWebReadPdf(args, deps.toolDeps),
-    [WEB_READ_IMAGE_TOOL_NAME]: (args) => executeWebReadImage(args, deps.toolDeps),
+    [WEB_CACHE_READ_TOOL_NAME]: (args) => Promise.resolve(executeWebCacheRead(parseToolArgs(args), deps.toolDeps.cache)),
+    [WEB_READ_PDF_TOOL_NAME]: (args) => executeWebReadPdf(parseToolArgs(args), deps.toolDeps),
+    [WEB_READ_IMAGE_TOOL_NAME]: (args) => executeWebReadImage(parseToolArgs(args), deps.toolDeps),
   };
   return runToolLoop(
     {
@@ -91,9 +91,9 @@ export function createWebToolKit(toolDeps: WebFetchToolDeps): ToolKit {
     tools: [...WEB_TOOLS],
     executors: {
       [WEB_FETCH_TOOL_NAME]: (args) => executeWebFetch(parseToolArgs(args), toolDeps),
-      [WEB_CACHE_READ_TOOL_NAME]: (args) => Promise.resolve(executeWebCacheRead(args, toolDeps.cache)),
-      [WEB_READ_PDF_TOOL_NAME]: (args) => executeWebReadPdf(args, toolDeps),
-      [WEB_READ_IMAGE_TOOL_NAME]: (args) => executeWebReadImage(args, toolDeps),
+      [WEB_CACHE_READ_TOOL_NAME]: (args) => Promise.resolve(executeWebCacheRead(parseToolArgs(args), toolDeps.cache)),
+      [WEB_READ_PDF_TOOL_NAME]: (args) => executeWebReadPdf(parseToolArgs(args), toolDeps),
+      [WEB_READ_IMAGE_TOOL_NAME]: (args) => executeWebReadImage(parseToolArgs(args), toolDeps),
     },
   };
 }
