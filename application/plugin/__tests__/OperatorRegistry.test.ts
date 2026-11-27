@@ -127,6 +127,26 @@ describe('createOperatorRegistry：结构化参数与 Schema 边界', () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it('原语失败时保留结构化观察，不把缺失 value 误报为输出 Schema 错误', async () => {
+    const primitive: SkillPrimitive = {
+      name: 'failed_string_output',
+      definition: { name: 'failed_string_output', description: 'failed', parameters: { type: 'object' } },
+      idempotent: true,
+      kind: 'pure',
+      outputSchema: { type: 'string' },
+      execute: async () => ({
+        observation: 'regex_extract：正则执行失败。没有产出 value。',
+        ok: false,
+        detail: '正则执行失败',
+      }),
+    };
+    const registry = await createOperatorRegistry(deps([], fakeRuntime(), [primitive]));
+    await expect(registry.run('failed_string_output', {}))
+      .rejects.toThrow('regex_extract：正则执行失败');
+    await expect(registry.run('failed_string_output', {}))
+      .rejects.not.toThrow('输出校验失败');
+  });
+
   it('算子输出不符合 Schema 时拒绝结果', async () => {
     const primitive: SkillPrimitive = {
       name: 'string_output',
