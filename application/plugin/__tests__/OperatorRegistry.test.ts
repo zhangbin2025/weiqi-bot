@@ -117,6 +117,9 @@ describe('createOperatorRegistry：结构化参数与 Schema 边界', () => {
         name: 'required_input', description: 'required',
         parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'], additionalProperties: false },
       },
+      idempotent: true,
+      outputSchema: {},
+      kind: 'pure',
       execute,
     };
     const registry = await createOperatorRegistry(deps([], fakeRuntime(), [primitive]));
@@ -128,6 +131,8 @@ describe('createOperatorRegistry：结构化参数与 Schema 边界', () => {
     const primitive: SkillPrimitive = {
       name: 'string_output',
       definition: { name: 'string_output', description: 'output', parameters: { type: 'object' } },
+      idempotent: true,
+      kind: 'pure',
       outputSchema: { type: 'string' },
       execute: async () => ({ observation: 'x', ok: true, detail: 'x', value: { wrong: true } }),
     };
