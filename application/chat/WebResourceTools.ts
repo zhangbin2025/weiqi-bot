@@ -119,10 +119,10 @@ export async function executeWebReadPdf(
 }
 
 export async function executeWebReadImage(
-  argsJson: string,
+  args: Record<string, unknown>,
   deps: WebFetchToolDeps,
 ): Promise<WebResourceToolResult> {
-  const parsed = readUrl(argsJson);
+  const parsed = readUrl(args);
   if ('error' in parsed) {
     return { observation: `${WEB_READ_IMAGE_TOOL_NAME} 参数无效：${parsed.error}`, ok: false, detail: parsed.error };
   }
