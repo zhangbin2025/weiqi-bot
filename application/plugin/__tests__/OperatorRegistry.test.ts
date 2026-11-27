@@ -149,7 +149,7 @@ describe('createOperatorRegistry：结构化参数与 Schema 边界', () => {
     expect(failureMessage).not.toContain('输出校验失败');
   });
 
-  it('部分失败但携带符合 Schema 的 value 时保留结果供下游处理', async () => {
+  it('原语报告失败时即使携带 value 也必须失败，交由 forEach 隔离', async () => {
     const primitive: SkillPrimitive = {
       name: 'partial_io',
       definition: { name: 'partial_io', description: 'partial', parameters: { type: 'object' } },
@@ -164,8 +164,7 @@ describe('createOperatorRegistry：结构化参数与 Schema 边界', () => {
       }),
     };
     const registry = await createOperatorRegistry(deps([], fakeRuntime(), [primitive]));
-    const result = await registry.run('partial_io', {});
-    expect(result.value).toEqual([{ ok: true }, { ok: false }]);
+    await expect(registry.run('partial_io', {})).rejects.toThrow('上游采集：2 项成功，1 项失败。');
   });
 
   it('算子输出不符合 Schema 时拒绝结果', async () => {
