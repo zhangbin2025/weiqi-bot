@@ -86,6 +86,8 @@ export interface WorkflowLoopReference {
 export interface WorkflowForEach {
   from: string;
   path: string;
+  /** 单项失败策略：fail 短路（默认）；continue 记录错误并处理后续项。 */
+  onError?: 'fail' | 'continue';
   steps: WorkflowStep[];
 }
 
