@@ -22,8 +22,9 @@ describe('GameFetchHelper environment-dependent URL classification', () => {
 
   it.each([
     ['腾讯围棋', 'https://h5.txwq.qq.com/'],
-    ['弈客直播', 'https://www.yikeweiqi.com/room/12345'],
-    ['弈客对局', 'https://www.yikeweiqi.com/online-game/12345'],
+    ['弈客直播', 'https://home.yikeweiqi.com/mobile.html#/golive/room/12345'],
+    ['弈客对局', 'https://home.yikeweiqi.com/mobile.html#/online-game/12345'],
+    ['围棋 19x19', 'https://www.19x19.com/app/dark/zh/sgf/12345'],
     ['Golaxy', 'https://golaxy.com/game/12345'],
     ['新博', 'https://www.xinboduiyi.com/game/12345'],
     ['弈客少儿', 'https://shaoer.yikeweiqi.com/game/12345'],
