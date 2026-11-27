@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { createHostWorkflowOperators } from '../HostWorkflowOperators';
+import { executeRegex } from '@infrastructure/workflow/regexCore';
 
 describe('host-native Workflow JSON / regex operators', () => {
-  const operators = new Map(createHostWorkflowOperators().map((operator) => [operator.name, operator] as const));
+  const operators = new Map(createHostWorkflowOperators({
+    // Operator contract tests exercise argument/result semantics; worker lifecycle is tested separately.
+    regexRunner: async (method, args) => executeRegex(method, args),
+  }).map((operator) => [operator.name, operator] as const));
 
   it('keeps the existing json.* and regex.* call names and data contracts', async () => {
     const parsed = await operators.get('json.parse')!.run({ text: '{"items":[{"uid":7},{"uid":8}]}' });
@@ -24,11 +28,11 @@ describe('host-native Workflow JSON / regex operators', () => {
     ]);
   });
 
-  it('rejects prototype-sensitive paths and common catastrophic regex structures', async () => {
+  it('rejects prototype-sensitive paths and enforces regex input bounds', async () => {
     await expect(operators.get('json.get')!.run({ value: {}, path: '__proto__.polluted' }))
       .rejects.toThrow('保留属性');
     await expect(operators.get('regex.match')!.run({
-      text: 'a'.repeat(100), pattern: '(a+)+$',
-    })).rejects.toThrow('高风险');
+      text: 'a'.repeat(100_001), pattern: 'a+',
+    })).rejects.toThrow('最长');
   });
 });
