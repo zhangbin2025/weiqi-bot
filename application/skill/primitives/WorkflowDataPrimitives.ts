@@ -364,6 +364,9 @@ function runRegex(action: string, args: Record<string, unknown>): unknown {
     const replacement = args['replacement'];
     if (typeof replacement !== 'string') throw new Error('replacement 必须是字符串');
     if (replacement.length > MAX_REGEX_REPLACEMENT_LENGTH) throw new Error('replacement 超过长度上限');
+    if (text.length * Math.max(1, replacement.length) > MAX_JSON_TEXT_LENGTH) {
+      throw new Error('正则替换可能产生超出长度上限的结果');
+    }
     const replaceFlags = args['flags'] === undefined ? 'g' : flags;
     const output = text.replace(makeRegex(pattern, replaceFlags), replacement);
     if (output.length > MAX_JSON_TEXT_LENGTH) throw new Error('正则替换结果超过长度上限');
