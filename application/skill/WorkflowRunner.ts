@@ -1,5 +1,5 @@
 /**
- * 阶段二 workflow DAG runner：按声明顺序跑算子链，失败短路，结构化回灌。
+ * 阶段二 workflow runner：按声明顺序执行算子链与通用循环控制块，失败短路，结构化回灌。
  * @module application/skill/WorkflowRunner
  *
  * 语义出处：PHASE2-CONTRACT.md「DSL 语义条款」/「DSL 字段形状」/「runner 语义」/
@@ -9,17 +9,12 @@
  * 不参与连线。runner 只做「按名执行 + 引用取值 + 累积 + 短路」，不重写任何算子。
  *
  * 边界（逐条可查，不引入任何新常数）：
- * - 步骤数 N = `spec.steps.length`（静态声明长度，解析期有限可知）；
- * - 无环：`bindings[].from` 在解析期（E 的 parseSkillRecipe）已验「指向更前」，
- *   runner 不再做拓扑排序，steps 数组顺序即拓扑序；
- * - 无表达式 / 无条件 / 无循环：`{{input.xxx}}` 是**数据注入**（PHASE2-CONTRACT
- *   「URL 模板 / 占位符」+ 主代理增量校正）：规则① 字符串完整等于占位符 → 按
- *   inputs[].type 注入**原始值**（不 String()）；规则② 字符串内嵌 → 逐字 String() 替换。
- *   不是 eval、不拼表达式、不递归展开替换结果、不引入转义/数值规则（条款 2）；
+ * - 普通节点按 steps 声明顺序执行；forEach / repeat 是 runner 原生控制块，循环体仍只调用已注册算子；
+ * - `bindings[].from` 在解析期验为更靠前的节点；循环体拥有独立局部节点作用域，可读取外层已完成节点；
+ * - 不执行表达式或动态代码：`{{input.xxx}}`、`{{item.path}}`、`{{index}}`、`{{state.path}}` 都是受限数据注入；
  * - 失败即短路 + 结构化错误（哪个节点 / 什么错 / 已完成节点列表），**宿主不自动重试**；
  * - 仅 `yield:true` 节点的 value 进结果汇总（宿主内部保留；成功观察只回完成+句柄，不回灌模型）；
- * - 不引入重试次数 / 超时 / 步数上限：确定性部分不消耗决策预算，
- *   模型驱动的多轮由既有 maxTurns 管住。
+ * - repeat 与 forEach 受 MAX_WORKFLOW_ITERATIONS 资源上限保护；循环体由宿主确定性调度，不消耗模型决策轮。
  *
  * 取证确认（勿指望阶段一地基）：`OperatorRegistry.run()` 在「名字未注册」与
  * 「插件执行失败」两条路径都只抛普通 Error（OperatorRegistry.ts），阶段一没有
@@ -165,12 +160,12 @@ function resolveInputs(
 }
 
 /**
- * 把 args 里的 `{{input.xxx}}` 占位符解析成实际值（数据注入，不是表达式求值）。
+ * 把 args 里的 input/item/index/state 占位符解析成实际值（数据注入，不是表达式求值）。
  * 遍历所有叶子（配方可能把占位符写在嵌套结构里）：
  * - 规则①：整个字符串恰为一个占位符 → 返回**原始类型值**（不 String()）；
  * - 规则②：字符串内嵌占位符 → 逐字 `String()` 替换，替换结果**不递归再展开**；
  * - 无占位符的字符串 / 其它标量原样返回。
- * inputs 只经占位符注入（配方写哪里就注哪里），不 blanket 塞进每个节点的 args。
+ * inputs 与循环作用域只经占位符注入（配方写哪里就注哪里），不 blanket 塞进每个节点的 args。
  */
 interface WorkflowTemplateScope {
   item?: unknown;
