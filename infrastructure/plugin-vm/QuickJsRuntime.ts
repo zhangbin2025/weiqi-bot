@@ -200,7 +200,7 @@ export class QuickJsRuntime implements IPluginRuntime {
     const active = session.active;
     if (active) {
       clearTimeout(active.timer);
-      session.active = undefined;
+      delete session.active;
       active.resolve(failure);
     }
   }
