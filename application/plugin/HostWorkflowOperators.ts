@@ -161,8 +161,7 @@ function regexCall(method: string, a: Record<string, unknown>): unknown {
   if (a.pattern.length > 256 || a.text.length > 100_000) throw new Error('正则 pattern 最长 256 字符，text 最长 100000 字符');
   // Host regex runs outside the QuickJS quota boundary. Reject common nested-quantifier
   // and repeated-alternation forms that can trigger catastrophic backtracking.
-  if (/\\((?:[^()\\\\]|\\\\.)*[+*{](?:[^()\\\\]|\\\\.)*\\)[+*{]/.test(a.pattern) ||
-      /\\((?:[^()\\\\]|\\\\.)*\\|(?:[^()\\\\]|\\\\.)*\\)[+*{]/.test(a.pattern)) {
+  if (/\([^)]*[+*][^)]*\)[+*{]/.test(a.pattern) || /\([^)]*\|[^)]*\)[+*{]/.test(a.pattern)) {
     throw new Error('正则包含高风险嵌套重复结构，已拒绝执行');
   }
   const flags = a.flags === undefined ? (method === 'extract' || method === 'replace' ? 'g' : '') : a.flags;
