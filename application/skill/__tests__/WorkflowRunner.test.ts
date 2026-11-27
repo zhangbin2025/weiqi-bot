@@ -150,9 +150,9 @@ describe('runWorkflow — 失败短路 / 结构化错误', () => {
     expect(trace.length).toBe(3);
     expect(trace[0]!.detail).toContain('共 3 个顶层步骤（循环由宿主调度）');
     expect(trace[0]!.ok).toBe(true);
-    expect(trace[1]!.detail).toContain('第 1/3 步 one 完成');
+    expect(trace[1]!.detail).toContain('节点 one one 完成');
     expect(trace[2]!.ok).toBe(false);
-    expect(trace[2]!.detail).toContain('第 2/3 步 two 失败');
+    expect(trace[2]!.detail).toContain('节点 two two 失败');
     expect(trace.every((s) => s.source === 'web' && s.attempt === 1 && s.phase === 'observe')).toBe(true);
   });
 
@@ -397,9 +397,9 @@ describe('runWorkflow — 过程块条数与文案', () => {
     await runWorkflow(spec, {}, reg, onTrace);
     expect(trace.length).toBe(4);
     expect(trace[0]!.detail).toBe('workflow 共 3 个顶层步骤（循环由宿主调度）');
-    expect(trace[1]!.detail).toContain('第 1/3 步 a 完成');
-    expect(trace[2]!.detail).toContain('第 2/3 步 b 完成');
-    expect(trace[3]!.detail).toContain('第 3/3 步 c 完成');
+    expect(trace[1]!.detail).toContain('节点 a a 完成');
+    expect(trace[2]!.detail).toContain('节点 b b 完成');
+    expect(trace[3]!.detail).toContain('节点 c c 完成');
     expect(trace.every((s) => s.source === 'web' && s.attempt === 1 && s.phase === 'observe')).toBe(true);
   });
 });
