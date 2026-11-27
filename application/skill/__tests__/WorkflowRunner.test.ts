@@ -9,7 +9,7 @@
  * - 规则① 完整等于 `{{input.xxx}}` → 注入原始类型值（integer/array 不 String()）；
  * - 规则② 内嵌 `{{input.xxx}}` → 逐字 String() 替换（URL 文本）；
  * - inputs 契约：default / required / enum / type 校验；
- * - 过程块：开头「共 N 步」、每步「第 k/N 步」、失败 ok:false、纯展示抛错不影响主流程。
+ * - 过程块：开头「顶层步骤数」、每步「第 k/N 步」、失败 ok:false、纯展示抛错不影响主流程。
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -146,7 +146,7 @@ describe('runWorkflow — 失败短路 / 结构化错误', () => {
     expect(result.completedStepIds).toEqual(['one']);
     expect(reg.calls).toEqual(['one', 'two']); // 短路：three 未执行
     expect(result.values).toEqual({ one: 1 }); // 已完成 yield 节点仍保留
-    // 过程块：开头「共 3 步」 + 第一步完成 + 失败块 = 3 条；最后一条 ok:false
+    // 过程块：开头「顶层步骤数」 + 第一步完成 + 失败块 = 3 条；最后一条 ok:false
     expect(trace.length).toBe(3);
     expect(trace[0]!.detail).toContain('共 3 个顶层步骤（循环由宿主调度）');
     expect(trace[0]!.ok).toBe(true);
@@ -384,7 +384,7 @@ describe('runWorkflow — inputs 契约校验（结构化失败，发生在节�
 });
 
 describe('runWorkflow — 过程块条数与文案', () => {
-  it('成功 3 步：1 条「共 N 步」 + 3 条「第 k/N 步 … 完成」', async () => {
+  it('成功 3 步：1 条「顶层步骤数」 + 3 条「第 k/N 步 … 完成」', async () => {
     const reg = fakeRegistry({
       a: () => ({ value: 1 }), b: () => ({ value: 2 }), c: () => ({ value: 3 }),
     });
