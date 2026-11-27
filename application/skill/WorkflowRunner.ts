@@ -390,7 +390,9 @@ export async function runWorkflow(
   const fail = (stepId: string, error: string, detail: string): WorkflowRunResult => {
     pushTrace(onTrace, false, detail);
     return {
-      ok: false, values, effects, completedStepIds: [...completedStepIds],
+      // effects 是延迟交付的宿主副作用；Workflow 整体失败时一律丢弃，避免
+      // 前序节点的半成品展示/链接被误当成任务成功结果交付给用户。
+      ok: false, values, effects: [], completedStepIds: [...completedStepIds],
       ...(stepTrace !== undefined ? { stepTrace } : {}),
       failure: { stepId, error, completedStepIds: [...completedStepIds] },
     };
