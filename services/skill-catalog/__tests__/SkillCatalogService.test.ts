@@ -502,8 +502,8 @@ function fakeArtifacts(list: PluginArtifact[]) {
 describe('skillPluginResourceIds — 从 workflow DAG 推导依赖插件', () => {
   it('插件算子 <slug>.<method> → workflow-operator.<slug>，去重保序；内置算子不含点被忽略', () => {
     expect(skillPluginResourceIds(wfRecipe([
-      'foxwq_fetch_batch', 'circle.normalize', 'circle.stats', 'calendar.lookup',
-    ]))).toEqual(['workflow-operator.circle', 'workflow-operator.calendar']);
+      'foxwq.fetchBatch', 'circle.normalize', 'circle.stats', 'calendar.lookup',
+    ]))).toEqual(['workflow-operator.foxwq', 'workflow-operator.circle', 'workflow-operator.calendar']);
   });
 
   it('散文配方（无 workflow）/ 只调内置算子 → 零依赖，进而不弹框', () => {
