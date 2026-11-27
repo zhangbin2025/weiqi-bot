@@ -940,7 +940,7 @@ export class ChatPage {
       '如果页面不是棋谱，也请说明页面主要内容；如果无法访问，请说明具体失败原因，不要编造读取结果。',
       '',
       rawUrl,
-    ].join('\\n');
+    ].join('\n');
     this.autoResize(input);
     // 未配置 / 凭据不可用时 handleSend 会保留输入并显示现有 notReady 提示。
     await this.handleSend();
