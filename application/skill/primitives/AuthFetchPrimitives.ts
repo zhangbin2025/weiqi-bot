@@ -34,7 +34,7 @@
  *   已配置的 timeoutMs；重认证默认状态 401 = RFC 7235 Unauthorized 语义。
  */
 import type { ModelToolDefinition } from '@application/model/IModelGateway';
-import type { SkillPrimitive, PrimitiveResult, SkillRecipe } from '@application/skill/SkillTypes';
+import type { SkillPrimitive, PrimitiveResult, SkillRecipe, WorkflowStep } from '@application/skill/SkillTypes';
 import { CONTEXT_LIMITS } from '@application/chat/ConversationPrompt';
 import {
   defaultWebFetchCache, type CachedWebResource, type WebFetchCache,
@@ -518,10 +518,20 @@ async function buildSkillBundle(deps: PublishPrimitivesDeps, id: string): Promis
   // 第一个点前即插件 slug；按 slug + workflow-operator 扩展点精确找工件，一起进变更集，
   // 否则安装方 runner 会结构化报「未注册算子」。不设静态白名单、不猜方法名。
   const slugs = new Set<string>();
-  for (const step of r.workflow?.steps ?? []) {
-    const dot = step.call.indexOf('.');
-    if (dot > 0) slugs.add(step.call.slice(0, dot));
-  }
+  const collectWorkflowDependencies = (steps: readonly WorkflowStep[] | undefined): void => {
+    for (const step of steps ?? []) {
+      if (typeof step.call === 'string') {
+        const dot = step.call.indexOf('.');
+        if (dot > 0) slugs.add(step.call.slice(0, dot));
+      }
+      // 控制块本身没有 call；其内部步骤仍属于技能的传递插件依赖。
+      collectWorkflowDependencies(step.forEach?.steps);
+      collectWorkflowDependencies(step.repeat?.steps);
+      collectWorkflowDependencies(step.ifElse?.then);
+      collectWorkflowDependencies(step.ifElse?.else);
+    }
+  };
+  collectWorkflowDependencies(r.workflow?.steps);
   const artifacts = (await deps.artifacts?.list()) ?? [];
   const includesPlugins: string[] = [];
   for (const slug of slugs) {
