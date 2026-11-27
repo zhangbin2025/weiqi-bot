@@ -87,8 +87,8 @@ function primitiveToOperatorSpec(p: SkillPrimitive): OperatorSpec {
 
 /**
  * 建一张宿主统一算子表（阶段一地基）。
- * 先注册内置算子（createBasicPrimitives），再注册插件算子；重复名后者覆盖前者，
- * 与既有 createSkillRegistry 的「按 name 建 Map、同名后者覆盖前者」口径一致。
+ * 先注册内置算子（createBasicPrimitives），再注册插件算子；插件不得覆盖任何宿主算子，
+ * 插件之间同名时仍按注册顺序由后者覆盖前者。
  * 插件工件读取失败按空集降级（装配期离线/存储不可用不该拖垮整张表）。
  */
 export async function createOperatorRegistry(deps: OperatorRegistryDeps): Promise<OperatorRegistry> {
