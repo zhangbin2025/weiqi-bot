@@ -180,7 +180,7 @@ export type OperatorJsonSchema = Record<string, unknown>;
 export type OperatorKind = 'pure' | 'io' | 'effect';
 
 /** workflow-operator 工件随源码一起持久化的算子契约。
- * params 是历史输入声明；新契约使用 inputSchema / outputSchema。
+ * 每个方法都必须完整声明 inputSchema / outputSchema / kind / idempotent。
  */
 export interface OperatorArtifactContract {
   exposes: Array<{
