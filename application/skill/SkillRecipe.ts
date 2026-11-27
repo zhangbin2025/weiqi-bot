@@ -298,6 +298,10 @@ function readWorkflowSpec(raw: Record<string, unknown>): FieldResult<WorkflowSpe
         if (!from.ok) return from;
         if (!available.has(from.value)) return { ok: false, reason: `${at} forEach.from 必须指向位置更靠前的节点：${from.value}` };
         if (typeof forEachRaw['path'] !== 'string') return { ok: false, reason: `${at} forEach.path 必须是字符串` };
+        const onErrorRaw = forEachRaw['onError'];
+        if (onErrorRaw !== undefined && onErrorRaw !== 'fail' && onErrorRaw !== 'continue') {
+          return { ok: false, reason: `${at} forEach.onError 只允许 fail 或 continue` };
+        }
         if (!Array.isArray(forEachRaw['steps']) || forEachRaw['steps'].length === 0) {
           return { ok: false, reason: `${at} forEach.steps 必须是非空数组` };
         }
@@ -305,7 +309,12 @@ function readWorkflowSpec(raw: Record<string, unknown>): FieldResult<WorkflowSpe
         if (!nested.ok) return nested;
         step = {
           id: idRes.value,
-          forEach: { from: from.value, path: forEachRaw['path'], steps: nested.value.steps },
+          forEach: {
+            from: from.value,
+            path: forEachRaw['path'],
+            ...(onErrorRaw !== undefined ? { onError: onErrorRaw } : {}),
+            steps: nested.value.steps,
+          },
           ...(shouldYield !== undefined ? { yield: shouldYield } : {}),
         };
       } else {
