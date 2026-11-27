@@ -507,12 +507,16 @@ export async function runWorkflow(
           }
           totalLoopIterations += 1;
           const local = new Map(upstream);
+          const effectsCheckpoint = effects.length;
           const nested = await runSteps(
             step.forEach.steps, local, { ...scope, item: source.value[index], index },
             `${stepId}[${index}]/`, false,
           );
           if (!nested.ok) {
             if (step.forEach.onError !== 'continue') return nested;
+            // continue 表示隔离失败项：回滚该项内部已累积的延迟 effects，
+            // 避免失败子流程留下半成品展示或动作链接。
+            effects.splice(effectsCheckpoint);
             results.push({
               ok: false,
               error: { stepId: nested.stepId, message: nested.error },
