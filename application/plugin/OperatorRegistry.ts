@@ -93,13 +93,7 @@ function primitiveToOperatorSpec(p: SkillPrimitive): OperatorSpec {
  */
 export async function createOperatorRegistry(deps: OperatorRegistryDeps): Promise<OperatorRegistry> {
   const map = new Map<string, OperatorSpec>();
-  const reservedDataOperatorNames = new Set<string>();
-  for (const p of deps.primitives) {
-    map.set(p.name, primitiveToOperatorSpec(p));
-    if (p.name.startsWith('json.') || p.name.startsWith('regex.')) {
-      reservedDataOperatorNames.add(p.name);
-    }
-  }
+  for (const p of deps.primitives) map.set(p.name, primitiveToOperatorSpec(p));
 
   for (const spec of map.values()) {
     validateSchemaDefinition(spec.inputSchema, `${spec.name}.inputSchema`);
@@ -129,7 +123,7 @@ export async function createOperatorRegistry(deps: OperatorRegistryDeps): Promis
     for (const op of adapted) {
       // Generic data operators are reserved host capabilities; an old or custom plugin
       // must not shadow the native json.* / regex.* implementation.
-      if (reservedDataOperatorNames.has(op.name)) continue;
+      if (op.name.startsWith('json.') || op.name.startsWith('regex.')) continue;
       try {
         validateSchemaDefinition(op.inputSchema, `${op.name}.inputSchema`);
         if (op.inputSchema['type'] !== 'object') continue;
