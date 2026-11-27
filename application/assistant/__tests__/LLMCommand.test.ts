@@ -97,12 +97,14 @@ describe('/llm 帮助信息', () => {
   });
 });
 
-describe('/llm repairs（插件自动修复轮数可配置）', () => {
-  it('无参数显示当前值', async () => {
+describe('/llm repairs（插件自主决策次数可配置）', () => {
+  it('无参数显示当前值，默认 10 次决策', async () => {
+    resetPluginMaxAttemptsForTest();
     let shown = '';
     await handleLLMCommand('/llm repairs', { renderMessage: async (c) => { shown = c; } });
-    expect(shown).toContain('当前插件自主决策次数');
+    expect(shown).toContain('当前插件自主决策次数 10');
     expect(shown).toContain('/llm repairs');
+    resetPluginMaxAttemptsForTest();
   });
 
   it('合法值保存并提示', async () => {
@@ -122,7 +124,7 @@ describe('/llm repairs（插件自动修复轮数可配置）', () => {
     expect(loadPluginMaxAttempts()).toBe(0);
     // 0 / 负数由命令层直接拒绝，不覆盖已有值
     await handleLLMCommand('/llm repairs 0', { renderMessage: async () => {} });
-    expect(loadPluginMaxAttempts()).toBe(1);
+    expect(loadPluginMaxAttempts()).toBe(0);
     await handleLLMCommand('/llm repairs 3', { renderMessage: async () => {} });
     await handleLLMCommand('/llm repairs 50', { renderMessage: async () => {} });
     expect(loadPluginMaxAttempts()).toBe(49);
