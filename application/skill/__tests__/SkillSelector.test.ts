@@ -23,7 +23,7 @@ function fakePrimitive(name: string, result?: Partial<PrimitiveResult>): SkillPr
   return {
     name,
     definition: def(name),
-    execute: async (argsJson): Promise<PrimitiveResult> => ({
+    execute: async (_args): Promise<PrimitiveResult> => ({
       observation: result?.observation ?? `obs:${name}:${argsJson}`,
       ok: result?.ok ?? true,
       detail: result?.detail ?? `detail:${name}`,
