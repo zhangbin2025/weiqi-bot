@@ -6,7 +6,7 @@ Workflow 是声明式执行图。Runner 负责流程控制、数据连线和资�
 
 1. 配方以 JSON 保存和传输，节点之间传递原生结构化值。
 2. 宿主能力必须通用，不绑定具体网站、账号或业务。
-3. 纯计算与领域数据处理优先放在受限沙箱插件中。
+3. 通用 JSON / regex 数据处理由宿主固定 Workflow 算子提供；业务领域计算优先放在受限沙箱插件中。
 4. 插件声明数据契约不代表获得宿主权限。
 5. 不让 LLM 自己协调分页、循环、批量抓取或数据拼装。
 
@@ -78,12 +78,15 @@ display 只负责展示：字符串按 Markdown 渲染；数组自动生成列�
 
 ## 6. 沙箱插件边界
 
-JSON、regex、calendar、circle 等独立能力通过 workflow-operator 插件注册，方法名为 slug.method。
+JSON / regex 是宿主固定 Workflow 算子，方法名保持 `json.method` / `regex.method`，不作为可安装插件，也不进入 QuickJS 沙箱。
 
-- JSON / regex 只做纯计算，不访问网络、缓存、存储、时钟或宿主资源。
+- JSON 在宿主线程执行受限的纯数据转换；regex 在独立的一次性 Worker 中执行。
+- regex Worker 有硬超时；超时、崩溃、消息错误和正常完成都会终止 Worker，绝不回退到主线程执行。
+- regex 输入仍限制 pattern 最长 256 字符、text 最长 100000 字符，extract 最多返回 10000 项；这些是资源上限，不替代 Worker 硬超时。
+- 领域插件（如 calendar、circle）仍通过 workflow-operator 扩展点注册，方法名为 slug.method。
 - 领域插件可以实现领域数据整理与分析，但不得把网络访问或宿主权限藏进插件。
-- 每个 exposes 项声明 inputSchema、outputSchema、kind、idempotent；插件提供 smoke 样例。
-- 技能安装器递归扫描普通节点、forEach、repeat、ifElse 分支中的插件依赖，按资源 ID 去重；已安装插件不重复安装。
+- 每个插件 exposes 项声明 inputSchema、outputSchema、kind、idempotent；插件提供 smoke 样例。
+- 技能安装器和发布器递归扫描普通节点、forEach、repeat、ifElse 分支中的插件依赖，按资源 ID 去重；宿主 json / regex 命名空间不作为插件依赖。
 
 ## 7. QuickJS 沙箱生命周期
 
@@ -91,6 +94,7 @@ JSON、regex、calendar、circle 等独立能力通过 workflow-operator 插件�
 - 每次调用仍创建独立 QuickJS Runtime 与 Context；插件全局变量不跨调用共享。
 - 同一个 Worker 内调用串行排队，避免并发消息与执行状态交叉。
 - 硬超时、Worker 崩溃、OOM、栈溢出或不安全 VM 状态后立即销毁 Worker；下一次调用重新创建。
+- regex 使用独立 Worker，不复用 QuickJS Worker；每次调用完成或超时立即终止，避免同步正则阻塞 UI 线程。
 - dispose 时释放 Worker；正常完成不代表保留 QuickJS Runtime / Context。
 
 ## 8. 错误与 effects

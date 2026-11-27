@@ -512,7 +512,7 @@ describe('skillPluginResourceIds — 从 workflow DAG 推导依赖插件', () =>
   it('JSON 沙箱算子需要插件依赖；display 是宿主通用能力', () => {
     expect(skillPluginResourceIds(asRecipe(recipe()))).toEqual([]);
     expect(skillPluginResourceIds(wfRecipe(['display']))).toEqual([]);
-    expect(skillPluginResourceIds(wfRecipe(['json.get', 'json.unique']))).toEqual(['workflow-operator.json']);
+    expect(skillPluginResourceIds(wfRecipe(['json.get', 'json.unique']))).toEqual([]);
   });
 });
 
@@ -784,9 +784,6 @@ describe('skillPluginResourceIds — control block dependency traversal', () => 
         ],
       },
     }));
-    expect(skillPluginResourceIds(parsed)).toEqual([
-      'workflow-operator.json',
-      'workflow-operator.regex',
-    ]);
+    expect(skillPluginResourceIds(parsed)).toEqual([]);
   });
 });

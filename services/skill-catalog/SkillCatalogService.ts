@@ -258,7 +258,11 @@ export function skillPluginResourceIds(recipe: SkillRecipe): string[] {
     for (const step of steps) {
       if (step.call !== undefined) {
         const dot = step.call.indexOf('.');
-        if (dot > 0) slugs.add(step.call.slice(0, dot));
+        if (dot > 0) {
+          const namespace = step.call.slice(0, dot);
+          // JSON / regex are reserved host-native Workflow namespaces, never plugin dependencies.
+          if (namespace !== 'json' && namespace !== 'regex') slugs.add(namespace);
+        }
       }
       if (step.forEach !== undefined) collect(step.forEach.steps);
       if (step.repeat !== undefined) collect(step.repeat.steps);

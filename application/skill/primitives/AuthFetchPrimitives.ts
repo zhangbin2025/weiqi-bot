@@ -488,6 +488,33 @@ function pluginReadme(a: PluginArtifact, resourceId: string): string {
 }
 
 /**
+ * 从 Workflow DAG 收集需要随技能发布的插件命名空间。
+ * json / regex 是宿主内置算子，不对应 assets 插件工件。
+ */
+export function collectWorkflowDependencyNamespaces(
+  steps: readonly WorkflowStep[] | undefined,
+): string[] {
+  const slugs = new Set<string>();
+  const collect = (items: readonly WorkflowStep[] | undefined): void => {
+    for (const step of items ?? []) {
+      if (typeof step.call === 'string') {
+        const dot = step.call.indexOf('.');
+        if (dot > 0) {
+          const namespace = step.call.slice(0, dot);
+          if (namespace !== 'json' && namespace !== 'regex') slugs.add(namespace);
+        }
+      }
+      collect(step.forEach?.steps);
+      collect(step.repeat?.steps);
+      collect(step.ifElse?.then);
+      collect(step.ifElse?.else);
+    }
+  };
+  collect(steps);
+  return [...slugs];
+}
+
+/**
  * 技能 → 变更集。瘦索引条目的字段来自 weiqi-assets/scripts/validate.mjs 的
  * SKILL_OVERLAP_FIELDS（id/version/name/summary/routeHint/primitives/category）
  * + path（`<id>/skill.json`）；顶层保持 schemaVersion:2，由 PUT 前 GET 的现有
@@ -514,24 +541,8 @@ async function buildSkillBundle(deps: PublishPrimitivesDeps, id: string): Promis
     merge: { listKey: 'skills', entry: indexEntry },
   });
 
-  // workflow 依赖算子：steps[].call 形如 <slug>.<method>（见 Step3 的 plugin_write slug）。
-  // 第一个点前即插件 slug；按 slug + workflow-operator 扩展点精确找工件，一起进变更集，
-  // 否则安装方 runner 会结构化报「未注册算子」。不设静态白名单、不猜方法名。
-  const slugs = new Set<string>();
-  const collectWorkflowDependencies = (steps: readonly WorkflowStep[] | undefined): void => {
-    for (const step of steps ?? []) {
-      if (typeof step.call === 'string') {
-        const dot = step.call.indexOf('.');
-        if (dot > 0) slugs.add(step.call.slice(0, dot));
-      }
-      // 控制块本身没有 call；其内部步骤仍属于技能的传递插件依赖。
-      collectWorkflowDependencies(step.forEach?.steps);
-      collectWorkflowDependencies(step.repeat?.steps);
-      collectWorkflowDependencies(step.ifElse?.then);
-      collectWorkflowDependencies(step.ifElse?.else);
-    }
-  };
-  collectWorkflowDependencies(r.workflow?.steps);
+  // 只把真正由插件提供的命名空间作为发布依赖；json / regex 是宿主内置算子。
+  const slugs = new Set(collectWorkflowDependencyNamespaces(r.workflow?.steps));
   const artifacts = (await deps.artifacts?.list()) ?? [];
   const includesPlugins: string[] = [];
   for (const slug of slugs) {

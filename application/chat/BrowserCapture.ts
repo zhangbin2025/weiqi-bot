@@ -10,7 +10,7 @@
  * 两个消费者共用同一个 captureBrowser() 引擎与同一份句柄缓存：
  * - **workflow（第一通路）**：browser_capture 作为宿主内置算子注册进 OperatorRegistry。
  *   execute() 产出的 PrimitiveResult.value 是结构化全量数据，按既有契约进
- *   StepResult.value → WorkflowRunner 连线，下游 JSON/regex 沙箱算子与宿主 display
+ *   StepResult.value → WorkflowRunner 连线，下游宿主 JSON/regex 算子与宿主 display
  *   display 直接消费（解析 / 提取 / 过滤全部归 workflow，本文件不做）。
  * - **LLM（第二通路）**：browser_capture / browser_capture_read / browser_capture_list
  *   作为恒定挂载工具。observation 只回「完成 + 句柄 + 摘要」，正文不进模型上下文；
