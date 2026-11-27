@@ -480,3 +480,41 @@ describe('runWorkflow — 通用控制结构补齐', () => {
     expect(received).toBe('https://example.test/user?name=%E5%BC%A0%20%E4%B8%89%26%3F');
   });
 });
+
+
+  it('repeat 用本轮节点结果更新 state，并在 until=true 时停止', async () => {
+    const reg = fakeRegistry({
+      advance: (args) => {
+        const cursor = Number((args['state'] as Record<string, unknown>)['cursor']);
+        return { value: { cursor: cursor + 1, done: cursor >= 1 } };
+      },
+    });
+    const spec: WorkflowSpec = {
+      steps: [{
+        id: 'pages',
+        yield: true,
+        repeat: {
+          maxIterations: 5,
+          initialState: { cursor: 0 },
+          stateFrom: { from: 'advance', path: '$' },
+          until: { from: 'advance', path: 'done' },
+          steps: [step({
+            id: 'advance',
+            call: 'advance',
+            args: { state: '{{state}}' },
+          })],
+        },
+      }],
+    };
+    const result = await runWorkflow(spec, {}, reg);
+    expect(result.ok).toBe(true);
+    expect(result.values['pages']).toEqual({
+      items: [
+        { cursor: 1, done: false },
+        { cursor: 2, done: true },
+      ],
+      state: { cursor: 2, done: true },
+      stopped: true,
+    });
+    expect(reg.calls).toEqual(['advance', 'advance']);
+  });
