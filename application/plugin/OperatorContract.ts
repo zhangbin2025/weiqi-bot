@@ -49,7 +49,7 @@ export function validateOperatorContract(contract: unknown): string | undefined 
     } catch (error) {
       return error instanceof Error ? error.message : `JSON Schema 不合法：${e.name}`;
     }
-    if (e.inputSchema.type !== 'object') {
+    if (e.inputSchema['type'] !== 'object') {
       return `exposes[].inputSchema 根类型必须是 object：${e.name}`;
     }
     if (!['pure', 'io', 'effect'].includes(e.kind)) {
