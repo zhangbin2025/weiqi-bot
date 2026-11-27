@@ -129,6 +129,40 @@ describe('PluginCatalogClient.fetchManifest / fetchCode', () => {
     await expect(client.fetchManifest(mismatched)).rejects.toThrow('pointId');
   });
 
+  it('解析新算子契约，并明确拒绝旧 exposes[].params 格式', async () => {
+    const item = {
+      resource: { id: 'workflow-operator.sample', pointId: 'workflow-operator', specVersion: 1 },
+      manifestUrl: `${BASE}plugins/sample/plugin.json`,
+      baseUrl: BASE,
+    };
+    const current = {
+      id: 'workflow-operator.sample', name: 'sample', type: 'plugin',
+      pointId: 'workflow-operator', specVersion: 1, entry: 'call',
+      code: 'plugins/sample/index.js', origin: 'manual', intent: 'sample',
+      exposes: [{
+        name: 'collect', description: 'Collect records',
+        inputSchema: { type: 'object', properties: { ids: { type: 'array' } } },
+        outputSchema: { type: 'array' }, kind: 'io', idempotent: true,
+      }],
+      smoke: [{ method: 'collect', args: [{ ids: [] }], expect: [] }],
+    };
+    const client = new PluginCatalogClient({
+      fetchImpl: (async () => jsonResponse(current)) as unknown as typeof fetch,
+    });
+    const parsed = await client.fetchManifest(item);
+    expect(parsed.manifest.exposes?.[0]).toEqual(current.exposes[0]);
+
+    const legacy = {
+      ...current,
+      exposes: [{ name: 'collect', description: 'Collect records', params: { type: 'object' } }],
+    };
+    const legacyClient = new PluginCatalogClient({
+      fetchImpl: (async () => jsonResponse(legacy)) as unknown as typeof fetch,
+    });
+    await expect(legacyClient.fetchManifest(item))
+      .rejects.toThrow('旧 exposes[].params 契约已停止支持');
+  });
+
   it('fetchCode 只回文本，不执行', async () => {
     const code = 'function rank(input) { return { columns: [], rows: [] }; }';
     const fetchImpl = (async () => textResponse(code)) as unknown as typeof fetch;
