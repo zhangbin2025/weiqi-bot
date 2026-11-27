@@ -350,7 +350,7 @@ export class ChatPage {
     // 与「装配失败不阻塞对话页」的既有兜底一致，不自造工件/运行时实例。
     const operatorDeps: OperatorRegistryDeps = {
       // workflow 第一通路：browser_capture 作为宿主可信内置算子进算子表，
-      // 产出的 structured value 由 WorkflowRunner 连线给下游 JSON / regex 沙箱插件与宿主 display。
+      // 产出的 structured value 由 WorkflowRunner 连线给宿主 JSON / regex 算子与 display。
       // 纯 Web capturePrimitives 为空数组，算子表里天然没有 browser_capture。
       primitives: [
         ...createBasicPrimitives(webTools),
