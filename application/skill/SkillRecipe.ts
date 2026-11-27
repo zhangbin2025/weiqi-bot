@@ -239,17 +239,19 @@ function readWorkflowSpec(raw: Record<string, unknown>): FieldResult<WorkflowSpe
       const callRaw = item['call'];
       const forEachRaw = item['forEach'];
       const repeatRaw = item['repeat'];
+      const ifElseRaw = item['ifElse'];
       if (callRaw !== undefined && (typeof callRaw !== 'string' || !callRaw.trim())) {
         return { ok: false, reason: `${at} call 若给必须是非空字符串` };
       }
-      if ((forEachRaw !== undefined || repeatRaw !== undefined)
+      if ((forEachRaw !== undefined || repeatRaw !== undefined || ifElseRaw !== undefined)
         && (item['args'] !== undefined || item['bindings'] !== undefined)) {
         return { ok: false, reason: `${at} 循环控制节点不能声明 args 或 bindings` };
       }
       const modes = Number(typeof callRaw === 'string' && callRaw.trim().length > 0)
-        + Number(forEachRaw !== undefined) + Number(repeatRaw !== undefined);
+        + Number(forEachRaw !== undefined) + Number(repeatRaw !== undefined)
+        + Number(ifElseRaw !== undefined);
       if (modes !== 1) {
-        return { ok: false, reason: `${at} 必须且只能声明 call、forEach、repeat 其中一种` };
+        return { ok: false, reason: `${at} 必须且只能声明 call、forEach、repeat、ifElse 其中一种` };
       }
 
       let args: Record<string, unknown> | undefined;
@@ -314,6 +316,39 @@ function readWorkflowSpec(raw: Record<string, unknown>): FieldResult<WorkflowSpe
             path: forEachRaw['path'],
             ...(onErrorRaw !== undefined ? { onError: onErrorRaw } : {}),
             steps: nested.value.steps,
+          },
+          ...(shouldYield !== undefined ? { yield: shouldYield } : {}),
+        };
+      } else if (ifElseRaw !== undefined) {
+        if (!isRecord(ifElseRaw)) return { ok: false, reason: `${at} ifElse 必须是对象` };
+        const conditionRaw = ifElseRaw['condition'];
+        if (!isRecord(conditionRaw)) return { ok: false, reason: `${at} ifElse.condition 必须是对象` };
+        const conditionFrom = readString(conditionRaw, 'from', `${at} ifElse.condition.from`);
+        if (!conditionFrom.ok) return conditionFrom;
+        if (!available.has(conditionFrom.value)) {
+          return { ok: false, reason: `${at} ifElse.condition.from 必须指向位置更靠前的节点：${conditionFrom.value}` };
+        }
+        if (typeof conditionRaw['path'] !== 'string') {
+          return { ok: false, reason: `${at} ifElse.condition.path 必须是字符串` };
+        }
+        if (!Array.isArray(ifElseRaw['then']) || ifElseRaw['then'].length === 0) {
+          return { ok: false, reason: `${at} ifElse.then 必须是非空数组` };
+        }
+        if (ifElseRaw['else'] !== undefined && !Array.isArray(ifElseRaw['else'])) {
+          return { ok: false, reason: `${at} ifElse.else 若给必须是数组` };
+        }
+        const thenParsed = parseSteps(ifElseRaw['then'], available, `${at}.ifElse.then`);
+        if (!thenParsed.ok) return thenParsed;
+        const elseParsed = ifElseRaw['else'] === undefined
+          ? { ok: true as const, value: { steps: [] as WorkflowStepT[], ids: new Set<string>() } }
+          : parseSteps(ifElseRaw['else'] as readonly unknown[], available, `${at}.ifElse.else`);
+        if (!elseParsed.ok) return elseParsed;
+        step = {
+          id: idRes.value,
+          ifElse: {
+            condition: { from: conditionFrom.value, path: conditionRaw['path'] },
+            then: thenParsed.value.steps,
+            ...(ifElseRaw['else'] !== undefined ? { else: elseParsed.value.steps } : {}),
           },
           ...(shouldYield !== undefined ? { yield: shouldYield } : {}),
         };
