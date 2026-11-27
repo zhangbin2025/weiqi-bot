@@ -76,7 +76,7 @@ export interface WorkflowBinding {
   as: string;
 }
 
-/** 循环体中的状态引用：只从本次循环已完成的局部节点读取。 */
+/** 控制结构中的节点引用：只从当前局部作用域已完成的节点读取。 */
 export interface WorkflowLoopReference {
   from: string;
   path: string;
@@ -134,7 +134,7 @@ export interface WorkflowInput {
   enum?: unknown[];
 }
 
-/** Workflow 声明：普通 steps 顺序即拓扑序；控制结构拥有受限局部作用域。 */
+/** Workflow 声明：普通 steps 顺序即拓扑序；forEach、repeat 与 ifElse 拥有受限局部作用域。 */
 export interface WorkflowSpec { steps: WorkflowStep[]; }
 
 /** 一条技能 = 纯 JSON 配方，只引用宿主原语，不含任何可执行代码 */
