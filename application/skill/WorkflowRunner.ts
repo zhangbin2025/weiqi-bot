@@ -200,7 +200,7 @@ function resolveUrlEncodePlaceholder(
   resolved: Record<string, unknown>,
   scope: WorkflowTemplateScope | undefined,
 ): { ok: true; value: string } | { ok: false; error: string } {
-  const match = /^urlencode\\.(input\\.([^{}]+)|item(?:\\.[^{}]+)?|state(?:\\.[^{}]+)?)$/.exec(token);
+  const match = /^urlencode\.(input\.([^{}]+)|item(?:\.[^{}]+)?|state(?:\.[^{}]+)?)$/.exec(token);
   if (!match) return { ok: false, error: 'URL 编码占位符格式无效：{{' + token + '}}' };
   let value: unknown;
   if (match[2] !== undefined) {
