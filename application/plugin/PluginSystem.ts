@@ -52,7 +52,7 @@ export interface PluginSystemOptions {
   store?: PluginArtifactStoreLike;
   /** 是否用内存存储（Node/测试环境） */
   useMemoryStore?: boolean;
-  /** 决策轮数上限（沿用 /llm repairs 的同一配置） */
+  /** 内部延续预算；对应自主决策次数减 1（/llm repairs 对用户显示决策次数） */
   maxAttempts?: number;
   /** 注入自定义本地存储（测试用）；不传则按 namespace 新建 */
   localStorage?: LocalStorageAdapter;
@@ -97,7 +97,7 @@ export interface PluginSystem {
   snapshot: PluginContextProvider;
   /** 挂到通用 ToolLoop 的插件工具集（plugin 角色唯一入口） */
   toolKit: PluginToolKit;
-  /** 决策预算的同一来源：ToolLoop.maxTurns = maxAttempts + 1；修复/只读延续不占决策 */
+  /** 内部预算值；ToolLoop.maxTurns = maxAttempts + 1，即用户设置的自主决策次数 */
   maxAttempts: number;
   /**
    * 给排名页用：把同一份原始对阵表交给唯一管线 computeRanking。

@@ -9,10 +9,13 @@
  * 此时退回到进程内内存值，读写仍然自洽，不会抛 ReferenceError。
  */
 
-/** 自动修复轮数，默认 3；允许 1~10 */
-export const DEFAULT_PLUGIN_MAX_ATTEMPTS = 3;
-export const MIN_PLUGIN_MAX_ATTEMPTS = 1;
-export const MAX_PLUGIN_MAX_ATTEMPTS = 10;
+/**
+ * 自主决策次数 = 内部修复/延续预算 + 1。
+ * 业务约束：单次对话最多允许 50 次自主决策；默认给 10 次，最少 1 次。
+ */
+export const DEFAULT_PLUGIN_MAX_ATTEMPTS = 9;
+export const MIN_PLUGIN_MAX_ATTEMPTS = 0;
+export const MAX_PLUGIN_MAX_ATTEMPTS = 49;
 const STORAGE_KEY = 'weiqi.plugin.maxAttempts';
 
 /** 无 localStorage 时的内存兜底 */

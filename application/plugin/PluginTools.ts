@@ -13,8 +13,8 @@
  * 失败原因变观察回喂，模型自己决定重试；这类「提交源码 → 验收失败 → 重写」
  * 由 repairable 标记交给共用 loop 计为同一次决策的延续，不占决策预算。
  * 同理，list/show/history/debug 这些只读准备工具也标 preparatory，让「一个意图串起
- * 的多步查询」不各自吃掉一次决策（否则第一次开发就会撞满 4 次上限）。两类延续共用
- * /llm repairs 的 maxAttempts 作为连续上限，见 ToolLoop.ts 头部口径。
+ * 的多步查询」不各自吃掉一次决策（否则第一次开发就会撞满默认决策上限）。两类延续共用
+ * /llm repairs 的内部预算作为延续预算，见 ToolLoop.ts 头部口径。
  * 状态变更工具(write/toggle/delete/apply/rollback) 不标，仍是逐次自主决策。
  *
  * 一切操作都是工具：调试(试算)、历史、回滚、启停、删除、应用为页面当前口径。
@@ -75,7 +75,7 @@ export interface PluginToolDeps {
   applySelection: (artifactId: string | undefined) => Promise<void>;
   /** 扩展点行为注册表；由装配根注入，缺省时用默认注册表（测试便利） */
   behaviors?: ExtensionPointBehaviorRegistry;
-  /** 可选：/llm repairs 配置的自动修复轮数；工具集换算成 loop 的总决策轮数上限 */
+  /** 可选：/llm repairs 决策次数减 1 后的内部预算；工具集换算成 loop 的决策轮数上限 */
   maxAttempts?: number;
   /** 工件集合 / enabled 状态发生成功变更后刷新算子表快照（模型侧启停/新建/删除/修订） */
   onArtifactChange?: () => void | Promise<void>;
@@ -92,7 +92,7 @@ export interface PluginToolKit {
   executors: Record<string, ToolExecutor>;
   /** 每轮 turn 动态生成：实时读工件清单，不依赖会话历史 */
   systemPrompt: () => Promise<string>;
-  /** 自主决策轮数上限 = maxAttempts + 1；修复延续不占此预算（见 ToolLoop.ts） */
+  /** 自主决策次数上限 = maxAttempts + 1；修复延续不占此预算（见 ToolLoop.ts） */
   maxTurns: number;
 }
 
@@ -942,6 +942,6 @@ export function createPluginToolKit(deps: PluginToolDeps): PluginToolKit {
     tools: buildTools(behaviors),
     executors,
     systemPrompt: () => buildSystemPrompt(deps.snapshot, behaviors),
-    maxTurns: Math.max(1, deps.maxAttempts ?? DEFAULT_PLUGIN_MAX_ATTEMPTS) + 1,
+    maxTurns: Math.max(0, deps.maxAttempts ?? DEFAULT_PLUGIN_MAX_ATTEMPTS) + 1,
   };
 }
