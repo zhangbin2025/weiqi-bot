@@ -494,8 +494,8 @@ export function createJsonExtractPrimitive(): SkillPrimitive {
     idempotent: true,
     outputSchema: {},
     kind: 'pure',
-    execute: async (args: Record<string, unknown>): Promise<PrimitiveResult> => {
-      const parsed = parseArgs(args);
+    execute: async (rawArgs: Record<string, unknown>): Promise<PrimitiveResult> => {
+      const parsed = parseArgs(rawArgs);
       if (!parsed.ok) return fail(parsed.error);
       const args = parsed.value;
 
