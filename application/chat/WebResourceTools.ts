@@ -73,10 +73,10 @@ export interface WebResourceToolResult {
 /** 从参数 JSON 取 url；失败文案直接作为观察回给模型 */
 function readUrl(args: Record<string, unknown>): { url: string } | { error: string } {
   try {
-    if (typeof args.url !== 'string' || !args.url.trim()) {
+    if (typeof args['url'] !== 'string' || !args['url'].trim()) {
       return { error: '缺少 url 参数' };
     }
-    return { url: args.url.trim() };
+    return { url: args['url'].trim() };
   } catch {
     return { error: '参数不是合法 JSON' };
   }
@@ -107,7 +107,7 @@ export async function executeWebReadPdf(
   }
   let mode: 'text' | 'native' = 'text';
   try {
-    mode = parsePdfMode(args.mode);
+    mode = parsePdfMode(args['mode']);
   } catch { /* 默认 text */ }
 
   const fetched = await fetchResourceFromUrl(parsed.url, deps);
