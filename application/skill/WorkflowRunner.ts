@@ -89,6 +89,13 @@ const MAX_WORKFLOW_TOTAL_ITERATIONS = 500;
 /** 属性访问只认自身属性，并挡住原型链上的危险键（与宿主其余取值层同口径）。 */
 const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 
+/** 动态键写入必须定义为自有数据属性，不能触发 Object.prototype 的 setter。 */
+function setOwn(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value, enumerable: true, configurable: true, writable: true,
+  });
+}
+
 /** 过程块：契约明确 source='web' / attempt=1 / phase='observe'（非来路不明常数）。 */
 function traceStep(ok: boolean, detail: string): PluginTraceStep {
   return { source: 'web', attempt: 1, phase: 'observe', ok, detail };
@@ -156,7 +163,7 @@ function resolveInputs(
     if (decl.enum !== undefined && !enumContains(decl.enum, value)) {
       return { ok: false, error: `参数「${decl.name}」取值不在配方声明的 enum 内` };
     }
-    out[decl.name] = value;
+    setOwn(out, decl.name, value);
   }
   return { ok: true, values: out };
 }
@@ -276,7 +283,7 @@ function substituteInputs(
     for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
       const r = substituteInputs(v, resolved, scope);
       if (!r.ok) return r;
-      out[k] = r.value;
+      setOwn(out, k, r.value);
     }
     return { ok: true, value: out };
   }
@@ -463,7 +470,7 @@ export async function runWorkflow(
           }
           const got = readBindingValue(upstream.get(binding.from), binding.path);
           if (!got.ok) return { ok: false, stepId, error: got.error, detail: `节点 ${stepId} 引用失败：${got.error}` };
-          mergedArgs[binding.as] = got.value;
+          setOwn(mergedArgs, binding.as, got.value);
         }
         let result: StepResult;
         try {
@@ -483,7 +490,7 @@ export async function runWorkflow(
         }
         upstream.set(step.id, result.value);
         lastValue = result.value;
-        if (collectYield && step.yield === true) values[step.id] = result.value;
+        if (collectYield && step.yield === true) setOwn(values, step.id, result.value);
         completedStepIds.push(stepId);
         stepTrace?.push({ stepId, call: step.call, args: mergedArgs, value: result.value, effects: stepEffects, ok: true });
         pushTrace(onTrace, true, `节点 ${stepId} ${step.call} 完成`);
@@ -529,7 +536,7 @@ export async function runWorkflow(
         }
         upstream.set(step.id, results);
         lastValue = results;
-        if (collectYield && step.yield === true) values[step.id] = results;
+        if (collectYield && step.yield === true) setOwn(values, step.id, results);
         completedStepIds.push(stepId);
         stepTrace?.push({ stepId, call: callName, args: { from: step.forEach.from, path: step.forEach.path }, value: results, effects: [], ok: true });
         pushTrace(onTrace, true, `节点 ${stepId} forEach 完成（${results.length} 项）`);
@@ -558,7 +565,7 @@ export async function runWorkflow(
         const branchResult = { condition: matched, value: nested.lastValue };
         upstream.set(step.id, branchResult);
         lastValue = branchResult;
-        if (collectYield && step.yield === true) values[step.id] = branchResult;
+        if (collectYield && step.yield === true) setOwn(values, step.id, branchResult);
         completedStepIds.push(stepId);
         stepTrace?.push({
           stepId, call: callName,
@@ -615,7 +622,7 @@ export async function runWorkflow(
       const repeatResult = { items: results, state, stopped };
       upstream.set(step.id, repeatResult);
       lastValue = repeatResult;
-      if (collectYield && step.yield === true) values[step.id] = repeatResult;
+      if (collectYield && step.yield === true) setOwn(values, step.id, repeatResult);
       completedStepIds.push(stepId);
       stepTrace?.push({ stepId, call: callName, args: { maxIterations }, value: repeatResult, effects: [], ok: true });
       pushTrace(onTrace, true, `节点 ${stepId} repeat 完成（${results.length} 轮，${stopped ? '已满足停止条件' : '达到轮数上限'}）`);
