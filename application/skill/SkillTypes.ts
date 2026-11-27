@@ -60,7 +60,7 @@ export interface PrimitiveResult {
 }
 
 /**
- * 阶段二 workflow DAG 声明（纯 JSON、零代码、无表达式 / 无条件 / 无循环）。
+ * Workflow 声明（纯 JSON、零代码、无表达式 / 无任意条件；循环仅限 forEach 与有界 repeat）。
  * 语义出处：PHASE2-CONTRACT.md「DSL 语义条款」与「DSL 字段形状」。
  * 连线只认上游 StepResult.value；effects 走既有宿主通道，不参与连线。
  * 供 F 代理的 WorkflowRunner / WorkflowTool 与 G 代理的配方迁移按本类型 import。
