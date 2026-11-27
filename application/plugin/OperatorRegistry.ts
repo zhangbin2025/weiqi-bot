@@ -3,7 +3,7 @@
  * @module application/plugin/OperatorRegistry
  *
  * 阶段一只提供「按名执行 value→value」的统一地基：
- * - 内置算子：包装 createBasicPrimitives() 返回的 SkillPrimitive（D 代理保证 json_extract 在其中）。
+ * - 内置算子：包装 createBasicPrimitives() 返回的通用宿主 SkillPrimitive。
  * - 插件算子：遍历已启用工件，按 pointId 查「算子适配注册表」分派；框架不认识任何
  *   具体扩展点，未声明算子适配的扩展点不进算子表。新增扩展点只需在装配根
  *   （createOperatorAdapters）加一条适配声明即可，本文件不用改。
@@ -12,7 +12,7 @@
  *   ChatUseCase / ChatPage / ToolLoop 也都不引用它（阶段二才接线）。
  *
  * 安全边界沿用既有 QuickJS 沙箱，不在此重写：
- * - 插件算子执行复用注入的 IPluginRuntime.run()（QuickJsRuntime 就是「一次性 Worker」实现），
+ * - 插件算子执行复用注入的 IPluginRuntime.run()（QuickJsRuntime 复用 Worker、但每次调用创建独立 QuickJS Runtime / Context），
  *   hostApi 恒为 []（零网络、零时钟、零存储、零 DOM、零定时器），
  *   配额沿用工件自带的 spec.limits（DEFAULT_PLUGIN_LIMITS）。
  * - 插件算子只认「已启用」工件（人工启用闸门），method 只作为 JSON 数据进入
