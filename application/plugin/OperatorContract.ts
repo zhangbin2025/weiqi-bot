@@ -16,6 +16,7 @@
  */
 
 import type { OperatorArtifactContract } from '@domain/plugin/types';
+import { validateSchemaDefinition } from './OperatorSchema';
 
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
@@ -41,6 +42,12 @@ if (typeof e.inputSchema !== 'object' || e.inputSchema === null || Array.isArray
     }
     if (typeof e.outputSchema !== 'object' || e.outputSchema === null || Array.isArray(e.outputSchema)) {
       return `exposes[].outputSchema 必须是 JSON Schema 对象：${e.name}`;
+    }
+    try {
+      validateSchemaDefinition(e.inputSchema, `${e.name}.inputSchema`);
+      validateSchemaDefinition(e.outputSchema, `${e.name}.outputSchema`);
+    } catch (error) {
+      return error instanceof Error ? error.message : `JSON Schema 不合法：${e.name}`;
     }
     if (e.inputSchema.type !== 'object') {
       return `exposes[].inputSchema 根类型必须是 object：${e.name}`;
