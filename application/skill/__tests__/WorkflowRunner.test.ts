@@ -124,7 +124,7 @@ describe('runWorkflow — 链成功 / 引用传递', () => {
 describe('runWorkflow — 失败短路 / 结构化错误', () => {
   it('第二个节点抛错：第一个已完成、第三个不执行，失败信息含 stepId/error/completedStepIds', async () => {
     const reg = fakeRegistry({
-      one: () => ({ value: 1 }),
+      one: () => ({ value: 1, effects: [{ displayMarkdown: '不应交付的前序结果' }] }),
       two: () => { throw new Error('算子内部炸了'); },
       three: () => ({ value: 3 }),
     });
@@ -146,6 +146,7 @@ describe('runWorkflow — 失败短路 / 结构化错误', () => {
     expect(result.completedStepIds).toEqual(['one']);
     expect(reg.calls).toEqual(['one', 'two']); // 短路：three 未执行
     expect(result.values).toEqual({ one: 1 }); // 已完成 yield 节点仍保留
+    expect(result.effects).toEqual([]); // 整体失败不交付前序节点的半成品 effects
     // 过程块：开头「顶层步骤数」 + 第一步完成 + 失败块 = 3 条；最后一条 ok:false
     expect(trace.length).toBe(3);
     expect(trace[0]!.detail).toContain('共 3 个顶层步骤（循环由宿主调度）');
