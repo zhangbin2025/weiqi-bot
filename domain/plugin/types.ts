@@ -186,11 +186,10 @@ export interface OperatorArtifactContract {
   exposes: Array<{
     name: string;
     description: string;
-    params: Record<string, unknown>;
-    inputSchema?: OperatorJsonSchema;
-    outputSchema?: OperatorJsonSchema;
-    kind?: OperatorKind;
-    idempotent?: boolean;
+    inputSchema: OperatorJsonSchema;
+    outputSchema: OperatorJsonSchema;
+    kind: OperatorKind;
+    idempotent: boolean;
   }>;
   smoke: Array<{ method?: string; args: unknown[]; expect: unknown }>;
 }
@@ -305,15 +304,13 @@ export interface StepResult {
   effects?: { displayMarkdown?: string; actionLink?: string }[];
   meta?: Record<string, unknown>;
 }
-/** 算子表条目：按名执行结构化 args → StepResult。
- * 新契约元数据在迁移期可选；缺失表示 legacy，不代表已完成 Schema 校验。
- */
+/** 算子表条目：按名执行结构化 args → StepResult。契约字段全部必需。 */
 export interface OperatorSpec {
   name: string;                   // 内置 snake_case；插件 `<slug>.<exposes[].name>`
   idempotent: boolean;
-  description?: string;
-  inputSchema?: OperatorJsonSchema;
-  outputSchema?: OperatorJsonSchema;
-  kind?: OperatorKind;
+  description: string;
+  inputSchema: OperatorJsonSchema;
+  outputSchema: OperatorJsonSchema;
+  kind: OperatorKind;
   run(args: Record<string, unknown>): Promise<StepResult>;
 }
