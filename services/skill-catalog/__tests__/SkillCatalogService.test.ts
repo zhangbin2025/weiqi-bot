@@ -483,7 +483,9 @@ function fakePluginCatalog(
     async () => ({ ok: true, action: 'installed', message: '已安装', artifact: localArtifact({ enabled: true }) }),
 ): PluginCatalogService {
   return {
-    browse: async () => ({ entries, failures: [] }),
+    browseResources: async (resourceIds: readonly string[]) => ({
+      entries: entries.filter((entry) => resourceIds.includes(entry.resourceId)), failures: [],
+    }),
     install,
   } as unknown as PluginCatalogService;
 }
@@ -514,7 +516,7 @@ describe('SkillPluginInstaller.plan — 只读推导', () => {
   it('自建算子插件（有 slug、无 catalogRef）已启用 → 零动作、零网络请求', async () => {
     let browsed = false;
     const catalog = {
-      browse: async () => { browsed = true; return { entries: [], failures: [] }; },
+      browseResources: async () => { browsed = true; return { entries: [], failures: [] }; },
     } as unknown as PluginCatalogService;
     const installer = new SkillPluginInstaller({
       catalog,
