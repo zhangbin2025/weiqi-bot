@@ -54,12 +54,10 @@ function makeArtifact(
 /** 在线安装件的生成式 id（真实形状：plugin:<ts>:<random>） */
 const GENERATED_ID = 'plugin:1700000000000:abc123';
 
-const CALC_EXPOSES = [
-  { name: 'add', description: '', params: {} },
-  { name: 'subtract', description: '', params: {} },
-  { name: 'multiply', description: '', params: {} },
-  { name: 'divide', description: '', params: {} },
-];
+const CALC_EXPOSES = ['add', 'subtract', 'multiply', 'divide'].map((name) => ({
+  name, description: `计算 ${name}`,
+  inputSchema: { type: 'object' }, outputSchema: {}, kind: 'pure' as const, idempotent: true,
+}));
 
 /** 假工件服务：listActive 按真实语义只给「已启用」工件（人工启用闸门） */
 function fakeArtifacts(all: PluginArtifact[]): PluginArtifactService {
@@ -136,7 +134,7 @@ describe('createOperatorRegistry：插件算子命名空间与 ranking 分派', 
       pointId: WORKFLOW_OPERATOR_POINT_ID,
       spec: WORKFLOW_OPERATOR_SPEC,
       enabled: true,
-      operatorContract: { exposes: [{ name: 'foo', description: '', params: {} }], smoke: [] },
+      operatorContract: { exposes: [{ name: 'foo', description: 'foo', inputSchema: { type: 'object' }, outputSchema: {}, kind: 'pure', idempotent: true }], smoke: [] },
     });
     const registry = await createOperatorRegistry(deps([artifact], fakeRuntime()));
 
@@ -194,7 +192,7 @@ describe('createOperatorRegistry：插件算子命名空间与 ranking 分派', 
       spec: WORKFLOW_OPERATOR_SPEC,
       enabled: true,
       catalogRef: { registryUrl: 'https://example.com/registry.json', resourceId: 'workflow-operator.calc' },
-      operatorContract: { exposes: [{ name: 'divide', description: '', params: {} }], smoke: [] },
+      operatorContract: { exposes: [{ name: 'divide', description: 'divide', inputSchema: { type: 'object' }, outputSchema: {}, kind: 'pure', idempotent: true }], smoke: [] },
     });
     const builtin = fakePrimitive('calc.divide', 'BUILTIN_VALUE');
     const runtime = fakeRuntime(okRun('PLUGIN_VALUE'));
