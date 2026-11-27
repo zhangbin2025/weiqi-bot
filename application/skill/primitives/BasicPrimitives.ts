@@ -34,8 +34,6 @@ import {
   navigateToObservation,
 } from './NavigateToPath';
 import { createDisplayJsonListPrimitive } from './DisplayJsonListPrimitive';
-import { jsonExtractPrimitive } from './JsonExtractPrimitive';
-import { createRegexPrimitives } from './RegexPrimitives';
 
 /** navigate_to 工具名（与 definition.name 一致） */
 export const NAVIGATE_TO_TOOL_NAME = 'navigate_to';
@@ -115,22 +113,6 @@ export function createBasicPrimitives(webDeps: WebFetchToolDeps): SkillPrimitive
       ),
     },
     {
-      name: WEB_READ_PDF_TOOL_NAME,
-      definition: WEB_READ_PDF_TOOL,
-      idempotent: true,
-      outputSchema: {},
-      kind: 'io',
-      execute: async (args) => toPrimitiveResult(await executeWebReadPdf(args, webDeps)),
-    },
-    {
-      name: WEB_READ_IMAGE_TOOL_NAME,
-      definition: WEB_READ_IMAGE_TOOL,
-      idempotent: true,
-      outputSchema: {},
-      kind: 'io',
-      execute: async (args) => toPrimitiveResult(await executeWebReadImage(args, webDeps)),
-    },
-    {
       name: NAVIGATE_TO_TOOL_NAME,
       definition: NAVIGATE_TO_TOOL,
       idempotent: true,
@@ -166,16 +148,7 @@ export function createBasicPrimitives(webDeps: WebFetchToolDeps): SkillPrimitive
         };
       },
     },
-    // 内置提取算子：纯 value→value，零网络 / 零时钟，承接已删 json-query 插件的
-    // path/where/pick 语义；阶段二 workflow 把它的 value 注入下游算子。
-    jsonExtractPrimitive,
-    // 内置正则算子（承接已下架的 workflow-operator.regex_extract 插件）：
-    // regex_match / regex_extract / regex_replace，纯计算、零网络 / 零时钟，
-    // 各自产出纯 value，供阶段二 workflow 连线或直接交给下游展示算子。
-    ...createRegexPrimitives(),
-    // 通用展示原语：纯渲染，吃已是数组的 value，按 fields/format/note 生成
-    // markdown 列表或表格 → displayMarkdown。不读缓存、不解析 JSON、不提取字段；
-    // 宿主不认识任何业务字段；正文全程不进模型上下文。
+    // 通用 display：纯渲染任意 JSON 或 Markdown → displayMarkdown；正文全程不进模型上下文。
     createDisplayJsonListPrimitive(),
   ];
 }
