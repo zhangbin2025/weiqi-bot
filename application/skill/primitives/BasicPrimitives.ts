@@ -89,7 +89,7 @@ function toPrimitiveResult(r: {
 }
 
 /**
- * 构造通用原语：4 个 web 工具 + web_cache_read + navigate_to +
+ * 构造通用原语：fetch_batch + 4 个 web 工具 + web_cache_read + navigate_to +
  * json_extract（纯提取）/ 3 个正则算子（匹配 / 提取 / 替换，纯计算）/
  * display_json_list（纯渲染，数据旁路）。
  * webDeps 由上层（接线方）注入，与 createWebToolKit 用的是同一份依赖。
