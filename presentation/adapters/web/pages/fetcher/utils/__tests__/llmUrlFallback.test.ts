@@ -10,6 +10,8 @@ describe('unsupported URL LLM fallback', () => {
     expect(shouldDelegateUnsupportedUrlToLlm('unknown', false)).toBe(false);
     expect(shouldDelegateUnsupportedUrlToLlm('ogs', true)).toBe(false);
     expect(shouldDelegateUnsupportedUrlToLlm('error', true)).toBe(false);
+    // Recognized platforms that are unavailable in this runtime must not be delegated.
+    expect(shouldDelegateUnsupportedUrlToLlm('unavailable', true)).toBe(false);
   });
 
   it('creates a chat deep link and preserves the original URL as a query value', () => {
