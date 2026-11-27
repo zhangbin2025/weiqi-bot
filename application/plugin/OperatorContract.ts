@@ -39,6 +39,23 @@ export function validateOperatorContract(contract: unknown): string | undefined 
     if (typeof e.params !== 'object' || e.params === null || Array.isArray(e.params)) {
       return `exposes[].params 不是对象：${e.name}`;
     }
+    // 新契约元数据是可选的，旧资源仍兼容；一旦声明就严格检查基本形状。
+    for (const key of ['inputSchema', 'outputSchema'] as const) {
+      const schema = e[key];
+      if (schema !== undefined
+        && (typeof schema !== 'object' || schema === null || Array.isArray(schema))) {
+        return `exposes[].${key} 必须是 JSON Schema 对象：${e.name}`;
+      }
+    }
+    if (e.inputSchema !== undefined && e.inputSchema.type !== 'object') {
+      return `exposes[].inputSchema 根类型必须是 object：${e.name}`;
+    }
+    if (e.kind !== undefined && !['pure', 'io', 'effect'].includes(e.kind)) {
+      return `exposes[].kind 不合法：${e.name}`;
+    }
+    if (e.idempotent !== undefined && typeof e.idempotent !== 'boolean') {
+      return `exposes[].idempotent 必须是 boolean：${e.name}`;
+    }
   }
   if (!Array.isArray(smoke) || smoke.length === 0) return 'workflow-operator 资源缺少 smoke[] 自检样例';
   for (const s of smoke) {
