@@ -21,6 +21,8 @@ export interface SkillPrimitive {
    * 算子是否幂等；所有原语必须显式声明，不设置默认值。
    */
   idempotent: boolean;
+  /** Workflow 专用算子不作为技能可挂载的模型工具暴露。 */
+  workflowOnly?: boolean;
   /** 算子输出契约；空 Schema 表示任意 JSON value。 */
   outputSchema: OperatorJsonSchema;
   kind: OperatorKind;
