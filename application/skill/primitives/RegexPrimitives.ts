@@ -258,6 +258,12 @@ export function createRegexMatchPrimitive(): SkillPrimitive {
     name: REGEX_MATCH_TOOL_NAME,
     definition: REGEX_MATCH_TOOL,
     idempotent: true,
+    outputSchema: { type: 'string' },
+    kind: 'pure',
+    outputSchema: { type: 'array' },
+    kind: 'pure',
+    outputSchema: { type: 'object' },
+    kind: 'pure',
     execute: async (args: Record<string, unknown>): Promise<PrimitiveResult> => runPrimitive(
       REGEX_MATCH_TOOL_NAME, '', args,
       (a) => {
