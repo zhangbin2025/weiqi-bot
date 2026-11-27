@@ -1,103 +1,25 @@
 /**
- * Regex 算子端到端验收：
- * 已启用工件 → OperatorAdapter → OperatorRegistry → QuickJS WASM → 输出 Schema。
- *
- * fixture 是 weiqi-assets/plugins/workflow-operator/regex/index.js 的同步副本；
- * 修改资源插件源码时应同步此 fixture，避免测试只验证另一份实现。
+ * Regex Workflow operator E2E:
+ * host-native SkillPrimitive → OperatorRegistry → WorkflowRunner.
+ * No plugin artifact, QuickJS runtime, Worker, or WASM is involved.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { QuickJsExecutor } from '../../../infrastructure/plugin-vm/QuickJsExecutor';
 import { createOperatorRegistry } from '../OperatorRegistry';
 import { runWorkflow } from '../../skill/WorkflowRunner';
-import {
-  WORKFLOW_OPERATOR_SPEC,
-  WORKFLOW_OPERATOR_POINT_ID,
-  type IPluginRuntime,
-  type PluginArtifact,
-  type OperatorArtifactContract,
-} from '../../../domain/plugin/types';
+import { createWorkflowDataPrimitives } from '../../skill/primitives/WorkflowDataPrimitives';
+import type { IPluginRuntime } from '../../../domain/plugin/types';
 import type { PluginArtifactService } from '../PluginArtifactService';
 
-const wasmPath = resolve(
-  process.cwd(),
-  'node_modules/@jitl/quickjs-wasmfile-release-sync/dist/emscripten-module.wasm',
-);
-function loadWasm(): ArrayBuffer {
-  const buf = readFileSync(wasmPath);
-  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
-}
-
-const contract: OperatorArtifactContract = {
-  exposes: [
-    {
-      name: 'match',
-      description: '执行一次正则匹配。',
-      inputSchema: { type: 'object' },
-      outputSchema: {
-        type: 'object',
-        required: ['matched', 'value', 'index', 'groups'],
-        properties: {
-          matched: { type: 'boolean' },
-          index: { type: 'integer' },
-          groups: { type: 'array', items: { type: 'string' } },
-        },
-      },
-      kind: 'pure',
-      idempotent: true,
-    },
-    {
-      name: 'extract',
-      description: '全局提取正则匹配。',
-      inputSchema: { type: 'object' },
-      outputSchema: { type: 'array' },
-      kind: 'pure',
-      idempotent: true,
-    },
-    {
-      name: 'replace',
-      description: '正则替换。',
-      inputSchema: { type: 'object' },
-      outputSchema: { type: 'string' },
-      kind: 'pure',
-      idempotent: true,
-    },
-  ],
-  smoke: [],
-};
-
-describe('Regex operator E2E', () => {
-  it('经 WorkflowRunner → OperatorRegistry → 真实 QuickJS WASM 完成 match / extract / replace', async () => {
-    const code = readFileSync(
-      resolve(process.cwd(), 'application/plugin/__tests__/fixtures/regex-plugin.js'),
-      'utf8',
-    );
-    const executor = new QuickJsExecutor({ wasmBinary: loadWasm() });
-    const runtime: IPluginRuntime = {
-      run: (source, input, spec) => executor.execute({ code: source, input, spec }),
-      dispose: async () => undefined,
-    };
-    const artifact: PluginArtifact = {
-      id: 'regex-e2e',
-      slug: 'regex',
-      name: 'Regex E2E fixture',
-      pointId: WORKFLOW_OPERATOR_POINT_ID,
-      version: 1,
-      enabled: true,
-      origin: 'manual',
-      intent: 'Regex operator E2E fixture',
-      code,
-      spec: WORKFLOW_OPERATOR_SPEC,
-      operatorContract: contract,
-      createdAt: 0,
-      updatedAt: 0,
-      history: [],
-    };
-    const artifacts = {
-      listActive: async () => [artifact],
-    } as unknown as PluginArtifactService;
-    const registry = await createOperatorRegistry({ primitives: [], artifacts, runtime });
+describe('Host-native regex Workflow operators', () => {
+  it('经 WorkflowRunner → OperatorRegistry 完成 match / extract / replace', async () => {
+    const registry = await createOperatorRegistry({
+      primitives: createWorkflowDataPrimitives(),
+      artifacts: { listActive: async () => [] } as unknown as PluginArtifactService,
+      runtime: {
+        run: async () => { throw new Error('此用例不应启动插件运行时'); },
+        dispose: async () => undefined,
+      } as unknown as IPluginRuntime,
+    });
 
     const result = await runWorkflow({
       steps: [
@@ -124,18 +46,57 @@ describe('Regex operator E2E', () => {
 
     expect(result.ok).toBe(true);
     expect(result.values).toEqual({
-      match: {
-        matched: true,
-        value: '123',
-        index: 3,
-        groups: ['123'],
-      },
+      match: { matched: true, value: '123', index: 3, groups: ['123'] },
       extract: [
         { value: '12', index: 1 },
         { value: '34', index: 5 },
       ],
       replace: 'a# b#',
     });
-    await runtime.dispose();
+  });
+
+  it('JSON 算子直接消费原生值并安全拒绝危险属性路径', async () => {
+    const registry = await createOperatorRegistry({
+      primitives: createWorkflowDataPrimitives(),
+      artifacts: { listActive: async () => [] } as unknown as PluginArtifactService,
+      runtime: {
+        run: async () => { throw new Error('此用例不应启动插件运行时'); },
+        dispose: async () => undefined,
+      } as unknown as IPluginRuntime,
+    });
+
+    const result = await runWorkflow({
+      steps: [
+        {
+          id: 'parse',
+          call: 'json.parse',
+          args: { text: '{"items":[{"uid":1},{"uid":2}]}' },
+          yield: true,
+        },
+        {
+          id: 'select',
+          call: 'json.select',
+          args: { where: { uid: { in: [2] } }, pick: ['uid'] },
+          bindings: [{ from: 'parse', path: 'items', as: 'items' }],
+          yield: true,
+        },
+      ],
+    }, {}, registry);
+
+    expect(result.ok).toBe(true);
+    expect(result.values).toEqual({
+      parse: { items: [{ uid: 1 }, { uid: 2 }] },
+      select: [{ uid: 2 }],
+    });
+
+    const unsafe = await runWorkflow({
+      steps: [{
+        id: 'unsafe',
+        call: 'json.get',
+        args: { path: '__proto__.polluted' },
+        bindings: [{ from: 'parse', path: '$', as: 'value' }],
+      }],
+    }, {}, registry);
+    expect(unsafe.ok).toBe(false);
   });
 });
