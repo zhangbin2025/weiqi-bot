@@ -80,8 +80,9 @@ const INPUTS_STEP_ID = '<inputs>';
  * 配方是严格 JSON，占位符只能是字符串值；裸 `{{...}}` 非合法 JSON、禁用。
  */
 const WHOLE_PLACEHOLDER_RE = /^\{\{input\.([^{}]+)\}\}$/;
-const EMBEDDED_PLACEHOLDER_RE = /\{\{(?:input\.[^{}]+|item(?:\.[^{}]+)?|index|state(?:\.[^{}]+)?)\}\}/g;
+const EMBEDDED_PLACEHOLDER_RE = /\{\{(?:input\.[^{}]+|item(?:\.[^{}]+)?|index|state(?:\.[^{}]+)?|urlencode\.(?:input\.[^{}]+|item(?:\.[^{}]+)?|state(?:\.[^{}]+)?))\}\}/g;
 const SCOPE_PLACEHOLDER_RE = /^\{\{(item(?:\.[^{}]+)?|index|state(?:\.[^{}]+)?)\}\}$/;
+const URL_ENCODE_PLACEHOLDER_RE = /^\{\{urlencode\.(input\.[^{}]+|item(?:\.[^{}]+)?|state(?:\.[^{}]+)?)\}\}$/;
 const MAX_WORKFLOW_ITERATIONS = 100;
 const MAX_WORKFLOW_TOTAL_ITERATIONS = 500;
 
@@ -194,12 +195,35 @@ function resolveScopePlaceholder(
   return got.ok ? got : { ok: false, error: '占位符 {{' + token + '}}：' + got.error };
 }
 
+function resolveUrlEncodePlaceholder(
+  token: string,
+  resolved: Record<string, unknown>,
+  scope: WorkflowTemplateScope | undefined,
+): { ok: true; value: string } | { ok: false; error: string } {
+  const match = /^urlencode\\.(input\\.([^{}]+)|item(?:\\.[^{}]+)?|state(?:\\.[^{}]+)?)$/.exec(token);
+  if (!match) return { ok: false, error: 'URL 编码占位符格式无效：{{' + token + '}}' };
+  let value: unknown;
+  if (match[2] !== undefined) {
+    if (!Object.prototype.hasOwnProperty.call(resolved, match[2])) {
+      return { ok: false, error: '占位符 {{urlencode.input.' + match[2] + '}} 没有对应的已解析 input' };
+    }
+    value = resolved[match[2]];
+  } else {
+    const got = resolveScopePlaceholder(match[1]!, scope);
+    if (!got.ok) return got;
+    value = got.value;
+  }
+  return { ok: true, value: encodeURIComponent(String(value)) };
+}
+
 function substituteInputs(
   node: unknown,
   resolved: Record<string, unknown>,
   scope?: WorkflowTemplateScope,
 ): { ok: true; value: unknown } | { ok: false; error: string } {
   if (typeof node === 'string') {
+    const encodedWhole = URL_ENCODE_PLACEHOLDER_RE.exec(node);
+    if (encodedWhole) return resolveUrlEncodePlaceholder(encodedWhole[1]!, resolved, scope);
     const whole = WHOLE_PLACEHOLDER_RE.exec(node);
     if (whole) {
       const name = whole[1]!;
@@ -212,6 +236,12 @@ function substituteInputs(
     if (scopeWhole) return resolveScopePlaceholder(scopeWhole[1]!, scope);
     let failure: string | undefined;
     const replaced = node.replace(EMBEDDED_PLACEHOLDER_RE, (token) => {
+      const encoded = /^\{\{urlencode\.([^{}]+)\}\}$/.exec(token);
+      if (encoded) {
+        const got = resolveUrlEncodePlaceholder(encoded[1]!, resolved, scope);
+        if (!got.ok) { failure = got.error; return token; }
+        return got.value;
+      }
       const input = /^\{\{input\.([^{}]+)\}\}$/.exec(token);
       if (input) {
         const name = input[1]!;
