@@ -942,6 +942,6 @@ export function createPluginToolKit(deps: PluginToolDeps): PluginToolKit {
     tools: buildTools(behaviors),
     executors,
     systemPrompt: () => buildSystemPrompt(deps.snapshot, behaviors),
-    maxTurns: Math.max(1, deps.maxAttempts ?? DEFAULT_PLUGIN_MAX_ATTEMPTS) + 1,
+    maxTurns: Math.max(0, deps.maxAttempts ?? DEFAULT_PLUGIN_MAX_ATTEMPTS) + 1,
   };
 }
