@@ -226,7 +226,7 @@ function substituteInputs(
 ): { ok: true; value: unknown } | { ok: false; error: string } {
   if (typeof node === 'string') {
     const encodedWhole = URL_ENCODE_PLACEHOLDER_RE.exec(node);
-    if (encodedWhole) return resolveUrlEncodePlaceholder(encodedWhole[1]!, resolved, scope);
+    if (encodedWhole) return resolveUrlEncodePlaceholder(encodedWhole[0].slice(2, -2), resolved, scope);
     const whole = WHOLE_PLACEHOLDER_RE.exec(node);
     if (whole) {
       const name = whole[1]!;
@@ -241,7 +241,7 @@ function substituteInputs(
     const replaced = node.replace(EMBEDDED_PLACEHOLDER_RE, (token) => {
       const encoded = /^\{\{urlencode\.([^{}]+)\}\}$/.exec(token);
       if (encoded) {
-        const got = resolveUrlEncodePlaceholder(encoded[1]!, resolved, scope);
+        const got = resolveUrlEncodePlaceholder('urlencode.' + encoded[1]!, resolved, scope);
         if (!got.ok) { failure = got.error; return token; }
         return got.value;
       }
