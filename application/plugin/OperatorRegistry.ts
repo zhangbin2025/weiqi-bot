@@ -87,16 +87,18 @@ function primitiveToOperatorSpec(p: SkillPrimitive): OperatorSpec {
 
 /**
  * 建一张宿主统一算子表（阶段一地基）。
- * 先注册内置算子（createBasicPrimitives），再注册插件算子；插件不得覆盖任何宿主算子，
- * 插件之间同名时仍按注册顺序由后者覆盖前者。
+ * 先注册内置算子（createBasicPrimitives），再注册插件算子；json.* / regex.* 为保留宿主命名空间，
+ * 其它同名算子沿用既有口径：插件覆盖内置，插件之间由后者覆盖前者。
  * 插件工件读取失败按空集降级（装配期离线/存储不可用不该拖垮整张表）。
  */
 export async function createOperatorRegistry(deps: OperatorRegistryDeps): Promise<OperatorRegistry> {
   const map = new Map<string, OperatorSpec>();
-  const hostOperatorNames = new Set<string>();
+  const reservedDataOperatorNames = new Set<string>();
   for (const p of deps.primitives) {
     map.set(p.name, primitiveToOperatorSpec(p));
-    hostOperatorNames.add(p.name);
+    if (p.name.startsWith('json.') || p.name.startsWith('regex.')) {
+      reservedDataOperatorNames.add(p.name);
+    }
   }
 
   for (const spec of map.values()) {
@@ -125,9 +127,9 @@ export async function createOperatorRegistry(deps: OperatorRegistryDeps): Promis
       continue;
     }
     for (const op of adapted) {
-      // Host operators (including reserved json.* / regex.* namespaces) cannot be shadowed
-      // by a downloaded or user-authored plugin.
-      if (hostOperatorNames.has(op.name)) continue;
+      // Generic data operators are reserved host capabilities; an old or custom plugin
+      // must not shadow the native json.* / regex.* implementation.
+      if (reservedDataOperatorNames.has(op.name)) continue;
       try {
         validateSchemaDefinition(op.inputSchema, `${op.name}.inputSchema`);
         if (op.inputSchema['type'] !== 'object') continue;
