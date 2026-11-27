@@ -464,7 +464,7 @@ function executeBrowserCaptureRead(argsJson: string): WebCacheReadResult {
   for (const name of ['offset', 'length', 'pattern', 'flags', 'before', 'after', 'skip', 'limit', 'count']) {
     if (args[name] !== undefined) mapped[name] = args[name];
   }
-  const r = executeWebCacheRead(JSON.stringify(mapped), captureTextCache);
+  const r = executeWebCacheRead(mapped, captureTextCache);
   return {
     ...r,
     // 观察首行是读取引擎的固定 header 前缀；对齐到本工具名，避免模型误以为在读 web_fetch 缓存。
