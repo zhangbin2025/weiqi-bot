@@ -141,11 +141,12 @@ describe('createOperatorRegistry：结构化参数与 Schema 边界', () => {
       }),
     };
     const registry = await createOperatorRegistry(deps([], fakeRuntime(), [primitive]));
-    const failure = await registry.run('failed_string_output', {}).catch((error: unknown) =>
-      error instanceof Error ? error : new Error(String(error)),
+    const failureMessage = await registry.run('failed_string_output', {}).then(
+      () => '',
+      (error: unknown) => error instanceof Error ? error.message : String(error),
     );
-    expect(failure.message).toContain('regex_extract：正则执行失败');
-    expect(failure.message).not.toContain('输出校验失败');
+    expect(failureMessage).toContain('regex_extract：正则执行失败');
+    expect(failureMessage).not.toContain('输出校验失败');
   });
 
   it('部分失败但携带符合 Schema 的 value 时保留结果供下游处理', async () => {
