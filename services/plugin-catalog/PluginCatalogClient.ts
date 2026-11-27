@@ -231,7 +231,7 @@ export function resolveBaseUrl(registryUrl: string, rawBaseUrl: unknown): string
   }
   const origin = new URL(registryUrl).origin;
   if (candidate.origin !== origin) {
-    throw new Error('registry.baseUrl 与清单不同源，拒绝拼接');
+    throw new PluginCatalogContractError('registry.baseUrl 与清单不同源，拒绝拼接');
   }
   // 规范化为带尾斜杠的目录 URL，new URL(rel, base) 才不会丢掉最后一段
   if (!candidate.pathname.endsWith('/')) candidate.pathname += '/';
