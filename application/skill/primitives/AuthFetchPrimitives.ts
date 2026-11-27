@@ -799,8 +799,8 @@ export function createPublishPrimitives(deps: PublishPrimitivesDeps): SkillPrimi
       idempotent: false,
       outputSchema: {},
       kind: 'effect',
-      execute: async (args): Promise<PrimitiveResult> => {
-        const args = parseArgs(args);
+      execute: async (rawArgs: Record<string, unknown>): Promise<PrimitiveResult> => {
+        const args = parseArgs(rawArgs);
         const handle = args['handle'];
         if (typeof handle !== 'string' || !handle.trim()) {
           return {
