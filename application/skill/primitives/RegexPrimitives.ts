@@ -258,10 +258,6 @@ export function createRegexMatchPrimitive(): SkillPrimitive {
     name: REGEX_MATCH_TOOL_NAME,
     definition: REGEX_MATCH_TOOL,
     idempotent: true,
-    outputSchema: { type: 'string' },
-    kind: 'pure',
-    outputSchema: { type: 'array' },
-    kind: 'pure',
     outputSchema: { type: 'object' },
     kind: 'pure',
     execute: async (args: Record<string, unknown>): Promise<PrimitiveResult> => runPrimitive(
@@ -298,6 +294,8 @@ export function createRegexExtractPrimitive(): SkillPrimitive {
     name: REGEX_EXTRACT_TOOL_NAME,
     definition: REGEX_EXTRACT_TOOL,
     idempotent: true,
+    outputSchema: { type: 'array' },
+    kind: 'pure',
     execute: async (args: Record<string, unknown>): Promise<PrimitiveResult> => runPrimitive(
       REGEX_EXTRACT_TOOL_NAME, 'g', args,
       (a) => {
@@ -333,6 +331,8 @@ export function createRegexReplacePrimitive(): SkillPrimitive {
     name: REGEX_REPLACE_TOOL_NAME,
     definition: REGEX_REPLACE_TOOL,
     idempotent: true,
+    outputSchema: { type: 'string' },
+    kind: 'pure',
     execute: async (args: Record<string, unknown>): Promise<PrimitiveResult> => runPrimitive(
       REGEX_REPLACE_TOOL_NAME, 'g', args,
       (a) => {
