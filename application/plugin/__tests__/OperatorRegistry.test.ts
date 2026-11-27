@@ -286,6 +286,40 @@ describe('createOperatorRegistry：插件算子命名空间与 ranking 分派', 
     expect(runtime.run).not.toHaveBeenCalled();
   });
 
+  it('保留的 json.* / regex.* 命名空间不能被旧版或自建插件覆盖', async () => {
+    const makeDataPlugin = (slug: string, method: string) => makeArtifact({
+      id: \`plugin-\${slug}\`,
+      pointId: WORKFLOW_OPERATOR_POINT_ID,
+      spec: WORKFLOW_OPERATOR_SPEC,
+      enabled: true,
+      catalogRef: {
+        registryUrl: 'https://example.com/registry.json',
+        resourceId: \`workflow-operator.\${slug}\`,
+      },
+      operatorContract: {
+        exposes: [{
+          name: method, description: method,
+          inputSchema: { type: 'object' }, outputSchema: {},
+          kind: 'pure', idempotent: true,
+        }],
+        smoke: [],
+      },
+    });
+    const runtime = fakeRuntime(okRun('PLUGIN_VALUE'));
+    const json = fakePrimitive('json.get', 'HOST_JSON');
+    const regex = fakePrimitive('regex.extract', 'HOST_REGEX');
+    const registry = await createOperatorRegistry(deps([
+      makeDataPlugin('json', 'get'),
+      makeDataPlugin('regex', 'extract'),
+    ], runtime, [json, regex]));
+
+    expect((await registry.run('json.get', {})).value).toBe('HOST_JSON');
+    expect((await registry.run('regex.extract', {})).value).toBe('HOST_REGEX');
+    expect(json.execute).toHaveBeenCalledTimes(1);
+    expect(regex.execute).toHaveBeenCalledTimes(1);
+    expect(runtime.run).not.toHaveBeenCalled();
+  });
+
   it('⑥ 普通内置算子与插件同名时插件覆盖（沿用既有 Map 口径）', async () => {
     const artifact = makeArtifact({
       id: GENERATED_ID,
