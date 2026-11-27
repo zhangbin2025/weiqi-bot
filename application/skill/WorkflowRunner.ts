@@ -468,6 +468,10 @@ export async function runWorkflow(
           result = await registry.run(step.call, mergedArgs);
         } catch (error) {
           const reason = error instanceof Error ? error.message : String(error);
+          // debug trace 必须包含失败节点本身，而不只是失败前已完成的节点。
+          stepTrace?.push({
+            stepId, call: step.call, args: mergedArgs, ok: false, error: reason, effects: [],
+          });
           return { ok: false, stepId, error: reason, detail: `节点 ${stepId} ${step.call} 失败：${reason}` };
         }
         const stepEffects: WorkflowEffect[] = [];
