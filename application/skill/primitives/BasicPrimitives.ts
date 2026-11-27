@@ -36,7 +36,6 @@ import {
 import { createDisplayJsonListPrimitive } from './DisplayJsonListPrimitive';
 import { jsonExtractPrimitive } from './JsonExtractPrimitive';
 import { createRegexPrimitives } from './RegexPrimitives';
-import { createFetchBatchPrimitive } from './FetchBatchPrimitive';
 
 /** navigate_to 工具名（与 definition.name 一致） */
 export const NAVIGATE_TO_TOOL_NAME = 'navigate_to';
@@ -89,7 +88,7 @@ function toPrimitiveResult(r: {
 }
 
 /**
- * 构造通用原语：fetch_batch + 4 个 web 工具 + web_cache_read + navigate_to +
+ * 构造通用原语：web_fetch + web_cache_read + navigate_to +
  * json_extract（纯提取）/ 3 个正则算子（匹配 / 提取 / 替换，纯计算）/
  * display_json_list（纯渲染，数据旁路）。
  * webDeps 由上层（接线方）注入，与 createWebToolKit 用的是同一份依赖。
@@ -97,7 +96,6 @@ function toPrimitiveResult(r: {
  */
 export function createBasicPrimitives(webDeps: WebFetchToolDeps): SkillPrimitive[] {
   return [
-    createFetchBatchPrimitive(webDeps),
     {
       name: WEB_FETCH_TOOL_NAME,
       definition: WEB_FETCH_TOOL,
