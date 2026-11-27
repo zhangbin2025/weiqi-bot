@@ -52,7 +52,6 @@ function storagePrimitive(
 function resolveDomain(
   service: KvService,
   rawDomain: unknown,
-  write: boolean,
 ): string {
   if (typeof rawDomain !== 'string' || !rawDomain) {
     throw new Error('domain 必须是非空字符串');
@@ -62,8 +61,8 @@ function resolveDomain(
   if (descriptor.visibility !== 'readable') {
     throw new Error(`存储域 ${rawDomain} 不允许 Workflow 读取`);
   }
-  if (write && descriptor.writableBy === 'host') {
-    throw new Error(`存储域 ${rawDomain} 不允许 Workflow 写入`);
+  if (descriptor.writableBy === 'host') {
+    throw new Error(`存储域 ${rawDomain} 是 host-only，不开放给 Workflow`);
   }
   return rawDomain;
 }
@@ -84,7 +83,7 @@ export function createWorkflowStoragePrimitives(service: KvService): SkillPrimit
       BASE_PROPERTIES,
       ['domain', 'key'],
       async (args) => {
-        const domain = resolveDomain(service, args['domain'], false);
+        const domain = resolveDomain(service, args['domain']);
         return service.readRawEntry(domain, requiredKey(args));
       },
     ),
@@ -94,7 +93,7 @@ export function createWorkflowStoragePrimitives(service: KvService): SkillPrimit
       { ...BASE_PROPERTIES, value: {} },
       ['domain', 'key', 'value'],
       async (args) => {
-        const domain = resolveDomain(service, args['domain'], true);
+        const domain = resolveDomain(service, args['domain']);
         const result = await service.put(domain, requiredKey(args), args['value']);
         if (!result.ok) throw new Error(result.reason ?? '存储写入失败');
         return { ok: true };
@@ -106,7 +105,7 @@ export function createWorkflowStoragePrimitives(service: KvService): SkillPrimit
       BASE_PROPERTIES,
       ['domain', 'key'],
       async (args) => {
-        const domain = resolveDomain(service, args['domain'], true);
+        const domain = resolveDomain(service, args['domain']);
         const key = requiredKey(args);
         await service.readRawEntry(domain, key); // 复用 KvService 的 key 合法性校验
         await service.remove(domain, key);
