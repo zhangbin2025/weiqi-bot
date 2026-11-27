@@ -351,14 +351,17 @@ function runRegex(action: string, args: Record<string, unknown>): unknown {
     const results: unknown[] = [];
     const seen = new Set<string>();
     let match: RegExpExecArray | null;
+    let iterations = 0;
     while ((match = extractor.exec(text)) !== null) {
+      iterations += 1;
       const value = match[group as number] ?? '';
       const identity = String(value);
       if (!unique || !seen.has(identity)) {
         seen.add(identity);
         results.push(withIndex ? { value, index: match.index } : value);
       }
-      if (results.length >= MAX_REGEX_MATCHES || (limit as number) > 0 && results.length >= (limit as number)) break;
+      if (iterations >= MAX_REGEX_MATCHES
+        || (limit as number) > 0 && results.length >= (limit as number)) break;
       if (match[0] === '') {
         if (extractor.lastIndex >= text.length) break;
         const point = text.codePointAt(extractor.lastIndex);
