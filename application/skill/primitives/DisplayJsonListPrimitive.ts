@@ -175,10 +175,10 @@ type ParseResult =
   | { ok: false; error: string };
 
 /** 严格校验调用方传的「显示声明 + 已解析数组」；这里不做任何提取或 JSON 解析 */
-function parseArgs(argsJson: string): ParseResult {
+function parseArgs(args: Record<string, unknown>): ParseResult {
   let raw: unknown;
   try {
-    raw = JSON.parse(argsJson);
+    raw = args;
   } catch {
     return { ok: false, error: '参数不是合法 JSON' };
   }
@@ -280,8 +280,8 @@ export function createDisplayJsonListPrimitive(): SkillPrimitive {
     name: DISPLAY_JSON_LIST_TOOL_NAME,
     definition: DISPLAY_JSON_LIST_TOOL,
     idempotent: true,
-    execute: async (argsJson: string): Promise<PrimitiveResult> => {
-      const parsedArgs = parseArgs(argsJson);
+    execute: async (args: Record<string, unknown>): Promise<PrimitiveResult> => {
+      const parsedArgs = parseArgs(args);
       if (!parsedArgs.ok) return fail(parsedArgs.error);
       const args = parsedArgs.value;
       return {
