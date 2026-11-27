@@ -6,7 +6,7 @@
  * 独立的 Runtime + Context，注入白名单 hostApi 与输入，调用约定入口，
  * 返回纯 JSON 结果或结构化诊断。
  *
- * 宿主层（QuickJsRuntime）负责把它放进一次性 Worker 并加硬超时；
+ * 宿主层（QuickJsRuntime）负责在可复用 Worker 中调度它并加硬超时；
  * 本文件刻意不引用任何浏览器 Worker API，因此可以在 Node/vitest 里直接测。
  */
 
