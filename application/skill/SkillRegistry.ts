@@ -59,7 +59,7 @@ export function buildSkillToolParts(
     for (const name of skill.primitives) {
       if (seen.has(name)) continue;
       const primitive = registry.get(name);
-      if (!primitive) continue; // 第二道保险：缺原语静默跳过
+      if (!primitive || primitive.workflowOnly) continue; // 第二道保险：缺原语 / Workflow-only 均不挂模型工具
       seen.add(name);
       tools.push(primitive.definition);
       executors[name] = async (argsJson: string) => toToolOutcome(await primitive.execute(parseToolArguments(argsJson)));
