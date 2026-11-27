@@ -49,8 +49,7 @@ function setup(opts: {
   return { auth, prompt, fetchImpl, kv, cache, specs };
 }
 
-const call = (url: string, secretKey = 'github_token') =>
-  JSON.stringify({ url, secretKey });
+const call = (url: string, secretKey = 'github_token') => ({ url, secretKey });
 
 /** POST 配方：只把 query 里的 query 键搬进 body，其余参数写成固定值 */
 const TAVILY: SecretSpec = {
@@ -268,7 +267,7 @@ describe('http_fetch_auth', () => {
 describe('secret_prompt（修改也弹框）', () => {
   it('无论是否已配置都回同一条链接（本原语不读存储）', async () => {
     const { prompt, kv } = setup({ token: 'ghp_ANY_TOKEN_1234' });
-    const r = await prompt.execute(JSON.stringify({ secretKey: 'github_token' }));
+    const r = await prompt.execute({ secretKey: 'github_token' });
     expect(r.ok).toBe(true);
     expect(r.observation).toContain(`${SECRET_PROMPT_SCHEME}github_token`);
     expect(r.observation).toContain('已有值会被覆盖');
@@ -277,7 +276,7 @@ describe('secret_prompt（修改也弹框）', () => {
 
   it('规格表里没有的 key 拒绝弹框，防止模型编 key 骗输入框', async () => {
     const { prompt } = setup();
-    const r = await prompt.execute(JSON.stringify({ secretKey: 'made_up' }));
+    const r = await prompt.execute({ secretKey: 'made_up' });
     expect(r.ok).toBe(false);
     expect(r.observation).not.toContain(SECRET_PROMPT_SCHEME);
   });
