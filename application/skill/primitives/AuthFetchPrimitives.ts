@@ -327,9 +327,9 @@ export function createAuthFetchPrimitives(deps: AuthFetchPrimitivesDeps): SkillP
     {
       name: SECRET_PROMPT_TOOL_NAME,
       definition: SECRET_PROMPT_TOOL,
-      execute: async (argsJson): Promise<PrimitiveResult> => {
+      execute: async (args): Promise<PrimitiveResult> => {
         const args = (() => {
-          try { return JSON.parse(argsJson) as Record<string, unknown>; }
+          try { return args as Record<string, unknown>; }
           catch { return {} as Record<string, unknown>; }
         })();
         const key = args['secretKey'];
@@ -742,7 +742,7 @@ export function createPublishPrimitives(deps: PublishPrimitivesDeps): SkillPrimi
     {
       name: ASSET_EXPORT_TOOL_NAME,
       definition: ASSET_EXPORT_TOOL,
-      execute: async (argsJson): Promise<PrimitiveResult> => {
+      execute: async (args): Promise<PrimitiveResult> => {
         const args = parseArgs(args);
         const kind = args['kind'];
         const id = args['id'];
@@ -796,8 +796,8 @@ export function createPublishPrimitives(deps: PublishPrimitivesDeps): SkillPrimi
       definition: GITHUB_PUBLISH_FILE_TOOL,
       // 写外部仓库，非幂等；不让 OperatorRegistry 把它当纯计算算子。
       idempotent: false,
-      execute: async (argsJson): Promise<PrimitiveResult> => {
-        const args = parseArgs(argsJson);
+      execute: async (args): Promise<PrimitiveResult> => {
+        const args = parseArgs(args);
         const handle = args['handle'];
         if (typeof handle !== 'string' || !handle.trim()) {
           return {
