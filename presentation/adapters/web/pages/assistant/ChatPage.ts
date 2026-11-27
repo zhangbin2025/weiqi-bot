@@ -431,6 +431,26 @@ export class ChatPage {
     this.syncRoleUI();
     this.syncReadyState();
 
+    // 深链：无棋谱 Provider 可处理的 URL 会从抓谱页带 ?url= 跳到这里。
+    // 先清理参数避免刷新 / 返回时重复发起，再强制新建 chat 角色会话交给 LLM。
+    const params = new URLSearchParams(window.location.search);
+    const urlTask = params.get('url');
+    if (urlTask) {
+      params.delete('url');
+      const query = params.toString();
+      const cleanHref = window.location.pathname
+        + (query ? `?${query}` : '')
+        + window.location.hash;
+      window.history.replaceState(window.history.state, '', cleanHref);
+      void this.handleUrlTaskNavigation(urlTask).catch(async (error) => {
+        console.error('[ChatPage] URL 读取任务启动失败:', error);
+        await this.renderer.renderMessage(
+          `无法启动 URL 读取任务：${error instanceof Error ? error.message : String(error)}`,
+          false, null, null, undefined, undefined, false,
+        );
+      });
+    }
+
     // 深链：赛事详情页 ⚙️ 菜单的「管理插件 →」带 ?panel=plugins 进来，
     // 初始化完成后直接打开插件管理面板，用户不用再点一次右上角菜单。
     if (new URLSearchParams(window.location.search).get('panel') === 'plugins') {
@@ -885,6 +905,45 @@ export class ChatPage {
     }
     void this.updateTitle();
     this.scrollToBottom();
+  }
+
+  /**
+   * 从功能助手转交的未知棋谱 URL：固定使用 chat 角色并创建独立新会话。
+   * 保留用户原先的默认角色偏好，只把本次会话锁定为 chat。
+   */
+  private async handleUrlTaskNavigation(rawUrl: string): Promise<void> {
+    let parsed: URL;
+    try {
+      parsed = new URL(rawUrl);
+    } catch {
+      await this.renderer.renderMessage('收到的链接格式无效，无法交给 LLM 读取。', false, null, null, undefined, undefined, false);
+      return;
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      await this.renderer.renderMessage('目前只支持读取 http / https 网页链接。', false, null, null, undefined, undefined, false);
+      return;
+    }
+
+    const preferredRole = localStorage.getItem(ROLE_STORAGE_KEY);
+    this.currentRole = 'chat';
+    await this.newSession();
+    // newSession 会把当前会话角色写为 chat；但这次是一次性委托，不覆盖用户
+    // 下次手动新建会话时的默认角色偏好。
+    if (preferredRole === null) localStorage.removeItem(ROLE_STORAGE_KEY);
+    else localStorage.setItem(ROLE_STORAGE_KEY, preferredRole);
+
+    const input = document.getElementById('userInput') as HTMLTextAreaElement | null;
+    if (!input) return;
+    input.value = [
+      '请使用可用的网页读取工具打开并读取下面这个 URL。',
+      '重点判断页面是否包含围棋棋谱；如果包含，请尽可能提取棋谱内容（SGF、主变化、分支和注释），并整理棋局双方、日期、结果等可获得的信息。',
+      '如果页面不是棋谱，也请说明页面主要内容；如果无法访问，请说明具体失败原因，不要编造读取结果。',
+      '',
+      rawUrl,
+    ].join('\\n');
+    this.autoResize(input);
+    // 未配置 / 凭据不可用时 handleSend 会保留输入并显示现有 notReady 提示。
+    await this.handleSend();
   }
 
   private async newSession(clearUI = true): Promise<void> {
