@@ -213,6 +213,9 @@ function resolveUrlEncodePlaceholder(
     if (!got.ok) return got;
     value = got.value;
   }
+  if (value === null || value === undefined || (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean')) {
+    return { ok: false, error: 'URL 编码占位符只接受字符串、数字或布尔值' };
+  }
   return { ok: true, value: encodeURIComponent(String(value)) };
 }
 
