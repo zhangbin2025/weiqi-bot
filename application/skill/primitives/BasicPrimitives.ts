@@ -1,6 +1,6 @@
 /**
  * 宿主通用 Workflow 原语：web_fetch、web_cache_read、navigate_to 与 display。
- * JSON / regex 等纯计算能力由 workflow-operator 沙箱插件提供，不进入宿主原语表。
+ * JSON / regex 是独立的宿主 Workflow 算子，不作为模型工具暴露，也不进入 QuickJS 插件沙箱。
  * @module application/skill/primitives/BasicPrimitives
  *
  * 网络请求复用既有 web_fetch 执行器；display 只负责通用数据展示，业务字段处理交给插件。
@@ -81,7 +81,7 @@ function toPrimitiveResult(r: {
 /**
  * 构造通用宿主原语：web_fetch + web_cache_read + navigate_to + display。
  * webDeps 由上层（接线方）注入，与 createWebToolKit 用的是同一份依赖。
- * JSON / regex 等纯计算算子由 workflow-operator 沙箱插件注册。
+ * JSON / regex 算子由 OperatorRegistry 的 hostOperators 注册。
  */
 export function createBasicPrimitives(webDeps: WebFetchToolDeps): SkillPrimitive[] {
   return [
