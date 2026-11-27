@@ -331,6 +331,8 @@ function readWorkflowSpec(raw: Record<string, unknown>): FieldResult<WorkflowSpe
         if (typeof conditionRaw['path'] !== 'string') {
           return { ok: false, reason: `${at} ifElse.condition.path 必须是字符串` };
         }
+        // 解析层不依赖 OperatorRegistry，无法静态推断 from/path 的输出类型；
+        // WorkflowRunner 会在执行时强制要求该引用值为 boolean。
         if (!Array.isArray(ifElseRaw['then']) || ifElseRaw['then'].length === 0) {
           return { ok: false, reason: `${at} ifElse.then 必须是非空数组` };
         }
