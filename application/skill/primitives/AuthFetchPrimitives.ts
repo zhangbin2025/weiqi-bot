@@ -225,9 +225,9 @@ export function createAuthFetchPrimitives(deps: AuthFetchPrimitivesDeps): SkillP
     {
       name: HTTP_FETCH_AUTH_TOOL_NAME,
       definition: HTTP_FETCH_AUTH_TOOL,
-      execute: async (argsJson): Promise<PrimitiveResult> => {
+      execute: async (args): Promise<PrimitiveResult> => {
         const args = (() => {
-          try { return JSON.parse(argsJson) as Record<string, unknown>; }
+          try { return args as Record<string, unknown>; }
           catch { return {} as Record<string, unknown>; }
         })();
         const secretKey = args['secretKey'];
@@ -447,9 +447,9 @@ function isPublishRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-function parseArgs(argsJson: string): Record<string, unknown> {
+function parseArgs(args: Record<string, unknown>): Record<string, unknown> {
   try {
-    const v = JSON.parse(argsJson) as unknown;
+    const v: unknown = args;
     return isPublishRecord(v) ? v : {};
   } catch {
     return {};
@@ -743,7 +743,7 @@ export function createPublishPrimitives(deps: PublishPrimitivesDeps): SkillPrimi
       name: ASSET_EXPORT_TOOL_NAME,
       definition: ASSET_EXPORT_TOOL,
       execute: async (argsJson): Promise<PrimitiveResult> => {
-        const args = parseArgs(argsJson);
+        const args = parseArgs(args);
         const kind = args['kind'];
         const id = args['id'];
         if ((kind !== 'skill' && kind !== 'plugin') || typeof id !== 'string' || !id.trim()) {
