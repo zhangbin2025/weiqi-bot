@@ -245,7 +245,7 @@ function readWorkflowSpec(raw: Record<string, unknown>): FieldResult<WorkflowSpe
       }
       if ((forEachRaw !== undefined || repeatRaw !== undefined || ifElseRaw !== undefined)
         && (item['args'] !== undefined || item['bindings'] !== undefined)) {
-        return { ok: false, reason: `${at} 循环控制节点不能声明 args 或 bindings` };
+        return { ok: false, reason: `${at} 控制结构节点不能声明 args 或 bindings` };
       }
       const modes = Number(typeof callRaw === 'string' && callRaw.trim().length > 0)
         + Number(forEachRaw !== undefined) + Number(repeatRaw !== undefined)
