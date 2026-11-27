@@ -38,6 +38,8 @@ interface WorkerSession {
   resolveReady: () => void;
   rejectReady: (error: Error) => void;
   readySettled: boolean;
+  /** Worker 被关闭后忽略迟到消息，避免旧 session 回调影响新 session。 */
+  closed: boolean;
   active?: ActiveRun;
 }
 
@@ -89,11 +91,12 @@ export class QuickJsRuntime implements IPluginRuntime {
     // ready 失败会由 runOne 消费；附加处理器避免初始化与销毁竞态产生未处理拒绝。
     void ready.catch(() => undefined);
     const session: WorkerSession = {
-      worker, ready, resolveReady, rejectReady, readySettled: false,
+      worker, ready, resolveReady, rejectReady, readySettled: false, closed: false,
     };
     this.session = session;
 
     worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
+      if (session.closed) return;
       const msg = event.data;
       if (!msg || typeof msg !== 'object') return;
       if (msg.type === 'ready') {
@@ -126,11 +129,13 @@ export class QuickJsRuntime implements IPluginRuntime {
       }
     };
     worker.onerror = (event: ErrorEvent) => {
+      if (session.closed) return;
       this.breakSession(session, makeFailure(
         'crash', event.message || 'Worker 运行异常', session.active?.started ?? started,
       ));
     };
     worker.onmessageerror = () => {
+      if (session.closed) return;
       this.breakSession(session, makeFailure(
         'crash', 'Worker 消息无法结构化克隆', session.active?.started ?? started,
       ));
@@ -194,14 +199,26 @@ export class QuickJsRuntime implements IPluginRuntime {
     });
   }
 
-  private breakSession(session: WorkerSession, failure: PluginRunResult): void {
+  /**
+   * 统一关闭 session：先标记 closed 并解绑事件，再终止 Worker。
+   * 这样即使浏览器队列里还有迟到的 message/error，也不会再次处理旧会话。
+   */
+  private closeSession(session: WorkerSession): void {
+    if (session.closed) return;
+    session.closed = true;
     if (this.session === session) this.session = null;
+    session.worker.onmessage = null;
+    session.worker.onerror = null;
+    session.worker.onmessageerror = null;
     try { session.worker.terminate(); } catch { /* 已终止 */ }
     if (!session.readySettled) {
       session.readySettled = true;
-      const message = failure.ok ? undefined : failure.error?.message;
-      session.rejectReady(new Error(message ?? '沙箱 Worker 已终止'));
+      session.rejectReady(new Error('沙箱 Worker 已终止'));
     }
+  }
+
+  private breakSession(session: WorkerSession, failure: PluginRunResult): void {
+    this.closeSession(session);
     const active = session.active;
     if (active) {
       clearTimeout(active.timer);
@@ -211,8 +228,7 @@ export class QuickJsRuntime implements IPluginRuntime {
   }
 
   private terminateSession(session: WorkerSession): void {
-    if (this.session === session) this.session = null;
-    try { session.worker.terminate(); } catch { /* 已终止 */ }
+    this.closeSession(session);
   }
 
   async dispose(): Promise<void> {
