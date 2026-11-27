@@ -39,6 +39,19 @@ export interface WebToolLoopRequest {
 
 export interface WebToolLoopResult extends ToolLoopResult {}
 
+function parseToolArgs(argsJson: string): Record<string, unknown> {
+  let value: unknown;
+  try { value = JSON.parse(argsJson) as unknown; } catch {
+    throw new Error('工具参数不是合法 JSON');
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('工具参数必须是 JSON 对象');
+  }
+  return value as Record<string, unknown>;
+}
+
+
+
 /** 工具表：唯一的扩展点，新增网络能力在这里登记 */
 export const WEB_TOOLS = [
   WEB_FETCH_TOOL,
@@ -53,7 +66,7 @@ export async function runWebToolLoop(
   req: WebToolLoopRequest,
 ): Promise<WebToolLoopResult> {
   const executors: Record<string, (argsJson: string) => Promise<ToolOutcome>> = {
-    [WEB_FETCH_TOOL_NAME]: (args) => executeWebFetch(args, deps.toolDeps),
+    [WEB_FETCH_TOOL_NAME]: (args) => executeWebFetch(parseToolArgs(args), deps.toolDeps),
     [WEB_CACHE_READ_TOOL_NAME]: (args) => Promise.resolve(executeWebCacheRead(args, deps.toolDeps.cache)),
     [WEB_READ_PDF_TOOL_NAME]: (args) => executeWebReadPdf(args, deps.toolDeps),
     [WEB_READ_IMAGE_TOOL_NAME]: (args) => executeWebReadImage(args, deps.toolDeps),
@@ -77,7 +90,7 @@ export function createWebToolKit(toolDeps: WebFetchToolDeps): ToolKit {
   return {
     tools: [...WEB_TOOLS],
     executors: {
-      [WEB_FETCH_TOOL_NAME]: (args) => executeWebFetch(args, toolDeps),
+      [WEB_FETCH_TOOL_NAME]: (args) => executeWebFetch(parseToolArgs(args), toolDeps),
       [WEB_CACHE_READ_TOOL_NAME]: (args) => Promise.resolve(executeWebCacheRead(args, toolDeps.cache)),
       [WEB_READ_PDF_TOOL_NAME]: (args) => executeWebReadPdf(args, toolDeps),
       [WEB_READ_IMAGE_TOOL_NAME]: (args) => executeWebReadImage(args, toolDeps),
