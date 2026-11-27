@@ -857,7 +857,7 @@ describe('buildWorkflowToolParts — returnToLLM 开关（B2 宿主缓存读全�
     expect(badJson.preparatory).toBe(true);
   });
 
-  it('⑨ 真实 85KB 级 value：能在 16 次 model call 预算内读全（片数只打印、不作断言上限）', async () => {
+  it('⑨ 真实 85KB 级 value：能在默认 100 次 model call guard 内读全（片数只打印、不作断言上限）', async () => {
     // 构造契约「已实测事实」里的真实规模（85,323 字符）离线数据，不联网、不改任何默认业务参数。
     const targetChars = 85_323;
     const body = '弈'.repeat(targetChars);
@@ -896,7 +896,7 @@ describe('buildWorkflowToolParts — returnToLLM 开关（B2 宿主缓存读全�
       if (r.observation.includes('已到正文末尾')) break;
     }
     expect(joined).toBe(fullText);
-    // ToolLoop 既有 guard：maxTurns=4、maxModelCalls=16；分页读取是同一轮内的
+    // ToolLoop 默认 guard：maxTurns=10、maxModelCalls=100；分页读取是同一轮内的
     // preparatory 延续，片数是数据规模的自然结果，不作断言上限，只作回执打印。
     const modelCalls = 1 + 1 + reads; // run_workflow + info + slice×N（含驱动分析的那轮由外层 loop 计）
     console.info(`[workflow_result_read] 85KB 级读全 ${fullText.length} 字符：slice ${reads} 片，参考 model calls ${modelCalls}`);
