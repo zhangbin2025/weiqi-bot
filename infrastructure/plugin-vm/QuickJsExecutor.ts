@@ -54,8 +54,12 @@ function toPluginError(dumped: unknown, fallback: string): PluginError {
 
 /** 判断诊断是否属于某类资源失败 */
 function classifyPhase(error: PluginError): 'oom' | 'timeout' | 'runtime' | 'compile' {
-  if (error.name === 'InternalError' && /out of memory/i.test(error.message)) return 'oom';
-  if (error.name === 'InternalError' && /interrupted/i.test(error.message)) return 'timeout';
+  // QuickJS 的错误名会随触发点不同（InternalError / Error）变化；
+  // 用资源耗尽语义分类，而不是把回收策略绑死在某一个异常类名上。
+  if (/out of memory|allocation failed|cannot allocate memory|memory limit exceeded/i.test(error.message)) {
+    return 'oom';
+  }
+  if (/interrupted|execution timed out/i.test(error.message)) return 'timeout';
   return 'runtime';
 }
 
