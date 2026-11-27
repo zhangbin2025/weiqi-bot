@@ -95,15 +95,33 @@ export class PluginCatalogClient {
       origin: parsed['origin'] === 'llm' ? 'llm' : 'manual',
       intent: requireString(parsed, 'intent'),
     };
-    // workflow-operator 的可选算子契约字段：宽松解析，逐条校验由 validate.mjs 在发布侧把关，
-    // 宿主侧使用时再逐项检查；未知字段一律不进类型。
+    // workflow-operator 的算子契约必须完整。旧 exposes[].params 格式不再读取：
+    // 这次契约升级是单版本边界，旧资源需在资源仓库按新字段重新发布，不能静默降级成空 Schema。
     const exposures = parsed['exposes'];
-    if (Array.isArray(exposures)) {
-      manifest.exposes = exposures.filter(isRecord).map((e) => ({
-        name: typeof e['name'] === 'string' ? e['name'] : '',
-        description: typeof e['description'] === 'string' ? e['description'] : '',
-        params: isRecord(e['params']) ? e['params'] : {},
-      }));
+    if (exposures !== undefined) {
+      if (!Array.isArray(exposures)) throw new Error('plugin.json.exposes 必须是数组');
+      manifest.exposes = exposures.map((raw, index) => {
+        if (!isRecord(raw)) throw new Error(`exposes[${index}] 必须是对象`);
+        const inputSchema = raw['inputSchema'];
+        const outputSchema = raw['outputSchema'];
+        const kind = raw['kind'];
+        if (!isRecord(inputSchema) || !isRecord(outputSchema)
+          || (kind !== 'pure' && kind !== 'io' && kind !== 'effect')
+          || typeof raw['idempotent'] !== 'boolean') {
+          const legacy = Object.prototype.hasOwnProperty.call(raw, 'params');
+          throw new Error(legacy
+            ? '旧 exposes[].params 契约已停止支持；请重新发布并声明 inputSchema、outputSchema、kind、idempotent'
+            : `exposes[${index}] 缺少 inputSchema、outputSchema、kind 或 idempotent`);
+        }
+        return {
+          name: typeof raw['name'] === 'string' ? raw['name'] : '',
+          description: typeof raw['description'] === 'string' ? raw['description'] : '',
+          inputSchema,
+          outputSchema,
+          kind,
+          idempotent: raw['idempotent'],
+        };
+      });
     }
     const smoke = parsed['smoke'];
     if (Array.isArray(smoke)) {
