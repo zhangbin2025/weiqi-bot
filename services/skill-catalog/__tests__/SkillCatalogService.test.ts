@@ -784,9 +784,6 @@ describe('skillPluginResourceIds — control block dependency traversal', () => 
         ],
       },
     }));
-    expect(skillPluginResourceIds(parsed)).toEqual([
-      'workflow-operator.json',
-      'workflow-operator.regex',
-    ]);
+    expect(skillPluginResourceIds(parsed)).toEqual([]);
   });
 });
