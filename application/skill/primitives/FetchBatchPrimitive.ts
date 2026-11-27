@@ -9,7 +9,11 @@ import type { SkillPrimitive, PrimitiveResult } from '@application/skill/SkillTy
 import { executeWebFetch, type WebFetchToolDeps } from '@application/chat/WebFetchTool';
 
 export const FETCH_BATCH_TOOL_NAME = 'fetch_batch';
+// 宿主安全策略：每次调用最多 50 个 URL，限制单次模型调用的请求扇出与结果体积；
+// 这是产品级硬上限，不是从站点分页协议推导出的业务值，超出时由 Schema 拒绝。
 const MAX_BATCH_SIZE = 50;
+// 宿主资源策略：最多 4 个同时进行的网络请求，避免一个技能占满浏览器连接与远端服务；
+// 该值只限制并发，不改变批次大小或结果顺序。
 const MAX_CONCURRENCY = 4;
 
 export const FETCH_BATCH_TOOL: ModelToolDefinition = {
