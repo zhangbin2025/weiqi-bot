@@ -148,6 +148,25 @@ describe('createOperatorRegistry：结构化参数与 Schema 边界', () => {
     expect(failure.message).not.toContain('输出校验失败');
   });
 
+  it('部分失败但携带符合 Schema 的 value 时保留结果供下游处理', async () => {
+    const primitive: SkillPrimitive = {
+      name: 'partial_batch',
+      definition: { name: 'partial_batch', description: 'partial', parameters: { type: 'object' } },
+      idempotent: true,
+      kind: 'io',
+      outputSchema: { type: 'array', items: { type: 'object' } },
+      execute: async () => ({
+        observation: 'fetch_batch：2 项成功，1 项失败。',
+        ok: false,
+        detail: '部分请求失败',
+        value: [{ ok: true }, { ok: false }],
+      }),
+    };
+    const registry = await createOperatorRegistry(deps([], fakeRuntime(), [primitive]));
+    const result = await registry.run('partial_batch', {});
+    expect(result.value).toEqual([{ ok: true }, { ok: false }]);
+  });
+
   it('算子输出不符合 Schema 时拒绝结果', async () => {
     const primitive: SkillPrimitive = {
       name: 'string_output',
