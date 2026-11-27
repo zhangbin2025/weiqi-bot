@@ -296,3 +296,6 @@ export function createDisplayJsonListPrimitive(): SkillPrimitive {
     },
   };
 }
+      idempotent: true,
+      outputSchema: { type: 'null' },
+      kind: 'effect',
