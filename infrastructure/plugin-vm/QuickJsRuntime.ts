@@ -112,9 +112,12 @@ export class QuickJsRuntime implements IPluginRuntime {
         if (!active) return;
         clearTimeout(active.timer);
         delete session.active;
-        // crash / timeout / oom 可能意味着 QuickJS/WASM 状态已不可信，必须回收 Worker。
+        // crash / timeout / oom / 栈溢出可能意味着 QuickJS/WASM 状态已不可信，必须回收 Worker。
+        const runtimeError = `${msg.result.error?.name ?? ''} ${msg.result.error?.message ?? ''}`;
+        const unsafeRuntimeState = /stack overflow|maximum call stack|out of memory|memory access out of bounds/i.test(runtimeError);
         if (!msg.result.ok && (
-          msg.result.phase === 'crash' || msg.result.phase === 'timeout' || msg.result.phase === 'oom'
+          msg.result.phase === 'crash' || msg.result.phase === 'timeout'
+          || msg.result.phase === 'oom' || unsafeRuntimeState
         )) {
           this.terminateSession(session);
         }
