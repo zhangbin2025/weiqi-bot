@@ -113,7 +113,8 @@ export class QuickJsRuntime implements IPluginRuntime {
         clearTimeout(active.timer);
         delete session.active;
         // crash / timeout / oom / 栈溢出可能意味着 QuickJS/WASM 状态已不可信，必须回收 Worker。
-        const runtimeError = `${msg.result.error?.name ?? ''} ${msg.result.error?.message ?? ''}`;
+        const failure = msg.result.ok ? undefined : msg.result;
+        const runtimeError = `${failure?.error?.name ?? ''} ${failure?.error?.message ?? ''}`;
         const unsafeRuntimeState = /stack overflow|maximum call stack|out of memory|memory access out of bounds/i.test(runtimeError);
         if (!msg.result.ok && (
           msg.result.phase === 'crash' || msg.result.phase === 'timeout'
@@ -198,7 +199,8 @@ export class QuickJsRuntime implements IPluginRuntime {
     try { session.worker.terminate(); } catch { /* 已终止 */ }
     if (!session.readySettled) {
       session.readySettled = true;
-      session.rejectReady(new Error(failure.error?.message ?? '沙箱 Worker 已终止'));
+      const message = failure.ok ? undefined : failure.error?.message;
+      session.rejectReady(new Error(message ?? '沙箱 Worker 已终止'));
     }
     const active = session.active;
     if (active) {
