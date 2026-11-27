@@ -2,7 +2,7 @@ import type { OperatorJsonSchema } from '@domain/plugin/types';
 
 const KEYWORDS = new Set([
   'type', 'properties', 'required', 'items', 'enum', 'additionalProperties',
-  'description', 'minLength', 'maxLength', 'minimum', 'maximum',
+  'description', 'minLength', 'maxLength', 'minItems', 'maxItems', 'minimum', 'maximum', 'pattern',
 ]);
 const TYPES = new Set(['object', 'array', 'string', 'number', 'integer', 'boolean', 'null']);
 
@@ -38,7 +38,7 @@ export function validateSchemaDefinition(schema: OperatorJsonSchema, path = '$sc
   if (schema['enum'] !== undefined && !Array.isArray(schema['enum'])) {
     throw new Error(`JSON Schema enum 必须是数组：${path}`);
   }
-  for (const key of ['minLength', 'maxLength', 'minimum', 'maximum'] as const) {
+  for (const key of ['minLength', 'maxLength', 'minItems', 'maxItems', 'minimum', 'maximum'] as const) {
     const value = schema[key];
     if (value !== undefined && (typeof value !== 'number' || !Number.isFinite(value))) {
       throw new Error(`JSON Schema ${key} 必须是有限数字：${path}`);
@@ -67,6 +67,8 @@ export function validateSchemaValue(schema: OperatorJsonSchema, value: unknown, 
     return `${path} 不在允许的 enum 中`;
   }
   if (typeof value === 'string') {
+    const pattern = schema['pattern'];
+    if (typeof pattern === 'string' && !new RegExp(pattern).test(value)) return `${path} 不符合 pattern`;
     const min = schema['minLength'];
     const max = schema['maxLength'];
     if (typeof min === 'number' && value.length < min) return `${path} 长度小于 minLength ${min}`;
@@ -77,6 +79,12 @@ export function validateSchemaValue(schema: OperatorJsonSchema, value: unknown, 
     const max = schema['maximum'];
     if (typeof min === 'number' && value < min) return `${path} 小于 minimum ${min}`;
     if (typeof max === 'number' && value > max) return `${path} 大于 maximum ${max}`;
+  }
+  if (Array.isArray(value)) {
+    const min = schema['minItems'];
+    const max = schema['maxItems'];
+    if (typeof min === 'number' && value.length < min) return `${path} 项数小于 minItems ${min}`;
+    if (typeof max === 'number' && value.length > max) return `${path} 项数大于 maxItems ${max}`;
   }
   if (Array.isArray(value) && schema['items'] && typeof schema['items'] === 'object') {
     for (let i = 0; i < value.length; i++) {
