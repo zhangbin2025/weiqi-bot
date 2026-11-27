@@ -84,7 +84,7 @@ describe('executeWebFetch 缓存行为', () => {
       headers: new Headers({ 'content-type': 'application/pdf' }),
       text: async () => '%PDF-1.4',
     })) as unknown as typeof fetch;
-    const r = await executeWebFetch({ url: URL_ }), d);
+    const r = await executeWebFetch({ url: URL_ }, d);
     expect(r.ok).toBe(false);
     expect(r.observation).toContain('二进制内容');
     expect(cache.get(URL_)).toBeUndefined();
@@ -120,7 +120,8 @@ describe('web_cache_read：slice', () => {
 
   it('显式 length 超预算时按上限收口，footer 提示仍完整', async () => {
     const cache = await fetchInto('A'.repeat(5000));
-    const r = executeWebCacheRead({ url: URL_, mode: 'slice', length: 99999 }), cache,
+    const r = executeWebCacheRead(
+      { url: URL_, mode: 'slice', length: 99999 }, cache,
     );
     expect(r.ok).toBe(true);
     expect(r.observation.length).toBeLessThanOrEqual(BUDGET);
@@ -129,7 +130,7 @@ describe('web_cache_read：slice', () => {
 
   it('短正文 / 空正文不产生负长度或空 footer', async () => {
     const cache = await fetchInto('');
-    const r = executeWebCacheRead(JSON.stringify({ url: URL_, mode: 'slice' }, cache);
+    const r = executeWebCacheRead({ url: URL_, mode: 'slice' }, cache);
     expect(r.observation.length).toBeLessThanOrEqual(BUDGET);
     // observation 与 detail 是两段不同文本：前者给模型看（明确指路减小 offset），
     // 后者是回执。原断言把 detail 里的措辞误安到 observation 上，这里两头都锁。
@@ -141,7 +142,8 @@ describe('web_cache_read：slice', () => {
 describe('web_cache_read：grep / info / 参数', () => {
   it('grep 逐行匹配并带上下文、count 只回计数', async () => {
     const cache = await fetchInto('alpha\nbeta 2027\ngamma\nbeta 2028\n');
-    const g = executeWebCacheRead({ url: URL_, mode: 'grep', pattern: 'beta', before: 1, after: 1 }), cache,
+    const g = executeWebCacheRead(
+      { url: URL_, mode: 'grep', pattern: 'beta', before: 1, after: 1 }, cache,
     );
     expect(g.ok).toBe(true);
     expect(g.observation.length).toBeLessThanOrEqual(BUDGET);
@@ -149,7 +151,7 @@ describe('web_cache_read：grep / info / 参数', () => {
     expect(g.observation).toContain('beta 2028');
     expect(g.detail).toContain('命中 2 行');
     const c = executeWebCacheRead(
-      JSON.stringify({ url: URL_, mode: 'grep', pattern: 'beta', count: true }), cache,
+      { url: URL_, mode: 'grep', pattern: 'beta', count: true }, cache,
     );
     expect(c.observation).toContain('命中 2 行');
     expect(c.observation).not.toContain('>');
@@ -158,7 +160,7 @@ describe('web_cache_read：grep / info / 参数', () => {
   it('命中行装不进预算时明确判失败并指路 slice，不静默丢数据', async () => {
     const cache = await fetchInto(`head\n${'X'.repeat(BUDGET * 2)}\ntail\n`);
     const g = executeWebCacheRead(
-      JSON.stringify({ url: URL_, mode: 'grep', pattern: '^X+$', before: 2, after: 2 }), cache,
+      { url: URL_, mode: 'grep', pattern: '^X+$', before: 2, after: 2 }, cache,
     );
     expect(g.ok).toBe(false);
     expect(g.observation).toContain('mode=slice');
@@ -166,9 +168,10 @@ describe('web_cache_read：grep / info / 参数', () => {
 
   it('info 回元信息；未缓存 URL 给出明确提示', async () => {
     const cache = await fetchInto('abc');
-    const i = executeWebCacheRead(JSON.stringify({ url: URL_, mode: 'info' }, cache);
+    const i = executeWebCacheRead({ url: URL_, mode: 'info' }, cache);
     expect(i.observation).toContain('3 字符');
-    const miss = executeWebCacheRead({ url: 'https://example.com/other', mode: 'info' }), cache,
+    const miss = executeWebCacheRead(
+      { url: 'https://example.com/other', mode: 'info' }, cache,
     );
     expect(miss.ok).toBe(false);
     expect(miss.observation).toContain('请先调用 web_fetch');
@@ -186,7 +189,7 @@ describe('web_cache_read：grep / info / 参数', () => {
       [{ url: URL_, mode: 'wat' }, 'mode'],
     ];
     for (const [args, keyword] of cases) {
-      const r = executeWebCacheRead(JSON.stringify(args, cache);
+      const r = executeWebCacheRead(args, cache);
       expect(r.ok, JSON.stringify(args)).toBe(false);
       expect(r.observation, JSON.stringify(args)).toContain(keyword);
     }
@@ -195,7 +198,7 @@ describe('web_cache_read：grep / info / 参数', () => {
   it('URL 规范化：尾部斜杠差异仍能命中同一份缓存', async () => {
     const cache = createMemoryWebFetchCache();
     await executeWebFetch(
-      JSON.stringify({ url: 'https://example.com' }, deps('abc', cache),
+      { url: 'https://example.com' }, deps('abc', cache),
     );
     const key = cache.keys()[0]!;
     const r = executeWebCacheRead({ url: 'https://example.com/', mode: 'info' }, cache);
@@ -253,7 +256,7 @@ describe('续读 offset 回归', () => {
     expect(offset).toBe(preview);
     expect(offset).toBeGreaterThan(0);
     const first = executeWebCacheRead(
-      JSON.stringify({ url: URL_, mode: 'slice', offset }), cache,
+      { url: URL_, mode: 'slice', offset }, cache,
     );
     expect(first.observation).toContain(`本段起点 ${offset}`);
   });
