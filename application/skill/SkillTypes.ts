@@ -134,7 +134,7 @@ export interface WorkflowInput {
   enum?: unknown[];
 }
 
-/** Workflow 声明：普通 steps 顺序即拓扑序；循环体拥有受限局部作用域。 */
+/** Workflow 声明：普通 steps 顺序即拓扑序；控制结构拥有受限局部作用域。 */
 export interface WorkflowSpec { steps: WorkflowStep[]; }
 
 /** 一条技能 = 纯 JSON 配方，只引用宿主原语，不含任何可执行代码 */
