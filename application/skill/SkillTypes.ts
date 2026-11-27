@@ -21,10 +21,10 @@ export interface SkillPrimitive {
    * 算子是否幂等；kv_write / secret_prompt 等非幂等原语显式标 false，
    * 缺省由 OperatorRegistry 按 true 处理（纯计算默认幂等，明说约定不是拟合数值）。
    */
-  idempotent?: boolean;
-  /** workflow 出参契约；未声明时以空 Schema 表示任意 JSON value。 */
-  outputSchema?: OperatorJsonSchema;
-  kind?: OperatorKind;
+  idempotent: boolean;
+  /** 算子输出契约；空 Schema 表示任意 JSON value。 */
+  outputSchema: OperatorJsonSchema;
+  kind: OperatorKind;
   /** 原生结构化参数；模型工具入口在边界解析 JSON，Workflow 直接传对象。 */
   execute(args: Record<string, unknown>): Promise<PrimitiveResult>;
 }
