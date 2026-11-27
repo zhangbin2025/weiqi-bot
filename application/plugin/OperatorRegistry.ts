@@ -69,9 +69,12 @@ function primitiveToOperatorSpec(p: SkillPrimitive): OperatorSpec {
     kind: p.kind,
     run: async (args: Record<string, unknown>): Promise<StepResult> => {
       const r: PrimitiveResult = await p.execute(args);
-      // 失败结果没有可供连线的 value。先把原语结构化观察交给 WorkflowRunner 的失败通道，
-      // 不要把 undefined 归一成 null 后误报为 outputSchema 类型错误。
-      if (!r.ok) throw new Error(r.observation || r.detail || `算子 ${p.name} 执行失败`);
+      // 没有 value 的失败先走 WorkflowRunner 结构化失败通道，避免 undefined 被归一为
+      // null 后误报 outputSchema 错误。若失败仍携带合法 value（如 fetch_batch 部分成功），
+      // 保留该结果供下游按每项 ok/detail 自行处理。
+      if (!r.ok && r.value === undefined) {
+        throw new Error(r.observation || r.detail || `算子 ${p.name} 执行失败`);
+      }
       const effects: NonNullable<StepResult['effects']> = [];
       if (r.displayMarkdown) effects.push({ displayMarkdown: r.displayMarkdown });
       if (r.actionLink) effects.push({ actionLink: r.actionLink.url });
