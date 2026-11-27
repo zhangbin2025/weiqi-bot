@@ -191,12 +191,6 @@ export function createKvPrimitives(service: KvServiceLike): SkillPrimitive[] {
       name: definition.name,
       definition,
       execute: async (args: Record<string, unknown>): Promise<PrimitiveResult> => {
-        let args: Record<string, unknown>;
-        try {
-          args = args;
-        } catch {
-          return { observation: 'kv：入参不是合法 JSON', ok: false, detail: '入参非法' };
-        }
         return toPrimitive(await service.execute(capability, args));
       },
     });
