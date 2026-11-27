@@ -149,10 +149,10 @@ interface ParsedArgs {
   hasReplacement: boolean;
 }
 
-function parseArgs(argsJson: string, fallbackFlags: string): { ok: true; value: ParsedArgs } | { ok: false; error: string } {
+function parseArgs(args: Record<string, unknown>, fallbackFlags: string): { ok: true; value: ParsedArgs } | { ok: false; error: string } {
   let raw: unknown;
   try {
-    raw = JSON.parse(argsJson);
+    raw = args;
   } catch {
     return { ok: false, error: '参数不是合法 JSON' };
   }
@@ -232,11 +232,11 @@ function buildRegExp(pattern: string, flags: string): RegExp {
 function runPrimitive(
   toolName: string,
   fallbackFlags: string,
-  argsJson: string,
+  args: Record<string, unknown>,
   compute: (a: ParsedArgs) => { value: unknown; summary: string },
   requireReplacement = false,
 ): PrimitiveResult {
-  const parsed = parseArgs(argsJson, fallbackFlags);
+  const parsed = parseArgs(args, fallbackFlags);
   if (!parsed.ok) return fail(toolName, parsed.error);
   if (requireReplacement && !parsed.value.hasReplacement) {
     return fail(toolName, 'replacement 必填（不能省略，空串须显式传）');
@@ -263,8 +263,8 @@ export function createRegexMatchPrimitive(): SkillPrimitive {
     name: REGEX_MATCH_TOOL_NAME,
     definition: REGEX_MATCH_TOOL,
     idempotent: true,
-    execute: async (argsJson: string): Promise<PrimitiveResult> => runPrimitive(
-      REGEX_MATCH_TOOL_NAME, '', argsJson,
+    execute: async (args: Record<string, unknown>): Promise<PrimitiveResult> => runPrimitive(
+      REGEX_MATCH_TOOL_NAME, '', args,
       (a) => {
         if (a.flags.includes('g') || a.flags.includes('y')) {
           throw new Error('regex_match 只做单次匹配，flags 不能含 g / y（请用 regex_extract 取全部命中）');
@@ -297,8 +297,8 @@ export function createRegexExtractPrimitive(): SkillPrimitive {
     name: REGEX_EXTRACT_TOOL_NAME,
     definition: REGEX_EXTRACT_TOOL,
     idempotent: true,
-    execute: async (argsJson: string): Promise<PrimitiveResult> => runPrimitive(
-      REGEX_EXTRACT_TOOL_NAME, 'g', argsJson,
+    execute: async (args: Record<string, unknown>): Promise<PrimitiveResult> => runPrimitive(
+      REGEX_EXTRACT_TOOL_NAME, 'g', args,
       (a) => {
         // 不含 g 自动补：exec 循环需要 lastIndex 推进，否则原地死循环。
         // 这是循环语义需要，不是对调用方 flags 的篡改（显式传的其余标志原样保留）。
@@ -332,8 +332,8 @@ export function createRegexReplacePrimitive(): SkillPrimitive {
     name: REGEX_REPLACE_TOOL_NAME,
     definition: REGEX_REPLACE_TOOL,
     idempotent: true,
-    execute: async (argsJson: string): Promise<PrimitiveResult> => runPrimitive(
-      REGEX_REPLACE_TOOL_NAME, 'g', argsJson,
+    execute: async (args: Record<string, unknown>): Promise<PrimitiveResult> => runPrimitive(
+      REGEX_REPLACE_TOOL_NAME, 'g', args,
       (a) => {
         const re = buildRegExp(a.pattern, a.flags);
         const value = a.text.replace(re, a.replacement);
