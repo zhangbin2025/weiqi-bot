@@ -100,7 +100,7 @@ export async function createOperatorRegistry(deps: OperatorRegistryDeps): Promis
 
   for (const spec of map.values()) {
     validateSchemaDefinition(spec.inputSchema, `${spec.name}.inputSchema`);
-    if (spec.inputSchema.type !== 'object') throw new Error(`${spec.name}.inputSchema 根类型必须是 object`);
+    if (spec.inputSchema['type'] !== 'object') throw new Error(`${spec.name}.inputSchema 根类型必须是 object`);
     validateSchemaDefinition(spec.outputSchema, `${spec.name}.outputSchema`);
   }
 
@@ -126,7 +126,7 @@ export async function createOperatorRegistry(deps: OperatorRegistryDeps): Promis
     for (const op of adapted) {
       try {
         validateSchemaDefinition(op.inputSchema, `${op.name}.inputSchema`);
-        if (op.inputSchema.type !== 'object') continue;
+        if (op.inputSchema['type'] !== 'object') continue;
         validateSchemaDefinition(op.outputSchema, `${op.name}.outputSchema`);
       } catch {
         continue;
