@@ -231,7 +231,7 @@ describe('可配置轮数持久化', () => {
     savePluginMaxAttempts(7);
     expect(loadPluginMaxAttempts()).toBe(7);
     resetPluginMaxAttemptsForTest();
-    expect(loadPluginMaxAttempts()).toBe(3);
+    expect(loadPluginMaxAttempts()).toBe(DEFAULT_PLUGIN_MAX_ATTEMPTS);
   });
 
   it('localStorage 被污染时回落默认值', () => {
@@ -251,7 +251,7 @@ describe('可配置轮数持久化', () => {
       stub.setItem('weiqi.plugin.maxAttempts', 'abc');
       expect(loadPluginMaxAttempts()).toBe(DEFAULT_PLUGIN_MAX_ATTEMPTS);
       stub.setItem('weiqi.plugin.maxAttempts', '99');
-      expect(loadPluginMaxAttempts()).toBe(10);
+      expect(loadPluginMaxAttempts()).toBe(MAX_PLUGIN_MAX_ATTEMPTS);
       stub.setItem('weiqi.plugin.maxAttempts', '0');
       expect(loadPluginMaxAttempts()).toBe(MIN_PLUGIN_MAX_ATTEMPTS);
     } finally {
