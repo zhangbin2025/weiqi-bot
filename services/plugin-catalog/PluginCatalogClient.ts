@@ -20,6 +20,22 @@ export interface PluginCatalogClientDeps {
 }
 
 /** 一条清单里能安全解析出的资源条目（附带已验证的 manifest 绝对 URL） */
+/** 远端 JSON / manifest 结构违反资源契约，与网络不可达明确区分。 */
+export class PluginCatalogContractError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PluginCatalogContractError';
+  }
+}
+
+function parseCatalogJson(text: string, label: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw new PluginCatalogContractError(`${label} 不是合法 JSON`);
+  }
+}
+
 export interface ParsedRegistryResource {
   resource: RegistryResource;
   manifestUrl: string;
@@ -50,13 +66,13 @@ export class PluginCatalogClient {
   async fetchRegistry(registryUrl: string, noStore = false): Promise<ParsedRegistry> {
     const safeUrl = validateRegistryUrl(registryUrl);
     const text = await this.getText(safeUrl, noStore);
-    const parsed: unknown = JSON.parse(text);
-    if (!isRecord(parsed)) throw new Error('registry.json 不是对象');
+    const parsed: unknown = parseCatalogJson(text, 'registry.json');
+    if (!isRecord(parsed)) throw new PluginCatalogContractError('registry.json 不是对象');
     if (parsed['schemaVersion'] !== 1) {
-      throw new Error(`不认识的 schemaVersion：${String(parsed['schemaVersion'])}（宿主只支持 1）`);
+      throw new PluginCatalogContractError(`不认识的 schemaVersion：${String(parsed['schemaVersion'])}（宿主只支持 1）`);
     }
     const rawResources = parsed['resources'];
-    if (!Array.isArray(rawResources)) throw new Error('registry.json.resources 必须是数组');
+    if (!Array.isArray(rawResources)) throw new PluginCatalogContractError('registry.json.resources 必须是数组');
 
     const base = resolveBaseUrl(safeUrl, parsed['baseUrl']);
     const resources: ParsedRegistryResource[] = [];
@@ -81,8 +97,8 @@ export class PluginCatalogClient {
     noStore = false,
   ): Promise<{ manifest: PluginManifest; codeUrl: string }> {
     const text = await this.getText(item.manifestUrl, noStore);
-    const parsed: unknown = JSON.parse(text);
-    if (!isRecord(parsed)) throw new Error('plugin.json 不是对象');
+    const parsed: unknown = parseCatalogJson(text, 'plugin.json');
+    if (!isRecord(parsed)) throw new PluginCatalogContractError('plugin.json 不是对象');
 
     const manifest: PluginManifest = {
       id: requireString(parsed, 'id'),
@@ -95,15 +111,34 @@ export class PluginCatalogClient {
       origin: parsed['origin'] === 'llm' ? 'llm' : 'manual',
       intent: requireString(parsed, 'intent'),
     };
-    // workflow-operator 的可选算子契约字段：宽松解析，逐条校验由 validate.mjs 在发布侧把关，
-    // 宿主侧使用时再逐项检查；未知字段一律不进类型。
+    // workflow-operator 的算子契约必须完整。旧 exposes[].params 格式不再读取：
+    // 这次契约升级是单版本边界，旧资源需在资源仓库按新字段重新发布，不能静默降级成空 Schema。
     const exposures = parsed['exposes'];
-    if (Array.isArray(exposures)) {
-      manifest.exposes = exposures.filter(isRecord).map((e) => ({
-        name: typeof e['name'] === 'string' ? e['name'] : '',
-        description: typeof e['description'] === 'string' ? e['description'] : '',
-        params: isRecord(e['params']) ? e['params'] : {},
-      }));
+    if (exposures !== undefined) {
+      if (!Array.isArray(exposures)) throw new PluginCatalogContractError('plugin.json.exposes 必须是数组');
+      manifest.exposes = exposures.map((raw, index) => {
+        if (!isRecord(raw)) throw new PluginCatalogContractError(`exposes[${index}] 必须是对象`);
+        const inputSchema = raw['inputSchema'];
+        const outputSchema = raw['outputSchema'];
+        const kind = raw['kind'];
+        const idempotent = raw['idempotent'];
+        if (!isRecord(inputSchema) || !isRecord(outputSchema)
+          || (kind !== 'pure' && kind !== 'io' && kind !== 'effect')
+          || typeof idempotent !== 'boolean') {
+          const legacy = Object.prototype.hasOwnProperty.call(raw, 'params');
+          throw new PluginCatalogContractError(legacy
+            ? '旧 exposes[].params 契约已停止支持；请重新发布并声明 inputSchema、outputSchema、kind、idempotent'
+            : `exposes[${index}] 缺少 inputSchema、outputSchema、kind 或 idempotent`);
+        }
+        return {
+          name: typeof raw['name'] === 'string' ? raw['name'] : '',
+          description: typeof raw['description'] === 'string' ? raw['description'] : '',
+          inputSchema,
+          outputSchema,
+          kind,
+          idempotent,
+        };
+      });
     }
     const smoke = parsed['smoke'];
     if (Array.isArray(smoke)) {
@@ -117,15 +152,15 @@ export class PluginCatalogClient {
       });
     }
     if (typeof parsed['category'] === 'string') manifest.category = parsed['category'];
-    if (manifest.type !== 'plugin') throw new Error('type 不是 plugin');
+    if (manifest.type !== 'plugin') throw new PluginCatalogContractError('type 不是 plugin');
     if (item.resource.id !== undefined && manifest.id !== item.resource.id) {
-      throw new Error('manifest.id 与 registry 条目不一致');
+      throw new PluginCatalogContractError('manifest.id 与 registry 条目不一致');
     }
     if (item.resource.pointId !== undefined && manifest.pointId !== item.resource.pointId) {
-      throw new Error('manifest.pointId 与 registry 条目不一致');
+      throw new PluginCatalogContractError('manifest.pointId 与 registry 条目不一致');
     }
     if (item.resource.specVersion !== undefined && manifest.specVersion !== item.resource.specVersion) {
-      throw new Error('manifest.specVersion 与 registry 条目不一致');
+      throw new PluginCatalogContractError('manifest.specVersion 与 registry 条目不一致');
     }
 
     const codeUrl = resolveSameOrigin(manifest.code, item.baseUrl, item.manifestUrl);
@@ -154,14 +189,14 @@ export function isRecord(v: unknown): v is Record<string, unknown> {
 
 function requireString(obj: Record<string, unknown>, key: string): string {
   const v = obj[key];
-  if (typeof v !== 'string' || !v.trim()) throw new Error(`缺少字段 ${key}`);
+  if (typeof v !== 'string' || !v.trim()) throw new PluginCatalogContractError(`缺少字段 ${key}`);
   return v;
 }
 
 function requireInteger(obj: Record<string, unknown>, key: string): number {
   const v = obj[key];
   if (typeof v !== 'number' || !Number.isInteger(v) || v < 1) {
-    throw new Error(`字段 ${key} 必须是 >=1 的整数`);
+    throw new PluginCatalogContractError(`字段 ${key} 必须是 >=1 的整数`);
   }
   return v;
 }
@@ -196,7 +231,7 @@ export function resolveBaseUrl(registryUrl: string, rawBaseUrl: unknown): string
   }
   const origin = new URL(registryUrl).origin;
   if (candidate.origin !== origin) {
-    throw new Error('registry.baseUrl 与清单不同源，拒绝拼接');
+    throw new PluginCatalogContractError('registry.baseUrl 与清单不同源，拒绝拼接');
   }
   // 规范化为带尾斜杠的目录 URL，new URL(rel, base) 才不会丢掉最后一段
   if (!candidate.pathname.endsWith('/')) candidate.pathname += '/';
@@ -209,21 +244,21 @@ export function resolveBaseUrl(registryUrl: string, rawBaseUrl: unknown): string
  */
 export function resolveSameOrigin(rel: string, base: string, anchorUrl: string): string {
   if (rel.startsWith('/') || rel.includes('\\')) {
-    throw new Error(`路径不是仓库内相对路径：${rel}`);
+    throw new PluginCatalogContractError(`路径不是仓库内相对路径：${rel}`);
   }
   // 与 weiqi-assets/scripts/validate.mjs 的 safePath 同源：路径段里出现 ..
   // 一律拒（即使 new URL 解析后仍在同一 origin，也可能跳出资源目录读到别的文件）。
   if (rel.split('/').includes('..')) {
-    throw new Error(`路径含 .. 越界：${rel}`);
+    throw new PluginCatalogContractError(`路径含 .. 越界：${rel}`);
   }
   let resolved: URL;
   try {
     resolved = new URL(rel, base);
   } catch {
-    throw new Error(`路径无法解析：${rel}`);
+    throw new PluginCatalogContractError(`路径无法解析：${rel}`);
   }
   const allowed = new URL(anchorUrl).origin;
-  if (resolved.origin !== allowed) throw new Error(`路径指向站外：${rel}`);
+  if (resolved.origin !== allowed) throw new PluginCatalogContractError(`路径指向站外：${rel}`);
   // 与源 URL 同口径：https + 无环回/私网字面地址（见 PluginCatalogUrl.ts）
   return validateRegistryUrl(resolved.toString());
 }

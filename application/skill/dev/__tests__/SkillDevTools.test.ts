@@ -24,6 +24,9 @@ function prim(name: string): SkillPrimitive {
   return {
     name,
     definition: { name, description: `${name} 的说明`, parameters: { type: 'object' } },
+    idempotent: true,
+    outputSchema: {},
+    kind: 'pure',
     execute: async () => ({ observation: 'ok', ok: true, detail: name }),
   };
 }

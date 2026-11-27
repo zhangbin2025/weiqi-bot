@@ -60,8 +60,14 @@ export interface PluginManifest {
 export interface OperatorExposure {
   name: string;
   description: string;
-  /** 参数 JSON Schema，作为宿主算子表条目的参数形状 */
-  params: Record<string, unknown>;
+  /** 方法输入 JSON Schema；根类型必须为 object。 */
+  inputSchema: Record<string, unknown>;
+  /** 方法输出 JSON Schema。 */
+  outputSchema: Record<string, unknown>;
+  /** 算子分类，不授予额外宿主权限。 */
+  kind: 'pure' | 'io' | 'effect';
+  /** 是否幂等，必须由资源作者显式声明。 */
+  idempotent: boolean;
 }
 
 /** workflow-operator 安装自检的一条：用 args 调 call，结果与 expect 逐字段相等才落库 */

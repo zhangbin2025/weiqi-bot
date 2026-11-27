@@ -269,7 +269,7 @@ export class ChatPage {
       ? createBrowserCapturePrimitives(captureDeps)
       : [];
     // 技能是安装制：本地库是唯一生效来源，在线源只浏览/安装，绝不自动叠加。
-    // - primitives 是宿主内置且固定的执行器注册表（基础 web 原语 + display_json_list 通用展示原语
+    // - primitives 是宿主内置且固定的执行器注册表（基础 web 原语 + display 通用展示原语
     //   + 赛事导入两阶段原语），
     //   同时供 selectSkills 挂工具、面板标「缺原语不可装」、SkillCatalogService 安装校验；
     // - 本地技能库 / 在线源管理 / 面板 / 开发工具共用同一批实例；
@@ -344,13 +344,13 @@ export class ChatPage {
     // 阶段二装配：宿主统一算子表。deps 三件都复用装配根现成实例/工厂：
     // - primitives：createBasicPrimitives(webTools)（上面 skillPrimitives 用的同一份工厂/依赖）；
     // - artifacts：this.plugin.artifacts（createPluginSystem 里 new PluginArtifactService(store)）；
-    // - runtime：this.plugin.runtime（QuickJsRuntime，一次性 Worker 沙箱）。
+    // - runtime：this.plugin.runtime（QuickJsRuntime，复用 Worker、逐次隔离 QuickJS Context）。
     // 插件系统装配失败（this.plugin === undefined）时，用「内置原语 + 空工件表 + 空运行时」
     // 的降级装配：内置算子照常可用，插件算子天然不注册（runner 会结构化报未注册），
     // 与「装配失败不阻塞对话页」的既有兜底一致，不自造工件/运行时实例。
     const operatorDeps: OperatorRegistryDeps = {
       // workflow 第一通路：browser_capture 作为宿主可信内置算子进算子表，
-      // 产出的 structured value 由 WorkflowRunner 连线给下游 json_extract / regex_* / display_json_list。
+      // 产出的 structured value 由 WorkflowRunner 连线给下游 JSON / regex 沙箱插件与宿主 display。
       // 纯 Web capturePrimitives 为空数组，算子表里天然没有 browser_capture。
       primitives: [
         ...createBasicPrimitives(webTools),

@@ -554,7 +554,9 @@ export class ChatUseCase {
         if (!executors[p.name]) {
           tools.push(p.definition);
           executors[p.name] = async (argsJson: string) => {
-            const r = await p.execute(argsJson);
+            const parsed: unknown = JSON.parse(argsJson);
+            if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error('工具参数必须是 JSON 对象');
+            const r = await p.execute(parsed as Record<string, unknown>);
             const out: ToolOutcome = { observation: r.observation, ok: r.ok, detail: r.detail };
             if (r.actionLink) out.actionLink = r.actionLink;
             if (r.displayMarkdown) out.displayMarkdown = r.displayMarkdown;

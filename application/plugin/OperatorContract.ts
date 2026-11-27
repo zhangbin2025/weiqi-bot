@@ -16,6 +16,7 @@
  */
 
 import type { OperatorArtifactContract } from '@domain/plugin/types';
+import { validateSchemaDefinition, validateSchemaValue } from './OperatorSchema';
 
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
@@ -36,8 +37,26 @@ export function validateOperatorContract(contract: unknown): string | undefined 
     if (typeof e.description !== 'string' || !e.description.trim()) {
       return `exposes[].description 为空：${e.name}`;
     }
-    if (typeof e.params !== 'object' || e.params === null || Array.isArray(e.params)) {
-      return `exposes[].params 不是对象：${e.name}`;
+    if (typeof e.inputSchema !== 'object' || e.inputSchema === null || Array.isArray(e.inputSchema)) {
+      return `exposes[].inputSchema 必须是 JSON Schema 对象：${e.name}`;
+    }
+    if (typeof e.outputSchema !== 'object' || e.outputSchema === null || Array.isArray(e.outputSchema)) {
+      return `exposes[].outputSchema 必须是 JSON Schema 对象：${e.name}`;
+    }
+    try {
+      validateSchemaDefinition(e.inputSchema, `${e.name}.inputSchema`);
+      validateSchemaDefinition(e.outputSchema, `${e.name}.outputSchema`);
+    } catch (error) {
+      return error instanceof Error ? error.message : `JSON Schema 不合法：${e.name}`;
+    }
+    if (e.inputSchema['type'] !== 'object') {
+      return `exposes[].inputSchema 根类型必须是 object：${e.name}`;
+    }
+    if (!['pure', 'io', 'effect'].includes(e.kind)) {
+      return `exposes[].kind 不合法：${e.name}`;
+    }
+    if (typeof e.idempotent !== 'boolean') {
+      return `exposes[].idempotent 必须是 boolean：${e.name}`;
     }
   }
   if (!Array.isArray(smoke) || smoke.length === 0) return 'workflow-operator 资源缺少 smoke[] 自检样例';
@@ -49,6 +68,10 @@ export function validateOperatorContract(contract: unknown): string | undefined 
     if (s.method !== undefined && (typeof s.method !== 'string' || !names.has(s.method))) {
       return `smoke[].method 不在 exposes[] 白名单里：${String(s.method)}`;
     }
+    const method = s.method ?? exposes[0]!.name;
+    const exposure = exposes.find((item) => item.name === method)!;
+    const inputError = validateSchemaValue(exposure.inputSchema, s.args[0]);
+    if (inputError) return `smoke[].args 不符合 ${method} 的 inputSchema：${inputError}`;
   }
   return undefined;
 }

@@ -54,12 +54,10 @@ function makeArtifact(
 /** 在线安装件的生成式 id（真实形状：plugin:<ts>:<random>） */
 const GENERATED_ID = 'plugin:1700000000000:abc123';
 
-const CALC_EXPOSES = [
-  { name: 'add', description: '', params: {} },
-  { name: 'subtract', description: '', params: {} },
-  { name: 'multiply', description: '', params: {} },
-  { name: 'divide', description: '', params: {} },
-];
+const CALC_EXPOSES = ['add', 'subtract', 'multiply', 'divide'].map((name) => ({
+  name, description: `计算 ${name}`,
+  inputSchema: { type: 'object' }, outputSchema: {}, kind: 'pure' as const, idempotent: true,
+}));
 
 /** 假工件服务：listActive 按真实语义只给「已启用」工件（人工启用闸门） */
 function fakeArtifacts(all: PluginArtifact[]): PluginArtifactService {
@@ -87,6 +85,9 @@ function fakePrimitive(
   return {
     name,
     definition: { name, description: '内置假原语', parameters: { type: 'object' } },
+    idempotent: true,
+    outputSchema: {},
+    kind: 'pure',
     execute,
   };
 }
@@ -98,6 +99,87 @@ function deps(
 ): OperatorRegistryDeps {
   return { primitives, artifacts: fakeArtifacts(all), runtime };
 }
+
+describe('createOperatorRegistry：结构化参数与 Schema 边界', () => {
+  it('把同一个原生参数对象传给内置原语，不做 JSON 往返', async () => {
+    const primitive = fakePrimitive('identity', null);
+    const registry = await createOperatorRegistry(deps([], fakeRuntime(), [primitive]));
+    const args = { nested: { value: 7 } };
+    await registry.run('identity', args);
+    expect(primitive.execute).toHaveBeenCalledWith(args);
+  });
+
+  it('输入不符合 Schema 时不执行原语', async () => {
+    const execute = vi.fn(async () => ({ observation: 'x', ok: true, detail: 'x', value: null }));
+    const primitive: SkillPrimitive = {
+      name: 'required_input',
+      definition: {
+        name: 'required_input', description: 'required',
+        parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'], additionalProperties: false },
+      },
+      idempotent: true,
+      outputSchema: {},
+      kind: 'pure',
+      execute,
+    };
+    const registry = await createOperatorRegistry(deps([], fakeRuntime(), [primitive]));
+    await expect(registry.run('required_input', {})).rejects.toThrow('输入校验失败');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('原语失败时保留结构化观察，不把缺失 value 误报为输出 Schema 错误', async () => {
+    const primitive: SkillPrimitive = {
+      name: 'failed_string_output',
+      definition: { name: 'failed_string_output', description: 'failed', parameters: { type: 'object' } },
+      idempotent: true,
+      kind: 'pure',
+      outputSchema: { type: 'string' },
+      execute: async () => ({
+        observation: 'regex.extract：正则执行失败。没有产出 value。',
+        ok: false,
+        detail: '正则执行失败',
+      }),
+    };
+    const registry = await createOperatorRegistry(deps([], fakeRuntime(), [primitive]));
+    const failureMessage = await registry.run('failed_string_output', {}).then(
+      () => '',
+      (error: unknown) => error instanceof Error ? error.message : String(error),
+    );
+    expect(failureMessage).toContain('regex.extract：正则执行失败');
+    expect(failureMessage).not.toContain('输出校验失败');
+  });
+
+  it('原语报告失败时即使携带 value 也必须失败，交由 forEach 隔离', async () => {
+    const primitive: SkillPrimitive = {
+      name: 'partial_io',
+      definition: { name: 'partial_io', description: 'partial', parameters: { type: 'object' } },
+      idempotent: true,
+      kind: 'io',
+      outputSchema: { type: 'array', items: { type: 'object' } },
+      execute: async () => ({
+        observation: '上游采集：2 项成功，1 项失败。',
+        ok: false,
+        detail: '部分请求失败',
+        value: [{ ok: true }, { ok: false }],
+      }),
+    };
+    const registry = await createOperatorRegistry(deps([], fakeRuntime(), [primitive]));
+    await expect(registry.run('partial_io', {})).rejects.toThrow('上游采集：2 项成功，1 项失败。');
+  });
+
+  it('算子输出不符合 Schema 时拒绝结果', async () => {
+    const primitive: SkillPrimitive = {
+      name: 'string_output',
+      definition: { name: 'string_output', description: 'output', parameters: { type: 'object' } },
+      idempotent: true,
+      kind: 'pure',
+      outputSchema: { type: 'string' },
+      execute: async () => ({ observation: 'x', ok: true, detail: 'x', value: { wrong: true } }),
+    };
+    const registry = await createOperatorRegistry(deps([], fakeRuntime(), [primitive]));
+    await expect(registry.run('string_output', {})).rejects.toThrow('输出校验失败');
+  });
+});
 
 describe('createOperatorRegistry：插件算子命名空间与 ranking 分派', () => {
   it('① catalog 装 calc：4 个方法按 catalogRef.resourceId 注册，不含生成式 id', async () => {
@@ -130,13 +212,30 @@ describe('createOperatorRegistry：插件算子命名空间与 ranking 分派', 
     );
   });
 
+  it('旧版 exposes[].params 工件不会拖垮注册表，但不会注册为可执行算子', async () => {
+    const legacy = makeArtifact({
+      id: 'legacy-plugin',
+      pointId: WORKFLOW_OPERATOR_POINT_ID,
+      spec: WORKFLOW_OPERATOR_SPEC,
+      enabled: true,
+      operatorContract: {
+        exposes: [{ name: 'collect', description: 'legacy', params: { type: 'object' } }],
+        smoke: [],
+      } as unknown as PluginArtifact['operatorContract'],
+    });
+    const registry = await createOperatorRegistry(deps([legacy], fakeRuntime()));
+    expect(registry.get('legacy-plugin.collect')).toBeUndefined();
+    await expect(registry.run('legacy-plugin.collect', {}))
+      .rejects.toThrow('未注册的算子');
+  });
+
   it('② LLM 自建件（无 catalogRef）：注册名用完整 artifact.id，不猜 calc', async () => {
     const artifact = makeArtifact({
       id: GENERATED_ID,
       pointId: WORKFLOW_OPERATOR_POINT_ID,
       spec: WORKFLOW_OPERATOR_SPEC,
       enabled: true,
-      operatorContract: { exposes: [{ name: 'foo', description: '', params: {} }], smoke: [] },
+      operatorContract: { exposes: [{ name: 'foo', description: 'foo', inputSchema: { type: 'object' }, outputSchema: {}, kind: 'pure', idempotent: true }], smoke: [] },
     });
     const registry = await createOperatorRegistry(deps([artifact], fakeRuntime()));
 
@@ -194,7 +293,7 @@ describe('createOperatorRegistry：插件算子命名空间与 ranking 分派', 
       spec: WORKFLOW_OPERATOR_SPEC,
       enabled: true,
       catalogRef: { registryUrl: 'https://example.com/registry.json', resourceId: 'workflow-operator.calc' },
-      operatorContract: { exposes: [{ name: 'divide', description: '', params: {} }], smoke: [] },
+      operatorContract: { exposes: [{ name: 'divide', description: 'divide', inputSchema: { type: 'object' }, outputSchema: {}, kind: 'pure', idempotent: true }], smoke: [] },
     });
     const builtin = fakePrimitive('calc.divide', 'BUILTIN_VALUE');
     const runtime = fakeRuntime(okRun('PLUGIN_VALUE'));

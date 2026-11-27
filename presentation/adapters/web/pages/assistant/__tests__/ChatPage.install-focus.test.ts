@@ -217,7 +217,7 @@ const pluginRecipe: SkillRecipe = {
   name: '弈友圈',
   primitives: [],
   workflow: { steps: [
-    { id: 'fetch', call: 'foxwq_fetch_batch' },
+    { id: 'fetch', call: 'foxwq.fetchBatch' },
     { id: 'norm', call: 'circle.normalize' },
   ] },
 };

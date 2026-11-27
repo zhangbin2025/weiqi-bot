@@ -2,13 +2,14 @@
  * 在线技能（Skill Recipe）核心类型 —— 本项目唯一类型来源。
  * @module application/skill/SkillTypes
  *
- * 设计：宿主原语内置且稳定；在线只发「纯声明 JSON 配方」，
- * 配方只引用宿主已注册的原语名，永远不含可执行代码。
+ * 设计：宿主提供少量通用原语；在线只发「纯声明 JSON 配方」，
+ * Workflow 可引用宿主原语与沙箱算子插件，配方永远不含可执行代码。
  * 所有模块一律从这里 import，禁止另写一份同名类型。
  */
 
 import type { ModelToolDefinition } from '../model/IModelGateway';
 import type { SecretSpec } from './SecretSpec';
+import type { OperatorJsonSchema, OperatorKind } from '@domain/plugin/types';
 
 /** 宿主内置原语：真正能执行的函数。在线资源永远不含代码。 */
 export interface SkillPrimitive {
@@ -17,11 +18,14 @@ export interface SkillPrimitive {
   /** 传给模型的 JSON Schema */
   definition: ModelToolDefinition;
   /**
-   * 算子是否幂等；kv_write / secret_prompt 等非幂等原语显式标 false，
-   * 缺省由 OperatorRegistry 按 true 处理（纯计算默认幂等，明说约定不是拟合数值）。
+   * 算子是否幂等；所有原语必须显式声明，不设置默认值。
    */
-  idempotent?: boolean;
-  execute(argsJson: string): Promise<PrimitiveResult>;
+  idempotent: boolean;
+  /** 算子输出契约；空 Schema 表示任意 JSON value。 */
+  outputSchema: OperatorJsonSchema;
+  kind: OperatorKind;
+  /** 原生结构化参数；模型工具入口在边界解析 JSON，Workflow 直接传对象。 */
+  execute(args: Record<string, unknown>): Promise<PrimitiveResult>;
 }
 
 export interface PrimitiveResult {
@@ -53,23 +57,18 @@ export interface PrimitiveResult {
   displayMarkdown?: string;
   /** 算子的纯 value 出参；阶段二 workflow 连线只认它。渲染/动作仍走 displayMarkdown / actionLink。 */
   value?: unknown;
-  /**
-   * 算子是否幂等；kv_write / secret_prompt 等非幂等原语显式标 false，
-   * 缺省由 OperatorRegistry 按 true 处理（纯计算默认幂等，明说约定不是拟合数值）。
-   */
-  idempotent?: boolean;
 }
 
 /**
- * 阶段二 workflow DAG 声明（纯 JSON、零代码、无表达式 / 无条件 / 无循环）。
+ * Workflow 声明（纯 JSON、零代码、无表达式 / 无任意条件；循环仅限 forEach 与有界 repeat）。
  * 语义出处：PHASE2-CONTRACT.md「DSL 语义条款」与「DSL 字段形状」。
  * 连线只认上游 StepResult.value；effects 走既有宿主通道，不参与连线。
- * 供 F 代理的 WorkflowRunner / WorkflowTool 与 G 代理的配方迁移按本类型 import。
+ * 供 WorkflowRunner / WorkflowTool 与资源配方迁移按本类型 import。
  */
 
 /** 一条有向依赖边：从上游节点 .value 按 path 取值，注入下游参数命名为 as。 */
 export interface WorkflowBinding {
-  /** 上游 step id；解析期必须指向本 steps 数组中「位置更靠前」的真实节点（即无环）。 */
+  /** 上游 step id；解析期必须指向当前作用域中位置更靠前的真实节点，或循环体可见的外层节点。 */
   from: string;
   /** 纯引用取值路径（不做拼接 / 表达式 / 函数调用）；'$' 表示整个上游 value。 */
   path: string;
@@ -77,18 +76,48 @@ export interface WorkflowBinding {
   as: string;
 }
 
-/** DAG 的一个节点：调用一个算子，args 为字面量参数，bindings 覆写注入上游值。 */
+/** 控制结构中的节点引用：只从当前局部作用域已完成的节点读取。 */
+export interface WorkflowLoopReference {
+  from: string;
+  path: string;
+}
+
+/** 对数组逐项执行一段子工作流；每项使用 {{item}} / {{item.path}} 与 {{index}}。 */
+export interface WorkflowForEach {
+  from: string;
+  path: string;
+  /** 单项失败策略：fail 短路（默认）；continue 记录错误并处理后续项。 */
+  onError?: 'fail' | 'continue';
+  steps: WorkflowStep[];
+}
+
+/** 有界重复执行；每轮以 {{state.path}} 读取状态，并从 stateFrom 节点更新状态。 */
+export interface WorkflowRepeat {
+  maxIterations: number | string;
+  initialState?: Record<string, unknown>;
+  stateFrom: WorkflowLoopReference;
+  until: WorkflowLoopReference;
+  steps: WorkflowStep[];
+}
+
+/** 按一个上游 boolean value 选择分支；条件本身不执行表达式。 */
+export interface WorkflowIfElse {
+  condition: WorkflowLoopReference;
+  then: WorkflowStep[];
+  else?: WorkflowStep[];
+}
+
+/** 一个节点是普通算子调用，或由 runner 调度的通用控制块。 */
 export interface WorkflowStep {
-  /** 节点 id，在 steps 内唯一；被 bindings[].from 引用。 */
   id: string;
-  /** 算子名（内置 snake_case 或插件 <slug>.<method>）；白名单命中由装配期/运行时校验，解析期不查。 */
-  call: string;
-  /** 字面量参数对象（可由 bindings 覆写注入）；缺省 = 空对象。 */
+  /** 普通算子调用；循环控制节点不填写。 */
+  call?: string;
   args?: Record<string, unknown>;
-  /** 依赖边集合；缺省 = 无上游依赖。 */
   bindings?: WorkflowBinding[];
-  /** 仅显式 true 的节点 .value 进宿主结果汇总；成功观察只回完成+句柄、不回灌模型；缺省 false。 */
   yield?: boolean;
+  forEach?: WorkflowForEach;
+  repeat?: WorkflowRepeat;
+  ifElse?: WorkflowIfElse;
 }
 
 /** 模型在 run_workflow 入口填空的参数契约（形状，不是代码）。 */
@@ -105,7 +134,7 @@ export interface WorkflowInput {
   enum?: unknown[];
 }
 
-/** DAG 声明：steps 顺序即拓扑序（bindings.from 只能指更前，天然无环）。 */
+/** Workflow 声明：普通 steps 顺序即拓扑序；forEach、repeat 与 ifElse 拥有受限局部作用域。 */
 export interface WorkflowSpec { steps: WorkflowStep[]; }
 
 /** 一条技能 = 纯 JSON 配方，只引用宿主原语，不含任何可执行代码 */

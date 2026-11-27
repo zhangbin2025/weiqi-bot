@@ -9,7 +9,7 @@
  * - 规则① 完整等于 `{{input.xxx}}` → 注入原始类型值（integer/array 不 String()）；
  * - 规则② 内嵌 `{{input.xxx}}` → 逐字 String() 替换（URL 文本）；
  * - inputs 契约：default / required / enum / type 校验；
- * - 过程块：开头「共 N 步」、每步「第 k/N 步」、失败 ok:false、纯展示抛错不影响主流程。
+ * - 过程块：开头「顶层步骤数」、每步「第 k/N 步」、失败 ok:false、纯展示抛错不影响主流程。
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -24,7 +24,7 @@ function fakeRegistry(
 ): OperatorRegistry & { calls: string[] } {
   const specs = new Map<string, OperatorSpec>();
   for (const [name, fn] of Object.entries(ops)) {
-    specs.set(name, { name, idempotent: true, run: async (args) => fn(args) });
+    specs.set(name, { name, description: name, inputSchema: { type: 'object' }, outputSchema: {}, kind: 'pure', idempotent: true, run: async (args) => fn(args) });
   }
   const calls: string[] = [];
   return {
@@ -124,7 +124,7 @@ describe('runWorkflow — 链成功 / 引用传递', () => {
 describe('runWorkflow — 失败短路 / 结构化错误', () => {
   it('第二个节点抛错：第一个已完成、第三个不执行，失败信息含 stepId/error/completedStepIds', async () => {
     const reg = fakeRegistry({
-      one: () => ({ value: 1 }),
+      one: () => ({ value: 1, effects: [{ displayMarkdown: '不应交付的前序结果' }] }),
       two: () => { throw new Error('算子内部炸了'); },
       three: () => ({ value: 3 }),
     });
@@ -146,13 +146,14 @@ describe('runWorkflow — 失败短路 / 结构化错误', () => {
     expect(result.completedStepIds).toEqual(['one']);
     expect(reg.calls).toEqual(['one', 'two']); // 短路：three 未执行
     expect(result.values).toEqual({ one: 1 }); // 已完成 yield 节点仍保留
-    // 过程块：开头「共 3 步」 + 第一步完成 + 失败块 = 3 条；最后一条 ok:false
+    expect(result.effects).toEqual([]); // 整体失败不交付前序节点的半成品 effects
+    // 过程块：开头「顶层步骤数」 + 第一步完成 + 失败块 = 3 条；最后一条 ok:false
     expect(trace.length).toBe(3);
-    expect(trace[0]!.detail).toContain('共 3 步');
+    expect(trace[0]!.detail).toContain('共 3 个顶层步骤（循环由宿主调度）');
     expect(trace[0]!.ok).toBe(true);
-    expect(trace[1]!.detail).toContain('第 1/3 步 one 完成');
+    expect(trace[1]!.detail).toContain('节点 one one 完成');
     expect(trace[2]!.ok).toBe(false);
-    expect(trace[2]!.detail).toContain('第 2/3 步 two 失败');
+    expect(trace[2]!.detail).toContain('节点 two two 失败');
     expect(trace.every((s) => s.source === 'web' && s.attempt === 1 && s.phase === 'observe')).toBe(true);
   });
 
@@ -384,7 +385,7 @@ describe('runWorkflow — inputs 契约校验（结构化失败，发生在节�
 });
 
 describe('runWorkflow — 过程块条数与文案', () => {
-  it('成功 3 步：1 条「共 N 步」 + 3 条「第 k/N 步 … 完成」', async () => {
+  it('成功 3 步：1 条「顶层步骤数」 + 3 条「第 k/N 步 … 完成」', async () => {
     const reg = fakeRegistry({
       a: () => ({ value: 1 }), b: () => ({ value: 2 }), c: () => ({ value: 3 }),
     });
@@ -396,10 +397,125 @@ describe('runWorkflow — 过程块条数与文案', () => {
     const { steps: trace, onTrace } = collectTrace();
     await runWorkflow(spec, {}, reg, onTrace);
     expect(trace.length).toBe(4);
-    expect(trace[0]!.detail).toBe('workflow 共 3 步');
-    expect(trace[1]!.detail).toContain('第 1/3 步 a 完成');
-    expect(trace[2]!.detail).toContain('第 2/3 步 b 完成');
-    expect(trace[3]!.detail).toContain('第 3/3 步 c 完成');
+    expect(trace[0]!.detail).toBe('workflow 共 3 个顶层步骤（循环由宿主调度）');
+    expect(trace[1]!.detail).toContain('节点 a a 完成');
+    expect(trace[2]!.detail).toContain('节点 b b 完成');
+    expect(trace[3]!.detail).toContain('节点 c c 完成');
     expect(trace.every((s) => s.source === 'web' && s.attempt === 1 && s.phase === 'observe')).toBe(true);
   });
 });
+
+
+describe('runWorkflow — 通用控制结构补齐', () => {
+  it('forEach onError=continue：单项失败被记录，后续项继续，成功项统一包装', async () => {
+    const reg = fakeRegistry({
+      source: () => ({ value: [1, 2, 3] }),
+      double: (args) => {
+        if (args['value'] === 2) throw new Error('单项失败');
+        return { value: Number(args['value']) * 2 };
+      },
+    });
+    const spec: WorkflowSpec = {
+      steps: [
+        step({ id: 'source', call: 'source' }),
+        {
+          id: 'each',
+          yield: true,
+          forEach: {
+            from: 'source', path: '$', onError: 'continue',
+            steps: [step({ id: 'double', call: 'double', args: { value: '{{item}}' } })],
+          },
+        },
+      ],
+    };
+    const result = await runWorkflow(spec, {}, reg);
+    expect(result.ok).toBe(true);
+    expect(result.values['each']).toEqual([
+      { ok: true, value: 2 },
+      { ok: false, error: { stepId: 'each[1]/double', message: '单项失败' } },
+      { ok: true, value: 6 },
+    ]);
+    expect(reg.calls).toEqual(['source', 'double', 'double', 'double']);
+  });
+
+  it('ifElse 根据上游 boolean 选择一个分支，并把分支结果作为节点 value', async () => {
+    const reg = fakeRegistry({
+      condition: () => ({ value: { ready: true } }),
+      yes: () => ({ value: 'then-result' }),
+      no: () => ({ value: 'else-result' }),
+    });
+    const spec: WorkflowSpec = {
+      steps: [
+        step({ id: 'source', call: 'condition' }),
+        {
+          id: 'choice',
+          yield: true,
+          ifElse: {
+            condition: { from: 'source', path: 'ready' },
+            then: [step({ id: 'thenStep', call: 'yes' })],
+            else: [step({ id: 'elseStep', call: 'no' })],
+          },
+        },
+      ],
+    };
+    const result = await runWorkflow(spec, {}, reg);
+    expect(result.ok).toBe(true);
+    expect(result.values['choice']).toEqual({ condition: true, value: 'then-result' });
+    expect(reg.calls).toEqual(['condition', 'yes']);
+  });
+
+  it('urlencode.input 占位符对动态 URL 参数执行组件编码', async () => {
+    let received = '';
+    const reg = fakeRegistry({
+      fetch: (args) => { received = String(args['url']); return { value: true }; },
+    });
+    const inputs: WorkflowInput[] = [{ name: 'nickname', type: 'string', required: true }];
+    const spec: WorkflowSpec = {
+      steps: [step({
+        id: 'fetch', call: 'fetch',
+        args: { url: 'https://example.test/user?name={{urlencode.input.nickname}}' },
+      })],
+    };
+    const result = await runWorkflow(spec, { nickname: '张 三&?' }, reg, undefined, inputs);
+    expect(result.ok).toBe(true);
+    expect(received).toBe('https://example.test/user?name=%E5%BC%A0%20%E4%B8%89%26%3F');
+  });
+});
+
+
+  it('repeat 用本轮节点结果更新 state，并在 until=true 时停止', async () => {
+    const reg = fakeRegistry({
+      advance: (args) => {
+        const cursor = Number((args['state'] as Record<string, unknown>)['cursor']);
+        return { value: { cursor: cursor + 1, done: cursor >= 1 } };
+      },
+    });
+    const spec: WorkflowSpec = {
+      steps: [{
+        id: 'pages',
+        yield: true,
+        repeat: {
+          maxIterations: 5,
+          initialState: { cursor: 0 },
+          stateFrom: { from: 'advance', path: '$' },
+          until: { from: 'advance', path: 'done' },
+          steps: [step({
+            id: 'advance',
+            call: 'advance',
+            args: { state: '{{state}}' },
+          })],
+        },
+      }],
+    };
+    const result = await runWorkflow(spec, {}, reg);
+    expect(result.ok).toBe(true);
+    expect(result.values['pages']).toEqual({
+      items: [
+        { cursor: 1, done: false },
+        { cursor: 2, done: true },
+      ],
+      state: { cursor: 2, done: true },
+      stopped: true,
+    });
+    expect(reg.calls).toEqual(['advance', 'advance']);
+  });

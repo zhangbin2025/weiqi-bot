@@ -6,7 +6,7 @@
  * 独立的 Runtime + Context，注入白名单 hostApi 与输入，调用约定入口，
  * 返回纯 JSON 结果或结构化诊断。
  *
- * 宿主层（QuickJsRuntime）负责把它放进一次性 Worker 并加硬超时；
+ * 宿主层（QuickJsRuntime）负责在一次性 Worker 中执行它并加硬超时；
  * 本文件刻意不引用任何浏览器 Worker API，因此可以在 Node/vitest 里直接测。
  */
 
@@ -54,9 +54,39 @@ function toPluginError(dumped: unknown, fallback: string): PluginError {
 
 /** 判断诊断是否属于某类资源失败 */
 function classifyPhase(error: PluginError): 'oom' | 'timeout' | 'runtime' | 'compile' {
-  if (error.name === 'InternalError' && /out of memory/i.test(error.message)) return 'oom';
-  if (error.name === 'InternalError' && /interrupted/i.test(error.message)) return 'timeout';
+  // QuickJS 的错误名会随触发点不同（InternalError / Error）变化；
+  // 用资源耗尽语义分类，而不是把回收策略绑死在某一个异常类名上。
+  if (/out of memory|allocation failed|cannot allocate memory|memory limit exceeded/i.test(error.message)) {
+    return 'oom';
+  }
+  if (/interrupted|execution timed out/i.test(error.message)) return 'timeout';
   return 'runtime';
+}
+
+/**
+ * 在宿主侧再次约束 JSON 输出结构。字节上限限制总量，深度上限避免极深树
+ * 被下游递归消费者击穿；节点数以 maxOutputBytes 为上界（JSON 每个值至少
+ * 占一个 UTF-8 字节），不另造一套与既有输出配额脱节的总量预算。
+ */
+function validateOutputShape(
+  root: unknown,
+  maxNodes: number,
+): string | undefined {
+  const maxDepth = 128;
+  const stack: Array<{ value: unknown; depth: number }> = [{ value: root, depth: 0 }];
+  let nodes = 0;
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    nodes += 1;
+    if (nodes > maxNodes) return `输出值数量超过上限 ${maxNodes}`;
+    if (current.depth > maxDepth) return `输出嵌套深度超过上限 ${maxDepth}`;
+    if (current.value === null || typeof current.value !== 'object') continue;
+    const children = Array.isArray(current.value)
+      ? current.value
+      : Object.values(current.value as Record<string, unknown>);
+    for (const child of children) stack.push({ value: child, depth: current.depth + 1 });
+  }
+  return undefined;
 }
 
 export class QuickJsExecutor {
@@ -78,7 +108,7 @@ export class QuickJsExecutor {
     return this.modulePromise;
   }
 
-  /** 预加载（Worker 启动时调用，避免首轮执行把加载时间算进超时） */
+  /** 预加载（一次性 Worker 初始化时调用，避免把 WASM 加载时间算入算子执行配额） */
   async warmup(): Promise<void> {
     await this.getModule();
   }
@@ -187,17 +217,18 @@ export class QuickJsExecutor {
           phase: 'contract',
           error: { name: 'ContractError', message: '入口函数未返回可序列化结果' },
           contract: { entryFound: true, outputIsArray: false, missingFields: [] },
-          hint: '入口函数必须返回可 JSON 序列化的 { columns, rows } 对象',
+          hint: '入口函数必须返回可 JSON 序列化的 JSON 值',
           logs,
           elapsedMs: Date.now() - started,
         };
       }
-      if (outStr.length > limits.maxOutputBytes) {
+      const outputBytes = new TextEncoder().encode(outStr).byteLength;
+      if (outputBytes > limits.maxOutputBytes) {
         return {
           ok: false,
           phase: 'contract',
-          error: { name: 'ContractError', message: `输出超出 ${limits.maxOutputBytes} 字节上限` },
-          hint: '请只返回必要的排名表列与行',
+          error: { name: 'ContractError', message: `输出超出 ${limits.maxOutputBytes} 字节上限（实际 ${outputBytes} 字节）` },
+          hint: '请只返回下游 Workflow 需要的数据',
           logs,
           elapsedMs: Date.now() - started,
         };
@@ -211,6 +242,17 @@ export class QuickJsExecutor {
           phase: 'contract',
           error: { name: 'ContractError', message: '入口返回值无法序列化为 JSON' },
           hint: '不要返回循环引用 / 函数 / BigInt',
+          logs,
+          elapsedMs: Date.now() - started,
+        };
+      }
+      const shapeError = validateOutputShape(output, limits.maxOutputBytes);
+      if (shapeError) {
+        return {
+          ok: false,
+          phase: 'contract',
+          error: { name: 'ContractError', message: shapeError },
+          hint: '请减少输出的嵌套层级或元素数量，只返回下游 Workflow 需要的数据',
           logs,
           elapsedMs: Date.now() - started,
         };

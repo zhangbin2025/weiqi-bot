@@ -610,7 +610,7 @@ export function buildWorkflowToolParts(
     const outcome: ToolOutcome = {
       // debug:true 时把逐步 trace + 最终交付结果回灌；否则逐字沿用旧观察。
       observation: acceptanceNote + (debug
-        ? debugObservation(result, skillId, merged, skill.workflow.steps.length)
+        ? debugObservation(result, skillId, merged)
         : (result.ok
           ? successObservation(result, skillId, devMode, skill.returnToLLM === true, llmTextLength)
           : failureObservation(result))),
@@ -665,7 +665,7 @@ export function buildWorkflowToolParts(
     for (const key of ['offset', 'length', 'pattern', 'flags', 'before', 'after', 'skip', 'limit', 'count']) {
       if (req[key] !== undefined) mapped[key] = req[key];
     }
-    const read = executeWebCacheRead(JSON.stringify(mapped), wfResultCache);
+    const read = executeWebCacheRead(mapped, wfResultCache);
     // WebCacheReadResult 与 ToolOutcome 同形状（preparatory:true 必须保留），显式构造避免结构漂移。
     return {
       observation: read.observation, ok: read.ok, detail: read.detail, preparatory: true,
@@ -707,8 +707,10 @@ function debugValue(v: unknown): string {
  * clipObservation 会在 ToolLoop 里再按同一常量兜底一次；这里先按声明步数均分，
  * 避免某一步大输出把后几步全挤掉（lost in the middle）。
  */
-function clipForDebug(text: string, declaredSteps: number): string {
-  const per = Math.max(1, Math.floor(CONTEXT_LIMITS.maxCharsPerMessage / (declaredSteps + 1)));
+function clipForDebug(text: string, traceSteps: number): string {
+  // 控制结构会在运行时展开：真实 trace 数量可能远大于顶层声明步数。
+  // 按实际 trace 项数均分，确保循环展开不会绕过 debug 文本预算。
+  const per = Math.max(1, Math.floor(CONTEXT_LIMITS.maxCharsPerMessage / (traceSteps + 1)));
   if (text.length <= per) return text;
   const tail = '…[本步超过调试份额，已截断]';
   return text.slice(0, Math.max(0, per - tail.length)) + tail;
@@ -717,7 +719,7 @@ function clipForDebug(text: string, declaredSteps: number): string {
 /** 单步调试块：拼成一整块后按「整步份额」裁剪一次，避免 3 个字段各自裁剪、
  *  合起来撑爆总量让 ToolLoop 把后半程全截掉（与「均分防 lost in the middle」口径一致）。 */
 function debugStepBlock(
-  t: WorkflowStepTrace, index: number, total: number, declaredSteps: number,
+  t: WorkflowStepTrace, index: number, total: number, traceSteps: number,
 ): string {
   const lines = [`第 ${index + 1}/${total} 步 ${t.stepId}（${t.call}）：${t.ok ? '成功' : '失败'}`];
   lines.push(`  入参：${debugValue(t.args)}`);
@@ -729,7 +731,7 @@ function debugStepBlock(
   } else {
     lines.push(`  错误：${t.error ?? '（无错误文本）'}`);
   }
-  return clipForDebug(lines.join('\n'), declaredSteps);
+  return clipForDebug(lines.join('\n'), traceSteps);
 }
 
 /**
@@ -743,7 +745,6 @@ function debugObservation(
   result: WorkflowRunResult,
   skillId: string,
   merged: Pick<ToolOutcome, 'displayMarkdown' | 'actionLink'>,
-  declaredSteps: number,
 ): string {
   const trace = result.stepTrace ?? [];
   const total = trace.length;
@@ -751,7 +752,7 @@ function debugObservation(
     + '以下是宿主实际执行的逐步数据与最终交付结果，只用于定位哪一步输出不对、'
     + '判断结果是否正确；不要把它们当成给用户的答复原文。\n';
   const stepsText = total > 0
-    ? trace.map((t, i) => debugStepBlock(t, i, total, declaredSteps)).join('\n')
+    ? trace.map((t, i) => debugStepBlock(t, i, total, total)).join('\n')
     : '（runner 未返回逐步记录）';
   const delivery: string[] = ['', '【最终交付给用户的结果（宿主旁路）】'];
   delivery.push(`- 展示块 displayMarkdown：${merged.displayMarkdown !== undefined && merged.displayMarkdown.length > 0
@@ -767,5 +768,5 @@ function debugObservation(
     + '下次验收仍可传 debug:true 复跑对照。');
   // 最终交付块也占一份份额（分母 N+1 里的那个 1），整块裁一次。
   // head 是定长说明，随整条 observation 一起由 ToolLoop.clipObservation 兜底。
-  return head + stepsText + clipForDebug(delivery.join('\n'), declaredSteps);
+  return head + stepsText + clipForDebug(delivery.join('\n'), total);
 }

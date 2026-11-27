@@ -41,23 +41,21 @@ function memAdapter() {
   };
 }
 
-/** 内存算子表：复刻 web_fetch(storeOnly) → json_extract → display_json_list */
+/** 内存算子表：复刻 web_fetch(storeOnly) → json.pluck → display */
 function makeRegistry(): OperatorRegistry {
   const specs = new Map<string, OperatorSpec>();
   const add = (
     name: string,
     fn: (args: Record<string, unknown>) => StepResult,
-  ): void => { specs.set(name, { name, idempotent: true, run: async (args) => fn(args) }); };
+  ): void => { specs.set(name, { name, description: name, inputSchema: { type: 'object' }, outputSchema: {}, kind: 'pure', idempotent: true, run: async (args) => fn(args) }); };
 
-  add('web_fetch', () => ({ value: PAGE_TEXT }));
-  add('json_extract', (args) => {
-    const raw = typeof args['text'] === 'string' ? args['text'] : PAGE_TEXT;
-    const words = [...raw.matchAll(/"word":"([^"]+)"/g)].map((m) => m[1]!);
-    return { value: { list: words } };
+  add('web_fetch', () => ({ value: JSON.parse(PAGE_TEXT) }));
+  add('json.pluck', (args) => {
+    const items = args['items'] as Array<Record<string, unknown>>;
+    return { value: items.map((item) => item['word']) };
   });
-  add('display_json_list', (args) => {
-    const v = args['value'] as { list?: string[] } | undefined;
-    const list = v?.list ?? [];
+  add('display', (args) => {
+    const list = args['value'] as string[];
     return {
       value: null,
       effects: [{ displayMarkdown: list.map((w) => `- ${w}`).join('\n') }],
@@ -92,11 +90,13 @@ function recipeArgs(stepIds: readonly [string, string, string]) {
       steps: [
         { id: stepIds[0], call: 'web_fetch', args: { storeOnly: true }, yield: true },
         {
-          id: stepIds[1], call: 'json_extract', yield: true,
-          bindings: [{ from: stepIds[0], path: '$', as: 'text' }],
+          id: stepIds[1], call: 'json.pluck', yield: true,
+          args: { path: 'word' },
+          bindings: [{ from: stepIds[0], path: '$', as: 'items' }],
         },
         {
-          id: stepIds[2], call: 'display_json_list',
+          id: stepIds[2], call: 'display',
+          args: { format: 'list', fields: [{ key: 'value' }] },
           bindings: [{ from: stepIds[1], path: '$', as: 'value' }],
         },
       ],
@@ -287,7 +287,8 @@ describe('端到端：同一轮 skill_write → run_workflow(debug:true)', () =>
     expect(obs[1]).toContain('第 1/3 步 fetch');
     expect(obs[1]).toContain('第 2/3 步 extract');
     expect(obs[1]).toContain('第 3/3 步 render');
-    expect(obs[1]).toContain(String.raw`\"word\":\"柯洁\"`);
+    expect(obs[1]).toContain('json.pluck');
+    expect(obs[1]).toContain('["柯洁","申真谞","官子","劫争"]');
     expect(obs[1]).toContain('"list"');
     expect(obs[1]).toContain('最终交付');
     expect(obs[1]).toContain('技能已启用');
@@ -390,11 +391,13 @@ describe('端到端：同一轮 skill_write → run_workflow(debug:true)', () =>
         steps: [
           { id: 'fetch', call: 'web_fetch', args: { storeOnly: true }, yield: true },
           {
-            id: 'extract', call: 'json_extract', yield: true,
-            bindings: [{ from: 'fetch', path: '$', as: 'text' }],
+            id: 'extract', call: 'json.pluck', yield: true,
+            args: { path: 'word' },
+            bindings: [{ from: 'fetch', path: '$', as: 'items' }],
           },
           {
-            id: 'render', call: 'display_json_list',
+            id: 'render', call: 'display',
+            args: { format: 'list', fields: [{ key: 'value' }] },
             bindings: [{ from: 'extract', path: '$', as: 'value' }],
           },
         ],
@@ -417,7 +420,7 @@ describe('端到端：同一轮 skill_write → run_workflow(debug:true)', () =>
     expect(obs[0]).not.toContain('第 1/3 步');
     expect(obs[0]).not.toContain('输出 value');
     expect(obs[0]).not.toContain('最终交付');
-    expect(obs[0]).not.toContain(String.raw`\"word\":\"柯洁\"`);
+    expect(obs[0]).not.toContain('["柯洁","申真谞","官子","劫争"]');
     expect(obs[0]).not.toContain('柯洁');
     // 正证据：DAG 确实跑完了 —— 业务数据由宿主 effects 旁路交付（displayMarkdown），
     // 只是不进 tool 观察 / 模型上下文。否则「零回灌」可能只是「压根没跑」的假绿。

@@ -173,9 +173,24 @@ export interface PluginRevision {
   outcome: 'accepted' | 'rejected';
 }
 
-/** workflow-operator 工件随源码一起持久化的算子契约（来自 plugin.json 的 exposes[]/smoke[]） */
+/** JSON Schema 声明。首期按 JSON Schema Draft 7 兼容子集解释。 */
+export type OperatorJsonSchema = Record<string, unknown>;
+
+/** 算子能力分类；不授予任何宿主权限。 */
+export type OperatorKind = 'pure' | 'io' | 'effect';
+
+/** workflow-operator 工件随源码一起持久化的算子契约。
+ * 每个方法都必须完整声明 inputSchema / outputSchema / kind / idempotent。
+ */
 export interface OperatorArtifactContract {
-  exposes: Array<{ name: string; description: string; params: Record<string, unknown> }>;
+  exposes: Array<{
+    name: string;
+    description: string;
+    inputSchema: OperatorJsonSchema;
+    outputSchema: OperatorJsonSchema;
+    kind: OperatorKind;
+    idempotent: boolean;
+  }>;
   smoke: Array<{ method?: string; args: unknown[]; expect: unknown }>;
 }
 
@@ -289,9 +304,13 @@ export interface StepResult {
   effects?: { displayMarkdown?: string; actionLink?: string }[];
   meta?: Record<string, unknown>;
 }
-/** 算子表条目：按名执行 value→value */
+/** 算子表条目：按名执行结构化 args → StepResult。契约字段全部必需。 */
 export interface OperatorSpec {
   name: string;                   // 内置 snake_case；插件 `<slug>.<exposes[].name>`
-  idempotent: boolean;            // kv_write / secret_prompt 为 false
+  idempotent: boolean;
+  description: string;
+  inputSchema: OperatorJsonSchema;
+  outputSchema: OperatorJsonSchema;
+  kind: OperatorKind;
   run(args: Record<string, unknown>): Promise<StepResult>;
 }

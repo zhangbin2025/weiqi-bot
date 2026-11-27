@@ -34,7 +34,7 @@
  *   已配置的 timeoutMs；重认证默认状态 401 = RFC 7235 Unauthorized 语义。
  */
 import type { ModelToolDefinition } from '@application/model/IModelGateway';
-import type { SkillPrimitive, PrimitiveResult, SkillRecipe } from '@application/skill/SkillTypes';
+import type { SkillPrimitive, PrimitiveResult, SkillRecipe, WorkflowStep } from '@application/skill/SkillTypes';
 import { CONTEXT_LIMITS } from '@application/chat/ConversationPrompt';
 import {
   defaultWebFetchCache, type CachedWebResource, type WebFetchCache,
@@ -225,11 +225,10 @@ export function createAuthFetchPrimitives(deps: AuthFetchPrimitivesDeps): SkillP
     {
       name: HTTP_FETCH_AUTH_TOOL_NAME,
       definition: HTTP_FETCH_AUTH_TOOL,
-      execute: async (argsJson): Promise<PrimitiveResult> => {
-        const args = (() => {
-          try { return JSON.parse(argsJson) as Record<string, unknown>; }
-          catch { return {} as Record<string, unknown>; }
-        })();
+      idempotent: true,
+      outputSchema: {},
+      kind: 'io',
+      execute: async (args: Record<string, unknown>): Promise<PrimitiveResult> => {
         const secretKey = args['secretKey'];
         if (typeof secretKey !== 'string' || !secretKey.trim()) {
           return { observation: 'http_fetch_auth 参数无效：缺少 secretKey。', ok: false, detail: '缺少 secretKey' };
@@ -327,11 +326,10 @@ export function createAuthFetchPrimitives(deps: AuthFetchPrimitivesDeps): SkillP
     {
       name: SECRET_PROMPT_TOOL_NAME,
       definition: SECRET_PROMPT_TOOL,
-      execute: async (argsJson): Promise<PrimitiveResult> => {
-        const args = (() => {
-          try { return JSON.parse(argsJson) as Record<string, unknown>; }
-          catch { return {} as Record<string, unknown>; }
-        })();
+      idempotent: true,
+      outputSchema: {},
+      kind: 'effect',
+      execute: async (args: Record<string, unknown>): Promise<PrimitiveResult> => {
         const key = args['secretKey'];
         if (typeof key !== 'string' || !deps.specs.has(key.trim())) {
           return {
@@ -447,9 +445,9 @@ function isPublishRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-function parseArgs(argsJson: string): Record<string, unknown> {
+function parseArgs(args: Record<string, unknown>): Record<string, unknown> {
   try {
-    const v = JSON.parse(argsJson) as unknown;
+    const v: unknown = args;
     return isPublishRecord(v) ? v : {};
   } catch {
     return {};
@@ -520,10 +518,20 @@ async function buildSkillBundle(deps: PublishPrimitivesDeps, id: string): Promis
   // 第一个点前即插件 slug；按 slug + workflow-operator 扩展点精确找工件，一起进变更集，
   // 否则安装方 runner 会结构化报「未注册算子」。不设静态白名单、不猜方法名。
   const slugs = new Set<string>();
-  for (const step of r.workflow?.steps ?? []) {
-    const dot = step.call.indexOf('.');
-    if (dot > 0) slugs.add(step.call.slice(0, dot));
-  }
+  const collectWorkflowDependencies = (steps: readonly WorkflowStep[] | undefined): void => {
+    for (const step of steps ?? []) {
+      if (typeof step.call === 'string') {
+        const dot = step.call.indexOf('.');
+        if (dot > 0) slugs.add(step.call.slice(0, dot));
+      }
+      // 控制块本身没有 call；其内部步骤仍属于技能的传递插件依赖。
+      collectWorkflowDependencies(step.forEach?.steps);
+      collectWorkflowDependencies(step.repeat?.steps);
+      collectWorkflowDependencies(step.ifElse?.then);
+      collectWorkflowDependencies(step.ifElse?.else);
+    }
+  };
+  collectWorkflowDependencies(r.workflow?.steps);
   const artifacts = (await deps.artifacts?.list()) ?? [];
   const includesPlugins: string[] = [];
   for (const slug of slugs) {
@@ -742,8 +750,11 @@ export function createPublishPrimitives(deps: PublishPrimitivesDeps): SkillPrimi
     {
       name: ASSET_EXPORT_TOOL_NAME,
       definition: ASSET_EXPORT_TOOL,
-      execute: async (argsJson): Promise<PrimitiveResult> => {
-        const args = parseArgs(argsJson);
+      idempotent: true,
+      outputSchema: {},
+      kind: 'effect',
+      execute: async (rawArgs: Record<string, unknown>): Promise<PrimitiveResult> => {
+        const args = parseArgs(rawArgs);
         const kind = args['kind'];
         const id = args['id'];
         if ((kind !== 'skill' && kind !== 'plugin') || typeof id !== 'string' || !id.trim()) {
@@ -796,8 +807,10 @@ export function createPublishPrimitives(deps: PublishPrimitivesDeps): SkillPrimi
       definition: GITHUB_PUBLISH_FILE_TOOL,
       // 写外部仓库，非幂等；不让 OperatorRegistry 把它当纯计算算子。
       idempotent: false,
-      execute: async (argsJson): Promise<PrimitiveResult> => {
-        const args = parseArgs(argsJson);
+      outputSchema: {},
+      kind: 'effect',
+      execute: async (rawArgs: Record<string, unknown>): Promise<PrimitiveResult> => {
+        const args = parseArgs(rawArgs);
         const handle = args['handle'];
         if (typeof handle !== 'string' || !handle.trim()) {
           return {

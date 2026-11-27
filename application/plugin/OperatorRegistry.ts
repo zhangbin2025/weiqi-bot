@@ -3,7 +3,7 @@
  * @module application/plugin/OperatorRegistry
  *
  * 阶段一只提供「按名执行 value→value」的统一地基：
- * - 内置算子：包装 createBasicPrimitives() 返回的 SkillPrimitive（D 代理保证 json_extract 在其中）。
+ * - 内置算子：包装 createBasicPrimitives() 返回的通用宿主 SkillPrimitive。
  * - 插件算子：遍历已启用工件，按 pointId 查「算子适配注册表」分派；框架不认识任何
  *   具体扩展点，未声明算子适配的扩展点不进算子表。新增扩展点只需在装配根
  *   （createOperatorAdapters）加一条适配声明即可，本文件不用改。
@@ -12,7 +12,7 @@
  *   ChatUseCase / ChatPage / ToolLoop 也都不引用它（阶段二才接线）。
  *
  * 安全边界沿用既有 QuickJS 沙箱，不在此重写：
- * - 插件算子执行复用注入的 IPluginRuntime.run()（QuickJsRuntime 就是「一次性 Worker」实现），
+ * - 插件算子执行复用注入的 IPluginRuntime.run()（QuickJsRuntime 复用 Worker、但每次调用创建独立 QuickJS Runtime / Context），
  *   hostApi 恒为 []（零网络、零时钟、零存储、零 DOM、零定时器），
  *   配额沿用工件自带的 spec.limits（DEFAULT_PLUGIN_LIMITS）。
  * - 插件算子只认「已启用」工件（人工启用闸门），method 只作为 JSON 数据进入
@@ -20,8 +20,6 @@
  * - 各扩展点的入口 / 命名 / 输入形状由各自的适配声明给出（见 behaviors/OperatorAdapters），
  *   框架不写死任何契约入口。
  *
- * 不引入任何新阈值 / 经验常数：idempotent 缺省 true 是明说的业务约定
- * （纯计算算子默认幂等，non-idempotent 需显式声明），不是拟合数值。
  */
 
 import type {
@@ -33,6 +31,7 @@ import type {
 import type { SkillPrimitive, PrimitiveResult } from '@application/skill/SkillTypes';
 import type { PluginArtifactService } from './PluginArtifactService';
 import { createOperatorAdapters, type OperatorAdapterRegistry } from './behaviors/OperatorAdapters';
+import { validateSchemaDefinition, validateSchemaValue } from './OperatorSchema';
 
 export interface OperatorRegistryDeps {
   /** 宿主内置原语；接线方传 createBasicPrimitives(webDeps) 的返回值 */
@@ -56,17 +55,25 @@ export interface OperatorRegistry {
 
 /**
  * 内置原语 → OperatorSpec。
- * args 经 JSON.stringify 走既有 execute(argsJson) 签名；PrimitiveResult.value 是算子的纯 value 出，
+ * 原生 args 直接传给 primitive；PrimitiveResult.value 是算子的纯 value 出，
  * 缺省按 null（连线只认 value）。displayMarkdown 走既有宿主渲染通道（effects），
  * actionLink 是宿主结构化链接对象，映射成 effects 里的字符串（url），label 不进 value。
  */
 function primitiveToOperatorSpec(p: SkillPrimitive): OperatorSpec {
   return {
     name: p.name,
-    // 纯计算算子默认幂等；non-idempotent 需原语显式声明（D 代理给 SkillPrimitive 补的可选字段）
-    idempotent: p.idempotent ?? true,
+    idempotent: p.idempotent,
+    description: p.definition.description,
+    inputSchema: p.definition.parameters,
+    outputSchema: p.outputSchema,
+    kind: p.kind,
     run: async (args: Record<string, unknown>): Promise<StepResult> => {
-      const r: PrimitiveResult = await p.execute(JSON.stringify(args));
+      const r: PrimitiveResult = await p.execute(args);
+      // 原语报告失败就让当前节点失败；单项错误隔离统一由 WorkflowRunner 的
+      // forEach.onError=continue 处理，不把失败响应体误当成成功 value。
+      if (!r.ok) {
+        throw new Error(r.observation || r.detail || `算子 ${p.name} 执行失败`);
+      }
       const effects: NonNullable<StepResult['effects']> = [];
       if (r.displayMarkdown) effects.push({ displayMarkdown: r.displayMarkdown });
       if (r.actionLink) effects.push({ actionLink: r.actionLink.url });
@@ -90,6 +97,12 @@ export async function createOperatorRegistry(deps: OperatorRegistryDeps): Promis
     map.set(p.name, primitiveToOperatorSpec(p));
   }
 
+  for (const spec of map.values()) {
+    validateSchemaDefinition(spec.inputSchema, `${spec.name}.inputSchema`);
+    if (spec.inputSchema['type'] !== 'object') throw new Error(`${spec.name}.inputSchema 根类型必须是 object`);
+    validateSchemaDefinition(spec.outputSchema, `${spec.name}.outputSchema`);
+  }
+
   const adapters = deps.adapters ?? createOperatorAdapters();
   let active: PluginArtifact[] = [];
   try {
@@ -100,7 +113,23 @@ export async function createOperatorRegistry(deps: OperatorRegistryDeps): Promis
   for (const artifact of active) {
     const adapter = adapters[artifact.pointId];
     if (!adapter) continue; // 未声明算子适配的扩展点不进算子表（通用规则，不是特判）
-    for (const op of adapter.toSpecs({ artifact, runtime: deps.runtime })) {
+    // 存量工件可能来自旧版持久化数据（exposes[].params）。单个旧/损坏工件不能
+    // 让整张宿主算子表装配失败；它不会注册，引用时会得到「未注册算子」诊断。
+    // 资源作者需按新契约重新发布并重新安装，宿主不提供 legacy 双轨执行。
+    let adapted: OperatorSpec[];
+    try {
+      adapted = adapter.toSpecs({ artifact, runtime: deps.runtime });
+    } catch {
+      continue;
+    }
+    for (const op of adapted) {
+      try {
+        validateSchemaDefinition(op.inputSchema, `${op.name}.inputSchema`);
+        if (op.inputSchema['type'] !== 'object') continue;
+        validateSchemaDefinition(op.outputSchema, `${op.name}.outputSchema`);
+      } catch {
+        continue;
+      }
       map.set(op.name, op);
     }
   }
@@ -112,7 +141,12 @@ export async function createOperatorRegistry(deps: OperatorRegistryDeps): Promis
     run: async (name: string, args: Record<string, unknown>): Promise<StepResult> => {
       const op = specs.get(name);
       if (op === undefined) throw new Error(`未注册的算子：${name}`);
-      return op.run(args);
+      const inputError = validateSchemaValue(op.inputSchema, args);
+      if (inputError) throw new Error(`算子 ${name} 输入校验失败：${inputError}`);
+      const result = await op.run(args);
+      const outputError = validateSchemaValue(op.outputSchema, result.value);
+      if (outputError) throw new Error(`算子 ${name} 输出校验失败：${outputError}`);
+      return result;
     },
   };
 }

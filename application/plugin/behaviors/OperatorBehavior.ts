@@ -28,8 +28,8 @@ export const OPERATOR_DEV_LINES = [
   '- 算子源码入口固定为 function call(input)，input 是 { method, args }：',
   '  method 只能取 exposes[].name，args 是参数数组；返回任意可 JSON 序列化的值。',
   '  方法实现建议挂在源码自己的对象上，用白名单查表调用，绝不要用 eval / new Function。',
-  '- exposes[] 每项：{ name: 合法方法标识符, description: 一句话说明, params: 参数 JSON Schema }。',
-  '  params 会原样进入宿主算子表条目，阶段二 workflow 节点按名引用并照它填参数。',
+  '- exposes[] 每项必须声明：{ name, description, inputSchema, outputSchema, kind, idempotent }。',
+  '  inputSchema 根类型必须是 object；outputSchema 描述返回值；kind 为 pure/io/effect。',
   '- smoke[] 每项：{ method?(可省略,默认 exposes[0]), args:[一个参数对象], expect: 期望返回值 }。',
   '  宿主逐条跑沙箱并与 expect 逐字段比对，能跑但算错也拒；样例请用确定性输入，',
   '  不要依赖当前时间 / 随机数。',
@@ -62,7 +62,7 @@ export const operatorBehavior: ExtensionPointBehavior = {
   extraParams: {
     exposes: {
       type: 'array',
-      description: '算子方法白名单 [{name,description,params}]；写工作流算子时必填',
+      description: '算子方法白名单 [{name,description,inputSchema,outputSchema,kind,idempotent}]；全部必填',
       items: { type: 'object' },
     },
     smoke: {

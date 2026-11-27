@@ -132,6 +132,9 @@ function prim(name: string): SkillPrimitive {
   return {
     name,
     definition: { name, description: `${name} 说明`, parameters: { type: 'object' } },
+    idempotent: true,
+    outputSchema: {},
+    kind: 'pure',
     execute: async () => ({ observation: 'ok', ok: true, detail: name }),
   };
 }
@@ -502,13 +505,14 @@ function fakeArtifacts(list: PluginArtifact[]) {
 describe('skillPluginResourceIds — 从 workflow DAG 推导依赖插件', () => {
   it('插件算子 <slug>.<method> → workflow-operator.<slug>，去重保序；内置算子不含点被忽略', () => {
     expect(skillPluginResourceIds(wfRecipe([
-      'foxwq_fetch_batch', 'circle.normalize', 'circle.stats', 'calendar.lookup',
-    ]))).toEqual(['workflow-operator.circle', 'workflow-operator.calendar']);
+      'foxwq.fetchBatch', 'circle.normalize', 'circle.stats', 'calendar.lookup',
+    ]))).toEqual(['workflow-operator.foxwq', 'workflow-operator.circle', 'workflow-operator.calendar']);
   });
 
-  it('散文配方（无 workflow）/ 只调内置算子 → 零依赖，进而不弹框', () => {
+  it('JSON 沙箱算子需要插件依赖；display 是宿主通用能力', () => {
     expect(skillPluginResourceIds(asRecipe(recipe()))).toEqual([]);
-    expect(skillPluginResourceIds(wfRecipe(['json_extract', 'display_json_list']))).toEqual([]);
+    expect(skillPluginResourceIds(wfRecipe(['display']))).toEqual([]);
+    expect(skillPluginResourceIds(wfRecipe(['json.get', 'json.unique']))).toEqual(['workflow-operator.json']);
   });
 });
 
@@ -754,5 +758,35 @@ describe('分类标签 category（可选、纯展示）', () => {
     const saved = await catalog.userStore().list();
     expect(saved.find((e) => e.recipe.id === 'stock.quote')?.recipe.category).toBe('财经');
     expect(saved.find((e) => e.recipe.id === 'puzzle.tsumego')?.recipe.category).toBeUndefined();
+  });
+});
+
+
+describe('skillPluginResourceIds — control block dependency traversal', () => {
+  it('递归收集 ifElse 两个分支中的插件依赖并按资源 ID 去重', () => {
+    const parsed = asRecipe(recipe({
+      workflow: {
+        steps: [
+          { id: 'source', call: 'web_fetch', args: { url: 'https://example.test' } },
+          {
+            id: 'branch',
+            ifElse: {
+              condition: { from: 'source', path: 'ok' },
+              then: [
+                { id: 'jsonA', call: 'json.get', args: { path: 'data' } },
+                { id: 'jsonB', call: 'json.unique', args: { key: 'id' } },
+              ],
+              else: [
+                { id: 'regex', call: 'regex.extract', args: { pattern: 'x' } },
+              ],
+            },
+          },
+        ],
+      },
+    }));
+    expect(skillPluginResourceIds(parsed)).toEqual([
+      'workflow-operator.json',
+      'workflow-operator.regex',
+    ]);
   });
 });

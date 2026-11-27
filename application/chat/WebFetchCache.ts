@@ -306,28 +306,18 @@ function doGrep(
 
 /** 读取工具执行器：失败一律变成观察，不抛给 loop */
 export function executeWebCacheRead(
-  argsJson: string,
+  args: Record<string, unknown>,
   cache: WebFetchCache = defaultWebFetchCache,
 ): WebCacheReadResult {
-  return { ...readImpl(argsJson, cache), preparatory: true };
+  return { ...readImpl(args, cache), preparatory: true };
 }
 
 type ReadResult = Omit<WebCacheReadResult, 'preparatory'>;
 
 function readImpl(
-  argsJson: string,
+  args: Record<string, unknown>,
   cache: WebFetchCache,
 ): ReadResult {
-  let args: Record<string, unknown>;
-  try {
-    const parsed: unknown = JSON.parse(argsJson);
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-      throw new Error('参数必须是对象');
-    }
-    args = parsed as Record<string, unknown>;
-  } catch {
-    return fail('参数不是合法 JSON 对象');
-  }
   const url = args['url'];
   const mode = args['mode'];
   if (typeof url !== 'string' || !url.trim()) return fail('缺少 url（填 web_fetch 观察里的绝对 URL）');

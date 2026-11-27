@@ -71,13 +71,12 @@ export interface WebResourceToolResult {
 }
 
 /** 从参数 JSON 取 url；失败文案直接作为观察回给模型 */
-function readUrl(argsJson: string): { url: string } | { error: string } {
+function readUrl(args: Record<string, unknown>): { url: string } | { error: string } {
   try {
-    const args = JSON.parse(argsJson) as { url?: unknown };
-    if (typeof args.url !== 'string' || !args.url.trim()) {
+    if (typeof args['url'] !== 'string' || !args['url'].trim()) {
       return { error: '缺少 url 参数' };
     }
-    return { url: args.url.trim() };
+    return { url: args['url'].trim() };
   } catch {
     return { error: '参数不是合法 JSON' };
   }
@@ -99,16 +98,16 @@ function mismatch(name: string, actual: string): WebResourceToolResult {
 }
 
 export async function executeWebReadPdf(
-  argsJson: string,
+  args: Record<string, unknown>,
   deps: WebFetchToolDeps,
 ): Promise<WebResourceToolResult> {
-  const parsed = readUrl(argsJson);
+  const parsed = readUrl(args);
   if ('error' in parsed) {
     return { observation: `${WEB_READ_PDF_TOOL_NAME} 参数无效：${parsed.error}`, ok: false, detail: parsed.error };
   }
   let mode: 'text' | 'native' = 'text';
   try {
-    mode = parsePdfMode((JSON.parse(argsJson) as { mode?: unknown }).mode);
+    mode = parsePdfMode(args['mode']);
   } catch { /* 默认 text */ }
 
   const fetched = await fetchResourceFromUrl(parsed.url, deps);
@@ -120,10 +119,10 @@ export async function executeWebReadPdf(
 }
 
 export async function executeWebReadImage(
-  argsJson: string,
+  args: Record<string, unknown>,
   deps: WebFetchToolDeps,
 ): Promise<WebResourceToolResult> {
-  const parsed = readUrl(argsJson);
+  const parsed = readUrl(args);
   if ('error' in parsed) {
     return { observation: `${WEB_READ_IMAGE_TOOL_NAME} 参数无效：${parsed.error}`, ok: false, detail: parsed.error };
   }

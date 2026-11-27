@@ -67,6 +67,10 @@ const rankingAdapter: OperatorAdapter = {
     const name = slug.startsWith(rankingPrefix) ? slug : `${rankingPrefix}${slug}`;
     return [{
       name,
+      description: artifact.intent || `排名算子 ${name}`,
+      inputSchema: { type: 'object' },
+      outputSchema: {},
+      kind: 'pure',
       idempotent: true,
       run: async (args: Record<string, unknown>): Promise<StepResult> => {
         const result: PluginRunResult = await runtime.run(artifact.code, args, RANKING_SPEC);
@@ -91,8 +95,11 @@ const workflowOperatorAdapter: OperatorAdapter = {
       const method = exposure.name;
       return {
         name: `${slug}.${method}`,
-        // 纯计算算子默认幂等；契约未标 non-idempotent 前一律 true（明说的业务约定，非拟合数值）
-        idempotent: true,
+        description: exposure.description,
+        inputSchema: exposure.inputSchema,
+        outputSchema: exposure.outputSchema,
+        kind: exposure.kind,
+        idempotent: exposure.idempotent,
         run: async (args: Record<string, unknown>): Promise<StepResult> => {
           // 插件 call(input) 契约：input.args 是「含一个参数对象的数组」
           // （见资源 plugin.json 的 smoke[].args 与插件源码的 call() 校验）。

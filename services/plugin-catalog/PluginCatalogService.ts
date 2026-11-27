@@ -25,7 +25,7 @@ import { createExtensionPointBehaviors } from '@application/plugin/behaviors';
 import { resolvePluginSpec, PLUGIN_SPECS } from '@domain/plugin/types';
 import type { PluginArtifact, IPluginRuntime, PluginRunResult, PluginSpec } from '@domain/plugin/types';
 import type { PluginArtifactService } from '@application/plugin/PluginArtifactService';
-import { PluginCatalogClient } from './PluginCatalogClient';
+import { PluginCatalogClient, PluginCatalogContractError } from './PluginCatalogClient';
 import type { ParsedRegistryResource } from './PluginCatalogClient';
 import { PluginCatalogSources } from './PluginCatalogSources';
 import { PluginCatalogCache } from './PluginCatalogCache';
@@ -377,7 +377,13 @@ export class PluginCatalogService {
       manifest = fetched.manifest;
       codeUrl = fetched.codeUrl;
     } catch (error) {
-      return { ...base, state: 'unavailable', reason: `清单不可用：${messageOf(error)}` };
+      const reason = messageOf(error);
+      // JSON 解析、字段形状、版本或资源路径违反契约属于 incompatible；
+      // 只有 HTTP / 网络 / 超时等取数故障才是 unavailable。
+      if (error instanceof PluginCatalogContractError) {
+        return { ...base, state: 'incompatible', reason };
+      }
+      return { ...base, state: 'unavailable', reason: `清单不可用：${reason}` };
     }
 
     const enriched: CatalogEntry = {

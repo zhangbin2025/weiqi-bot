@@ -1,5 +1,5 @@
 /**
- * 阶段二 workflow DAG runner：按声明顺序跑算子链，失败短路，结构化回灌。
+ * 阶段二 workflow runner：按声明顺序执行算子链与通用循环控制块，失败短路，结构化回灌。
  * @module application/skill/WorkflowRunner
  *
  * 语义出处：PHASE2-CONTRACT.md「DSL 语义条款」/「DSL 字段形状」/「runner 语义」/
@@ -9,17 +9,12 @@
  * 不参与连线。runner 只做「按名执行 + 引用取值 + 累积 + 短路」，不重写任何算子。
  *
  * 边界（逐条可查，不引入任何新常数）：
- * - 步骤数 N = `spec.steps.length`（静态声明长度，解析期有限可知）；
- * - 无环：`bindings[].from` 在解析期（E 的 parseSkillRecipe）已验「指向更前」，
- *   runner 不再做拓扑排序，steps 数组顺序即拓扑序；
- * - 无表达式 / 无条件 / 无循环：`{{input.xxx}}` 是**数据注入**（PHASE2-CONTRACT
- *   「URL 模板 / 占位符」+ 主代理增量校正）：规则① 字符串完整等于占位符 → 按
- *   inputs[].type 注入**原始值**（不 String()）；规则② 字符串内嵌 → 逐字 String() 替换。
- *   不是 eval、不拼表达式、不递归展开替换结果、不引入转义/数值规则（条款 2）；
+ * - 普通节点按 steps 声明顺序执行；forEach / repeat / ifElse 是 runner 原生控制块，循环体仍只调用已注册算子；
+ * - `bindings[].from` 在解析期验为更靠前的节点；循环体拥有独立局部节点作用域，可读取外层已完成节点；
+ * - 不执行表达式或动态代码：`{{input.xxx}}`、`{{item.path}}`、`{{index}}`、`{{state.path}}` 都是受限数据注入；
  * - 失败即短路 + 结构化错误（哪个节点 / 什么错 / 已完成节点列表），**宿主不自动重试**；
  * - 仅 `yield:true` 节点的 value 进结果汇总（宿主内部保留；成功观察只回完成+句柄，不回灌模型）；
- * - 不引入重试次数 / 超时 / 步数上限：确定性部分不消耗决策预算，
- *   模型驱动的多轮由既有 maxTurns 管住。
+ * - repeat 与 forEach 受 MAX_WORKFLOW_ITERATIONS 资源上限保护；循环体由宿主确定性调度，不消耗模型决策轮。
  *
  * 取证确认（勿指望阶段一地基）：`OperatorRegistry.run()` 在「名字未注册」与
  * 「插件执行失败」两条路径都只抛普通 Error（OperatorRegistry.ts），阶段一没有
@@ -28,7 +23,7 @@
  * 依赖环：本文件只 type-import `SkillTypes` / `domain/plugin/types` /
  * `OperatorRegistry`，不 import 任何原语实现或 ToolLoop/ChatUseCase，
  * 不产生新依赖环。binding.path 的取值用 runner 内自带的**简单点路径**读取器
- * （`a.b[0].c` / `$`），故意不复用 json_extract 的完整路径引擎：
+ * （`a.b[0].c` / `$`），故意不复用 JSON 沙箱算子 的完整路径引擎：
  * 那属于算子能力（`[*]` / `..name` / where...），runner 只做「引用取值」，
  * 保持契约「runner 不重写算子 / 极窄 DSL」的边界。
  */
@@ -78,17 +73,28 @@ const INPUTS_STEP_ID = '<inputs>';
  * 主代理 10:xx 增量校正优先于旧措辞）：
  * - 规则①：字符串**完整等于** `{{input.xxx}}` → 按 inputs[].type 注入**原始值**
  *   （integer/number/boolean/object/array 保持类型，**不 String()**）。
- *   `display_json_list` 的 `{"fields":"{{input.fields}}"}` 靠这条：否则 fields
+ *   `display` 的 `{"fields":"{{input.fields}}"}` 靠这条：否则 fields
  *   变字符串会报错（数组类参数必须保原始类型）。
  * - 规则②：字符串**内嵌** `{{input.xxx}}` → 逐字 `String()` 替换（URL 里的 page/tag/pagesize）。
  *   不 eval、不拼接表达式、不递归、不引入转义/数值规则。这是数据注入，不是 DSL 表达式。
  * 配方是严格 JSON，占位符只能是字符串值；裸 `{{...}}` 非合法 JSON、禁用。
  */
 const WHOLE_PLACEHOLDER_RE = /^\{\{input\.([^{}]+)\}\}$/;
-const EMBEDDED_PLACEHOLDER_RE = /\{\{input\.([^{}]+)\}\}/g;
+const EMBEDDED_PLACEHOLDER_RE = /\{\{(?:input\.[^{}]+|item(?:\.[^{}]+)?|index|state(?:\.[^{}]+)?|urlencode\.(?:input\.[^{}]+|item(?:\.[^{}]+)?|state(?:\.[^{}]+)?))\}\}/g;
+const SCOPE_PLACEHOLDER_RE = /^\{\{(item(?:\.[^{}]+)?|index|state(?:\.[^{}]+)?)\}\}$/;
+const URL_ENCODE_PLACEHOLDER_RE = /^\{\{urlencode\.(input\.[^{}]+|item(?:\.[^{}]+)?|state(?:\.[^{}]+)?)\}\}$/;
+const MAX_WORKFLOW_ITERATIONS = 100;
+const MAX_WORKFLOW_TOTAL_ITERATIONS = 500;
 
 /** 属性访问只认自身属性，并挡住原型链上的危险键（与宿主其余取值层同口径）。 */
 const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
+
+/** 动态键写入必须定义为自有数据属性，不能触发 Object.prototype 的 setter。 */
+function setOwn(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value, enumerable: true, configurable: true, writable: true,
+  });
+}
 
 /** 过程块：契约明确 source='web' / attempt=1 / phase='observe'（非来路不明常数）。 */
 function traceStep(ok: boolean, detail: string): PluginTraceStep {
@@ -157,51 +163,116 @@ function resolveInputs(
     if (decl.enum !== undefined && !enumContains(decl.enum, value)) {
       return { ok: false, error: `参数「${decl.name}」取值不在配方声明的 enum 内` };
     }
-    out[decl.name] = value;
+    setOwn(out, decl.name, value);
   }
   return { ok: true, values: out };
 }
 
 /**
- * 把 args 里的 `{{input.xxx}}` 占位符解析成实际值（数据注入，不是表达式求值）。
+ * 把 args 里的 input/item/index/state 占位符解析成实际值（数据注入，不是表达式求值）。
  * 遍历所有叶子（配方可能把占位符写在嵌套结构里）：
  * - 规则①：整个字符串恰为一个占位符 → 返回**原始类型值**（不 String()）；
  * - 规则②：字符串内嵌占位符 → 逐字 `String()` 替换，替换结果**不递归再展开**；
  * - 无占位符的字符串 / 其它标量原样返回。
- * inputs 只经占位符注入（配方写哪里就注哪里），不 blanket 塞进每个节点的 args。
+ * inputs 与循环作用域只经占位符注入（配方写哪里就注哪里），不 blanket 塞进每个节点的 args。
  */
+interface WorkflowTemplateScope {
+  item?: unknown;
+  index?: number;
+  state?: unknown;
+}
+
+function resolveScopePlaceholder(
+  token: string,
+  scope: WorkflowTemplateScope | undefined,
+): { ok: true; value: unknown } | { ok: false; error: string } {
+  if (token === 'index') {
+    return scope?.index === undefined
+      ? { ok: false, error: '占位符 {{index}} 只能在 forEach 循环体内使用' }
+      : { ok: true, value: scope.index };
+  }
+  const dot = token.indexOf('.');
+  const rootName = dot < 0 ? token : token.slice(0, dot);
+  const path = dot < 0 ? '$' : token.slice(dot + 1);
+  const root = rootName === 'item' ? scope?.item : scope?.state;
+  if (root === undefined) {
+    return { ok: false, error: '占位符 {{' + token + '}} 不在对应循环作用域内' };
+  }
+  const got = readBindingValue(root, path);
+  return got.ok ? got : { ok: false, error: '占位符 {{' + token + '}}：' + got.error };
+}
+
+function resolveUrlEncodePlaceholder(
+  token: string,
+  resolved: Record<string, unknown>,
+  scope: WorkflowTemplateScope | undefined,
+): { ok: true; value: string } | { ok: false; error: string } {
+  const match = /^urlencode\.(input\.([^{}]+)|item(?:\.[^{}]+)?|state(?:\.[^{}]+)?)$/.exec(token);
+  if (!match) return { ok: false, error: 'URL 编码占位符格式无效：{{' + token + '}}' };
+  let value: unknown;
+  if (match[2] !== undefined) {
+    if (!Object.prototype.hasOwnProperty.call(resolved, match[2])) {
+      return { ok: false, error: '占位符 {{urlencode.input.' + match[2] + '}} 没有对应的已解析 input' };
+    }
+    value = resolved[match[2]];
+  } else {
+    const got = resolveScopePlaceholder(match[1]!, scope);
+    if (!got.ok) return got;
+    value = got.value;
+  }
+  if (value === null || value === undefined || (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean')) {
+    return { ok: false, error: 'URL 编码占位符只接受字符串、数字或布尔值' };
+  }
+  return { ok: true, value: encodeURIComponent(String(value)) };
+}
+
 function substituteInputs(
   node: unknown,
   resolved: Record<string, unknown>,
+  scope?: WorkflowTemplateScope,
 ): { ok: true; value: unknown } | { ok: false; error: string } {
   if (typeof node === 'string') {
+    const encodedWhole = URL_ENCODE_PLACEHOLDER_RE.exec(node);
+    if (encodedWhole) return resolveUrlEncodePlaceholder(encodedWhole[0].slice(2, -2), resolved, scope);
     const whole = WHOLE_PLACEHOLDER_RE.exec(node);
     if (whole) {
       const name = whole[1]!;
       if (!Object.prototype.hasOwnProperty.call(resolved, name)) {
-        return { ok: false, error: `占位符 {{input.${name}}} 没有对应的已解析 input` };
+        return { ok: false, error: '占位符 {{input.' + name + '}} 没有对应的已解析 input' };
       }
-      // 规则①：注入原始值。resolved 里的值已过 resolveInputs 的 type/enum 校验，
-      // 保 integer(number)/array/object/boolean/string 原类型，绝不能 String()。
       return { ok: true, value: resolved[name] };
     }
-    // 规则②：内嵌占位符逐字 String() 替换（只用于 URL 这类文本）。
-    let missing = '';
-    const replaced = node.replace(EMBEDDED_PLACEHOLDER_RE, (_whole, name: string) => {
-      if (!Object.prototype.hasOwnProperty.call(resolved, name)) {
-        missing = name;
-        return _whole;
+    const scopeWhole = SCOPE_PLACEHOLDER_RE.exec(node);
+    if (scopeWhole) return resolveScopePlaceholder(scopeWhole[1]!, scope);
+    let failure: string | undefined;
+    const replaced = node.replace(EMBEDDED_PLACEHOLDER_RE, (token) => {
+      const encoded = /^\{\{urlencode\.([^{}]+)\}\}$/.exec(token);
+      if (encoded) {
+        const got = resolveUrlEncodePlaceholder('urlencode.' + encoded[1]!, resolved, scope);
+        if (!got.ok) { failure = got.error; return token; }
+        return got.value;
       }
-      return String(resolved[name]);
+      const input = /^\{\{input\.([^{}]+)\}\}$/.exec(token);
+      if (input) {
+        const name = input[1]!;
+        if (!Object.prototype.hasOwnProperty.call(resolved, name)) {
+          failure = '占位符 {{input.' + name + '}} 没有对应的已解析 input';
+          return token;
+        }
+        return String(resolved[name]);
+      }
+      const scoped = /^\{\{([^{}]+)\}\}$/.exec(token);
+      if (!scoped) return token;
+      const got = resolveScopePlaceholder(scoped[1]!, scope);
+      if (!got.ok) { failure = got.error; return token; }
+      return String(got.value);
     });
-    return missing
-      ? { ok: false, error: `占位符 {{input.${missing}}} 没有对应的已解析 input` }
-      : { ok: true, value: replaced };
+    return failure ? { ok: false, error: failure } : { ok: true, value: replaced };
   }
   if (Array.isArray(node)) {
     const out: unknown[] = [];
     for (const item of node) {
-      const r = substituteInputs(item, resolved);
+      const r = substituteInputs(item, resolved, scope);
       if (!r.ok) return r;
       out.push(r.value);
     }
@@ -210,9 +281,9 @@ function substituteInputs(
   if (node !== null && typeof node === 'object') {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
-      const r = substituteInputs(v, resolved);
+      const r = substituteInputs(v, resolved, scope);
       if (!r.ok) return r;
-      out[k] = r.value;
+      setOwn(out, k, r.value);
     }
     return { ok: true, value: out };
   }
@@ -318,45 +389,48 @@ export async function runWorkflow(
   captureTrace = false,
 ): Promise<WorkflowRunResult> {
   const steps: readonly WorkflowStep[] = spec.steps ?? [];
-  const N = steps.length; // 步骤数 = 静态声明长度，零新常数
-
-  // 开头即显示「共 N 步」：声明静态，进度感从第一刻完整（条款 8）。
-  // phase='observe' 让 ChatUseCase 的实时过程块懒建立即点亮。
-  pushTrace(onTrace, true, `workflow 共 ${N} 步`);
-
   const completedStepIds: string[] = [];
   const effects: WorkflowEffect[] = [];
   const values: Record<string, unknown> = {};
-  /** 调试模式逐步记录；captureTrace=false 时保持 undefined，正常结果对象零变化。 */
   const stepTrace: WorkflowStepTrace[] | undefined = captureTrace ? [] : undefined;
 
   const fail = (stepId: string, error: string, detail: string): WorkflowRunResult => {
     pushTrace(onTrace, false, detail);
     return {
-      ok: false,
-      values,
-      effects,
-      completedStepIds: [...completedStepIds],
+      // effects 是延迟交付的宿主副作用；Workflow 整体失败时一律丢弃，避免
+      // 前序节点的半成品展示/链接被误当成任务成功结果交付给用户。
+      ok: false, values, effects: [], completedStepIds: [...completedStepIds],
       ...(stepTrace !== undefined ? { stepTrace } : {}),
       failure: { stepId, error, completedStepIds: [...completedStepIds] },
     };
   };
 
-  // 运行前防御（一次）：解析期已验无环/引用真实/唯一 id，这里只补「算子是否真的注册」。
-  // 未命中即拒跑，不执行任何节点（避免跑了一半才发现白名单没命中）。
-  for (const step of steps) {
-    if (registry.get(step.call) === undefined) {
-      const reason = `未注册算子:${step.call}`;
-      stepTrace?.push({
-        stepId: step.id, call: step.call, args: step.args ?? {},
-        ok: false, error: reason, effects: [],
-      });
-      return fail(step.id, reason,
-        `workflow 运行前校验失败：节点 ${step.id} 引用了未注册算子 ${step.call}`);
+  const missingOperator = (items: readonly WorkflowStep[], prefix: string): { id: string; call: string } | undefined => {
+    for (const step of items) {
+      const path = prefix + step.id;
+      if (step.call !== undefined) {
+        if (registry.get(step.call) === undefined) return { id: path, call: step.call };
+      } else {
+        const nested = step.forEach?.steps ?? step.repeat?.steps ?? [];
+        const missing = missingOperator(nested, path + "/");
+        if (missing) return missing;
+        if (step.ifElse !== undefined) {
+          const thenMissing = missingOperator(step.ifElse.then, path + "/then/");
+          if (thenMissing) return thenMissing;
+          const elseMissing = missingOperator(step.ifElse.else ?? [], path + "/else/");
+          if (elseMissing) return elseMissing;
+        }
+      }
     }
+    return undefined;
+  };
+  const missing = missingOperator(steps, "");
+  if (missing) {
+    const reason = `未注册算子:${missing.call}`;
+    stepTrace?.push({ stepId: missing.id, call: missing.call, args: {}, ok: false, effects: [], error: reason });
+    return fail(missing.id, reason, `workflow 运行前校验失败：节点 ${missing.id} 引用了未注册算子 ${missing.call}`);
   }
 
-  // inputs 契约校验 / 缺省填充。失败发生在任何节点之前，stepId 用哨兵。
   const resolved = resolveInputs(inputDecls, inputs);
   if (!resolved.ok) {
     stepTrace?.push({
@@ -367,83 +441,199 @@ export async function runWorkflow(
   }
   const resolvedInputs = resolved.values;
 
-  // 上游 value 表：step id → StepResult.value（连线只认 value）。
+  let totalLoopIterations = 0;
+  type Scope = WorkflowTemplateScope;
+  type InternalResult =
+    | { ok: true; lastValue: unknown }
+    | { ok: false; stepId: string; error: string; detail: string };
+
+  const runSteps = async (
+    items: readonly WorkflowStep[],
+    upstream: Map<string, unknown>,
+    scope: Scope,
+    prefix: string,
+    collectYield: boolean,
+  ): Promise<InternalResult> => {
+    let lastValue: unknown = null;
+    for (const step of items) {
+      const stepId = prefix + step.id;
+      const callName = step.call ?? (step.forEach ? '<forEach>' : step.repeat ? '<repeat>' : '<ifElse>');
+
+      if (step.call !== undefined) {
+        const literal = substituteInputs(step.args ?? {}, resolvedInputs, scope);
+        if (!literal.ok) return { ok: false, stepId, error: literal.error, detail: `节点 ${stepId} 参数失败：${literal.error}` };
+        const mergedArgs: Record<string, unknown> = { ...(literal.value as Record<string, unknown>) };
+        for (const binding of step.bindings ?? []) {
+          if (!upstream.has(binding.from)) {
+            const reason = `节点 ${binding.from} 尚无 value（bindings.from 必须指向更靠前的已完成节点）`;
+            return { ok: false, stepId, error: reason, detail: `节点 ${stepId} 引用失败：上游 ${binding.from} 无 value` };
+          }
+          const got = readBindingValue(upstream.get(binding.from), binding.path);
+          if (!got.ok) return { ok: false, stepId, error: got.error, detail: `节点 ${stepId} 引用失败：${got.error}` };
+          setOwn(mergedArgs, binding.as, got.value);
+        }
+        let result: StepResult;
+        try {
+          result = await registry.run(step.call, mergedArgs);
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          // debug trace 必须包含失败节点本身，而不只是失败前已完成的节点。
+          stepTrace?.push({
+            stepId, call: step.call, args: mergedArgs, ok: false, error: reason, effects: [],
+          });
+          return { ok: false, stepId, error: reason, detail: `节点 ${stepId} ${step.call} 失败：${reason}` };
+        }
+        const stepEffects: WorkflowEffect[] = [];
+        for (const effect of result.effects ?? []) {
+          effects.push(effect);
+          stepEffects.push(effect);
+        }
+        upstream.set(step.id, result.value);
+        lastValue = result.value;
+        if (collectYield && step.yield === true) setOwn(values, step.id, result.value);
+        completedStepIds.push(stepId);
+        stepTrace?.push({ stepId, call: step.call, args: mergedArgs, value: result.value, effects: stepEffects, ok: true });
+        pushTrace(onTrace, true, `节点 ${stepId} ${step.call} 完成`);
+        continue;
+      }
+
+      if (step.forEach !== undefined) {
+        if (!upstream.has(step.forEach.from)) {
+          return { ok: false, stepId, error: `forEach 来源节点无 value：${step.forEach.from}`, detail: `节点 ${stepId} 无法读取循环数组` };
+        }
+        const source = readBindingValue(upstream.get(step.forEach.from), step.forEach.path);
+        if (!source.ok) return { ok: false, stepId, error: source.error, detail: `节点 ${stepId} 循环来源路径失败：${source.error}` };
+        if (!Array.isArray(source.value)) return { ok: false, stepId, error: 'forEach 来源必须是数组', detail: `节点 ${stepId} 循环来源不是数组` };
+        if (source.value.length > MAX_WORKFLOW_ITERATIONS) {
+          return { ok: false, stepId, error: `forEach 项数超过宿主上限 ${MAX_WORKFLOW_ITERATIONS}`, detail: `节点 ${stepId} 循环项数超限` };
+        }
+        const results: unknown[] = [];
+        for (let index = 0; index < source.value.length; index++) {
+          if (totalLoopIterations >= MAX_WORKFLOW_TOTAL_ITERATIONS) {
+            return { ok: false, stepId, error: `Workflow 累计循环次数超过宿主上限 ${MAX_WORKFLOW_TOTAL_ITERATIONS}`, detail: `节点 ${stepId} 累计循环预算耗尽` };
+          }
+          totalLoopIterations += 1;
+          const local = new Map(upstream);
+          const effectsCheckpoint = effects.length;
+          const nested = await runSteps(
+            step.forEach.steps, local, { ...scope, item: source.value[index], index },
+            `${stepId}[${index}]/`, false,
+          );
+          if (!nested.ok) {
+            if (step.forEach.onError !== 'continue') return nested;
+            // continue 表示隔离失败项：回滚该项内部已累积的延迟 effects，
+            // 避免失败子流程留下半成品展示或动作链接。
+            effects.splice(effectsCheckpoint);
+            results.push({
+              ok: false,
+              error: { stepId: nested.stepId, message: nested.error },
+            });
+            continue;
+          }
+          results.push(step.forEach.onError === 'continue'
+            ? { ok: true, value: nested.lastValue }
+            : nested.lastValue);
+        }
+        upstream.set(step.id, results);
+        lastValue = results;
+        if (collectYield && step.yield === true) setOwn(values, step.id, results);
+        completedStepIds.push(stepId);
+        stepTrace?.push({ stepId, call: callName, args: { from: step.forEach.from, path: step.forEach.path }, value: results, effects: [], ok: true });
+        pushTrace(onTrace, true, `节点 ${stepId} forEach 完成（${results.length} 项）`);
+        continue;
+      }
+
+      if (step.ifElse !== undefined) {
+        const condition = step.ifElse.condition;
+        if (!upstream.has(condition.from)) {
+          return { ok: false, stepId, error: `ifElse 条件来源节点无 value：${condition.from}`, detail: `节点 ${stepId} 无法读取分支条件` };
+        }
+        const conditionValue = readBindingValue(upstream.get(condition.from), condition.path);
+        if (!conditionValue.ok) {
+          return { ok: false, stepId, error: conditionValue.error, detail: `节点 ${stepId} 分支条件读取失败：${conditionValue.error}` };
+        }
+        if (typeof conditionValue.value !== 'boolean') {
+          return { ok: false, stepId, error: 'ifElse.condition 必须指向 boolean 值', detail: `节点 ${stepId} 分支条件不是 boolean` };
+        }
+        const matched = conditionValue.value;
+        const branchSteps = matched ? step.ifElse.then : (step.ifElse.else ?? []);
+        const local = new Map(upstream);
+        const nested = await runSteps(
+          branchSteps, local, scope, `${stepId}.${matched ? 'then' : 'else'}/`, false,
+        );
+        if (!nested.ok) return nested;
+        const branchResult = { condition: matched, value: nested.lastValue };
+        upstream.set(step.id, branchResult);
+        lastValue = branchResult;
+        if (collectYield && step.yield === true) setOwn(values, step.id, branchResult);
+        completedStepIds.push(stepId);
+        stepTrace?.push({
+          stepId, call: callName,
+          args: { conditionFrom: condition.from, conditionPath: condition.path, matched },
+          value: branchResult, effects: [], ok: true,
+        });
+        pushTrace(onTrace, true, `节点 ${stepId} if/else 完成（${matched ? 'then' : 'else'} 分支）`);
+        continue;
+      }
+
+      const repeat = step.repeat!;
+      const maxResult = substituteInputs(repeat.maxIterations, resolvedInputs, scope);
+      if (!maxResult.ok) return { ok: false, stepId, error: maxResult.error, detail: `节点 ${stepId} 循环次数参数无效：${maxResult.error}` };
+      const maxIterations = maxResult.value;
+      if (typeof maxIterations !== 'number' || !Number.isInteger(maxIterations) || maxIterations < 1 || maxIterations > MAX_WORKFLOW_ITERATIONS) {
+        const reason = `repeat.maxIterations 必须是 1 到 ${MAX_WORKFLOW_ITERATIONS} 之间的整数`;
+        return { ok: false, stepId, error: reason, detail: `节点 ${stepId} 循环次数超出宿主允许范围` };
+      }
+      const initial = substituteInputs(repeat.initialState ?? {}, resolvedInputs, scope);
+      if (!initial.ok) return { ok: false, stepId, error: initial.error, detail: `节点 ${stepId} 初始状态无效：${initial.error}` };
+      if (!initial.value || typeof initial.value !== 'object' || Array.isArray(initial.value)) {
+        return { ok: false, stepId, error: 'repeat.initialState 必须是对象', detail: `节点 ${stepId} 初始状态不是对象` };
+      }
+      let state: unknown = initial.value;
+      const results: unknown[] = [];
+      let stopped = false;
+      for (let iteration = 0; iteration < maxIterations; iteration++) {
+        if (totalLoopIterations >= MAX_WORKFLOW_TOTAL_ITERATIONS) {
+          return { ok: false, stepId, error: `Workflow 累计循环次数超过宿主上限 ${MAX_WORKFLOW_TOTAL_ITERATIONS}`, detail: `节点 ${stepId} 累计循环预算耗尽` };
+        }
+        totalLoopIterations += 1;
+        const local = new Map(upstream);
+        const nested = await runSteps(
+          repeat.steps, local, { ...scope, state },
+          `${stepId}[${iteration}]/`, false,
+        );
+        if (!nested.ok) return nested;
+        results.push(nested.lastValue);
+        const stateSource = local.get(repeat.stateFrom.from);
+        const nextState = readBindingValue(stateSource, repeat.stateFrom.path);
+        if (!nextState.ok) return { ok: false, stepId, error: nextState.error, detail: `节点 ${stepId} 更新循环状态失败：${nextState.error}` };
+        if (!nextState.value || typeof nextState.value !== 'object' || Array.isArray(nextState.value)) {
+          return { ok: false, stepId, error: 'repeat.stateFrom 必须指向对象状态', detail: `节点 ${stepId} 新状态不是对象` };
+        }
+        state = nextState.value;
+        const untilSource = local.get(repeat.until.from);
+        const untilValue = readBindingValue(untilSource, repeat.until.path);
+        if (!untilValue.ok) return { ok: false, stepId, error: untilValue.error, detail: `节点 ${stepId} 停止条件读取失败：${untilValue.error}` };
+        if (typeof untilValue.value !== 'boolean') {
+          return { ok: false, stepId, error: 'repeat.until 必须指向 boolean 值', detail: `节点 ${stepId} 停止条件不是 boolean` };
+        }
+        if (untilValue.value) { stopped = true; break; }
+      }
+      const repeatResult = { items: results, state, stopped };
+      upstream.set(step.id, repeatResult);
+      lastValue = repeatResult;
+      if (collectYield && step.yield === true) setOwn(values, step.id, repeatResult);
+      completedStepIds.push(stepId);
+      stepTrace?.push({ stepId, call: callName, args: { maxIterations }, value: repeatResult, effects: [], ok: true });
+      pushTrace(onTrace, true, `节点 ${stepId} repeat 完成（${results.length} 轮，${stopped ? '已满足停止条件' : '达到轮数上限'}）`);
+    }
+    return { ok: true, lastValue };
+  };
+
+  pushTrace(onTrace, true, `workflow 共 ${steps.length} 个顶层步骤（循环由宿主调度）`);
   const upstream = new Map<string, unknown>();
-
-  for (let k = 0; k < N; k++) {
-    const step = steps[k]!;
-    const kth = k + 1;
-
-    // 合并顺序：字面量 args（占位符按规则①/②注入 inputs 原值/文本）
-    // → bindings 从上游 value 覆写注入。inputs 只经配方里写明的占位符进入，
-    // 不 blanket 塞进每个节点（G 的 web_fetch 不该收到 year/page 等无关键）。
-    const literal = substituteInputs(step.args ?? {}, resolvedInputs);
-    if (!literal.ok) {
-      stepTrace?.push({
-        stepId: step.id, call: step.call, args: step.args ?? {},
-        ok: false, error: literal.error, effects: [],
-      });
-      return fail(step.id, literal.error, `第 ${kth}/${N} 步 ${step.call} 参数失败：${literal.error}`);
-    }
-    const mergedArgs: Record<string, unknown> = {
-      ...(literal.value as Record<string, unknown>),
-    };
-    for (const binding of step.bindings ?? []) {
-      const source = upstream.get(binding.from);
-      if (!upstream.has(binding.from)) {
-        const reason = `节点 ${binding.from} 尚无 value（bindings.from 必须指向更靠前的已完成节点）`;
-        stepTrace?.push({
-          stepId: step.id, call: step.call, args: mergedArgs,
-          ok: false, error: reason, effects: [],
-        });
-        return fail(step.id, reason,
-          `第 ${kth}/${N} 步 ${step.call} 引用失败：上游 ${binding.from} 无 value`);
-      }
-      const got = readBindingValue(source, binding.path);
-      if (!got.ok) {
-        stepTrace?.push({
-          stepId: step.id, call: step.call, args: mergedArgs,
-          ok: false, error: got.error, effects: [],
-        });
-        return fail(step.id, got.error,
-          `第 ${kth}/${N} 步 ${step.call} 引用失败：${got.error}`);
-      }
-      mergedArgs[binding.as] = got.value;
-    }
-
-    // 执行：OperatorRegistry.run 只抛普通 Error，runner 自己包装成结构化失败。
-    let result: StepResult;
-    try {
-      result = await registry.run(step.call, mergedArgs);
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      stepTrace?.push({
-        stepId: step.id, call: step.call, args: mergedArgs,
-        ok: false, error: reason, effects: [],
-      });
-      return fail(step.id, reason, `第 ${kth}/${N} 步 ${step.call} 失败：${reason}`);
-    }
-
-    // effects 全量累积（不覆盖、不取最后一个；插件节点天然无 effects）。
-    const stepEffects: WorkflowEffect[] = [];
-    for (const e of result.effects ?? []) {
-      effects.push(e);
-      stepEffects.push(e);
-    }
-    // 记录 value 供下游 binding；仅显式 yield:true 的节点进模型上下文汇总。
-    upstream.set(step.id, result.value);
-    if (step.yield === true) values[step.id] = result.value;
-    completedStepIds.push(step.id);
-    // 调试模式：连同实际入参（占位符已替换 + bindings 已注入）一起留痕，
-    // 让模型能对照「输入 → 输出」判断是哪一步算错，而不是只看最终交付。
-    stepTrace?.push({
-      stepId: step.id, call: step.call, args: mergedArgs,
-      value: result.value, effects: stepEffects, ok: true,
-    });
-
-    pushTrace(onTrace, true, `第 ${kth}/${N} 步 ${step.call} 完成`);
-  }
-
+  const execution = await runSteps(steps, upstream, {}, "", true);
+  if (!execution.ok) return fail(execution.stepId, execution.error, execution.detail);
   return {
     ok: true, values, effects, completedStepIds,
     ...(stepTrace !== undefined ? { stepTrace } : {}),

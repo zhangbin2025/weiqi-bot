@@ -58,7 +58,7 @@ describe('executeWebFetch', () => {
 
   it('正常文本：观察含状态 / Content-Type / 正文，且打到代理 URL', async () => {
     const d = deps();
-    const r = await executeWebFetch(JSON.stringify({ url: 'https://example.com/' }), d);
+    const r = await executeWebFetch({ url: 'https://example.com/' }, d);
     expect(r.ok).toBe(true);
     expect(r.observation).toContain('HTTP 200');
     expect(r.observation).toContain('<html>柯洁</html>');
@@ -68,10 +68,10 @@ describe('executeWebFetch', () => {
 
   it('参数无效 / 防护拒绝都变成观察，不抛给 loop', async () => {
     const d = deps();
-    const bad = await executeWebFetch('{}', d);
+    const bad = await executeWebFetch({}, d);
     expect(bad.ok).toBe(false);
     expect(bad.observation).toContain('参数无效');
-    const ssrf = await executeWebFetch(JSON.stringify({ url: 'http://127.0.0.1/' }), d);
+    const ssrf = await executeWebFetch({ url: 'http://127.0.0.1/' }, d);
     expect(ssrf.ok).toBe(false);
     expect(ssrf.observation).toContain('环回或私网地址');
     expect(d.fetchImpl).not.toHaveBeenCalled();
@@ -84,7 +84,7 @@ describe('executeWebFetch', () => {
       headers: new Headers({ 'content-type': 'application/pdf' }),
       text: async () => '%PDF-1.4',
     })) as unknown as typeof fetch;
-    const r = await executeWebFetch(JSON.stringify({ url: 'https://example.com/a.pdf' }), d);
+    const r = await executeWebFetch({ url: 'https://example.com/a.pdf' }, d);
     expect(r.ok).toBe(false);
     expect(r.observation).toContain('二进制内容');
     expect(r.observation).not.toContain('%PDF-1.4');
@@ -99,7 +99,7 @@ describe('executeWebFetch', () => {
       headers: new Headers({ 'content-type': 'text/html' }),
       text: async () => 'not found',
     })) as unknown as typeof fetch;
-    const r = await executeWebFetch(JSON.stringify({ url: 'https://example.com/x' }), d);
+    const r = await executeWebFetch({ url: 'https://example.com/x' }, d);
     expect(r.ok).toBe(false);
     expect(r.observation).toContain('HTTP 404');
   });
@@ -107,7 +107,7 @@ describe('executeWebFetch', () => {
   it('fetch 抛错 / 超时都变成观察，不中断 loop', async () => {
     const d = deps();
     d.fetchImpl = vi.fn(async () => { throw new Error('network down'); }) as unknown as typeof fetch;
-    const r = await executeWebFetch(JSON.stringify({ url: 'https://example.com/' }), d);
+    const r = await executeWebFetch({ url: 'https://example.com/' }, d);
     expect(r.ok).toBe(false);
     expect(r.observation).toContain('network down');
   });
@@ -117,7 +117,7 @@ describe('executeWebFetch', () => {
 describe('executeWebFetch 短响应直给（减少模型往返）', () => {
   it('短正文：观察直接含全文、标注「正文已全部显示」，不含预览截断提示', async () => {
     const d = deps();
-    const r = await executeWebFetch(JSON.stringify({ url: 'https://example.com/' }), d);
+    const r = await executeWebFetch({ url: 'https://example.com/' }, d);
     expect(r.ok).toBe(true);
     expect(r.observation).toContain('<html>柯洁</html>');
     expect(r.observation).toContain('正文已全部显示');
@@ -134,7 +134,7 @@ describe('executeWebFetch 短响应直给（减少模型往返）', () => {
       headers: new Headers({ 'content-type': 'text/plain' }),
       text: async () => big,
     })) as unknown as typeof fetch;
-    const r = await executeWebFetch(JSON.stringify({ url: 'https://example.com/' }), d);
+    const r = await executeWebFetch({ url: 'https://example.com/' }, d);
     expect(r.observation).toContain('已存入宿主缓存');
     expect(r.observation).toContain('web_cache_read');
     expect(r.observation).toContain('未到末尾，用 web_cache_read 继续读');
@@ -150,7 +150,7 @@ describe('executeWebFetch 带浏览器自身 UA（透明代理不回落自动 UA
   it('fetch 带 X-User-Agent = navigator.userAgent，值来自浏览器自身、不伪造', async () => {
     vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (X11; Linux x86_64) TestBrowser/1.0' });
     const d = deps();
-    await executeWebFetch(JSON.stringify({ url: 'https://example.com/' }), d);
+    await executeWebFetch({ url: 'https://example.com/' }, d);
     const init = (d.fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]![1] as RequestInit;
     expect((init.headers as Record<string, string>)['X-User-Agent'])
       .toBe('Mozilla/5.0 (X11; Linux x86_64) TestBrowser/1.0');
@@ -159,7 +159,7 @@ describe('executeWebFetch 带浏览器自身 UA（透明代理不回落自动 UA
   it('原生壳 UA（含 WeiqiApp）：回落到标准浏览器 UA，不把分流标识发给站点', async () => {
     vi.stubGlobal('navigator', { userAgent: 'WeiqiApp/1.0' });
     const d = deps();
-    await executeWebFetch(JSON.stringify({ url: 'https://example.com/' }), d);
+    await executeWebFetch({ url: 'https://example.com/' }, d);
     const init = (d.fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]![1] as RequestInit;
     const ua = (init.headers as Record<string, string>)['X-User-Agent'];
     expect(ua).not.toContain('WeiqiApp');
@@ -169,7 +169,7 @@ describe('executeWebFetch 带浏览器自身 UA（透明代理不回落自动 UA
   it('后台任务壳 UA（WeiqiApp/1.0 (BackgroundTask)）同样回落', async () => {
     vi.stubGlobal('navigator', { userAgent: 'WeiqiApp/1.0 (BackgroundTask)' });
     const d = deps();
-    await executeWebFetch(JSON.stringify({ url: 'https://example.com/' }), d);
+    await executeWebFetch({ url: 'https://example.com/' }, d);
     const init = (d.fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]![1] as RequestInit;
     expect((init.headers as Record<string, string>)['X-User-Agent']).not.toContain('WeiqiApp');
   });
@@ -177,7 +177,7 @@ describe('executeWebFetch 带浏览器自身 UA（透明代理不回落自动 UA
   it('navigator 不可用时不带该头（不崩、不臆造 UA）', async () => {
     vi.stubGlobal('navigator', undefined);
     const d = deps();
-    await executeWebFetch(JSON.stringify({ url: 'https://example.com/' }), d);
+    await executeWebFetch({ url: 'https://example.com/' }, d);
     const init = (d.fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]![1] as RequestInit;
     expect((init.headers as Record<string, string>)['X-User-Agent']).toBeUndefined();
   });

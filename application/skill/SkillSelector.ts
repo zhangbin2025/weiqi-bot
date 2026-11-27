@@ -19,7 +19,7 @@ import type { SkillPrimitive, SkillRecipe } from '@application/skill/SkillTypes'
  *
  * 阶段二放宽：workflow 配方把能力声明为 workflow.steps[]（节点 call 算子名），
  * 不需要也不该再靠 primitives 非空来放行 —— 它已由 parseSkillRecipe 在安装期做过
- * 解析期静态校验（steps 非空、id 唯一、call 非空、bindings.from 指向更前 → 天然无环）。
+ * 解析期静态校验（steps 非空、节点形态与作用域引用合法、bindings.from 指向更前）。
  * 因此只要 skill.workflow 存在且 steps 非空，就视为「已过静态校验」直接放行。
  *
  * 「节点 call 是否命中已启用算子白名单」不在这里判：白名单是运行时 OperatorRegistry

@@ -185,6 +185,8 @@ type WorkflowStepT = WorkflowSpecT['steps'][number];
 type WorkflowBindingT = NonNullable<WorkflowStepT['bindings']>[number];
 type WorkflowInputT = NonNullable<SkillRecipe['inputs']>[number];
 type WorkflowInputType = WorkflowInputT['type'];
+// 与 assets 发布校验器保持一致，限制声明树深度，避免恶意配方耗尽递归调用栈。
+const MAX_WORKFLOW_NESTING = 16;
 
 /** inputs[].type 的取值枚举，逐字来自 SkillTypes.WorkflowInput['type'] 联合类型（DSL 字段形状），不是拟合常数。 */
 const WORKFLOW_INPUT_TYPES: readonly string[] = [
@@ -196,13 +198,13 @@ function isWorkflowInputType(value: unknown): value is WorkflowInputType {
 }
 
 /**
- * 可选 workflow：阶段二 DAG 声明。缺省（字段没写）= 该技能走现有散文 prompt 路径，
+ * 可选 workflow：声明式算子链与受限循环。缺省（字段没写）= 该技能走现有散文 prompt 路径，
  * 不是新写的兼容桥；显式给值时做解析期静态校验，任一不过 {ok:false} 整条拒装。
  *
  * 判据（PHASE2-CONTRACT「DSL 字段形状 / runner 语义 / 触发接线」）：
  *  - workflow 必须是对象；steps 必须是非空数组；
- *  - 每个 step 必须是对象：id 非空字符串且 steps 内唯一、call 非空字符串、
- *    args 若给必须是对象、bindings 若给必须是数组、yield 若给必须是 boolean；
+ *  - 每个 step 必须是普通算子调用、forEach 或 repeat 三种形态之一；节点 id 在当前作用域唯一；
+ *  - forEach 来源必须是更早节点，循环体非空；repeat 必须有正整数/输入占位符次数、状态输出与 boolean 停止条件；
  *  - 每条 binding 必须是对象：from 非空字符串且指向「位置更靠前」的真实 step id
  *    （用已遍历过的 id 集合判定 → 天然无环 / 不许自引用 / 不许指向后继节点，不需运行时 guard）、
  *    as 非空字符串、path 是字符串（'$' 表示整个上游 value）；
@@ -214,93 +216,202 @@ function readWorkflowSpec(raw: Record<string, unknown>): FieldResult<WorkflowSpe
   const wfRaw = raw['workflow'];
   if (wfRaw === undefined) return { ok: true, value: undefined };
   if (!isRecord(wfRaw)) return { ok: false, reason: '字段「workflow」必须是对象' };
-
   const stepsRaw = wfRaw['steps'];
   if (!Array.isArray(stepsRaw) || stepsRaw.length === 0) {
     return { ok: false, reason: '字段「workflow.steps」必须是非空数组' };
   }
-  const stepItems: readonly unknown[] = stepsRaw;
-  const steps: WorkflowStepT[] = [];
-  // 已完整解析过、位置更靠前的 step id；bindings.from 只能命中这里 → 解析期即判无环。
-  const seenIds = new Set<string>();
 
-  for (let i = 0; i < stepItems.length; i += 1) {
-    const item: unknown = stepItems[i];
-    const where = `workflow.steps 第 ${i + 1} 项`;
-    if (!isRecord(item)) return { ok: false, reason: `${where} 必须是对象` };
-
-    const idRes = readString(item, 'id', `${where} id`);
-    if (!idRes.ok) return idRes;
-    if (seenIds.has(idRes.value)) {
-      return { ok: false, reason: `${where} id 重复：${idRes.value}` };
+  type ParsedSteps = { steps: WorkflowStepT[]; ids: Set<string> };
+  const parseSteps = (
+    source: readonly unknown[],
+    inheritedIds: ReadonlySet<string>,
+    where: string,
+    depth = 0,
+  ): FieldResult<ParsedSteps> => {
+    if (depth > MAX_WORKFLOW_NESTING) {
+      return { ok: false, reason: `${where} 控制结构嵌套超过上限 ${MAX_WORKFLOW_NESTING}` };
     }
-    const callRes = readString(item, 'call', `${where} call`);
-    if (!callRes.ok) return callRes;
+    const available = new Set(inheritedIds);
+    const localIds = new Set<string>();
+    const out: WorkflowStepT[] = [];
+    for (let i = 0; i < source.length; i += 1) {
+      const item = source[i];
+      const at = `${where} 第 ${i + 1} 项`;
+      if (!isRecord(item)) return { ok: false, reason: `${at} 必须是对象` };
+      const idRes = readString(item, 'id', `${at} id`);
+      if (!idRes.ok) return idRes;
+      if (localIds.has(idRes.value)) return { ok: false, reason: `${at} id 重复：${idRes.value}` };
 
-    // 可选 args：字面量参数对象（键任意、整体原样保留），若给必须是对象。
-    let args: Record<string, unknown> | undefined;
-    const argsRaw = item['args'];
-    if (argsRaw !== undefined) {
-      if (!isRecord(argsRaw)) return { ok: false, reason: `${where} args 若给必须是对象` };
-      args = argsRaw;
-    }
-
-    // 可选 bindings：依赖边数组；from 只能指向更靠前的真实 step id。
-    let bindings: WorkflowBindingT[] | undefined;
-    const bindingsRaw = item['bindings'];
-    if (bindingsRaw !== undefined) {
-      if (!Array.isArray(bindingsRaw)) {
-        return { ok: false, reason: `${where} bindings 若给必须是数组` };
+      const callRaw = item['call'];
+      const forEachRaw = item['forEach'];
+      const repeatRaw = item['repeat'];
+      const ifElseRaw = item['ifElse'];
+      if (callRaw !== undefined && (typeof callRaw !== 'string' || !callRaw.trim())) {
+        return { ok: false, reason: `${at} call 若给必须是非空字符串` };
       }
-      const bindingItems: readonly unknown[] = bindingsRaw;
-      const out: WorkflowBindingT[] = [];
-      for (let j = 0; j < bindingItems.length; j += 1) {
-        const bRaw: unknown = bindingItems[j];
-        const bWhere = `${where} bindings 第 ${j + 1} 条`;
-        if (!isRecord(bRaw)) return { ok: false, reason: `${bWhere} 必须是对象` };
-        const fromRes = readString(bRaw, 'from', `${bWhere} from`);
-        if (!fromRes.ok) return fromRes;
-        if (!seenIds.has(fromRes.value)) {
-          return {
-            ok: false,
-            reason: `${bWhere} from 必须指向本 steps 数组中位置更靠前的真实 step id：${fromRes.value}`,
-          };
+      if ((forEachRaw !== undefined || repeatRaw !== undefined || ifElseRaw !== undefined)
+        && (item['args'] !== undefined || item['bindings'] !== undefined)) {
+        return { ok: false, reason: `${at} 控制结构节点不能声明 args 或 bindings` };
+      }
+      const modes = Number(typeof callRaw === 'string' && callRaw.trim().length > 0)
+        + Number(forEachRaw !== undefined) + Number(repeatRaw !== undefined)
+        + Number(ifElseRaw !== undefined);
+      if (modes !== 1) {
+        return { ok: false, reason: `${at} 必须且只能声明 call、forEach、repeat、ifElse 其中一种` };
+      }
+
+      let args: Record<string, unknown> | undefined;
+      if (item['args'] !== undefined) {
+        if (!isRecord(item['args'])) return { ok: false, reason: `${at} args 若给必须是对象` };
+        args = item['args'];
+      }
+      let bindings: WorkflowBindingT[] | undefined;
+      if (item['bindings'] !== undefined) {
+        if (!Array.isArray(item['bindings'])) return { ok: false, reason: `${at} bindings 若给必须是数组` };
+        const parsedBindings: WorkflowBindingT[] = [];
+        for (let j = 0; j < item['bindings'].length; j += 1) {
+          const b = item['bindings'][j];
+          const bc = `${at} bindings 第 ${j + 1} 条`;
+          if (!isRecord(b)) return { ok: false, reason: `${bc} 必须是对象` };
+          const from = readString(b, 'from', `${bc} from`);
+          if (!from.ok) return from;
+          if (!available.has(from.value)) return { ok: false, reason: `${bc} from 必须指向位置更靠前的节点：${from.value}` };
+          const as = readString(b, 'as', `${bc} as`);
+          if (!as.ok) return as;
+          if (typeof b['path'] !== 'string') return { ok: false, reason: `${bc} path 必须是字符串` };
+          parsedBindings.push({ from: from.value, path: b['path'], as: as.value });
         }
-        const asRes = readString(bRaw, 'as', `${bWhere} as`);
-        if (!asRes.ok) return asRes;
-        const path = bRaw['path'];
-        if (typeof path !== 'string') {
-          return { ok: false, reason: `${bWhere} path 必须是字符串（'$' 表示整个上游 value）` };
+        bindings = parsedBindings;
+      }
+
+      let shouldYield: boolean | undefined;
+      if (item['yield'] !== undefined) {
+        if (typeof item['yield'] !== 'boolean') return { ok: false, reason: `${at} yield 若给必须是 boolean` };
+        shouldYield = item['yield'];
+      }
+
+      let step: WorkflowStepT;
+      if (typeof callRaw === 'string' && callRaw.trim()) {
+        if (forEachRaw !== undefined || repeatRaw !== undefined) return { ok: false, reason: `${at} 普通算子节点不能同时声明循环` };
+        step = {
+          id: idRes.value,
+          call: callRaw,
+          ...(args !== undefined ? { args } : {}),
+          ...(bindings !== undefined ? { bindings } : {}),
+          ...(shouldYield !== undefined ? { yield: shouldYield } : {}),
+        };
+      } else if (forEachRaw !== undefined) {
+        if (!isRecord(forEachRaw)) return { ok: false, reason: `${at} forEach 必须是对象` };
+        const from = readString(forEachRaw, 'from', `${at} forEach.from`);
+        if (!from.ok) return from;
+        if (!available.has(from.value)) return { ok: false, reason: `${at} forEach.from 必须指向位置更靠前的节点：${from.value}` };
+        if (typeof forEachRaw['path'] !== 'string') return { ok: false, reason: `${at} forEach.path 必须是字符串` };
+        const onErrorRaw = forEachRaw['onError'];
+        if (onErrorRaw !== undefined && onErrorRaw !== 'fail' && onErrorRaw !== 'continue') {
+          return { ok: false, reason: `${at} forEach.onError 只允许 fail 或 continue` };
         }
-        out.push({ from: fromRes.value, path, as: asRes.value });
+        if (!Array.isArray(forEachRaw['steps']) || forEachRaw['steps'].length === 0) {
+          return { ok: false, reason: `${at} forEach.steps 必须是非空数组` };
+        }
+        const nested = parseSteps(forEachRaw['steps'], available, `${at}.forEach.steps`, depth + 1);
+        if (!nested.ok) return nested;
+        step = {
+          id: idRes.value,
+          forEach: {
+            from: from.value,
+            path: forEachRaw['path'],
+            ...(onErrorRaw !== undefined ? { onError: onErrorRaw } : {}),
+            steps: nested.value.steps,
+          },
+          ...(shouldYield !== undefined ? { yield: shouldYield } : {}),
+        };
+      } else if (ifElseRaw !== undefined) {
+        if (!isRecord(ifElseRaw)) return { ok: false, reason: `${at} ifElse 必须是对象` };
+        const conditionRaw = ifElseRaw['condition'];
+        if (!isRecord(conditionRaw)) return { ok: false, reason: `${at} ifElse.condition 必须是对象` };
+        const conditionFrom = readString(conditionRaw, 'from', `${at} ifElse.condition.from`);
+        if (!conditionFrom.ok) return conditionFrom;
+        if (!available.has(conditionFrom.value)) {
+          return { ok: false, reason: `${at} ifElse.condition.from 必须指向位置更靠前的节点：${conditionFrom.value}` };
+        }
+        if (typeof conditionRaw['path'] !== 'string') {
+          return { ok: false, reason: `${at} ifElse.condition.path 必须是字符串` };
+        }
+        // 解析层不依赖 OperatorRegistry，无法静态推断 from/path 的输出类型；
+        // WorkflowRunner 会在执行时强制要求该引用值为 boolean。
+        if (!Array.isArray(ifElseRaw['then']) || ifElseRaw['then'].length === 0) {
+          return { ok: false, reason: `${at} ifElse.then 必须是非空数组` };
+        }
+        if (ifElseRaw['else'] !== undefined && !Array.isArray(ifElseRaw['else'])) {
+          return { ok: false, reason: `${at} ifElse.else 若给必须是数组` };
+        }
+        const thenParsed = parseSteps(ifElseRaw['then'], available, `${at}.ifElse.then`, depth + 1);
+        if (!thenParsed.ok) return thenParsed;
+        const elseParsed = ifElseRaw['else'] === undefined
+          ? { ok: true as const, value: { steps: [] as WorkflowStepT[], ids: new Set<string>() } }
+          : parseSteps(ifElseRaw['else'] as readonly unknown[], available, `${at}.ifElse.else`, depth + 1);
+        if (!elseParsed.ok) return elseParsed;
+        step = {
+          id: idRes.value,
+          ifElse: {
+            condition: { from: conditionFrom.value, path: conditionRaw['path'] },
+            then: thenParsed.value.steps,
+            ...(ifElseRaw['else'] !== undefined ? { else: elseParsed.value.steps } : {}),
+          },
+          ...(shouldYield !== undefined ? { yield: shouldYield } : {}),
+        };
+      } else {
+        if (!isRecord(repeatRaw)) return { ok: false, reason: `${at} repeat 必须是对象` };
+        const max = repeatRaw['maxIterations'];
+        if (!(typeof max === 'number' && Number.isInteger(max) && max > 0 && max <= 100)
+          && !(typeof max === 'string' && /^\{\{input\.[^{}]+\}\}$/.test(max))) {
+          return { ok: false, reason: `${at} repeat.maxIterations 必须是正整数或完整 input 占位符` };
+        }
+        let initialState: Record<string, unknown> | undefined;
+        if (repeatRaw['initialState'] !== undefined) {
+          if (!isRecord(repeatRaw['initialState'])) return { ok: false, reason: `${at} repeat.initialState 若给必须是对象` };
+          initialState = repeatRaw['initialState'];
+        }
+        if (!Array.isArray(repeatRaw['steps']) || repeatRaw['steps'].length === 0) {
+          return { ok: false, reason: `${at} repeat.steps 必须是非空数组` };
+        }
+        const nested = parseSteps(repeatRaw['steps'], available, `${at}.repeat.steps`, depth + 1);
+        if (!nested.ok) return nested;
+        const readLoopRef = (value: unknown, name: string): FieldResult<{ from: string; path: string }> => {
+          if (!isRecord(value)) return { ok: false, reason: `${at} repeat.${name} 必须是对象` };
+          const from = readString(value, 'from', `${at} repeat.${name}.from`);
+          if (!from.ok) return from;
+          if (!nested.value.ids.has(from.value)) return { ok: false, reason: `${at} repeat.${name}.from 必须指向循环体内节点：${from.value}` };
+          if (typeof value['path'] !== 'string') return { ok: false, reason: `${at} repeat.${name}.path 必须是字符串` };
+          return { ok: true, value: { from: from.value, path: value['path'] } };
+        };
+        const stateFrom = readLoopRef(repeatRaw['stateFrom'], 'stateFrom');
+        if (!stateFrom.ok) return stateFrom;
+        const until = readLoopRef(repeatRaw['until'], 'until');
+        if (!until.ok) return until;
+        step = {
+          id: idRes.value,
+          repeat: {
+            maxIterations: max as number | string,
+            ...(initialState !== undefined ? { initialState } : {}),
+            stateFrom: stateFrom.value,
+            until: until.value,
+            steps: nested.value.steps,
+          },
+          ...(shouldYield !== undefined ? { yield: shouldYield } : {}),
+        };
       }
-      bindings = out;
+
+      out.push(step);
+      localIds.add(idRes.value);
+      available.add(idRes.value);
     }
+    return { ok: true, value: { steps: out, ids: localIds } };
+  };
 
-    // 可选 yield：仅显式 true 的节点 value 进模型；缺省 false（不写字段即缺省）。
-    let shouldYield: boolean | undefined;
-    const yieldRaw = item['yield'];
-    if (yieldRaw !== undefined) {
-      if (typeof yieldRaw !== 'boolean') {
-        return { ok: false, reason: `${where} yield 若给必须是 boolean` };
-      }
-      shouldYield = yieldRaw;
-    }
-
-    // exactOptionalPropertyTypes：可选字段条件展开，不直塞 undefined；只构造已知字段。
-    const step: WorkflowStepT = {
-      id: idRes.value,
-      call: callRes.value,
-      ...(args !== undefined ? { args } : {}),
-      ...(bindings !== undefined ? { bindings } : {}),
-      ...(shouldYield !== undefined ? { yield: shouldYield } : {}),
-    };
-    steps.push(step);
-    // 当前 id 处理完才入集合 → 本步骤 bindings 不能引用自己，也不能引用后继节点。
-    seenIds.add(idRes.value);
-  }
-
-  return { ok: true, value: { steps } };
+  const parsed = parseSteps(stepsRaw, new Set<string>(), 'workflow.steps');
+  if (!parsed.ok) return parsed;
+  return { ok: true, value: { steps: parsed.value.steps } };
 }
 
 /**
@@ -371,6 +482,115 @@ function readWorkflowInputs(raw: Record<string, unknown>): FieldResult<WorkflowI
   return { ok: true, value: out };
 }
 
+type WorkflowTemplateScope = { item: boolean; index: boolean; state: boolean };
+
+/**
+ * 安装期校验模板占位符，避免配方装成功后才在运行到深层循环时失败。
+ * 作用域按 Runner 的实际规则继承：forEach 增加 item/index，repeat 增加 state，
+ * ifElse 不改变作用域；嵌套控制块可以同时访问外层作用域。
+ */
+function validateWorkflowTemplates(
+  value: unknown,
+  inputNames: ReadonlySet<string>,
+  scope: WorkflowTemplateScope,
+  where: string,
+  seen = new WeakSet<object>(),
+): FieldResult<true> {
+  if (typeof value === 'string') {
+    const placeholderPattern = /\{\{([^{}]*)\}\}/g;
+    let match: RegExpExecArray | null;
+    while ((match = placeholderPattern.exec(value)) !== null) {
+      const token = match[1] ?? '';
+      const urlEncode = token.startsWith('urlencode.');
+      const name = urlEncode ? token.slice('urlencode.'.length) : token;
+      const inputMatch = /^input\.(.+)$/.exec(name);
+      if (inputMatch) {
+        if (!inputNames.has(inputMatch[1]!)) {
+          return { ok: false, reason: `${where} 引用了未声明的输入参数：${inputMatch[1]}` };
+        }
+        continue;
+      }
+      if (name === 'index') {
+        if (urlEncode || !scope.index) {
+          return { ok: false, reason: `${where} 的占位符 {{${token}}} 只能在 forEach 循环体内使用` };
+        }
+        continue;
+      }
+      const itemMatch = /^(item)(?:\.(.+))?$/.exec(name);
+      if (itemMatch) {
+        if (!scope.item) {
+          return { ok: false, reason: `${where} 的占位符 {{${token}}} 只能在 forEach 循环体内使用` };
+        }
+        continue;
+      }
+      const stateMatch = /^(state)(?:\.(.+))?$/.exec(name);
+      if (stateMatch) {
+        if (!scope.state) {
+          return { ok: false, reason: `${where} 的占位符 {{${token}}} 只能在 repeat 循环体内使用` };
+        }
+        continue;
+      }
+      return { ok: false, reason: `${where} 包含不支持的 Workflow 占位符：{{${token}}}` };
+    }
+    return { ok: true, value: true };
+  }
+  if (value !== null && typeof value === 'object') {
+    if (seen.has(value)) return { ok: false, reason: `${where} 不能包含循环引用` };
+    seen.add(value);
+    if (Array.isArray(value)) {
+      for (let i = 0; i < value.length; i += 1) {
+        const nested = validateWorkflowTemplates(value[i], inputNames, scope, `${where}[${i}]`, seen);
+        if (!nested.ok) return nested;
+      }
+    } else if (isRecord(value)) {
+      for (const [key, nestedValue] of Object.entries(value)) {
+        const nested = validateWorkflowTemplates(nestedValue, inputNames, scope, `${where}.${key}`, seen);
+        if (!nested.ok) return nested;
+      }
+    }
+    seen.delete(value);
+  }
+  return { ok: true, value: true };
+}
+
+function validateWorkflowStepTemplates(
+  steps: readonly WorkflowStepT[],
+  inputNames: ReadonlySet<string>,
+  scope: WorkflowTemplateScope,
+): FieldResult<true> {
+  for (const step of steps) {
+    if (step.args !== undefined) {
+      const args = validateWorkflowTemplates(step.args, inputNames, scope, `workflow 节点 ${step.id}.args`);
+      if (!args.ok) return args;
+    }
+    if (step.forEach !== undefined) {
+      const nested = validateWorkflowStepTemplates(step.forEach.steps, inputNames, {
+        ...scope, item: true, index: true,
+      });
+      if (!nested.ok) return nested;
+    }
+    if (step.ifElse !== undefined) {
+      const thenNested = validateWorkflowStepTemplates(step.ifElse.then, inputNames, scope);
+      if (!thenNested.ok) return thenNested;
+      const elseNested = validateWorkflowStepTemplates(step.ifElse.else ?? [], inputNames, scope);
+      if (!elseNested.ok) return elseNested;
+    }
+    if (step.repeat !== undefined) {
+      if (step.repeat.initialState !== undefined) {
+        const initial = validateWorkflowTemplates(
+          step.repeat.initialState, inputNames, scope, `workflow 节点 ${step.id}.repeat.initialState`,
+        );
+        if (!initial.ok) return initial;
+      }
+      const nested = validateWorkflowStepTemplates(step.repeat.steps, inputNames, {
+        ...scope, state: true,
+      });
+      if (!nested.ok) return nested;
+    }
+  }
+  return { ok: true, value: true };
+}
+
 /**
  * 命名入口：解析 `workflow` / `inputs` 两项声明（阶段二「readWorkflow(raw)」）。
  * 任一不过返回 {ok:false}，由 parseSkillRecipe 整条拒装，沿用现有错误口径。
@@ -384,6 +604,41 @@ function readWorkflow(raw: Record<string, unknown>): FieldResult<{
   if (!workflow.ok) return workflow;
   const inputs = readWorkflowInputs(raw);
   if (!inputs.ok) return inputs;
+
+  const inputNames = new Set((inputs.value ?? []).map((input) => input.name));
+  const validateRepeatInputs = (steps: readonly WorkflowStepT[]): FieldResult<true> => {
+    for (const step of steps) {
+      if (step.forEach !== undefined) {
+        const nested = validateRepeatInputs(step.forEach.steps);
+        if (!nested.ok) return nested;
+      }
+      if (step.ifElse !== undefined) {
+        const thenNested = validateRepeatInputs(step.ifElse.then);
+        if (!thenNested.ok) return thenNested;
+        const elseNested = validateRepeatInputs(step.ifElse.else ?? []);
+        if (!elseNested.ok) return elseNested;
+      }
+      if (step.repeat !== undefined) {
+        if (typeof step.repeat.maxIterations === 'string') {
+          const match = /^\{\{input\.([^{}]+)\}\}$/.exec(step.repeat.maxIterations);
+          if (match && !inputNames.has(match[1]!)) {
+            return { ok: false, reason: 'repeat.maxIterations 引用了未声明的输入参数：' + match[1] };
+          }
+        }
+        const nested = validateRepeatInputs(step.repeat.steps);
+        if (!nested.ok) return nested;
+      }
+    }
+    return { ok: true, value: true };
+  };
+  if (workflow.value !== undefined) {
+    const repeatInputs = validateRepeatInputs(workflow.value.steps);
+    if (!repeatInputs.ok) return repeatInputs;
+    const templates = validateWorkflowStepTemplates(workflow.value.steps, inputNames, {
+      item: false, index: false, state: false,
+    });
+    if (!templates.ok) return templates;
+  }
   return { ok: true, value: { workflow: workflow.value, inputs: inputs.value } };
 }
 
