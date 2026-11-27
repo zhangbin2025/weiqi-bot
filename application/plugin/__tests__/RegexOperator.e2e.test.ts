@@ -1,6 +1,6 @@
 /**
- * Regex Workflow operator E2E:
- * host-native SkillPrimitive → OperatorRegistry → WorkflowRunner.
+ * Host-native Workflow data operator coverage:
+ * SkillPrimitive → OperatorRegistry → WorkflowRunner.
  * No plugin artifact, QuickJS runtime, Worker, or WASM is involved.
  */
 import { describe, it, expect } from 'vitest';
@@ -10,17 +10,20 @@ import { createWorkflowDataPrimitives } from '../../skill/primitives/WorkflowDat
 import type { IPluginRuntime } from '../../../domain/plugin/types';
 import type { PluginArtifactService } from '../PluginArtifactService';
 
-describe('Host-native regex Workflow operators', () => {
-  it('经 WorkflowRunner → OperatorRegistry 完成 match / extract / replace', async () => {
-    const registry = await createOperatorRegistry({
-      primitives: createWorkflowDataPrimitives(),
-      artifacts: { listActive: async () => [] } as unknown as PluginArtifactService,
-      runtime: {
-        run: async () => { throw new Error('此用例不应启动插件运行时'); },
-        dispose: async () => undefined,
-      } as unknown as IPluginRuntime,
-    });
+async function createRegistry() {
+  return createOperatorRegistry({
+    primitives: createWorkflowDataPrimitives(),
+    artifacts: { listActive: async () => [] } as unknown as PluginArtifactService,
+    runtime: {
+      run: async () => { throw new Error('此用例不应启动插件运行时'); },
+      dispose: async () => undefined,
+    } as unknown as IPluginRuntime,
+  });
+}
 
+describe('Host-native Workflow data operators', () => {
+  it('经 WorkflowRunner → OperatorRegistry 完成 regex match / extract / replace', async () => {
+    const registry = await createRegistry();
     const result = await runWorkflow({
       steps: [
         {
@@ -55,16 +58,8 @@ describe('Host-native regex Workflow operators', () => {
     });
   });
 
-  it('JSON 算子直接消费原生值并安全拒绝危险属性路径', async () => {
-    const registry = await createOperatorRegistry({
-      primitives: createWorkflowDataPrimitives(),
-      artifacts: { listActive: async () => [] } as unknown as PluginArtifactService,
-      runtime: {
-        run: async () => { throw new Error('此用例不应启动插件运行时'); },
-        dispose: async () => undefined,
-      } as unknown as IPluginRuntime,
-    });
-
+  it('JSON 算子直接消费原生值，并拒绝危险属性路径', async () => {
+    const registry = await createRegistry();
     const result = await runWorkflow({
       steps: [
         {
@@ -93,15 +88,12 @@ describe('Host-native regex Workflow operators', () => {
       steps: [
         { id: 'parse', call: 'json.parse', args: { text: '{"safe":true}' } },
         {
-        id: 'unsafe',
-        call: 'json.get',
-        args: { path: '__proto__.polluted' },
-        bindings: [{ from: 'parse', path: '
-    expect(unsafe.ok).toBe(false);
-  });
-});
-, as: 'value' }],
-      }],
+          id: 'unsafe',
+          call: 'json.get',
+          args: { path: '__proto__.polluted' },
+          bindings: [{ from: 'parse', path: '$', as: 'value' }],
+        },
+      ],
     }, {}, registry);
     expect(unsafe.ok).toBe(false);
   });
