@@ -282,8 +282,8 @@ export function createDisplayJsonListPrimitive(): SkillPrimitive {
     idempotent: true,
     outputSchema: { type: 'null' },
     kind: 'effect',
-    execute: async (args: Record<string, unknown>): Promise<PrimitiveResult> => {
-      const parsedArgs = parseArgs(args);
+    execute: async (rawArgs: Record<string, unknown>): Promise<PrimitiveResult> => {
+      const parsedArgs = parseArgs(rawArgs);
       if (!parsedArgs.ok) return fail(parsedArgs.error);
       const args = parsedArgs.value;
       return {
