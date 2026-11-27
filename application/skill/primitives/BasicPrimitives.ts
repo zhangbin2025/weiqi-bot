@@ -36,6 +36,7 @@ import {
 import { createDisplayJsonListPrimitive } from './DisplayJsonListPrimitive';
 import { jsonExtractPrimitive } from './JsonExtractPrimitive';
 import { createRegexPrimitives } from './RegexPrimitives';
+import { createFetchBatchPrimitive } from './FetchBatchPrimitive';
 
 /** navigate_to 工具名（与 definition.name 一致） */
 export const NAVIGATE_TO_TOOL_NAME = 'navigate_to';
@@ -96,6 +97,7 @@ function toPrimitiveResult(r: {
  */
 export function createBasicPrimitives(webDeps: WebFetchToolDeps): SkillPrimitive[] {
   return [
+    createFetchBatchPrimitive(webDeps),
     {
       name: WEB_FETCH_TOOL_NAME,
       definition: WEB_FETCH_TOOL,
