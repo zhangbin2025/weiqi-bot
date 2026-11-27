@@ -1,127 +1,101 @@
-# Workflow 算子标准
+# Workflow 算子与执行标准
 
 ## 1. 核心原则
 
-Workflow 是声明式 DAG。算子负责明确能力，Runner 负责调度和数据连线。
+Workflow 是声明式执行图。Runner 负责流程控制、数据连线和资源预算；算子只负责单一、明确的能力。
 
-1. 配方以 JSON 保存和传输；运行时节点之间传递原生结构化值。
-2. 每个算子必须声明输入 Schema、输出 Schema、kind 和幂等性。
-3. binding 只做路径引用，不做转换；转换交给明确的数据处理算子。
-4. 通用内置算子不得依赖具体网站、平台或围棋业务规则。
-5. 插件声明数据契约不等于获得宿主权限。
+1. 配方以 JSON 保存和传输，节点之间传递原生结构化值。
+2. 宿主能力必须通用，不绑定具体网站、账号或业务。
+3. 纯计算与领域数据处理优先放在受限沙箱插件中。
+4. 插件声明数据契约不代表获得宿主权限。
+5. 不让 LLM 自己协调分页、循环、批量抓取或数据拼装。
 
-## 2. 命名与分类
+## 2. 算子契约
 
-| 类别 | 命名 | 责任 |
-|---|---|---|
-| 宿主通用算子 | snake_case | 通用数据处理及宿主提供的通用 I/O |
-| 插件算子 | <slug>.<method> | 独立安装、启用的扩展能力 |
-| Workflow 节点 | step.id | DAG 节点身份 |
+OperatorSpec 必须声明 name、description、inputSchema、outputSchema、kind、idempotent 和 run。kind 只能是 pure、io、effect。inputSchema 根类型必须是 object；outputSchema 描述 value，不描述 effects。成功结果必须包含 value；无业务数据时返回 null。
 
-kind 必须是以下之一：
+Binding 只做路径引用，不做数据转换。普通节点失败默认短路，不自动重试。
 
-- `pure`：纯计算，不访问外部资源。
-- `io`：读取外部资源，只能使用宿主提供的受控能力。
-- `effect`：产生外部可见动作或状态变化。
+## 3. Workflow 控制结构
 
-## 3. 统一契约
+### forEach
 
-```ts
-type OperatorKind = 'pure' | 'io' | 'effect';
+- from/path 读取前序节点的数组。
+- 每项执行时提供 item 与 index 作用域变量。
+- 默认 onError=fail，单项失败会终止整个循环。
+- onError=continue 时失败项记录为 {ok:false,error}，成功项记录为 {ok:true,value}，继续处理后续项。
+- 循环结果按输入顺序自动收集，不需要额外 collect 算子。
 
-interface OperatorSpec {
-  name: string;
-  description: string;
-  inputSchema: JsonSchema;
-  outputSchema: JsonSchema;
-  kind: OperatorKind;
-  idempotent: boolean;
-  run(args: Record<string, unknown>): Promise<StepResult>;
-}
+### repeat
 
-interface StepResult {
-  value: JsonValue;
-  effects?: WorkflowEffect[];
-}
-```
+- 每轮提供 state 作用域。
+- initialState 声明初始状态。
+- stateFrom 从本轮内部节点结果更新下一轮状态。
+- until 必须引用本轮内部节点产出的 boolean。
+- maxIterations 是每个 repeat 的最大轮数。
+- 输出为 {items,state,stopped}；items 自动收集每轮最后一个节点的 value。
 
-- 所有字段必填，不存在 legacy 或兼容入口。
-- inputSchema 描述完整参数对象，根类型必须是 object。
-- outputSchema 描述 value，不描述 effects。
-- 成功结果必须包含 value；无业务数据时返回 null。
-- 首期 JSON Schema 支持 `type`、`properties`、`required`、`items`、`enum`、`additionalProperties`、`description`、`minLength`、`maxLength`、`minItems`、`maxItems`、`minimum`、`maximum`、`pattern`。未支持的关键字在注册时直接拒绝。
-- 注册时校验 Schema 声明；执行前校验输入，执行后校验输出。
+### ifElse
+
+- condition 必须引用前序节点的 boolean value，不执行任意表达式。
+- 只运行选中的 then 或 else 分支；分支内可以继续嵌套控制结构。
+- 输出为 {condition,value}，value 是选中分支最后一个节点的结果。
+
+### 预算与作用域
+
+- 单个循环最多 100 次；Workflow 总循环预算最多 500 次，嵌套循环共享预算。
+- 默认串行执行，不引入隐式并发。
+- item、index、state 只在对应循环作用域内有效。
+- URL 参数需要编码时使用 {{urlencode.input.xxx}}、{{urlencode.item.xxx}} 或 {{urlencode.state.xxx}}；不支持任意表达式。
 
 ## 4. 数据传递
 
-Runner 直接传递 JS 原生对象、数组、字符串、数字、布尔值和 null。禁止在算子之间执行 JSON.stringify/JSON.parse。
-
-模型 Tool Calling 的参数是 JSON 文本，因此只在 Tool Calling 入口解析一次，再把对象交给同一个 primitive 执行器。Workflow 直接把 binding 合并后的对象交给执行器。
-
-JSON 序列化只用于真实边界，例如配方持久化、网络传输和 QuickJS 沙箱消息，不得成为算子间的数据协议。
-
-Binding 规则：
+Runner 直接传递 JS 原生对象、数组、字符串、数字、布尔值和 null。禁止在算子之间把 JSON 字符串当作数据协议。
 
 - from 必须引用更靠前的节点。
-- path 是受限属性路径，`$` 表示整个上游 value。
+- path 是受限属性路径，$ 表示整个上游 value。
 - bindings 在静态 args 之后应用，绑定值覆盖同名静态参数。
 - 找不到路径、属性不存在或命中危险属性时，节点失败，不得注入 undefined。
-- 不支持函数、表达式、隐式类型转换、数组展开或条件判断。
+- 不支持函数、表达式或隐式类型转换。
 
-## 5. 错误与 effects
+## 5. 宿主能力边界
+
+宿主 Workflow 能力收敛为七项：
+
+| 能力 | 职责 |
+|---|---|
+| forEach | 遍历数组、执行子流程、收集结果 |
+| repeat | 根据状态与停止条件重复执行 |
+| ifElse | 根据 boolean 结果选择分支 |
+| web_fetch | 单次受控网络请求 |
+| web_cache_read | 读取宿主管理的网页缓存 |
+| display | 展示任意 JSON 结构或 Markdown |
+| navigate_to | 生成站内导航链接 |
+
+不提供业务专用抓取算子，也不提供通用 fetch_batch。批量请求由 forEach + web_fetch 组合。PDF/图片解析不属于本轮 Workflow 宿主能力。
+
+display 只负责展示：字符串按 Markdown 渲染；数组自动生成列表或表格；对象按层级生成 Markdown。结构化数据通过宿主展示旁路交付，不进入 LLM 上下文。
+
+## 6. 沙箱插件边界
+
+JSON、regex、calendar、circle 等独立能力通过 workflow-operator 插件注册，方法名为 slug.method。
+
+- JSON / regex 只做纯计算，不访问网络、缓存、存储、时钟或宿主资源。
+- 领域插件可以实现领域数据整理与分析，但不得把网络访问或宿主权限藏进插件。
+- 每个 exposes 项声明 inputSchema、outputSchema、kind、idempotent；插件提供 smoke 样例。
+- 技能安装器递归扫描普通节点、forEach、repeat、ifElse 分支中的插件依赖，按资源 ID 去重；已安装插件不重复安装。
+
+## 7. QuickJS 沙箱生命周期
+
+- Worker 按需启动并复用，避免每次算子调用都重新创建 Worker 和重新初始化 WASM。
+- 每次调用仍创建独立 QuickJS Runtime 与 Context；插件全局变量不跨调用共享。
+- 同一个 Worker 内调用串行排队，避免并发消息与执行状态交叉。
+- 硬超时、Worker 崩溃、OOM、栈溢出或不安全 VM 状态后立即销毁 Worker；下一次调用重新创建。
+- dispose 时释放 Worker；正常完成不代表保留 QuickJS Runtime / Context。
+
+## 8. 错误与 effects
 
 - 未注册算子、输入校验失败、运行失败、输出校验失败必须可区分。
-- Runner 默认失败短路，不自动重试。
 - 不把异常堆栈、凭据或敏感响应体回灌模型。
 - value 是下游可绑定的数据；effects 是宿主展示/动作通道，下游不能读取 effects。
 - idempotent=false 表示重复执行可能改变状态或产生重复副作用；Runner 不得据此自行重试。
-
-## 6. 插件契约
-
-`workflow-operator` 工件的每个 exposes 项必须声明：
-
-```json
-{
-  "name": "normalize",
-  "description": "Normalize records",
-  "inputSchema": {
-    "type": "object",
-    "properties": { "records": { "type": "array" } },
-    "required": ["records"],
-    "additionalProperties": false
-  },
-  "outputSchema": { "type": "object" },
-  "kind": "pure",
-  "idempotent": true
-}
-```
-
-插件算子注册名为 `<slug>.<method>`。沙箱入口继续使用 `call({ method, args })`，宿主适配器负责把单个参数对象映射到插件入口。插件运行权限由宿主 PluginSpec 决定，Schema 和 kind 不授予权限。
-
-旧 `exposes[].params` 已删除，不再读取。
-
-## 7. 内置算子边界
-
-内置算子只保留跨网站、跨业务可复用的能力：
-
-- 通用数据处理：JSON 提取、正则、文本和格式转换。
-- 通用宿主 I/O：HTTP 获取、缓存读取、PDF/图片读取、浏览器采集。
-- 宿主 effects：站内导航、列表/表格展示。
-
-具体网站采集、网站专用分页协议、棋手关系业务规则和排名算法不得进入通用内置算子，应归属技能描述或业务插件。
-
-宿主提供通用 `fetch_batch` I/O 算子：输入为 `requests[]`，每项包含公开 URL 和可选字符串 query 参数；宿主负责 URL 安全校验、并发抓取、超时与结果顺序，返回每个请求的结构化结果。它不识别网站、业务字段、棋手身份或网站专用分页协议。
-
-技能描述负责解释业务参数及其映射关系，并根据用户输入生成请求列表。例如野狐技能可以声明昵称如何解析成 UID、哪些 UID 需要抓取、分页 URL 如何组成，再把最终 URL 列表交给 `fetch_batch`。其它网站技能可以使用完全不同的业务参数和 URL 规则，但共用同一个宿主算子。需要动态游标分页时，由技能按返回结果继续构造下一批请求；宿主不内置任何站点分页逻辑。
-
-## 旧版 workflow-operator 清单迁移
-
-本契约升级采用单版本边界，不保留 `exposes[].params` 的兼容读取路径。远端旧 manifest 若仍使用 `params`，目录客户端会明确报告需要重新发布，不会把缺失的 `inputSchema` 静默降级为空对象，也不会注册成可执行算子。
-
-迁移方式是在资源仓库逐条重发 workflow-operator manifest：将旧 `params` 改为 `inputSchema`，并补齐 `outputSchema`、`kind`、`idempotent`；同步更新 smoke 用例，使其参数符合新的输入 Schema。已安装的本地工件在重新安装/更新前仍保留原样，但旧契约工件不能通过新注册器的契约校验，必须重新安装新 manifest 后再启用。当前没有线上自动迁移或 legacy 双轨入口。
-
-## fetch_batch 的宿主资源边界
-
-`MAX_BATCH_SIZE = 50` 是单次调用的请求扇出硬上限，用于限制一次模型工具调用产生的总请求数与聚合结果规模；超出由输入 Schema 在执行前拒绝。它不是某个站点的分页大小，技能可以按自身业务分页分批调用。
-
-`MAX_CONCURRENCY = 4` 是同一批次内的并发上限，用于限制浏览器侧同时占用的网络请求与远端压力；结果仍按输入索引回填，不依赖请求完成顺序。这两个值是宿主资源保护策略，不是从网站协议或实测吞吐推导出的业务参数。
