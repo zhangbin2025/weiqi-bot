@@ -28,9 +28,9 @@ describe('ChatPage URL task deep link', () => {
     const input = document.getElementById('userInput') as HTMLTextAreaElement;
     expect(page['currentRole']).toBe('chat');
     expect(page['newSession']).toHaveBeenCalledOnce();
-    expect(input.value).toContain(url);
-    expect(input.value).toContain('网页读取工具');
-    expect(input.value).toContain('\n');
+    // Pass the URL as-is; do not assume this is a game-download request.
+    expect(input.value).toBe(url);
+
     expect(page['handleSend']).toHaveBeenCalledOnce();
     // 本次会话固定为 chat，但不覆盖用户下次新建会话时的默认角色偏好。
     expect(localStorage.getItem(ROLE_STORAGE_KEY)).toBe('dev');
