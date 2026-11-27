@@ -214,93 +214,145 @@ function readWorkflowSpec(raw: Record<string, unknown>): FieldResult<WorkflowSpe
   const wfRaw = raw['workflow'];
   if (wfRaw === undefined) return { ok: true, value: undefined };
   if (!isRecord(wfRaw)) return { ok: false, reason: '字段「workflow」必须是对象' };
-
   const stepsRaw = wfRaw['steps'];
   if (!Array.isArray(stepsRaw) || stepsRaw.length === 0) {
     return { ok: false, reason: '字段「workflow.steps」必须是非空数组' };
   }
-  const stepItems: readonly unknown[] = stepsRaw;
-  const steps: WorkflowStepT[] = [];
-  // 已完整解析过、位置更靠前的 step id；bindings.from 只能命中这里 → 解析期即判无环。
-  const seenIds = new Set<string>();
 
-  for (let i = 0; i < stepItems.length; i += 1) {
-    const item: unknown = stepItems[i];
-    const where = `workflow.steps 第 ${i + 1} 项`;
-    if (!isRecord(item)) return { ok: false, reason: `${where} 必须是对象` };
+  type ParsedSteps = { steps: WorkflowStepT[]; ids: Set<string> };
+  const parseSteps = (
+    source: readonly unknown[],
+    inheritedIds: ReadonlySet<string>,
+    where: string,
+  ): FieldResult<ParsedSteps> => {
+    const available = new Set(inheritedIds);
+    const localIds = new Set<string>();
+    const out: WorkflowStepT[] = [];
+    for (let i = 0; i < source.length; i += 1) {
+      const item = source[i];
+      const at = `${where} 第 ${i + 1} 项`;
+      if (!isRecord(item)) return { ok: false, reason: `${at} 必须是对象` };
+      const idRes = readString(item, 'id', `${at} id`);
+      if (!idRes.ok) return idRes;
+      if (localIds.has(idRes.value)) return { ok: false, reason: `${at} id 重复：${idRes.value}` };
 
-    const idRes = readString(item, 'id', `${where} id`);
-    if (!idRes.ok) return idRes;
-    if (seenIds.has(idRes.value)) {
-      return { ok: false, reason: `${where} id 重复：${idRes.value}` };
-    }
-    const callRes = readString(item, 'call', `${where} call`);
-    if (!callRes.ok) return callRes;
-
-    // 可选 args：字面量参数对象（键任意、整体原样保留），若给必须是对象。
-    let args: Record<string, unknown> | undefined;
-    const argsRaw = item['args'];
-    if (argsRaw !== undefined) {
-      if (!isRecord(argsRaw)) return { ok: false, reason: `${where} args 若给必须是对象` };
-      args = argsRaw;
-    }
-
-    // 可选 bindings：依赖边数组；from 只能指向更靠前的真实 step id。
-    let bindings: WorkflowBindingT[] | undefined;
-    const bindingsRaw = item['bindings'];
-    if (bindingsRaw !== undefined) {
-      if (!Array.isArray(bindingsRaw)) {
-        return { ok: false, reason: `${where} bindings 若给必须是数组` };
+      const callRaw = item['call'];
+      const forEachRaw = item['forEach'];
+      const repeatRaw = item['repeat'];
+      const modes = Number(typeof callRaw === 'string' && callRaw.trim().length > 0)
+        + Number(forEachRaw !== undefined) + Number(repeatRaw !== undefined);
+      if (modes !== 1) {
+        return { ok: false, reason: `${at} 必须且只能声明 call、forEach、repeat 其中一种` };
       }
-      const bindingItems: readonly unknown[] = bindingsRaw;
-      const out: WorkflowBindingT[] = [];
-      for (let j = 0; j < bindingItems.length; j += 1) {
-        const bRaw: unknown = bindingItems[j];
-        const bWhere = `${where} bindings 第 ${j + 1} 条`;
-        if (!isRecord(bRaw)) return { ok: false, reason: `${bWhere} 必须是对象` };
-        const fromRes = readString(bRaw, 'from', `${bWhere} from`);
-        if (!fromRes.ok) return fromRes;
-        if (!seenIds.has(fromRes.value)) {
-          return {
-            ok: false,
-            reason: `${bWhere} from 必须指向本 steps 数组中位置更靠前的真实 step id：${fromRes.value}`,
-          };
+
+      let args: Record<string, unknown> | undefined;
+      if (item['args'] !== undefined) {
+        if (!isRecord(item['args'])) return { ok: false, reason: `${at} args 若给必须是对象` };
+        args = item['args'];
+      }
+      let bindings: WorkflowBindingT[] | undefined;
+      if (item['bindings'] !== undefined) {
+        if (!Array.isArray(item['bindings'])) return { ok: false, reason: `${at} bindings 若给必须是数组` };
+        const parsedBindings: WorkflowBindingT[] = [];
+        for (let j = 0; j < item['bindings'].length; j += 1) {
+          const b = item['bindings'][j];
+          const bc = `${at} bindings 第 ${j + 1} 条`;
+          if (!isRecord(b)) return { ok: false, reason: `${bc} 必须是对象` };
+          const from = readString(b, 'from', `${bc} from`);
+          if (!from.ok) return from;
+          if (!available.has(from.value)) return { ok: false, reason: `${bc} from 必须指向位置更靠前的节点：${from.value}` };
+          const as = readString(b, 'as', `${bc} as`);
+          if (!as.ok) return as;
+          if (typeof b['path'] !== 'string') return { ok: false, reason: `${bc} path 必须是字符串` };
+          parsedBindings.push({ from: from.value, path: b['path'], as: as.value });
         }
-        const asRes = readString(bRaw, 'as', `${bWhere} as`);
-        if (!asRes.ok) return asRes;
-        const path = bRaw['path'];
-        if (typeof path !== 'string') {
-          return { ok: false, reason: `${bWhere} path 必须是字符串（'$' 表示整个上游 value）` };
+        bindings = parsedBindings;
+      }
+
+      let shouldYield: boolean | undefined;
+      if (item['yield'] !== undefined) {
+        if (typeof item['yield'] !== 'boolean') return { ok: false, reason: `${at} yield 若给必须是 boolean` };
+        shouldYield = item['yield'];
+      }
+
+      let step: WorkflowStepT;
+      if (typeof callRaw === 'string' && callRaw.trim()) {
+        if (forEachRaw !== undefined || repeatRaw !== undefined) return { ok: false, reason: `${at} 普通算子节点不能同时声明循环` };
+        step = {
+          id: idRes.value,
+          call: callRaw,
+          ...(args !== undefined ? { args } : {}),
+          ...(bindings !== undefined ? { bindings } : {}),
+          ...(shouldYield !== undefined ? { yield: shouldYield } : {}),
+        };
+      } else if (forEachRaw !== undefined) {
+        if (!isRecord(forEachRaw)) return { ok: false, reason: `${at} forEach 必须是对象` };
+        const from = readString(forEachRaw, 'from', `${at} forEach.from`);
+        if (!from.ok) return from;
+        if (!available.has(from.value)) return { ok: false, reason: `${at} forEach.from 必须指向位置更靠前的节点：${from.value}` };
+        if (typeof forEachRaw['path'] !== 'string') return { ok: false, reason: `${at} forEach.path 必须是字符串` };
+        if (!Array.isArray(forEachRaw['steps']) || forEachRaw['steps'].length === 0) {
+          return { ok: false, reason: `${at} forEach.steps 必须是非空数组` };
         }
-        out.push({ from: fromRes.value, path, as: asRes.value });
+        const nested = parseSteps(forEachRaw['steps'], available, `${at}.forEach.steps`);
+        if (!nested.ok) return nested;
+        step = {
+          id: idRes.value,
+          forEach: { from: from.value, path: forEachRaw['path'], steps: nested.value.steps },
+          ...(shouldYield !== undefined ? { yield: shouldYield } : {}),
+        };
+      } else {
+        if (!isRecord(repeatRaw)) return { ok: false, reason: `${at} repeat 必须是对象` };
+        const max = repeatRaw['maxIterations'];
+        if (!(typeof max === 'number' && Number.isInteger(max) && max > 0)
+          && !(typeof max === 'string' && /^\\{\\{input\\.[^{}]+\\}\\}$/.test(max))) {
+          return { ok: false, reason: `${at} repeat.maxIterations 必须是正整数或完整 input 占位符` };
+        }
+        let initialState: Record<string, unknown> | undefined;
+        if (repeatRaw['initialState'] !== undefined) {
+          if (!isRecord(repeatRaw['initialState'])) return { ok: false, reason: `${at} repeat.initialState 若给必须是对象` };
+          initialState = repeatRaw['initialState'];
+        }
+        if (!Array.isArray(repeatRaw['steps']) || repeatRaw['steps'].length === 0) {
+          return { ok: false, reason: `${at} repeat.steps 必须是非空数组` };
+        }
+        const nested = parseSteps(repeatRaw['steps'], available, `${at}.repeat.steps`);
+        if (!nested.ok) return nested;
+        const readLoopRef = (value: unknown, name: string): FieldResult<{ from: string; path: string }> => {
+          if (!isRecord(value)) return { ok: false, reason: `${at} repeat.${name} 必须是对象` };
+          const from = readString(value, 'from', `${at} repeat.${name}.from`);
+          if (!from.ok) return from;
+          if (!nested.value.ids.has(from.value)) return { ok: false, reason: `${at} repeat.${name}.from 必须指向循环体内节点：${from.value}` };
+          if (typeof value['path'] !== 'string') return { ok: false, reason: `${at} repeat.${name}.path 必须是字符串` };
+          return { ok: true, value: { from: from.value, path: value['path'] } };
+        };
+        const stateFrom = readLoopRef(repeatRaw['stateFrom'], 'stateFrom');
+        if (!stateFrom.ok) return stateFrom;
+        const until = readLoopRef(repeatRaw['until'], 'until');
+        if (!until.ok) return until;
+        step = {
+          id: idRes.value,
+          repeat: {
+            maxIterations: max as number | string,
+            ...(initialState !== undefined ? { initialState } : {}),
+            stateFrom: stateFrom.value,
+            until: until.value,
+            steps: nested.value.steps,
+          },
+          ...(shouldYield !== undefined ? { yield: shouldYield } : {}),
+        };
       }
-      bindings = out;
+
+      out.push(step);
+      localIds.add(idRes.value);
+      available.add(idRes.value);
     }
+    return { ok: true, value: { steps: out, ids: localIds } };
+  };
 
-    // 可选 yield：仅显式 true 的节点 value 进模型；缺省 false（不写字段即缺省）。
-    let shouldYield: boolean | undefined;
-    const yieldRaw = item['yield'];
-    if (yieldRaw !== undefined) {
-      if (typeof yieldRaw !== 'boolean') {
-        return { ok: false, reason: `${where} yield 若给必须是 boolean` };
-      }
-      shouldYield = yieldRaw;
-    }
-
-    // exactOptionalPropertyTypes：可选字段条件展开，不直塞 undefined；只构造已知字段。
-    const step: WorkflowStepT = {
-      id: idRes.value,
-      call: callRes.value,
-      ...(args !== undefined ? { args } : {}),
-      ...(bindings !== undefined ? { bindings } : {}),
-      ...(shouldYield !== undefined ? { yield: shouldYield } : {}),
-    };
-    steps.push(step);
-    // 当前 id 处理完才入集合 → 本步骤 bindings 不能引用自己，也不能引用后继节点。
-    seenIds.add(idRes.value);
-  }
-
-  return { ok: true, value: { steps } };
+  const parsed = parseSteps(stepsRaw, new Set<string>(), 'workflow.steps');
+  if (!parsed.ok) return parsed;
+  return { ok: true, value: { steps: parsed.value.steps } };
 }
 
 /**
