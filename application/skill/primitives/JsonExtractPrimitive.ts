@@ -437,10 +437,10 @@ type ParseResult =
   | { ok: false; error: string };
 
 /** 严格校验参数；value 缺省按「未注入」处理（阶段二由 runner 注入） */
-function parseArgs(argsJson: string): ParseResult {
+function parseArgs(args: Record<string, unknown>): ParseResult {
   let raw: unknown;
   try {
-    raw = JSON.parse(argsJson);
+    raw = args;
   } catch {
     return { ok: false, error: '参数不是合法 JSON' };
   }
@@ -492,8 +492,8 @@ export function createJsonExtractPrimitive(): SkillPrimitive {
     name: JSON_EXTRACT_TOOL_NAME,
     definition: JSON_EXTRACT_TOOL,
     idempotent: true,
-    execute: async (argsJson: string): Promise<PrimitiveResult> => {
-      const parsed = parseArgs(argsJson);
+    execute: async (args: Record<string, unknown>): Promise<PrimitiveResult> => {
+      const parsed = parseArgs(args);
       if (!parsed.ok) return fail(parsed.error);
       const args = parsed.value;
 
