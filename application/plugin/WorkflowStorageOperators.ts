@@ -7,8 +7,6 @@
 import type { OperatorSpec } from '@domain/plugin/types';
 import { KV_KEY_RE, type KvService } from '@application/skill/kv/KvService';
 
-const OBJECT_SCHEMA = { type: 'object' } as const;
-
 function requiredString(args: Record<string, unknown>, key: string): string {
   const value = args[key];
   if (typeof value !== 'string' || value.length === 0) {
@@ -91,7 +89,7 @@ export function createWorkflowStorageOperators(kv: KvService): OperatorSpec[] {
         value: { description: '要保存的 JSON 值' },
       },
       ['domain', 'key', 'value'],
-      true,
+      false,
       async (args) => {
         const domain = requiredString(args, 'domain');
         const key = requiredString(args, 'key');
