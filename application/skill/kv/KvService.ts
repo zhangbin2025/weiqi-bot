@@ -314,6 +314,16 @@ export class KvService implements KvServiceLike {
    * 取明文（含 opaque 域）。仅供设置面板展示 / P2 直连认证消费。
    * 调用方必须自行保证不把结果写进任何模型消息 / 会话历史。
    */
+  /** Workflow 宿主存储读取：区分键不存在与存储值为 null；不暴露为 LLM 工具。 */
+  async readRawEntry(domain: string, key: string): Promise<
+    { exists: true; value: unknown } | { exists: false }
+  > {
+    const d = this.registry.get(domain);
+    if (!d || !KV_KEY_RE.test(key)) throw new Error('存储域或 key 不合法');
+    const entry = await d.driver.get(this.physical(d, key));
+    return entry === null ? { exists: false } : { exists: true, value: entry.value };
+  }
+
   async readRaw(domain: string, key: string): Promise<unknown | null> {
     const d = this.registry.get(domain);
     if (!d || !KV_KEY_RE.test(key)) return null;
