@@ -1,5 +1,5 @@
 /**
- * 天气技能 v6「装好后确实能取数」的回归测试。
+ * 天气技能 v8「取数 + 加入自选链接」的回归测试。
  *
  * 只测安装链路（WeatherSkillInstall.test.ts）不够：技能能装进本地库，
  * 不代表模型那轮会挂上 run_workflow、也不代表 DAG 会走到 web_fetch。
@@ -16,11 +16,13 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { OperatorSpec, StepResult } from '@domain/plugin/types';
+import type { OperatorSpec, StepResult, PluginArtifactService, IPluginRuntime } from '@domain/plugin/types';
 import type { OperatorRegistry } from '@application/plugin/OperatorRegistry';
 import type { WorkflowSpec, WorkflowInput } from '@application/skill/SkillTypes';
 import { runWorkflow } from '@application/skill/WorkflowRunner';
 import { createHostWorkflowOperators } from '@application/plugin/HostWorkflowOperators';
+import { createOperatorRegistry } from '@application/plugin/OperatorRegistry';
+import { createBasicPrimitives } from '@application/skill/primitives/BasicPrimitives';
 import { createWorkflowStorageOperators } from '@application/plugin/WorkflowStorageOperators';
 import { KvService } from '@application/skill/kv/KvService';
 import { KvDomainRegistry } from '@application/skill/kv/KvDomains';
@@ -53,41 +55,42 @@ function makeKv(): KvService {
   ] as KvDomainDescriptor[]));
 }
 
-/** web_fetch 是唯一会出网的算子，用桩计数；其余全部用真实宿主算子。 */
-function buildRegistry(fetchCalls: string[]): OperatorRegistry {
-  const specs = new Map<string, OperatorSpec>();
-  for (const op of [...createHostWorkflowOperators(), ...createWorkflowStorageOperators(makeKv())]) {
-    specs.set(op.name, op);
-  }
-  const fetchSpec: OperatorSpec = {
-    name: 'web_fetch', description: '天气请求计数桩',
-    inputSchema: { type: 'object' }, outputSchema: {}, kind: 'io', idempotent: false,
-    run: async (args): Promise<StepResult> => {
-      fetchCalls.push(String(args['url']));
-      return {
-        value: {
-          current_condition: [{ temp_C: '26' }],
-          weather: [{ maxtempC: '29' }],
-        },
-      };
-    },
-  };
-  specs.set(fetchSpec.name, fetchSpec);
-  return {
-    specs,
-    get: (name: string) => specs.get(name),
-    run: async (name: string, args: Record<string, unknown>) => {
-      const op = specs.get(name);
-      if (!op) throw new Error(`未注册的算子：${name}`);
-      return op.run(args);
-    },
-  } as unknown as OperatorRegistry;
+/** 真实装配：createOperatorRegistry + createBasicPrimitives，只把最底层 fetchImpl 换成计数桩。
+ * 这样 display / web_fetch 的 execute→run 转换、schema 校验、effects 收集全部走产品代码，
+ * 不再手搓 OperatorSpec（手搓会把 SkillPrimitive 当 OperatorSpec 用，display 静默失效）。 */
+async function buildRegistry(fetchCalls: string[]): Promise<OperatorRegistry> {
+  const body = JSON.stringify({
+    current_condition: [{ temp_C: '26' }],
+    weather: [{ maxtempC: '29' }],
+  });
+  const fetchStub = (async (input: unknown) => {
+    fetchCalls.push(String(input));
+    return {
+      status: 200, statusText: 'OK', ok: true,
+      headers: { get: () => 'application/json' },
+      text: async () => body,
+    };
+  }) as unknown as typeof fetch;
+  // proxyUrl 用占位域名：真实 executeWebFetch 会把待取 URL 编码进 query，
+  // 断言里比对的仍是 args['url']（见 fetchCalls 里的 wttr.in URL）。
+  const primitives = createBasicPrimitives({
+    proxyUrl: 'https://proxy.invalid', timeoutMs: 15000, fetchImpl: fetchStub,
+  });
+  return createOperatorRegistry({
+    primitives,
+    hostOperators: [...createHostWorkflowOperators(), ...createWorkflowStorageOperators(makeKv())],
+    artifacts: { listActive: async () => [] } as unknown as PluginArtifactService,
+    runtime: {
+      run: async () => { throw new Error('no plugin'); },
+      dispose: async () => {},
+    } as unknown as IPluginRuntime,
+  });
 }
 
-describe.skipIf(!assetsAvailable)('weather.wttr v6 执行链路', () => {
-  it('配方是 workflow-only 且版本为 6', () => {
+describe.skipIf(!assetsAvailable)('weather.wttr v8 执行链路', () => {
+  it('配方是 workflow-only 且版本为 8', () => {
     const r = loadRecipe();
-    expect(r.version).toBe(7);
+    expect(r.version).toBe(8);
     const calls = new Set<string>();
     const walk = (x: unknown): void => {
       if (typeof x !== 'object' || x === null) return;
@@ -112,13 +115,16 @@ describe.skipIf(!assetsAvailable)('weather.wttr v6 执行链路', () => {
     const result = await runWorkflow(
       recipe.workflow,
       { operation: 'weatherBatch', cities: ['深圳'], format: 'j2' },
-      buildRegistry(calls),
+      await buildRegistry(calls),
       undefined,
       recipe.inputs,
     );
     expect(result.ok).toBe(true);
     expect(result.failure).toBeUndefined();
-    expect(calls).toEqual(['https://wttr.in/%E6%B7%B1%E5%9C%B3?format=j2']);
+    // 真实 createBasicPrimitives.executeWebFetch 把目标 URL 编码进代理 query。
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain('https%3A%2F%2Fwttr.in%2F');
+    expect(decodeURIComponent(calls[0] ?? '')).toContain('wttr.in/%E6%B7%B1%E5%9C%B3?format=j2');
     expect(result.completedStepIds.join('|')).toContain('batch_fetch');
     // batch_loop 带 yield:true 且位于 dispatch_3.then 分支内：分支内 yield 必须
     // 透传到 values，否则 returnToLLM 写进缓存的恒为 '【yield 汇总 values】\n{}'（20 字符），
@@ -134,7 +140,7 @@ describe.skipIf(!assetsAvailable)('weather.wttr v6 执行链路', () => {
     const result = await runWorkflow(
       recipe.workflow,
       { operation: 'weatherBatch' },
-      buildRegistry(calls),
+      await buildRegistry(calls),
       undefined,
       recipe.inputs,
     );
@@ -149,7 +155,7 @@ describe.skipIf(!assetsAvailable)('weather.wttr v6 执行链路', () => {
     const result = await runWorkflow(
       recipe.workflow,
       { operation: 'storageGet', key: 'weather.defaultCity' },
-      buildRegistry(calls),
+      await buildRegistry(calls),
       undefined,
       recipe.inputs,
     );
@@ -162,3 +168,43 @@ describe.skipIf(!assetsAvailable)('weather.wttr v6 执行链路', () => {
 
 
 
+
+// v8：链接由 DAG 的 display 节点产出（数据旁路），不靠模型自己贴。
+// weatherBatch（查指定城市）→ 每个城市一条 prefs-add 链接；
+// weatherWatchlist（查自选列表天气）→ 已在自选里，零链接。
+describe.skipIf(!assetsAvailable)('v8 links: weatherBatch 才显示加入自选链接', () => {
+  function linksOf(result: { effects?: readonly { displayMarkdown?: string }[] }): string[] {
+    return (result.effects ?? [])
+      .filter((e) => typeof e.displayMarkdown === 'string')
+      .map((e) => e.displayMarkdown as string);
+  }
+
+  it('weatherBatch 产出每个城市的 prefs-add 链接', async () => {
+    const recipe = loadRecipe();
+    const calls: string[] = [];
+    const result = await runWorkflow(
+      recipe.workflow,
+      { operation: 'weatherBatch', cities: ['茂名'], format: 'j2' },
+      await buildRegistry(calls), undefined, recipe.inputs, true,
+    );
+    expect(result.ok).toBe(true);
+    // 真实 web_fetch 把 URL 编进代理 query，桩收到的是代理 URL；只断言确实发起了一次。
+    expect(calls).toHaveLength(1);
+    const links = linksOf(result);
+    expect(links).toHaveLength(1);
+    expect(links[0]).toBe('[加入自选城市：茂名](prefs-add:prefs:weather.watchlist:茂名)');
+  });
+
+  it('weatherWatchlist 取数但不显示加入自选链接', async () => {
+    const recipe = loadRecipe();
+    const calls: string[] = [];
+    const result = await runWorkflow(
+      recipe.workflow,
+      { operation: 'weatherWatchlist', cities: ['茂名'], format: 'j2' },
+      await buildRegistry(calls), undefined, recipe.inputs, true,
+    );
+    expect(result.ok).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(linksOf(result)).toHaveLength(0);
+  });
+});
