@@ -25,7 +25,7 @@ import type { KvDomainRegistry } from './KvDomains';
 import { CONTEXT_LIMITS } from '@application/chat/ConversationPrompt';
 
 /** key 形状：模型给的键只允许标识符式字符串，杜绝 '../'、':'、超长键等路径玩法 */
-const KV_KEY_RE = /^[A-Za-z0-9_.\-]{1,128}$/;
+export const KV_KEY_RE = /^[A-Za-z0-9_.\-]{1,128}$/;
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
