@@ -91,8 +91,8 @@ async function exportHandle(exp: ReturnType<typeof setup>['exp']): Promise<strin
 }
 
 function assertCalls(calls: [string, RequestInit][]): void {
-  // skill.json / README.md / skills/registry.json 三个文件，各一次 GET + 一次 PUT
-  expect(calls.length).toBe(6);
+  // skill.json / skills/registry.json 两个文件，各一次 GET + 一次 PUT
+  expect(calls.length).toBe(4);
   for (const [url, init] of calls) {
     expect(url).toMatch(/^https:\/\/api\.github\.com\/repos\/weiqi-dev\/weiqi-assets\/contents\//);
     expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer ghp_SMOKE_TOKEN');

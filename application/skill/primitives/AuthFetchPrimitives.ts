@@ -34,7 +34,7 @@
  *   已配置的 timeoutMs；重认证默认状态 401 = RFC 7235 Unauthorized 语义。
  */
 import type { ModelToolDefinition } from '@application/model/IModelGateway';
-import type { SkillPrimitive, PrimitiveResult, SkillRecipe, WorkflowStep } from '@application/skill/SkillTypes';
+import type { SkillPrimitive, PrimitiveResult, WorkflowStep } from '@application/skill/SkillTypes';
 import { CONTEXT_LIMITS } from '@application/chat/ConversationPrompt';
 import {
   defaultWebFetchCache, type CachedWebResource, type WebFetchCache,
@@ -455,39 +455,6 @@ function parseArgs(args: Record<string, unknown>): Record<string, unknown> {
   }
 }
 
-/** README 只写元数据 + 契约出处，不复制配方正文，避免同目录两份真相漂移。 */
-function skillReadme(r: SkillRecipe): string {
-  return [
-    `# ${r.name}`, '',
-    `- **ID**：\`${r.id}\``,
-    `- **版本**：v${r.version}（取自 \`skill.json\` 的 \`version\` 字段）`,
-    ...(r.category !== undefined ? [`- **分类**：${r.category}`] : []),
-    '', '## 做什么', '', r.summary, '',
-    '## 配方正文', '',
-    '完整执行说明（`prompt` / `secrets` / `workflow` / `inputs`）只写在同目录 `skill.json`，本文件不复制正文，避免两份真相漂移。',
-    '', '## 修订', '',
-    '- 改配方正文只动 `skill.json`；',
-    '- 同步更新 `skills/registry.json` 里同 `id` 索引条目的重叠字段；',
-    '- 递增 `version`：宿主据此提示「有更新」。', '',
-  ].join('\n');
-}
-
-function pluginReadme(a: PluginArtifact, resourceId: string): string {
-  return [
-    `# ${a.name}`, '',
-    `- **ID**：\`${resourceId}\``,
-    `- **工件版本**：v${a.version}（本地工件自带，只作展示；资源侧 \`specVersion\` 取宿主 PLUGIN_SPECS）`,
-    `- **扩展点**：${a.pointId}`,
-    '', '## 做什么', '', a.intent, '',
-    '## 契约', '',
-    '- 入口 / 资源限额以宿主 `PLUGIN_SPECS` 为准，不在资源侧复制数值；',
-    '- `exposes[]` / `smoke[]` 与源码都由宿主导出，完整声明见同目录 `plugin.json`；',
-    '- 算子注册名形如 `<slug>.<exposes[].name>`，由宿主 OperatorRegistry 按名精确查表。',
-    '', '## 配方正文', '',
-    '完整源码只写在同目录 `index.js`，本文件不复制代码；改代码请由宿主重新导出，避免两份真相漂移。', '',
-  ].join('\n');
-}
-
 /**
  * 从 Workflow DAG 收集需要随技能发布的插件命名空间。
  * HOST_WORKFLOW_OPERATOR_NAMESPACES 里的宿主原生算子不对应 assets 插件工件；
@@ -530,7 +497,6 @@ async function buildSkillBundle(deps: PublishPrimitivesDeps, id: string): Promis
   const dir = `skills/${id}`;
   const files: PublishFile[] = [
     { path: `${dir}/skill.json`, content: `${JSON.stringify(r, null, 2)}\n` },
-    { path: `${dir}/README.md`, content: skillReadme(r) },
   ];
   const indexEntry: Record<string, unknown> = {
     id: r.id, version: r.version, name: r.name, summary: r.summary,
@@ -560,7 +526,7 @@ async function buildSkillBundle(deps: PublishPrimitivesDeps, id: string): Promis
   return { handle: `asset:skill:${id}`, files, includesPlugins };
 }
 
-/** 插件 → 变更集（plugin.json + index.js + README.md + 顶层 registry 索引条目）。 */
+/** 插件 → 变更集（plugin.json + index.js + 顶层 registry 索引条目）。 */
 function buildPluginFiles(a: PluginArtifact): PublishFile[] {
   if (a.slug === undefined || !a.slug.trim()) {
     throw new Error(`插件 ${a.id} 还没有 slug；先用 plugin_write 给它一个稳定短名再发布`
@@ -581,7 +547,6 @@ function buildPluginFiles(a: PluginArtifact): PublishFile[] {
     $schema: '../../../schema/plugin.schema.json',
     id: resourceId, name: a.name, type: 'plugin', pointId: a.pointId,
     specVersion: spec.version, entry: spec.entry, code: `${dir}/index.js`,
-    readme: `${dir}/README.md`,
     origin: a.origin, intent: a.intent,
     ...(a.category !== undefined ? { category: a.category } : {}),
     ...(a.operatorContract !== undefined
@@ -595,7 +560,6 @@ function buildPluginFiles(a: PluginArtifact): PublishFile[] {
   return [
     { path: `${dir}/plugin.json`, content: `${JSON.stringify(pluginJson, null, 2)}\n` },
     { path: `${dir}/index.js`, content: a.code },
-    { path: `${dir}/README.md`, content: pluginReadme(a, resourceId) },
     {
       path: 'registry.json', content: '',
       merge: { listKey: 'resources', entry: indexEntry },
