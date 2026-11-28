@@ -16,6 +16,9 @@
  *   /llm thinking on|off              开启/关闭推理模型的思考过程（默认关闭）
  *   /llm repairs <1-50>              插件自主决策次数（默认 10）
  *   /llm retention <1-365>           token 消耗统计保留天数（默认 30）
+ *   /llm workflow-loop <正整数|off>  单循环迭代上限（默认经验值，off 不限制）
+ *   /llm workflow-total <正整数|off> 累计循环上限（默认经验值，off 不限制）
+ *   /llm workflow-depth <正整数|off> 控制块嵌套深度（默认经验值，off 不限制）
  *   /llm status                      查看当前配置（脱敏）
  *   /llm off                         关闭并清除凭据
  *   /llm                             显示用法
@@ -57,6 +60,11 @@ import {
   MIN_TOKEN_RETENTION_DAYS,
   MAX_TOKEN_RETENTION_DAYS,
 } from '../token/TokenUsageTypes';
+import {
+  loadWorkflowLimits,
+  saveWorkflowLimit,
+  type WorkflowLimitKey,
+} from '../skill/WorkflowConfig';
 
 export interface LLMCommandDeps {
   /** 渲染并保存到历史（复用 CommandHandler 的既有行为） */
@@ -81,6 +89,9 @@ function usage(): string {
     '| `/llm thinking on\\|off` | 思考开关（默认 off） |',
     '| `/llm repairs <1-50>` | 插件自主决策次数（默认 10） |',
     '| `/llm retention <1-365>` | Token 统计保留天数（默认 30） |',
+    '| `/llm workflow-loop <正整数\|off>` | 单循环迭代上限（经验值） |',
+    '| `/llm workflow-total <正整数\|off>` | 累计循环上限（经验值） |',
+    '| `/llm workflow-depth <正整数\|off>` | 控制块嵌套深度（经验值） |',
     '| `/llm status` | 查看配置 |',
     '| `/llm off` | 关闭并清除凭据 |',
     '',
@@ -91,7 +102,22 @@ function usage(): string {
 }
 
 /** 已知子命令（这些命令的第二段是子命令名，不是 apiKey，不能脱敏） */
-export const LLM_SUBCOMMANDS = new Set(['model', 'status', 'off', 'timeout', 'maxtokens', 'thinking', 'repairs', 'retention']);
+export const LLM_SUBCOMMANDS = new Set([
+  'model', 'status', 'off', 'timeout', 'maxtokens', 'thinking', 'repairs', 'retention',
+  'workflow-loop', 'workflow-total', 'workflow-depth',
+]);
+
+/** /llm workflow-* 三个子命令 → 预算 key 与中文标签。 */
+const WORKFLOW_LIMIT_COMMANDS: Record<string, { key: WorkflowLimitKey; label: string }> = {
+  'workflow-loop': { key: 'maxIterationsPerLoop', label: 'Workflow 单循环迭代上限' },
+  'workflow-total': { key: 'maxTotalIterations', label: 'Workflow 累计循环上限' },
+  'workflow-depth': { key: 'maxNestingDepth', label: 'Workflow 控制块嵌套深度' },
+};
+
+/** 经验值 / off 的统一展示口径（status 与无参查询共用）。 */
+function formatWorkflowLimit(value: number | null): string {
+  return value === null ? '不限制（off）' : `${value}（经验值）`;
+}
 
 /** 把用户输入的命令渲染成脱敏版本（主命令 + 参数名，不含 apiKey 明文） */
 export function redactCommand(raw: string): string {
@@ -131,6 +157,7 @@ export async function handleLLMCommand(raw: string, deps: LLMCommandDeps): Promi
       return true;
     }
     const usable = loadApiKey() !== null;
+    const workflowLimits = loadWorkflowLimits();
     const text = [
       '🤖 **LLM 配置**',
       '',
@@ -143,6 +170,9 @@ export async function handleLLMCommand(raw: string, deps: LLMCommandDeps): Promi
       `- 思考过程：${normalizeDisableThinking(config.disableThinking) ? '已关闭 ✅' : '已开启'}（/llm thinking on|off）`,
       `- 插件自主决策次数：${loadPluginMaxAttempts() + 1}（默认 ${DEFAULT_PLUGIN_MAX_ATTEMPTS + 1}，/llm repairs <数> 可调）`,
       `- Token 统计保留：${loadTokenRetentionDays()} 天（/llm retention <天数> 可调）`,
+      `- 单循环迭代上限：${formatWorkflowLimit(workflowLimits.maxIterationsPerLoop)}（/llm workflow-loop <正整数|off>）`,
+      `- 累计循环上限：${formatWorkflowLimit(workflowLimits.maxTotalIterations)}（/llm workflow-total <正整数|off>）`,
+      `- 控制块嵌套深度：${formatWorkflowLimit(workflowLimits.maxNestingDepth)}（/llm workflow-depth <正整数|off>）`,
       `- apiKey：\`${config.keyHint || '****'}\`（已加密缓存）`,
       `- 更新时间：${new Date(config.updatedAt).toLocaleString()}`,
     ].join('\n');
@@ -196,6 +226,39 @@ export async function handleLLMCommand(raw: string, deps: LLMCommandDeps): Promi
       `✅ Token 统计保留天数已改为 ${days}` +
       (days !== n ? `（已收敛到 ${MIN_TOKEN_RETENTION_DAYS}~${MAX_TOKEN_RETENTION_DAYS}）` : '') +
       '\n下次打开 AI 对话页的「Token 消耗」时生效。',
+    );
+    return true;
+  }
+
+  // /llm workflow-loop|workflow-total|workflow-depth <正整数|off>：宿主资源预算（独立于 LLM 凭据）
+  const workflowCmd = sub ? WORKFLOW_LIMIT_COMMANDS[sub] : undefined;
+  if (workflowCmd) {
+    const raw = parts[2];
+    const limits = loadWorkflowLimits();
+    if (!raw) {
+      await deps.renderMessage(
+        `ℹ️ 当前${workflowCmd.label}：${formatWorkflowLimit(limits[workflowCmd.key])}。` +
+        `\n用法：\`/llm ${sub} <正整数|off>\`（off 恢复不限制；默认值为经验值，不是推导边界）`,
+      );
+      return true;
+    }
+    if (raw.toLowerCase() === 'off') {
+      saveWorkflowLimit(workflowCmd.key, null);
+      await deps.renderMessage(
+        `✅ ${workflowCmd.label}已设为不限制（off）\n下次运行 Workflow 生效。`,
+      );
+      return true;
+    }
+    const n = Number(raw);
+    if (!Number.isSafeInteger(n) || n <= 0) {
+      await deps.renderMessage(
+        '❌ 必须是正整数，或 `off` 表示不限制，例如 `/llm workflow-loop 200`',
+      );
+      return true;
+    }
+    saveWorkflowLimit(workflowCmd.key, n);
+    await deps.renderMessage(
+      `✅ ${workflowCmd.label}已改为 ${n}（经验值；可随时用 off 关闭）\n下次运行 Workflow 生效。`,
     );
     return true;
   }

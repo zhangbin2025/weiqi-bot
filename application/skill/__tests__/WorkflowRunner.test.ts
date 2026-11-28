@@ -17,6 +17,7 @@ import type { PluginTraceStep, StepResult, OperatorSpec } from '@domain/plugin/t
 import type { OperatorRegistry } from '@application/plugin/OperatorRegistry';
 import type { WorkflowSpec, WorkflowStep, WorkflowInput } from '../SkillTypes';
 import { runWorkflow } from '../WorkflowRunner';
+import { saveWorkflowLimit, resetWorkflowLimitsForTest } from '../WorkflowConfig';
 
 /** 最小内存假算子表：按名注册 run，get/run 与真实 OperatorRegistry 同形。 */
 function fakeRegistry(
@@ -405,6 +406,163 @@ describe('runWorkflow — 过程块条数与文案', () => {
   });
 });
 
+
+describe('runWorkflow — 可配资源预算（默认有限经验值，off 才不限制）', () => {
+  const reset = () => resetWorkflowLimitsForTest();
+
+  it('默认单循环上限生效：forEach 项数超限 → 结构化失败，不执行循环体', async () => {
+    reset();
+    const reg = fakeRegistry({
+      source: () => ({ value: Array.from({ length: 101 }, (_, i) => i) }),
+      op: () => ({ value: 1 }),
+    });
+    const spec: WorkflowSpec = {
+      steps: [
+        step({ id: 'source', call: 'source' }),
+        { id: 'each', forEach: { from: 'source', path: '$', steps: [step({ id: 'op', call: 'op' })] } },
+      ],
+    };
+    const result = await runWorkflow(spec, {}, reg);
+    expect(result.ok).toBe(false);
+    expect(result.failure?.stepId).toBe('each');
+    expect(result.failure?.error).toContain('经验值上限');
+    expect(reg.calls).toEqual(['source']);
+    reset();
+  });
+
+  it('默认单循环上限同样约束 repeat.maxIterations', async () => {
+    reset();
+    const reg = fakeRegistry({ op: () => ({ value: { n: 0, done: false } }) });
+    const spec: WorkflowSpec = {
+      steps: [{
+        id: 'r', repeat: {
+          maxIterations: 101,
+          initialState: { n: 0 },
+          stateFrom: { from: 'op', path: '$' },
+          until: { from: 'op', path: 'done' },
+          steps: [step({ id: 'op', call: 'op' })],
+        },
+      }],
+    };
+    const result = await runWorkflow(spec, {}, reg);
+    expect(result.ok).toBe(false);
+    expect(result.failure?.error).toContain('1 到 100');
+    expect(reg.calls).toEqual([]);
+    reset();
+  });
+
+  it('默认累计预算生效：跨多个 forEach 合计超 500 → 最后一个循环中途短路', async () => {
+    reset();
+    const reg = fakeRegistry({
+      source: () => ({ value: Array.from({ length: 100 }, (_, i) => i) }),
+      op: () => ({ value: 1 }),
+    });
+    const spec: WorkflowSpec = {
+      steps: [
+        step({ id: 'source', call: 'source' }),
+        ...['a', 'b', 'c', 'd', 'e', 'f'].map((id) => ({
+          id, forEach: { from: 'source', path: '$', steps: [step({ id: 'op', call: 'op' })] },
+        })),
+      ],
+    };
+    const result = await runWorkflow(spec, {}, reg);
+    expect(result.ok).toBe(false);
+    expect(result.failure?.error).toContain('累计循环次数超过宿主经验值上限 500');
+    // 前 5 个循环各 100 项恰好耗尽 500 次预算，第 6 个循环第一次迭代即短路
+    expect(reg.calls.length).toBe(501); // source + 恰好 500 次 op
+    reset();
+  });
+
+  it('默认嵌套深度生效：超过经验值上限时运行前静态拦截且不执行任何算子', async () => {
+    reset();
+    const reg = fakeRegistry({ op: () => ({ value: 1 }) });
+    let block: WorkflowStep = step({ id: 'leaf', call: 'op' });
+    for (let i = 0; i < 101; i++) {
+      block = { id: 'loop' + i, forEach: { from: 'never', path: '$', steps: [block] } };
+    }
+    const result = await runWorkflow({ steps: [block] }, {}, reg);
+    expect(result.ok).toBe(false);
+    expect(result.failure?.error).toContain('嵌套深度超过宿主经验值上限 100');
+    expect(reg.calls).toEqual([]);
+    reset();
+  });
+
+  it('saveWorkflowLimit 正整数直接改变运行时阈值', async () => {
+    reset();
+    saveWorkflowLimit('maxIterationsPerLoop', 3);
+    const reg = fakeRegistry({
+      source: () => ({ value: [1, 2, 3, 4] }),
+      op: () => ({ value: 1 }),
+    });
+    const spec: WorkflowSpec = {
+      steps: [
+        step({ id: 'source', call: 'source' }),
+        { id: 'each', forEach: { from: 'source', path: '$', steps: [step({ id: 'op', call: 'op' })] } },
+      ],
+    };
+    const result = await runWorkflow(spec, {}, reg);
+    expect(result.ok).toBe(false);
+    expect(result.failure?.error).toContain('经验值上限 3');
+    expect(reg.calls).toEqual(['source']);
+
+    saveWorkflowLimit('maxIterationsPerLoop', 10);
+    const ok = await runWorkflow(spec, {}, fakeRegistry({
+      source: () => ({ value: [1, 2, 3, 4] }),
+      op: () => ({ value: 1 }),
+    }));
+    expect(ok.ok).toBe(true);
+    reset();
+  });
+
+  it('off 关闭单循环与累计预算：大数组可完整跑完', async () => {
+    reset();
+    saveWorkflowLimit('maxIterationsPerLoop', null);
+    saveWorkflowLimit('maxTotalIterations', null);
+    const reg = fakeRegistry({
+      source: () => ({ value: Array.from({ length: 600 }, (_, i) => i) }),
+      op: () => ({ value: 1 }),
+    });
+    const spec: WorkflowSpec = {
+      steps: [
+        step({ id: 'source', call: 'source' }),
+        { id: 'each', yield: true, forEach: { from: 'source', path: '$', steps: [step({ id: 'op', call: 'op' })] } },
+      ],
+    };
+    const result = await runWorkflow(spec, {}, reg);
+    expect(result.ok).toBe(true);
+    expect((result.values['each'] as unknown[]).length).toBe(600);
+    reset();
+  });
+
+  it('off 关闭嵌套深度：超深控制块不再被深度预检拦下', async () => {
+    reset();
+    saveWorkflowLimit('maxNestingDepth', null);
+    const reg = fakeRegistry({ op: () => ({ value: 1 }) });
+    let block: WorkflowStep = step({ id: 'leaf', call: 'op' });
+    for (let i = 0; i < 3; i++) {
+      block = { id: 'c' + i, ifElse: { condition: { from: 'missing', path: '$' }, then: [block] } };
+    }
+    const result = await runWorkflow({ steps: [block] }, {}, reg);
+    expect(result.ok).toBe(false);
+    expect(result.failure?.error).not.toContain('嵌套深度');
+    expect(result.failure?.error).toContain('ifElse 条件来源节点无 value');
+    reset();
+  });
+
+  it('深度超限在 stepTrace 里留一条失败节点（调试模式可定位）', async () => {
+    reset();
+    saveWorkflowLimit('maxNestingDepth', 2);
+    const reg = fakeRegistry({ op: () => ({ value: 1 }) });
+    let block: WorkflowStep = step({ id: 'leaf', call: 'op' });
+    for (let i = 0; i < 3; i++) {
+      block = { id: 'loop' + i, forEach: { from: 'source', path: '$', steps: [block] } };
+    }
+    const result = await runWorkflow({ steps: [block] }, {}, reg, undefined, undefined, true);
+    expect(result.ok).toBe(false);
+    expect(result.stepTrace?.some((t) => t.ok === false && t.error?.includes('嵌套深度'))).toBe(true);
+    reset();
+  });
+});
 
 describe('runWorkflow — 通用控制结构补齐', () => {
   it('forEach onError=continue：单项失败被记录，后续项继续，成功项统一包装', async () => {

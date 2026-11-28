@@ -14,7 +14,8 @@
  * - 不执行表达式或动态代码：`{{input.xxx}}`、`{{item.path}}`、`{{index}}`、`{{state.path}}` 都是受限数据注入；
  * - 失败即短路 + 结构化错误（哪个节点 / 什么错 / 已完成节点列表），**宿主不自动重试**；
  * - 仅 `yield:true` 节点的 value 进结果汇总（宿主内部保留；成功观察只回完成+句柄，不回灌模型）；
- * - repeat 与 forEach 受 MAX_WORKFLOW_ITERATIONS 资源上限保护；循环体由宿主确定性调度，不消耗模型决策轮。
+ * - repeat 与 forEach 受 WorkflowConfig 里的三项有限资源预算保护（默认经验值，off 才关闭）；
+ *   循环体由宿主确定性调度，不消耗模型决策轮。
  *
  * 取证确认（勿指望阶段一地基）：`OperatorRegistry.run()` 在「名字未注册」与
  * 「插件执行失败」两条路径都只抛普通 Error（OperatorRegistry.ts），阶段一没有
@@ -33,6 +34,7 @@ import type { OperatorRegistry } from '@application/plugin/OperatorRegistry';
 import type {
   WorkflowSpec, WorkflowStep, WorkflowInput,
 } from '@application/skill/SkillTypes';
+import { loadWorkflowLimits } from './WorkflowConfig';
 
 /** 与 StepResult.effects 同形；runner 全量累积，不取最后一个、不覆盖。 */
 export type WorkflowEffect = { displayMarkdown?: string; actionLink?: string };
@@ -83,8 +85,7 @@ const WHOLE_PLACEHOLDER_RE = /^\{\{input\.([^{}]+)\}\}$/;
 const EMBEDDED_PLACEHOLDER_RE = /\{\{(?:input\.[^{}]+|item(?:\.[^{}]+)?|index|state(?:\.[^{}]+)?|urlencode\.(?:input\.[^{}]+|item(?:\.[^{}]+)?|state(?:\.[^{}]+)?))\}\}/g;
 const SCOPE_PLACEHOLDER_RE = /^\{\{(item(?:\.[^{}]+)?|index|state(?:\.[^{}]+)?)\}\}$/;
 const URL_ENCODE_PLACEHOLDER_RE = /^\{\{urlencode\.(input\.[^{}]+|item(?:\.[^{}]+)?|state(?:\.[^{}]+)?)\}\}$/;
-const MAX_WORKFLOW_ITERATIONS = 100;
-const MAX_WORKFLOW_TOTAL_ITERATIONS = 500;
+/** 三项预算的默认值（经验值）与持久化、off 语义统一在 WorkflowConfig 维护。 */
 
 /** 属性访问只认自身属性，并挡住原型链上的危险键（与宿主其余取值层同口径）。 */
 const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
@@ -393,6 +394,7 @@ export async function runWorkflow(
   const effects: WorkflowEffect[] = [];
   const values: Record<string, unknown> = {};
   const stepTrace: WorkflowStepTrace[] | undefined = captureTrace ? [] : undefined;
+  const limits = loadWorkflowLimits();
 
   const fail = (stepId: string, error: string, detail: string): WorkflowRunResult => {
     pushTrace(onTrace, false, detail);
@@ -430,6 +432,37 @@ export async function runWorkflow(
     stepTrace?.push({ stepId: missing.id, call: missing.call, args: {}, ok: false, effects: [], error: reason });
     return fail(missing.id, reason, `workflow 运行前校验失败：节点 ${missing.id} 引用了未注册算子 ${missing.call}`);
   }
+
+  /** 静态预检控制块嵌套深度：forEach / repeat / ifElse 每进入一层计一层。 */
+  const checkDepth = (items: readonly WorkflowStep[], depth: number, prefix: string): WorkflowRunResult | null => {
+    const max = limits.maxNestingDepth;
+    if (max === null) return null;
+    for (const step of items) {
+      const path = prefix + step.id;
+      const enters = step.forEach !== undefined || step.repeat !== undefined || step.ifElse !== undefined;
+      const childDepth = depth + (enters ? 1 : 0);
+      if (childDepth > max) {
+        const reason = `Workflow 控制块嵌套深度超过宿主经验值上限 ${max}`;
+        stepTrace?.push({ stepId: path, call: '<depth>', args: {}, ok: false, effects: [], error: reason });
+        return fail(path, reason, `workflow 运行前校验失败：节点 ${path} 嵌套深度超限`);
+      }
+      if (step.forEach !== undefined) {
+        const found = checkDepth(step.forEach.steps, childDepth, path + '/');
+        if (found) return found;
+      } else if (step.repeat !== undefined) {
+        const found = checkDepth(step.repeat.steps, childDepth, path + '/');
+        if (found) return found;
+      } else if (step.ifElse !== undefined) {
+        const found = checkDepth(step.ifElse.then, childDepth, path + '/then/');
+        if (found) return found;
+        const foundElse = checkDepth(step.ifElse.else ?? [], childDepth, path + '/else/');
+        if (foundElse) return foundElse;
+      }
+    }
+    return null;
+  };
+  const depthFailure = checkDepth(steps, 0, '');
+  if (depthFailure) return depthFailure;
 
   const resolved = resolveInputs(inputDecls, inputs);
   if (!resolved.ok) {
@@ -504,13 +537,13 @@ export async function runWorkflow(
         const source = readBindingValue(upstream.get(step.forEach.from), step.forEach.path);
         if (!source.ok) return { ok: false, stepId, error: source.error, detail: `节点 ${stepId} 循环来源路径失败：${source.error}` };
         if (!Array.isArray(source.value)) return { ok: false, stepId, error: 'forEach 来源必须是数组', detail: `节点 ${stepId} 循环来源不是数组` };
-        if (source.value.length > MAX_WORKFLOW_ITERATIONS) {
-          return { ok: false, stepId, error: `forEach 项数超过宿主上限 ${MAX_WORKFLOW_ITERATIONS}`, detail: `节点 ${stepId} 循环项数超限` };
+        if (limits.maxIterationsPerLoop !== null && source.value.length > limits.maxIterationsPerLoop) {
+          return { ok: false, stepId, error: `forEach 项数超过宿主经验值上限 ${limits.maxIterationsPerLoop}`, detail: `节点 ${stepId} 循环项数超限` };
         }
         const results: unknown[] = [];
         for (let index = 0; index < source.value.length; index++) {
-          if (totalLoopIterations >= MAX_WORKFLOW_TOTAL_ITERATIONS) {
-            return { ok: false, stepId, error: `Workflow 累计循环次数超过宿主上限 ${MAX_WORKFLOW_TOTAL_ITERATIONS}`, detail: `节点 ${stepId} 累计循环预算耗尽` };
+          if (limits.maxTotalIterations !== null && totalLoopIterations >= limits.maxTotalIterations) {
+            return { ok: false, stepId, error: `Workflow 累计循环次数超过宿主经验值上限 ${limits.maxTotalIterations}`, detail: `节点 ${stepId} 累计循环预算耗尽` };
           }
           totalLoopIterations += 1;
           const local = new Map(upstream);
@@ -595,8 +628,11 @@ export async function runWorkflow(
       const maxResult = substituteInputs(repeat.maxIterations, resolvedInputs, scope);
       if (!maxResult.ok) return { ok: false, stepId, error: maxResult.error, detail: `节点 ${stepId} 循环次数参数无效：${maxResult.error}` };
       const maxIterations = maxResult.value;
-      if (typeof maxIterations !== 'number' || !Number.isInteger(maxIterations) || maxIterations < 1 || maxIterations > MAX_WORKFLOW_ITERATIONS) {
-        const reason = `repeat.maxIterations 必须是 1 到 ${MAX_WORKFLOW_ITERATIONS} 之间的整数`;
+      if (typeof maxIterations !== 'number' || !Number.isInteger(maxIterations) || maxIterations < 1
+        || (limits.maxIterationsPerLoop !== null && maxIterations > limits.maxIterationsPerLoop)) {
+        const reason = limits.maxIterationsPerLoop === null
+          ? 'repeat.maxIterations 必须是 >=1 的整数'
+          : `repeat.maxIterations 必须是 1 到 ${limits.maxIterationsPerLoop} 之间的整数`;
         return { ok: false, stepId, error: reason, detail: `节点 ${stepId} 循环次数超出宿主允许范围` };
       }
       const initial = substituteInputs(repeat.initialState ?? {}, resolvedInputs, scope);
@@ -608,8 +644,8 @@ export async function runWorkflow(
       const results: unknown[] = [];
       let stopped = false;
       for (let iteration = 0; iteration < maxIterations; iteration++) {
-        if (totalLoopIterations >= MAX_WORKFLOW_TOTAL_ITERATIONS) {
-          return { ok: false, stepId, error: `Workflow 累计循环次数超过宿主上限 ${MAX_WORKFLOW_TOTAL_ITERATIONS}`, detail: `节点 ${stepId} 累计循环预算耗尽` };
+        if (limits.maxTotalIterations !== null && totalLoopIterations >= limits.maxTotalIterations) {
+          return { ok: false, stepId, error: `Workflow 累计循环次数超过宿主经验值上限 ${limits.maxTotalIterations}`, detail: `节点 ${stepId} 累计循环预算耗尽` };
         }
         totalLoopIterations += 1;
         const local = new Map(upstream);

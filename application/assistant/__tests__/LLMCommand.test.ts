@@ -4,6 +4,11 @@ import { loadPluginMaxAttempts, resetPluginMaxAttemptsForTest } from '../../plug
 import {
   loadTokenRetentionDays, resetTokenRetentionDaysForTest,
 } from '../../token/TokenUsageConfig';
+import {
+  loadWorkflowLimits, resetWorkflowLimitsForTest,
+} from '../../skill/WorkflowConfig';
+
+const workflowCommands = ['workflow-loop', 'workflow-total', 'workflow-depth'] as const;
 
 describe('isLLMCommand', () => {
   it('匹配主命令，大小写不敏感', () => {
@@ -54,6 +59,10 @@ describe('redactCommand', () => {
     expect(redactCommand('/llm thinking on')).toBe('/llm thinking on');
     expect(redactCommand('/llm repairs 5')).toBe('/llm repairs 5');
     expect(redactCommand('/llm repairs 5')).not.toContain('****');
+    for (const cmd of workflowCommands) {
+      expect(redactCommand(`/llm ${cmd} 25`)).toBe(`/llm ${cmd} 25`);
+      expect(redactCommand(`/llm ${cmd} off`)).not.toContain('****');
+    }
   });
 
   it('maxtokens 用法文案不再让用户调 timeout', () => {
@@ -83,15 +92,15 @@ describe('/llm 帮助信息', () => {
     expect(shown).not.toContain('```');
     expect(shown).not.toContain('Authorization: Bearer');
     expect(shown).not.toContain('localStorage');
-    // 2026-11-25 新增 /llm retention 一行（共 17 行），仍保持速查表精简
-    expect(shown.split('\n').length).toBeLessThanOrEqual(17);
+    // 2026-11-28 新增三行 /llm workflow-* 预算命令（共 20 行），仍保持速查表精简
+    expect(shown.split('\n').length).toBeLessThanOrEqual(20);
   });
 
   it('命令以反引号包住（防 <baseUrl> 被 markdown 吞成 HTML），速查完整', async () => {
     let shown = '';
     await handleLLMCommand('/llm', { renderMessage: async (c) => { shown = c; } });
     expect(shown).toContain('`/llm <baseUrl> <apiKey> <model>`');
-    for (const cmd of ['model', 'timeout', 'maxtokens', 'thinking', 'repairs', 'retention', 'status', 'off']) {
+    for (const cmd of ['model', 'timeout', 'maxtokens', 'thinking', 'repairs', 'retention', ...workflowCommands, 'status', 'off']) {
       expect(shown).toContain('`/llm ' + cmd);
     }
   });
@@ -135,6 +144,65 @@ describe('/llm repairs（插件自主决策次数可配置）', () => {
     let shown = '';
     await handleLLMCommand('/llm repairs abc', { renderMessage: async (c) => { shown = c; } });
     expect(shown).toContain('❌');
+  });
+});
+
+describe('/llm workflow-*（Workflow 资源预算，默认有限经验值）', () => {
+  const cases = [
+    { sub: 'workflow-loop', key: 'maxIterationsPerLoop' as const },
+    { sub: 'workflow-total', key: 'maxTotalIterations' as const },
+    { sub: 'workflow-depth', key: 'maxNestingDepth' as const },
+  ];
+
+  it('三个预算默认都是有限正整数，不是“不限制”', () => {
+    resetWorkflowLimitsForTest();
+    const limits = loadWorkflowLimits();
+    for (const { key } of cases) {
+      expect(Number.isSafeInteger(limits[key])).toBe(true);
+      expect(limits[key]!).toBeGreaterThan(0);
+    }
+    resetWorkflowLimitsForTest();
+  });
+
+  it.each(cases)('$sub 支持正整数 / off，且无参查询显示经验值', async ({ sub, key }) => {
+    resetWorkflowLimitsForTest();
+    let shown = '';
+    await handleLLMCommand(`/llm ${sub}`, { renderMessage: async (c) => { shown = c; } });
+    expect(shown).toContain('经验值');
+    expect(shown).toContain('/llm ' + sub);
+
+    await handleLLMCommand(`/llm ${sub} 250`, { renderMessage: async (c) => { shown = c; } });
+    expect(shown).toContain('已改为 250');
+    expect(loadWorkflowLimits()[key]).toBe(250);
+
+    await handleLLMCommand(`/llm ${sub} off`, { renderMessage: async (c) => { shown = c; } });
+    expect(shown).toContain('不限制');
+    expect(loadWorkflowLimits()[key]).toBe(null);
+    resetWorkflowLimitsForTest();
+  });
+
+  it.each(cases)('$sub 拒绝 0 / 负数 / 小数 / 非数字，不覆盖已有值', async ({ sub, key }) => {
+    resetWorkflowLimitsForTest();
+    await handleLLMCommand(`/llm ${sub} 37`, { renderMessage: async () => {} });
+    expect(loadWorkflowLimits()[key]).toBe(37);
+    for (const bad of ['0', '-1', '1.5', 'abc']) {
+      let shown = '';
+      await handleLLMCommand(`/llm ${sub} ${bad}`, { renderMessage: async (c) => { shown = c; } });
+      expect(shown).toContain('❌');
+      expect(loadWorkflowLimits()[key]).toBe(37);
+    }
+    resetWorkflowLimitsForTest();
+  });
+
+  it('非法持久化值回退到默认经验值，而不是变成“不限制”', async () => {
+    resetWorkflowLimitsForTest();
+    // node 测试环境无 localStorage：仅覆盖命令层契约；parseLimit 的坏 storage 回退
+    // 在 WorkflowConfig.test.ts 里通过注入 Storage 桩验证。
+    let shown = '';
+    await handleLLMCommand('/llm status', { renderMessage: async (c) => { shown = c; } });
+    // 未配置 LLM 凭据时 status 走早退分支，不展示预算，不应误判为 off
+    expect(shown).not.toContain('不限制');
+    resetWorkflowLimitsForTest();
   });
 });
 
