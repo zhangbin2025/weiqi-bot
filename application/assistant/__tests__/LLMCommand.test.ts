@@ -87,7 +87,7 @@ describe('/llm 帮助信息', () => {
     expect(shown).not.toContain('```');
     expect(shown).not.toContain('Authorization: Bearer');
     expect(shown).not.toContain('localStorage');
-    // 2026-11-25 新增 /llm retention 一行（共 17 行），仍保持速查表精简
+    // 新增 Workflow 资源配置命令后，仍保持速查表精简
     expect(shown.split('\n').length).toBeLessThanOrEqual(20);
   });
 
@@ -95,6 +95,8 @@ describe('/llm 帮助信息', () => {
     let shown = '';
     await handleLLMCommand('/llm', { renderMessage: async (c) => { shown = c; } });
     expect(shown).toContain('`/llm <baseUrl> <apiKey> <model>`');
+    expect(shown).toContain('默认 10，最大 50');
+    expect(shown).toContain('技能开发经验值');
     for (const cmd of ['model', 'timeout', 'maxtokens', 'thinking', 'repairs', 'retention', 'workflow-loop', 'workflow-total', 'workflow-depth', 'status', 'off']) {
       expect(shown).toContain('`/llm ' + cmd);
     }
