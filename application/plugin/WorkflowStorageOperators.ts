@@ -15,16 +15,12 @@ function requiredString(args: Record<string, unknown>, key: string): string {
   return value;
 }
 
-function resolveDomain(kv: KvService, name: string, write: boolean) {
+function resolveReadableDomain(kv: KvService, name: string): void {
   const domain = kv.domains().find((item) => item.name === name);
   if (!domain) throw new Error(`未知存储域：${name}`);
   if (domain.visibility !== 'readable') {
-    throw new Error(`存储域 ${name} 不允许 Workflow 读取或修改`);
+    throw new Error(`存储域 ${name} 不允许 Workflow 读取`);
   }
-  if (write && domain.writableBy === 'host') {
-    throw new Error(`存储域 ${name} 仅允许宿主内部写入`);
-  }
-  return domain;
 }
 
 function operator(
@@ -75,7 +71,7 @@ export function createWorkflowStorageOperators(kv: KvService): OperatorSpec[] {
       async (args) => {
         const domain = requiredString(args, 'domain');
         const key = requiredString(args, 'key');
-        resolveDomain(kv, domain, false);
+        resolveReadableDomain(kv, domain);
         if (!KV_KEY_RE.test(key)) throw new Error('key 不合法');
         return kv.readRaw(domain, key);
       },
@@ -93,9 +89,9 @@ export function createWorkflowStorageOperators(kv: KvService): OperatorSpec[] {
       async (args) => {
         const domain = requiredString(args, 'domain');
         const key = requiredString(args, 'key');
-        resolveDomain(kv, domain, true);
-        const result = await kv.put(domain, key, args['value']);
-        if (!result.ok) throw new Error(result.reason ?? '存储写入失败');
+        resolveReadableDomain(kv, domain);
+        const result = await kv.execute('write', { domain, key, value: args['value'] });
+        if (!result.ok) throw new Error(result.detail || result.observation || '存储写入失败');
         return args['value'];
       },
     ),
@@ -108,9 +104,9 @@ export function createWorkflowStorageOperators(kv: KvService): OperatorSpec[] {
       async (args) => {
         const domain = requiredString(args, 'domain');
         const key = requiredString(args, 'key');
-        resolveDomain(kv, domain, true);
-        if (!KV_KEY_RE.test(key)) throw new Error('key 不合法');
-        await kv.remove(domain, key);
+        resolveReadableDomain(kv, domain);
+        const result = await kv.execute('remove', { domain, key });
+        if (!result.ok) throw new Error(result.detail || result.observation || '存储删除失败');
         return true;
       },
     ),
