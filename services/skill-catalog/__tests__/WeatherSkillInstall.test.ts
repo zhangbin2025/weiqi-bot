@@ -65,7 +65,7 @@ describe.skipIf(!assetsAvailable)('天气技能 weather.wttr v6 — 真实配方
   it('recipe 合法，声明 primitives:[] 且 workflow 引用宿主 storage.*', () => {
     const recipe = loadWeatherRecipe();
     expect(recipe.id).toBe('weather.wttr');
-    expect(recipe.version).toBe(8);
+    expect(recipe.version).toBe(9);
     expect(recipe.primitives).toEqual([]);
     const calls = JSON.stringify(recipe.workflow);
     for (const op of ['storage.get', 'storage.set', 'storage.delete']) {
