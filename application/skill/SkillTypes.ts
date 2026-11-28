@@ -2,8 +2,8 @@
  * 在线技能（Skill Recipe）核心类型 —— 本项目唯一类型来源。
  * @module application/skill/SkillTypes
  *
- * 设计：宿主提供少量通用原语；在线只发「纯声明 JSON 配方」，
- * Workflow 可引用宿主原语与沙箱算子插件，配方永远不含可执行代码。
+ * 设计：宿主提供通用 Workflow 算子与少量模型工具原语；在线只发「纯声明 JSON 配方」，
+ * Workflow 可引用宿主内置算子与领域插件算子，配方永远不含可执行代码。
  * 所有模块一律从这里 import，禁止另写一份同名类型。
  */
 
@@ -21,6 +21,8 @@ export interface SkillPrimitive {
    * 算子是否幂等；所有原语必须显式声明，不设置默认值。
    */
   idempotent: boolean;
+  /** Workflow 专用算子不作为技能可挂载的模型工具暴露。 */
+  workflowOnly?: boolean;
   /** 算子输出契约；空 Schema 表示任意 JSON value。 */
   outputSchema: OperatorJsonSchema;
   kind: OperatorKind;
