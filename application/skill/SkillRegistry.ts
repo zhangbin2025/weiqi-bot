@@ -2,8 +2,8 @@
  * 宿主原语注册表 + 从选中技能生成 tools/executors 的小工具。
  * @module application/skill/SkillRegistry
  *
- * 注册表按原语 name 建 Map；buildSkillToolParts 供接线方（E）把命中技能的
- * 原语挂进 ToolKit。缺原语的名字静默跳过（selectSkills 已过滤，这里是第二道保险）。
+ * 注册表按原语 name 建 Map；Workflow-only 算子不进入这张模型工具注册表。
+ * buildSkillToolParts 只把可挂载原语放进 ToolKit；缺原语的名字静默跳过。
  */
 
 import type { ModelToolDefinition } from '@application/model/IModelGateway';
@@ -13,7 +13,9 @@ import type { SkillPrimitive, SkillRecipe, PrimitiveResult } from '@application/
 /** 按 name 建只读 Map；同名后者覆盖前者，与宿主注册表固定 id 口径一致 */
 export function createSkillRegistry(primitives: SkillPrimitive[]): ReadonlyMap<string, SkillPrimitive> {
   const map = new Map<string, SkillPrimitive>();
-  for (const p of primitives) map.set(p.name, p);
+  for (const p of primitives) {
+    if (!p.workflowOnly) map.set(p.name, p);
+  }
   return map;
 }
 
@@ -57,7 +59,7 @@ export function buildSkillToolParts(
     for (const name of skill.primitives) {
       if (seen.has(name)) continue;
       const primitive = registry.get(name);
-      if (!primitive) continue; // 第二道保险：缺原语静默跳过
+      if (!primitive || primitive.workflowOnly) continue; // 第二道保险：缺原语 / Workflow-only 均不挂模型工具
       seen.add(name);
       tools.push(primitive.definition);
       executors[name] = async (argsJson: string) => toToolOutcome(await primitive.execute(parseToolArguments(argsJson)));
