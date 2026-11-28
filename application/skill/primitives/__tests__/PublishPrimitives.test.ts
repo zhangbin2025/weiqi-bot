@@ -102,22 +102,29 @@ function assertCalls(calls: [string, RequestInit][]): void {
 
 
 describe('Workflow 发布依赖命名空间收集', () => {
-  it('跳过宿主 json / regex，同时递归保留领域插件依赖', () => {
+  it('跳过宿主 json / regex / storage，同时递归保留领域插件依赖', () => {
     const steps = [
       { call: 'json.get' },
       { call: 'regex.extract' },
+      { call: 'storage.get' },
       { call: 'baidu.hotsearch' },
-      { forEach: { steps: [{ call: 'circle.foxwq' }, { call: 'json.select' }] } },
-      { ifElse: { then: [{ call: 'stock.news.10jqka' }], else: [{ call: 'regex.match' }] } },
+      { forEach: { steps: [
+        { call: 'circle.foxwq' }, { call: 'json.select' }, { call: 'storage.set' },
+      ] } },
+      { ifElse: {
+        then: [{ call: 'stock.news.10jqka' }],
+        else: [{ call: 'regex.match' }, { call: 'storage.delete' }],
+      } },
     ] as unknown as import('@application/skill/SkillTypes').WorkflowStep[];
     expect(collectWorkflowDependencyNamespaces(steps)).toEqual([
       'baidu', 'circle', 'stock',
     ]);
   });
 
-  it('没有插件算子时返回空依赖', () => {
+  it('没有插件算子时返回空依赖（含宿主 storage 三算子）', () => {
     expect(collectWorkflowDependencyNamespaces([
       { call: 'json.parse' }, { call: 'regex.replace' },
+      { call: 'storage.get' }, { call: 'storage.set' }, { call: 'storage.delete' },
     ] as unknown as import('@application/skill/SkillTypes').WorkflowStep[])).toEqual([]);
   });
 });

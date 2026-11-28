@@ -21,6 +21,7 @@
 import type { SkillIndexEntry, SkillPrimitive, SkillRecipe } from '@application/skill/SkillTypes';
 import { UserSkillStore } from '@application/skill/dev/UserSkillStore';
 import { parseSkillRecipe } from '@application/skill/SkillRecipe';
+import { HOST_WORKFLOW_OPERATOR_NAMESPACES } from '@application/skill/HostWorkflowNamespaces';
 import { WORKFLOW_OPERATOR_POINT_ID } from '@domain/plugin/types';
 import type { PluginArtifact } from '@domain/plugin/types';
 import { artifactSlug } from '@application/plugin/behaviors/OperatorAdapters';
@@ -246,7 +247,8 @@ const PLUGIN_RESOURCE_PREFIX = `${WORKFLOW_OPERATOR_POINT_ID}.`;
 /**
  * 从配方递归推导它依赖的插件资源 id（去重、保 workflow 声明顺序，包含循环体）。散文配方返回 []。
  *
- * 口径逐字沿用发布侧 buildAssetExport()（application/skill/primitives/AuthFetchPrimitives.ts）：
+ * 口径与发布侧 collectWorkflowDependencyNamespaces()（application/skill/primitives/AuthFetchPrimitives.ts）
+ * 共用 application/skill/HostWorkflowNamespaces.ts 的宿主命名空间集合：
  * 插件算子 call 形如 `<slug>.<method>`，内置算子是 snake_case、不含点（见 SkillTypes.WorkflowStep.call
  * 与 weiqi-assets/schema/workflow.schema.json）；取第一个点前的 slug，发布时映射成
  * `${WORKFLOW_OPERATOR_POINT_ID}.${slug}` 资源 id（同文件 buildPluginFiles 的 resourceId，
@@ -260,8 +262,8 @@ export function skillPluginResourceIds(recipe: SkillRecipe): string[] {
         const dot = step.call.indexOf('.');
         if (dot > 0) {
           const namespace = step.call.slice(0, dot);
-          // JSON / regex are reserved host-native Workflow namespaces, never plugin dependencies.
-          if (namespace !== 'json' && namespace !== 'regex') slugs.add(namespace);
+          // 宿主原生命名空间见共享集合，绝不作为可安装插件依赖推导出来。
+          if (!HOST_WORKFLOW_OPERATOR_NAMESPACES.has(namespace)) slugs.add(namespace);
         }
       }
       if (step.forEach !== undefined) collect(step.forEach.steps);

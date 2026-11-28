@@ -60,7 +60,7 @@ Runner 直接传递 JS 原生对象、数组、字符串、数字、布尔值和
 
 ## 5. 宿主能力边界
 
-宿主 Workflow 能力收敛为七项：
+宿主 Workflow 调度能力收敛为七项：
 
 | 能力 | 职责 |
 |---|---|
@@ -72,21 +72,23 @@ Runner 直接传递 JS 原生对象、数组、字符串、数字、布尔值和
 | display | 展示任意 JSON 结构或 Markdown |
 | navigate_to | 生成站内导航链接 |
 
+此外宿主以 hostOperators 形式注册三组原生数据算子命名空间（见 §6）：`json.*`、`regex.*`、`storage.*`。它们与上面的调度能力同属宿主固定能力，不是可安装插件，也不参与插件依赖推导。`storage.*` 是 `KvService` 的薄适配层，只用于 Workflow 读写偏好等本地数据；LLM 仍用 `kv_read` / `kv_write` / `kv_delete`，两套入口共享同一套域策略、键校验、序列化与底层驱动。
+
 不提供业务专用抓取算子，也不提供通用 fetch_batch。批量请求由 forEach + web_fetch 组合。PDF/图片解析不属于本轮 Workflow 宿主能力。
 
 display 只负责展示：字符串按 Markdown 渲染；数组自动生成列表或表格；对象按层级生成 Markdown。结构化数据通过宿主展示旁路交付，不进入 LLM 上下文。
 
 ## 6. 沙箱插件边界
 
-JSON / regex 是宿主固定 Workflow 算子，方法名保持 `json.method` / `regex.method`，不作为可安装插件，也不进入 QuickJS 沙箱。
+JSON / regex / storage 是宿主固定 Workflow 算子，方法名保持 `json.method` / `regex.method` / `storage.method`，不作为可安装插件，也不进入 QuickJS 沙箱。三者登记在 `application/skill/HostWorkflowNamespaces.ts` 的 `HOST_WORKFLOW_OPERATOR_NAMESPACES`，由安装器与发布器共用；新增宿主命名空间先改这一处，别在两处各写一份排除清单。
 
-- JSON 在宿主线程执行受限的纯数据转换；regex 在独立的一次性 Worker 中执行。
+- JSON 在宿主线程执行受限的纯数据转换；regex 在独立的一次性 Worker 中执行；storage 复用 KvService 的既有策略，不另起存储实现。
 - regex Worker 有硬超时；超时、崩溃、消息错误和正常完成都会终止 Worker，绝不回退到主线程执行。
 - regex 输入仍限制 pattern 最长 256 字符、text 最长 100000 字符，extract 最多返回 10000 项；这些是资源上限，不替代 Worker 硬超时。
 - 领域插件（如 calendar、circle）仍通过 workflow-operator 扩展点注册，方法名为 slug.method。
 - 领域插件可以实现领域数据整理与分析，但不得把网络访问或宿主权限藏进插件。
 - 每个插件 exposes 项声明 inputSchema、outputSchema、kind、idempotent；插件提供 smoke 样例。
-- 技能安装器和发布器递归扫描普通节点、forEach、repeat、ifElse 分支中的插件依赖，按资源 ID 去重；宿主 json / regex 命名空间不作为插件依赖。
+- 技能安装器和发布器递归扫描普通节点、forEach、repeat、ifElse 分支中的插件依赖，按资源 ID 去重；`HOST_WORKFLOW_OPERATOR_NAMESPACES` 里的宿主命名空间（json / regex / storage）一律不作为插件依赖。漏登记会让宿主算子被误判成缺失插件，安装器随即因「在线插件源里找不到」放弃整次技能安装。
 
 ## 7. QuickJS 沙箱生命周期
 

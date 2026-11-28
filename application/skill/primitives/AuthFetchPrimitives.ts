@@ -40,6 +40,7 @@ import {
   defaultWebFetchCache, type CachedWebResource, type WebFetchCache,
 } from '@application/chat/WebFetchCache';
 import type { SecretSpec } from '@application/skill/SecretSpec';
+import { HOST_WORKFLOW_OPERATOR_NAMESPACES } from '@application/skill/HostWorkflowNamespaces';
 import type { KvService } from '../kv/KvService';
 import type { UserSkillStore } from '@application/skill/dev/UserSkillStore';
 import { WORKFLOW_OPERATOR_POINT_ID, resolvePluginSpec, type PluginArtifact } from '@domain/plugin/types';
@@ -489,7 +490,8 @@ function pluginReadme(a: PluginArtifact, resourceId: string): string {
 
 /**
  * 从 Workflow DAG 收集需要随技能发布的插件命名空间。
- * json / regex 是宿主内置算子，不对应 assets 插件工件。
+ * HOST_WORKFLOW_OPERATOR_NAMESPACES 里的宿主原生算子不对应 assets 插件工件；
+ * 与安装侧 skillPluginResourceIds() 共用同一份集合，避免两处清单漂移。
  */
 export function collectWorkflowDependencyNamespaces(
   steps: readonly WorkflowStep[] | undefined,
@@ -501,7 +503,7 @@ export function collectWorkflowDependencyNamespaces(
         const dot = step.call.indexOf('.');
         if (dot > 0) {
           const namespace = step.call.slice(0, dot);
-          if (namespace !== 'json' && namespace !== 'regex') slugs.add(namespace);
+          if (!HOST_WORKFLOW_OPERATOR_NAMESPACES.has(namespace)) slugs.add(namespace);
         }
       }
       collect(step.forEach?.steps);
@@ -541,7 +543,7 @@ async function buildSkillBundle(deps: PublishPrimitivesDeps, id: string): Promis
     merge: { listKey: 'skills', entry: indexEntry },
   });
 
-  // 只把真正由插件提供的命名空间作为发布依赖；json / regex 是宿主内置算子。
+  // 只把真正由插件提供的命名空间作为发布依赖；宿主原生命名空间见共享集合。
   const slugs = new Set(collectWorkflowDependencyNamespaces(r.workflow?.steps));
   const artifacts = (await deps.artifacts?.list()) ?? [];
   const includesPlugins: string[] = [];
