@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { isLLMCommand, redactCommand, handleLLMCommand } from '../LLMCommand';
 import { loadPluginMaxAttempts, resetPluginMaxAttemptsForTest } from '../../plugin/PluginConfig';
+import { loadWorkflowLimits, resetWorkflowLimitsForTest } from '../../skill/WorkflowConfig';
 import {
   loadTokenRetentionDays, resetTokenRetentionDaysForTest,
 } from '../../token/TokenUsageConfig';
@@ -54,6 +55,9 @@ describe('redactCommand', () => {
     expect(redactCommand('/llm thinking on')).toBe('/llm thinking on');
     expect(redactCommand('/llm repairs 5')).toBe('/llm repairs 5');
     expect(redactCommand('/llm repairs 5')).not.toContain('****');
+    expect(redactCommand('/llm workflow-loop 100')).toBe('/llm workflow-loop 100');
+    expect(redactCommand('/llm workflow-total off')).toBe('/llm workflow-total off');
+    expect(redactCommand('/llm workflow-depth 3')).toBe('/llm workflow-depth 3');
   });
 
   it('maxtokens 用法文案不再让用户调 timeout', () => {
@@ -84,14 +88,14 @@ describe('/llm 帮助信息', () => {
     expect(shown).not.toContain('Authorization: Bearer');
     expect(shown).not.toContain('localStorage');
     // 2026-11-25 新增 /llm retention 一行（共 17 行），仍保持速查表精简
-    expect(shown.split('\n').length).toBeLessThanOrEqual(17);
+    expect(shown.split('\n').length).toBeLessThanOrEqual(20);
   });
 
   it('命令以反引号包住（防 <baseUrl> 被 markdown 吞成 HTML），速查完整', async () => {
     let shown = '';
     await handleLLMCommand('/llm', { renderMessage: async (c) => { shown = c; } });
     expect(shown).toContain('`/llm <baseUrl> <apiKey> <model>`');
-    for (const cmd of ['model', 'timeout', 'maxtokens', 'thinking', 'repairs', 'retention', 'status', 'off']) {
+    for (const cmd of ['model', 'timeout', 'maxtokens', 'thinking', 'repairs', 'retention', 'workflow-loop', 'workflow-total', 'workflow-depth', 'status', 'off']) {
       expect(shown).toContain('`/llm ' + cmd);
     }
   });
@@ -135,6 +139,47 @@ describe('/llm repairs（插件自主决策次数可配置）', () => {
     let shown = '';
     await handleLLMCommand('/llm repairs abc', { renderMessage: async (c) => { shown = c; } });
     expect(shown).toContain('❌');
+  });
+});
+
+describe('/llm Workflow 资源限制配置', () => {
+  it('三项限制默认均不限制，并支持命令设置和 off 恢复', async () => {
+    resetWorkflowLimitsForTest();
+    expect(loadWorkflowLimits()).toEqual({
+      maxIterationsPerLoop: null,
+      maxTotalIterations: null,
+      maxNestingDepth: null,
+    });
+
+    let shown = '';
+    await handleLLMCommand('/llm workflow-loop 80', { renderMessage: async (value) => { shown = value; } });
+    expect(loadWorkflowLimits().maxIterationsPerLoop).toBe(80);
+    expect(shown).toContain('80');
+
+    await handleLLMCommand('/llm workflow-total 900', { renderMessage: async () => {} });
+    expect(loadWorkflowLimits().maxTotalIterations).toBe(900);
+
+    await handleLLMCommand('/llm workflow-depth 4', { renderMessage: async () => {} });
+    expect(loadWorkflowLimits().maxNestingDepth).toBe(4);
+
+    await handleLLMCommand('/llm workflow-loop off', { renderMessage: async (value) => { shown = value; } });
+    expect(loadWorkflowLimits().maxIterationsPerLoop).toBeNull();
+    expect(shown).toContain('不限制');
+
+    resetWorkflowLimitsForTest();
+  });
+
+  it('拒绝零、负数和非整数配置', async () => {
+    resetWorkflowLimitsForTest();
+    await handleLLMCommand('/llm workflow-depth 0', { renderMessage: async () => {} });
+    await handleLLMCommand('/llm workflow-total -2', { renderMessage: async () => {} });
+    await handleLLMCommand('/llm workflow-loop 1.5', { renderMessage: async () => {} });
+    expect(loadWorkflowLimits()).toEqual({
+      maxIterationsPerLoop: null,
+      maxTotalIterations: null,
+      maxNestingDepth: null,
+    });
+    resetWorkflowLimitsForTest();
   });
 });
 
