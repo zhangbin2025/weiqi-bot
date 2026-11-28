@@ -118,6 +118,12 @@ describe.skipIf(!assetsAvailable)('weather.wttr v6 执行链路', () => {
     expect(result.failure).toBeUndefined();
     expect(calls).toEqual(['https://wttr.in/%E6%B7%B1%E5%9C%B3?format=j2']);
     expect(result.completedStepIds.join('|')).toContain('batch_fetch');
+    // batch_loop 带 yield:true 且位于 dispatch_3.then 分支内：分支内 yield 必须
+    // 透传到 values，否则 returnToLLM 写进缓存的恒为 '【yield 汇总 values】\n{}'（20 字符），
+    // 模型 workflow_result_read 读回空对象，只能答「没有数据 / 未访问网络」。
+    const loop = result.values['batch_loop'] as unknown[] | undefined;
+    expect(Array.isArray(loop)).toBe(true);
+    expect(loop?.[0]).toMatchObject({ ok: true, value: { city: '深圳' } });
   });
 
   it('只给 operation 时不能静默成功（缺 cities 必须结构化失败）', async () => {

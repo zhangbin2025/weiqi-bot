@@ -519,3 +519,107 @@ describe('runWorkflow — 通用控制结构补齐', () => {
     });
     expect(reg.calls).toEqual(['advance', 'advance']);
   });
+
+
+describe('分支内 yield:true 必须进 values（回归：天气技能读回空对象）', () => {
+  it('ifElse.then 里的裸 yield 节点', async () => {
+    const reg = fakeRegistry({
+      cond: () => ({ value: { go: true } }),
+      inner: () => ({ value: 'from-then' }),
+    });
+    const spec: WorkflowSpec = {
+      steps: [
+        step({ id: 'c', call: 'cond' }),
+        {
+          id: 'branch',
+          ifElse: {
+            condition: { from: 'c', path: 'go' },
+            then: [step({ id: 'inner', call: 'inner', yield: true })],
+            else: [],
+          },
+        },
+      ],
+    };
+    const result = await runWorkflow(spec, {}, reg);
+    expect(result.ok).toBe(true);
+    expect(result.values['inner']).toBe('from-then');
+  });
+
+  it('forEach 循环体里的裸 yield 节点', async () => {
+    const reg = fakeRegistry({
+      source: () => ({ value: [1, 2] }),
+      twice: (a) => ({ value: Number(a['value']) * 2 }),
+    });
+    const spec: WorkflowSpec = {
+      steps: [
+        step({ id: 'source', call: 'source' }),
+        {
+          id: 'each',
+          forEach: {
+            from: 'source', path: '$', onError: 'continue',
+            steps: [step({ id: 'twice', call: 'twice', args: { value: '{{item}}' }, yield: true })],
+          },
+        },
+      ],
+    };
+    const result = await runWorkflow(spec, {}, reg);
+    expect(result.ok).toBe(true);
+    // 同名节点按迭代顺序写入，最后一次覆盖（既有 setOwn 口径）
+    expect(result.values['twice']).toBe(4);
+  });
+
+  it('repeat 循环体里的裸 yield 节点', async () => {
+    const reg = fakeRegistry({
+      advance: (a) => {
+        const cursor = Number((a['state'] as Record<string, unknown>)['cursor']);
+        return { value: { cursor: cursor + 1, done: cursor >= 1 } };
+      },
+    });
+    const spec: WorkflowSpec = {
+      steps: [{
+        id: 'pages',
+        repeat: {
+          maxIterations: 2,
+          initialState: { cursor: 0, done: false },
+          stateFrom: { from: 'advance', path: '$' },
+          until: { from: 'advance', path: 'done' },
+          steps: [step({ id: 'advance', call: 'advance', args: { state: '{{state}}' }, yield: true })],
+        },
+      }],
+    };
+    const result = await runWorkflow(spec, {}, reg);
+    expect(result.ok).toBe(true);
+    expect(result.values['advance']).toEqual({ cursor: 2, done: true });
+  });
+});
+
+
+describe('forEach onError=continue 的失败项在 trace 里如实可见', () => {
+  it('有失败项时回 ok:false 且点名首项错误，不伪装成全绿', async () => {
+    const reg = fakeRegistry({
+      source: () => ({ value: [1, 2, 3] }),
+      double: (args) => {
+        if (args['value'] === 2) throw new Error('单项失败');
+        return { value: Number(args['value']) * 2 };
+      },
+    });
+    const spec: WorkflowSpec = {
+      steps: [
+        step({ id: 'source', call: 'source' }),
+        { id: 'each', forEach: {
+          from: 'source', path: '$', onError: 'continue',
+          steps: [step({ id: 'double', call: 'double', args: { value: '{{item}}' } })],
+        } },
+      ],
+    };
+    const traces: { ok: boolean; detail: string }[] = [];
+    const onTrace = (t: { ok: boolean; detail: string }): void => { traces.push({ ok: t.ok, detail: t.detail }); };
+    const result = await runWorkflow(spec, {}, reg, onTrace);
+    expect(result.ok).toBe(true); // continue 语义不变：失败项被隔离
+    const loop = traces.find((t) => t.detail.includes('forEach 完成'));
+    expect(loop).toBeDefined();
+    expect(loop?.ok).toBe(false);
+    expect(loop?.detail).toContain('1 项失败被跳过');
+    expect(loop?.detail).toContain('单项失败');
+  });
+});

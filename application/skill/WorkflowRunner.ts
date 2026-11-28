@@ -517,7 +517,7 @@ export async function runWorkflow(
           const effectsCheckpoint = effects.length;
           const nested = await runSteps(
             step.forEach.steps, local, { ...scope, item: source.value[index], index },
-            `${stepId}[${index}]/`, false,
+            `${stepId}[${index}]/`, collectYield,
           );
           if (!nested.ok) {
             if (step.forEach.onError !== 'continue') return nested;
@@ -539,7 +539,22 @@ export async function runWorkflow(
         if (collectYield && step.yield === true) setOwn(values, step.id, results);
         completedStepIds.push(stepId);
         stepTrace?.push({ stepId, call: callName, args: { from: step.forEach.from, path: step.forEach.path }, value: results, effects: [], ok: true });
-        pushTrace(onTrace, true, `节点 ${stepId} forEach 完成（${results.length} 项）`);
+        // onError:'continue' 会把失败项包成 {ok:false,error} 塞进 results；
+        // 若一律回「完成（N 项）/ ok:true」，调用方（模型 / 用户过程块）会把
+        // 「零个成功请求」误读成成功。这里把失败项如实计数并在 detail 里点名，
+        // 但不改 DAG 的 ok / 短路语义，仍按配方声明的 continue 隔离失败项。
+        const failedItems = results.filter(
+          (r): r is { ok: false; error: { stepId: string; message: string } } =>
+            typeof r === 'object' && r !== null && (r as Record<string, unknown>)['ok'] === false,
+        );
+        if (failedItems.length === 0) {
+          pushTrace(onTrace, true, `节点 ${stepId} forEach 完成（${results.length} 项）`);
+        } else {
+          const first = failedItems[0]!;
+          pushTrace(onTrace, false,
+            `节点 ${stepId} forEach 完成（${results.length} 项，其中 ${failedItems.length} 项失败被跳过）；`
+            + `首项失败：${first.error.stepId} ${first.error.message}`);
+        }
         continue;
       }
 
@@ -559,7 +574,7 @@ export async function runWorkflow(
         const branchSteps = matched ? step.ifElse.then : (step.ifElse.else ?? []);
         const local = new Map(upstream);
         const nested = await runSteps(
-          branchSteps, local, scope, `${stepId}.${matched ? 'then' : 'else'}/`, false,
+          branchSteps, local, scope, `${stepId}.${matched ? 'then' : 'else'}/`, collectYield,
         );
         if (!nested.ok) return nested;
         const branchResult = { condition: matched, value: nested.lastValue };
@@ -600,7 +615,7 @@ export async function runWorkflow(
         const local = new Map(upstream);
         const nested = await runSteps(
           repeat.steps, local, { ...scope, state },
-          `${stepId}[${iteration}]/`, false,
+          `${stepId}[${iteration}]/`, collectYield,
         );
         if (!nested.ok) return nested;
         results.push(nested.lastValue);
