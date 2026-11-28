@@ -87,7 +87,7 @@ function buildRegistry(fetchCalls: string[]): OperatorRegistry {
 describe.skipIf(!assetsAvailable)('weather.wttr v6 执行链路', () => {
   it('配方是 workflow-only 且版本为 6', () => {
     const r = loadRecipe();
-    expect(r.version).toBe(6);
+    expect(r.version).toBe(7);
     const calls = new Set<string>();
     const walk = (x: unknown): void => {
       if (typeof x !== 'object' || x === null) return;
@@ -104,12 +104,14 @@ describe.skipIf(!assetsAvailable)('weather.wttr v6 执行链路', () => {
   it('operation=weatherBatch 真的发起 wttr.in 请求（URL 模板 / 分派都通）', async () => {
     const recipe = loadRecipe();
     const calls: string[] = [];
-    // 只给原始城市名、不给 slug：这是「深圳天气」这类单句最自然的填法。
-    // v5 曾用 {{urlencode.item.slug}}，缺 slug 时 forEach 的 onError:continue
-    // 会把整次迭代静默跳过 —— DAG ok:true 却零请求。v6 改用 item.city 后必须发请求。
+    // ★ 城市名字符串数组：模型看到 `cities: array` 时最自然的填法。
+    // v5 用 {{urlencode.item.slug}}、v6 用 {{urlencode.item.city}}，都要求 item 是
+    // 对象；真实用户输入「茂名天气」时模型填的是 ['茂名']，item 是字符串，
+    // 取 .city 失败 → onError:continue 静默跳过 → DAG ok:true 却零请求（用户实测
+    // 连 api.weiqi.lol 都没有）。v7 改用 {{urlencode.item}} 直接取整个字符串元素。
     const result = await runWorkflow(
       recipe.workflow,
-      { operation: 'weatherBatch', cities: [{ city: '深圳' }], format: 'j2' },
+      { operation: 'weatherBatch', cities: ['深圳'], format: 'j2' },
       buildRegistry(calls),
       undefined,
       recipe.inputs,
