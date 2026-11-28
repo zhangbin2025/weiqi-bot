@@ -74,6 +74,7 @@ import { createPluginSystem, type PluginSystem } from '../../../../../applicatio
 import type { PluginArtifactService } from '../../../../../application/plugin/PluginArtifactService';
 import { createOperatorRegistry, type OperatorRegistry, type OperatorRegistryDeps } from '../../../../../application/plugin/OperatorRegistry';
 import { createHostWorkflowOperators } from '../../../../../application/plugin/HostWorkflowOperators';
+import { createWorkflowStorageOperators } from '../../../../../application/plugin/WorkflowStorageOperators';
 import type {
   IPluginRuntime, OperatorSpec, PluginArtifact, StepResult,
 } from '../../../../../domain/plugin/types';
@@ -357,7 +358,10 @@ export class ChatPage {
         ...createBasicPrimitives(webTools),
         ...capturePrimitives,
       ],
-      hostOperators: createHostWorkflowOperators(),
+      hostOperators: [
+        ...createHostWorkflowOperators(),
+        ...createWorkflowStorageOperators(kvKit.service),
+      ],
       artifacts: this.plugin?.artifacts ?? {
         // 最小降级桩：只实现 createOperatorRegistry 会调的 listActive()。
         // 类型由结构补齐（PluginArtifactService 的公开面较宽），用 as 收口避免把
