@@ -1,7 +1,7 @@
 /**
- * 天气技能（weiqi-assets weather.wttr v5）安装链路端到端回归。
+ * 天气技能（weiqi-assets weather.wttr v6）安装链路端到端回归。
  *
- * 背景：weather.wttr v5 用宿主原生 storage.get / set / delete 读写偏好。
+ * 背景：weather.wttr v6 用宿主原生 storage.get / set / delete 读写偏好。
  * 宿主命名空间若没进共享排除集合，安装器会推导出不存在的
  * workflow-operator.storage 依赖，plan() 报 blocker，整个技能装不上
  * （编译/单测/validate 全绿也挡不住这个运行时故障）。
@@ -61,11 +61,11 @@ function prim(name: string): SkillPrimitive {
   };
 }
 
-describe.skipIf(!assetsAvailable)('天气技能 weather.wttr v5 — 真实配方安装链路', () => {
+describe.skipIf(!assetsAvailable)('天气技能 weather.wttr v6 — 真实配方安装链路', () => {
   it('recipe 合法，声明 primitives:[] 且 workflow 引用宿主 storage.*', () => {
     const recipe = loadWeatherRecipe();
     expect(recipe.id).toBe('weather.wttr');
-    expect(recipe.version).toBe(5);
+    expect(recipe.version).toBe(6);
     expect(recipe.primitives).toEqual([]);
     const calls = JSON.stringify(recipe.workflow);
     for (const op of ['storage.get', 'storage.set', 'storage.delete']) {

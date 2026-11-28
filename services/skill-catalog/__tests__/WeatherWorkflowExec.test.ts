@@ -1,5 +1,5 @@
 /**
- * 天气技能 v5「装好后确实能取数」的回归测试。
+ * 天气技能 v6「装好后确实能取数」的回归测试。
  *
  * 只测安装链路（WeatherSkillInstall.test.ts）不够：技能能装进本地库，
  * 不代表模型那轮会挂上 run_workflow、也不代表 DAG 会走到 web_fetch。
@@ -84,10 +84,10 @@ function buildRegistry(fetchCalls: string[]): OperatorRegistry {
   } as unknown as OperatorRegistry;
 }
 
-describe.skipIf(!assetsAvailable)('weather.wttr v5 执行链路', () => {
-  it('配方是 workflow-only 且版本为 5', () => {
+describe.skipIf(!assetsAvailable)('weather.wttr v6 执行链路', () => {
+  it('配方是 workflow-only 且版本为 6', () => {
     const r = loadRecipe();
-    expect(r.version).toBe(5);
+    expect(r.version).toBe(6);
     const calls = new Set<string>();
     const walk = (x: unknown): void => {
       if (typeof x !== 'object' || x === null) return;
@@ -104,17 +104,35 @@ describe.skipIf(!assetsAvailable)('weather.wttr v5 执行链路', () => {
   it('operation=weatherBatch 真的发起 wttr.in 请求（URL 模板 / 分派都通）', async () => {
     const recipe = loadRecipe();
     const calls: string[] = [];
+    // 只给原始城市名、不给 slug：这是「深圳天气」这类单句最自然的填法。
+    // v5 曾用 {{urlencode.item.slug}}，缺 slug 时 forEach 的 onError:continue
+    // 会把整次迭代静默跳过 —— DAG ok:true 却零请求。v6 改用 item.city 后必须发请求。
     const result = await runWorkflow(
       recipe.workflow,
-      { operation: 'weatherBatch', cities: [{ city: '深圳', slug: 'Shenzhen' }], format: 'j2' },
+      { operation: 'weatherBatch', cities: [{ city: '深圳' }], format: 'j2' },
       buildRegistry(calls),
       undefined,
       recipe.inputs,
     );
     expect(result.ok).toBe(true);
     expect(result.failure).toBeUndefined();
-    expect(calls).toEqual(['https://wttr.in/Shenzhen?format=j2']);
+    expect(calls).toEqual(['https://wttr.in/%E6%B7%B1%E5%9C%B3?format=j2']);
     expect(result.completedStepIds.join('|')).toContain('batch_fetch');
+  });
+
+  it('只给 operation 时不能静默成功（缺 cities 必须结构化失败）', async () => {
+    const recipe = loadRecipe();
+    const calls: string[] = [];
+    const result = await runWorkflow(
+      recipe.workflow,
+      { operation: 'weatherBatch' },
+      buildRegistry(calls),
+      undefined,
+      recipe.inputs,
+    );
+    expect(result.ok).toBe(false);
+    expect(result.failure?.error).toContain('{{input.cities}}');
+    expect(calls).toEqual([]);
   });
 
   it('operation=storageGet 不串到天气分支', async () => {
@@ -132,3 +150,7 @@ describe.skipIf(!assetsAvailable)('weather.wttr v5 执行链路', () => {
     expect(result.completedStepIds.join('|')).not.toContain('batch_fetch');
   });
 });
+
+
+
+
