@@ -68,7 +68,7 @@ export function createWorkflowStorageOperators(kv: KvService): OperatorSpec[] {
   return [
     operator(
       'storage.get',
-      '读取已注册且可读的本地存储域。不存在的键返回 null；敏感域和宿主独占域不可访问。',
+      '读取已注册且可读的本地存储域。不存在的键返回 null；敏感域不可访问，宿主独占写入域仍可按既有策略读取。',
       { domain: domainProperty, key: keyProperty },
       ['domain', 'key'],
       true,
