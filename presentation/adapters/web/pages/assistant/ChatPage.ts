@@ -37,6 +37,7 @@ import { ChatUseCase, type LocalFileInput, type SkillDeps } from '../../../../..
 import { createSkillRegistry } from '../../../../../application/skill/SkillRegistry';
 import type { SkillPrimitive, SkillRecipe } from '../../../../../application/skill/SkillTypes';
 import { createBasicPrimitives } from '../../../../../application/skill/primitives/BasicPrimitives';
+import { createWorkflowStoragePrimitives } from '../../../../../application/skill/primitives/WorkflowStoragePrimitives';
 import {
   createBrowserCapturePrimitives,
   type BrowserCaptureDeps,
@@ -73,7 +74,6 @@ import { loadLLMConfig, DEFAULT_LLM_TIMEOUT_MS } from '../../../../../infrastruc
 import { createPluginSystem, type PluginSystem } from '../../../../../application/plugin/PluginSystem';
 import type { PluginArtifactService } from '../../../../../application/plugin/PluginArtifactService';
 import { createOperatorRegistry, type OperatorRegistry, type OperatorRegistryDeps } from '../../../../../application/plugin/OperatorRegistry';
-import { createHostWorkflowOperators } from '../../../../../application/plugin/HostWorkflowOperators';
 import type {
   IPluginRuntime, OperatorSpec, PluginArtifact, StepResult,
 } from '../../../../../domain/plugin/types';
@@ -351,13 +351,13 @@ export class ChatPage {
     // 与「装配失败不阻塞对话页」的既有兜底一致，不自造工件/运行时实例。
     const operatorDeps: OperatorRegistryDeps = {
       // workflow 第一通路：browser_capture 作为宿主可信内置算子进算子表，
-      // 产出的 structured value 由 WorkflowRunner 连线给下游宿主 JSON / regex 算子与宿主 display。
+      // 产出的 structured value 由 WorkflowRunner 连线给宿主 JSON / regex 算子与 display。
       // 纯 Web capturePrimitives 为空数组，算子表里天然没有 browser_capture。
       primitives: [
         ...createBasicPrimitives(webTools),
+        ...createWorkflowStoragePrimitives(kvKit.service),
         ...capturePrimitives,
       ],
-      hostOperators: createHostWorkflowOperators(),
       artifacts: this.plugin?.artifacts ?? {
         // 最小降级桩：只实现 createOperatorRegistry 会调的 listActive()。
         // 类型由结构补齐（PluginArtifactService 的公开面较宽），用 as 收口避免把
