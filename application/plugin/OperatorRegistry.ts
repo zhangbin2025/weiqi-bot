@@ -3,7 +3,7 @@
  * @module application/plugin/OperatorRegistry
  *
  * 阶段一只提供「按名执行 value→value」的统一地基：
- * - 宿主算子：包装通用宿主 SkillPrimitive，并注册独立的 hostOperators。
+ * - 内置算子：包装 createBasicPrimitives() 返回的通用宿主 SkillPrimitive。
  * - 插件算子：遍历已启用工件，按 pointId 查「算子适配注册表」分派；框架不认识任何
  *   具体扩展点，未声明算子适配的扩展点不进算子表。新增扩展点只需在装配根
  *   （createOperatorAdapters）加一条适配声明即可，本文件不用改。
@@ -11,7 +11,7 @@
  *   本文件不解析配方、不做 DAG、不挂模型 tools[]、不进 system 清单，
  *   ChatUseCase / ChatPage / ToolLoop 也都不引用它（阶段二才接线）。
  *
- * 安全边界：插件算子沿用 QuickJS 沙箱；hostOperators 是宿主维护的固定实现，不加载远程源码：
+ * 安全边界沿用既有 QuickJS 沙箱，不在此重写：
  * - 插件算子执行复用注入的 IPluginRuntime.run()（QuickJsRuntime 复用 Worker、但每次调用创建独立 QuickJS Runtime / Context），
  *   hostApi 恒为 []（零网络、零时钟、零存储、零 DOM、零定时器），
  *   配额沿用工件自带的 spec.limits（DEFAULT_PLUGIN_LIMITS）。
@@ -42,8 +42,6 @@ export interface OperatorRegistryDeps {
   runtime: IPluginRuntime;
   /** 算子适配注册表；由装配根注入，缺省时用默认注册表（测试便利） */
   adapters?: OperatorAdapterRegistry;
-  /** 可信宿主 Workflow 算子（不作为模型工具，也不经过插件沙箱）。 */
-  hostOperators?: readonly OperatorSpec[];
 }
 
 export interface OperatorRegistry {
@@ -89,15 +87,13 @@ function primitiveToOperatorSpec(p: SkillPrimitive): OperatorSpec {
 
 /**
  * 建一张宿主统一算子表（阶段一地基）。
- * 先注册内置算子（createBasicPrimitives），再注册插件算子；重复名后者覆盖前者，
- * 与既有 createSkillRegistry 的「按 name 建 Map、同名后者覆盖前者」口径一致。
+ * 先注册内置算子（createBasicPrimitives），再注册插件算子；json.* / regex.* 为保留宿主命名空间，
+ * 其它同名算子沿用既有口径：插件覆盖内置，插件之间由后者覆盖前者。
  * 插件工件读取失败按空集降级（装配期离线/存储不可用不该拖垮整张表）。
  */
 export async function createOperatorRegistry(deps: OperatorRegistryDeps): Promise<OperatorRegistry> {
   const map = new Map<string, OperatorSpec>();
-  for (const p of deps.primitives) {
-    map.set(p.name, primitiveToOperatorSpec(p));
-  }
+  for (const p of deps.primitives) map.set(p.name, primitiveToOperatorSpec(p));
 
   for (const spec of map.values()) {
     validateSchemaDefinition(spec.inputSchema, `${spec.name}.inputSchema`);
@@ -125,6 +121,9 @@ export async function createOperatorRegistry(deps: OperatorRegistryDeps): Promis
       continue;
     }
     for (const op of adapted) {
+      // Generic host Workflow operators are reserved; an old or custom plugin
+      // must not shadow the native json.* / regex.* / storage.* implementation.
+      if (op.name.startsWith('json.') || op.name.startsWith('regex.') || op.name.startsWith('storage.')) continue;
       try {
         validateSchemaDefinition(op.inputSchema, `${op.name}.inputSchema`);
         if (op.inputSchema['type'] !== 'object') continue;
@@ -134,15 +133,6 @@ export async function createOperatorRegistry(deps: OperatorRegistryDeps): Promis
       }
       map.set(op.name, op);
     }
-  }
-
-  // Host-native data operators are reserved names and are registered last, so an installed
-  // third-party artifact cannot shadow the host implementation.
-  for (const op of deps.hostOperators ?? []) {
-    validateSchemaDefinition(op.inputSchema, `${op.name}.inputSchema`);
-    if (op.inputSchema['type'] !== 'object') throw new Error(`${op.name}.inputSchema 根类型必须是 object`);
-    validateSchemaDefinition(op.outputSchema, `${op.name}.outputSchema`);
-    map.set(op.name, op);
   }
 
   const specs: ReadonlyMap<string, OperatorSpec> = map;
