@@ -1,9 +1,8 @@
 /**
- * 宿主通用 Workflow 原语：web_fetch、web_cache_read、navigate_to 与 display。
- * JSON / regex 是独立的宿主 Workflow 算子，不作为模型工具暴露，也不进入 QuickJS 插件沙箱。
+ * 宿主通用 Workflow 原语：网络、缓存、展示、导航，以及纯计算 JSON / regex 算子。
  * @module application/skill/primitives/BasicPrimitives
  *
- * 网络请求复用既有 web_fetch 执行器；display 只负责通用数据展示，业务字段处理交给插件。
+ * 网络请求复用既有 web_fetch 执行器；display 只负责通用数据展示，业务字段处理由 JSON / regex 算子完成。
  * navigate_to 只生成站内链接文本（宿主不自动跳转），路径做最小合法性校验。
  *
  * 契约前移（2026-11-16 用户实测）：「宿主注入链接、模型绝不写 URL」这条约束
@@ -27,6 +26,7 @@ import {
   navigateToObservation,
 } from './NavigateToPath';
 import { createDisplayPrimitive } from './DisplayPrimitive';
+import { createWorkflowDataPrimitives } from './WorkflowDataPrimitives';
 
 /** navigate_to 工具名（与 definition.name 一致） */
 export const NAVIGATE_TO_TOOL_NAME = 'navigate_to';
@@ -79,12 +79,13 @@ function toPrimitiveResult(r: {
 }
 
 /**
- * 构造通用宿主原语：web_fetch + web_cache_read + navigate_to + display。
+ * 构造通用宿主原语：web_fetch + web_cache_read + navigate_to + display + JSON / regex。
  * webDeps 由上层（接线方）注入，与 createWebToolKit 用的是同一份依赖。
- * JSON / regex 算子由 OperatorRegistry 的 hostOperators 注册。
+ * JSON / regex 只操作 Workflow 输入值，不访问网络、存储、时钟或其它宿主资源。
  */
 export function createBasicPrimitives(webDeps: WebFetchToolDeps): SkillPrimitive[] {
   return [
+    ...createWorkflowDataPrimitives(),
     {
       name: WEB_FETCH_TOOL_NAME,
       definition: WEB_FETCH_TOOL,
