@@ -11,7 +11,7 @@
 
 /**
  * 自主决策次数 = 内部修复/延续预算 + 1。
- * 业务约束：单次对话最多允许 50 次自主决策；默认给 10 次，最少 1 次。
+ * 技能开发经验值（不是运行时安全上限）：默认 10 次自主决策，最大可配置 50 次，最少 1 次。
  */
 export const DEFAULT_PLUGIN_MAX_ATTEMPTS = 9;
 export const MIN_PLUGIN_MAX_ATTEMPTS = 0;
