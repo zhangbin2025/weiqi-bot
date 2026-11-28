@@ -6,7 +6,7 @@ Workflow 是声明式执行图。Runner 负责流程控制、数据连线和资�
 
 1. 配方以 JSON 保存和传输，节点之间传递原生结构化值。
 2. 宿主能力必须通用，不绑定具体网站、账号或业务。
-3. 通用 JSON / regex 数据处理由宿主固定 Workflow 算子提供；业务领域计算优先放在受限沙箱插件中。
+3. 通用 JSON / regex 纯计算由宿主内置 Workflow 算子承担；业务领域计算才使用受限插件。
 4. 插件声明数据契约不代表获得宿主权限。
 5. 不让 LLM 自己协调分页、循环、批量抓取或数据拼装。
 
@@ -60,7 +60,7 @@ Runner 直接传递 JS 原生对象、数组、字符串、数字、布尔值和
 
 ## 5. 宿主能力边界
 
-宿主 Workflow 能力收敛为七项：
+宿主 Workflow 提供通用流程控制、网络、展示、导航与本地偏好存储能力：
 
 | 能力 | 职责 |
 |---|---|
@@ -71,31 +71,28 @@ Runner 直接传递 JS 原生对象、数组、字符串、数字、布尔值和
 | web_cache_read | 读取宿主管理的网页缓存 |
 | display | 展示任意 JSON 结构或 Markdown |
 | navigate_to | 生成站内导航链接 |
+| storage.get / storage.set / storage.delete | 读写或删除宿主管理的用户偏好；复用 KvService 域策略，不开放 opaque / host-only 域 |
 
 不提供业务专用抓取算子，也不提供通用 fetch_batch。批量请求由 forEach + web_fetch 组合。PDF/图片解析不属于本轮 Workflow 宿主能力。
 
 display 只负责展示：字符串按 Markdown 渲染；数组自动生成列表或表格；对象按层级生成 Markdown。结构化数据通过宿主展示旁路交付，不进入 LLM 上下文。
 
-## 6. 沙箱插件边界
+## 6. 宿主数据算子与领域插件边界
 
-JSON / regex 是宿主固定 Workflow 算子，方法名保持 `json.method` / `regex.method`，不作为可安装插件，也不进入 QuickJS 沙箱。
+JSON 与 regex 是宿主内置的纯计算 Workflow 算子，名称分别为 `json.<action>` 与 `regex.<action>`。它们直接消费上游原生值，不启动 QuickJS Worker、不需要安装插件，也不访问网络、缓存、存储、时钟或 DOM。
 
-- JSON 在宿主线程执行受限的纯数据转换；regex 在独立的一次性 Worker 中执行。
-- regex Worker 有硬超时；超时、崩溃、消息错误和正常完成都会终止 Worker，绝不回退到主线程执行。
-- regex 输入仍限制 pattern 最长 256 字符、text 最长 100000 字符，extract 最多返回 10000 项；这些是资源上限，不替代 Worker 硬超时。
-- 领域插件（如 calendar、circle）仍通过 workflow-operator 扩展点注册，方法名为 slug.method。
-- 领域插件可以实现领域数据整理与分析，但不得把网络访问或宿主权限藏进插件。
-- 每个插件 exposes 项声明 inputSchema、outputSchema、kind、idempotent；插件提供 smoke 样例。
-- 技能安装器和发布器递归扫描普通节点、forEach、repeat、ifElse 分支中的插件依赖，按资源 ID 去重；宿主 json / regex 命名空间不作为插件依赖。
+- JSON 算子提供 parse/stringify/get/set/select/pluck/concat/unique/append/groupCount/sortBy/take/isEmpty/assert/flatten/toString。
+- regex 算子提供 match/extract/replace；宿主限制输入长度、模式长度、匹配数量，并拒绝常见灾难性回溯模式，避免同步正则长时间阻塞主线程。
+- `calendar`、`circle` 等业务领域算子仍通过 `workflow-operator` 插件注册，方法名为 `slug.method`，仅处理输入数据，不得把网络访问或宿主权限藏进插件。
+- 技能依赖扫描只为领域插件生成自动安装依赖；`json.*`、`regex.*` 与 `storage.*` 是宿主能力，不弹插件安装界面。
+- 每个 exposes 项声明 inputSchema、outputSchema、kind、idempotent；插件提供 smoke 样例。
+- 技能安装器递归扫描普通节点、forEach、repeat、ifElse 分支中的插件依赖，按资源 ID 去重；已安装插件不重复安装。
 
 ## 7. QuickJS 沙箱生命周期
 
-- Worker 按需启动并复用，避免每次算子调用都重新创建 Worker 和重新初始化 WASM。
-- 每次调用仍创建独立 QuickJS Runtime 与 Context；插件全局变量不跨调用共享。
-- 同一个 Worker 内调用串行排队，避免并发消息与执行状态交叉。
-- 硬超时、Worker 崩溃、OOM、栈溢出或不安全 VM 状态后立即销毁 Worker；下一次调用重新创建。
-- regex 使用独立 Worker，不复用 QuickJS Worker；每次调用完成或超时立即终止，避免同步正则阻塞 UI 线程。
-- dispose 时释放 Worker；正常完成不代表保留 QuickJS Runtime / Context。
+- 每次插件算子调用创建独立 Worker、QuickJS Runtime 与 Context。
+- 调用成功、失败、超时或 Worker 消息异常后立即 terminate Worker；不跨算子复用执行环境。
+- dispose 是幂等释放边界；迟到消息不得影响后续调用。
 
 ## 8. 错误与 effects
 
