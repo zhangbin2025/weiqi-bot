@@ -37,6 +37,53 @@ import type { ModelToolDefinition } from '../model/IModelGateway';
 import { CONTEXT_LIMITS } from './ConversationPrompt';
 import { defaultWebFetchCache, type CachedWebResource, type WebFetchCache } from './WebFetchCache';
 
+
+/**
+ * 从 Content-Type 里取 charset 参数（media type 与其余参数不参与解码判定）。
+ * 只做参数提取，不引入编码别名表。
+ */
+function parseContentTypeCharset(contentType: string): string | undefined {
+  const m = /(?:^|;)\s*charset\s*=\s*"?([^";\s]+)"?/i.exec(contentType);
+  return m?.[1]?.trim() || undefined;
+}
+
+/**
+ * 按响应声明的 charset 解码正文。
+ *
+ * 根因（2026-11-28 实测坐实）：Fetch 标准的 `Response.text()` 恒按 UTF-8 解码，
+ * 忽略 `Content-Type: text/html; charset=GBK` 里的 charset，导致 GBK 中文变成
+ * 乱码（腾讯行情 qt.gtimg.cn 即此例：字节 \xb9\xf3\xd6\xdd\xc3\xa9\xcc\xa8
+ * 用 GBK 解是「贵州茅台」，用 text() 得「\ufffd\ufffd...」）。
+ *
+ * 口径：
+ * - 无 charset / charset 为 UTF-8：逐字沿用 `response.text()`（本就是 UTF-8），
+ *   既有行为与所有存量测试桩不变；
+ * - 显式声明非 UTF-8：用 `arrayBuffer()` 取字节 + WHATWG `TextDecoder(charset)`
+ *   解码。编码支持由运行时提供（GBK/GB18030/Big5/Shift_JIS 等均为标准标签），
+ *   不内置编码表、不猜测；
+ * - 任何一步不可用（标签不被支持、环境无 arrayBuffer）→ 回退 `response.text()`，
+ *   绝不因解码改造让一次原本能成功的抓取失败。
+ * 判据只有「响应自己声明的 charset」与「运行时是否支持该标签」两个事实，
+ * 不引入经验阈值。
+ */
+async function decodeResponseText(response: Response, contentType: string): Promise<string> {
+  const charset = parseContentTypeCharset(contentType);
+  if (!charset || /^utf-?8$/i.test(charset)) return response.text();
+
+  let decoder: TextDecoder;
+  try {
+    decoder = new TextDecoder(charset);
+  } catch {
+    // 编码标签不被运行时支持；不消费 body，安全回退。
+    return response.text();
+  }
+  const withBytes = response as Response & { arrayBuffer?: () => Promise<ArrayBuffer> };
+  if (typeof withBytes.arrayBuffer !== 'function') return response.text();
+  const bytes = await withBytes.arrayBuffer();
+  return decoder.decode(bytes);
+}
+
+
 /**
  * 抓取用的标准浏览器 UA。
  *
@@ -210,8 +257,8 @@ export async function executeWebFetch(args: Record<string, unknown>, deps: WebFe
       signal: controller.signal,
       cache: 'no-store',
     });
-    const text = await response.text();
     const contentType = response.headers.get('content-type') ?? '';
+    const text = await decodeResponseText(response, contentType);
     // 第一版只回文本：二进制资源即使字节到了也不往上下文塞，
     // 明确告知模型「这是二进制，无法读取内容」，避免把乱码喂进去。
     if (/^(image|audio|video)\//i.test(contentType)
